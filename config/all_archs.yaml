@@ -1,0 +1,240 @@
+ipblocks:
+  compute:
+    nvidia_sm:
+      pipes:
+        vector:
+          num_units: 64
+          freq_MHz : 1410
+          instructions:
+            mac  : { int32: 1., bf16: 2., fp16: 2., fp32: 1., fp64: 0.5 }
+            add  : { int32: 1., bf16: 2., fp16: 2., fp32: 1., fp64: 0.5 }
+            sub  : { int32: 1., bf16: 2., fp16: 2., fp32: 1., fp64: 0.5 }
+            mul  : { int32: 1., bf16: 2., fp16: 2., fp32: 1., fp64: 0.5 }
+            div  : { int32: 1., bf16: 2., fp16: 2., fp32: 1., fp64: 0.5 }
+            mac  : { int32: 1., bf16: 2., fp16: 2., fp32: 1., fp64: 0.5 }
+            tanh : { int32: 1., bf16: 2., fp16: 2., fp32: 1., fp64: 0.5 }
+            log  : { int32: 1., bf16: 2., fp16: 2., fp32: 1., fp64: 0.5 }
+            exp  : { int32: 1., bf16: 2., fp16: 2., fp32: 1., fp64: 0.5 }
+            rsqrt: { int32: 1., bf16: 2., fp16: 2., fp32: 1., fp64: 0.5 }
+            cmp  : { int32: 1., bf16: 2., fp16: 2., fp32: 1., fp64: 0.5 }
+            mov  : { int32: 1., bf16: 2., fp16: 2., fp32: 1., fp64: 0.5 }
+        matrix:
+          num_units     : 4
+          freq_MHz      : 1410
+          systolic_depth: 8
+          instructions  :
+            mac: { int4: 128.0, int8: 64.0, fp8: 64.0, bf16: 32.0, fp16: 32.0, tf32: 16.0, fp32: 0.0, fp64: 2.0}
+  
+    tensix: #neo config
+      l2_cache:
+        num_banks: 64
+        bytes_per_clk_per_bank: 64
+      pipes:
+        matrix:
+          num_units   : 4
+          freq_MHz    : 1000
+          instructions:
+            add: { int8: 2048, bf16: 512, fp16: 512, fp8: 2048,}
+            sub: { int8: 2048, bf16: 512, fp16: 512, fp8: 2048,}
+            mul: { int8: 2048, bf16: 512, fp16: 512, fp8: 2048,}
+            mac: { int8: 2048, bf16: 512, fp16: 512, fp8: 2048,}
+    
+        vector:
+          num_units   : 4
+          freq_MHz    : 1000
+          instructions:
+            add  : { int32: 32., fp32: 32. }
+            sub  : { int32: 32., fp32: 32. }
+            mul  : { int32: 32., fp32: 32. }
+            div  : { int32: 32., fp32: 32. }
+            mac  : { int32: 32., fp32: 32. }
+            tanh : { int32: 32., fp32: 32. }
+            log  : { int32: 32., fp32: 32. }
+            exp  : { int32: 32., fp32: 32. }
+            rsqrt: { int32: 32., fp32: 32. }
+            cmp  : { int32: 32., fp32: 32. }
+            mov  : { int32: 32., fp32: 32. }
+  
+  memory:
+    gddr6:
+      technology: GDDR
+      data_bits : 32
+      data_rate : 8
+      freq_MHz  : 1250
+      size_GB   : 4
+  
+    gddr7:
+      technology: GDDR
+      data_bits : 32  
+      data_rate : 16
+      freq_MHz  : 1250
+      size_GB   : 2
+  
+    hbm1:
+      technology: HBM
+      freq_MHz  : 500
+      stacks    : 8
+      data_bits : 128
+      size_GB   : 4
+    hbm2:
+      technology: HBM
+      freq_MHz  : 1200
+      stacks    : 8
+      data_bits : 128
+      size_GB   : 8
+    hbm2e:
+      technology: HBM
+      freq_MHz  : 1800
+      stacks    : 8
+      data_bits : 128
+      size_GB   : 16
+    hbm3:
+      technology: HBM
+      freq_MHz  : 3200
+      stacks    : 16
+      data_bits : 64
+      size_GB   : 16
+    hbm3e:
+      technology: HBM
+      freq_MHz  : 4900
+      stacks    : 16
+      data_bits : 64
+      size_GB   : 48
+    hbm4:
+      technology: HBM
+      freq_MHz  : 3200
+      stacks    : 32
+      data_bits : 64
+      size_GB   : 64
+      
+packages:
+  Grendel:
+    Q1_S1:
+      ipgroups:
+        compute:
+          ip          : tensix
+          num_units   : 32
+          ramp_penalty: 50
+        memory:
+          ip       : gddr7
+          num_units: 8
+    
+    Q1_A1:
+      ipgroups:
+        compute:
+          ip        : tensix
+          num_units : 32
+          freq_MHz  : 1200
+          ramp_penalty: 50
+        memory:
+          ip       : gddr7
+          num_units: 16
+          freq_MHz : 1250
+    
+    Q2_A2:
+      ipgroups:
+        compute:
+          ip        : tensix
+          num_units : 64
+          freq_MHz  : 1200
+          ramp_penalty: 100
+        memory:
+          ip       : gddr7
+          num_units: 24
+          freq_MHz : 1250
+
+  NvidiaGPU:
+    A100:
+      ipgroups:
+        compute:
+          ip            : nvidia_sm
+          num_units     : 108
+          ramp_penalty  : 100
+          ip_overrides:
+            pipes.matrix.freq_MHz: 1410
+            pipes.vector.freq_MHz: 1410
+            pipes.matrix.instructions.mac.fp8: 0.0
+            pipes.vector.instructions.mac.bf16: 4.0
+            pipes.vector.instructions.mac.fp16: 4.0
+        memory:
+          ip       : hbm2
+          num_units: 5
+          ip_overrides:
+            freq_MHz: 1215
+    H100-SXM5:
+      ipgroups:
+        compute:
+          ip          : nvidia_sm
+          num_units   : 132
+          ramp_penalty: 200
+          ip_overrides:
+            pipes.matrix.freq_MHz: 1830
+            pipes.vector.freq_MHz: 1980
+            pipes.vector.num_units: 128
+            pipes.matrix.systolic_depth: 16
+            pipes.vector.instructions.mac.fp16: 2.0
+        memory:
+          ip       : hbm3
+          num_units: 5
+          ip_overrides:
+            freq_MHz: 2619
+    H100-PCIe:
+      ipgroups:
+        compute:
+          ip          : nvidia_sm
+          num_units   : 114
+          ramp_penalty: 200
+          ip_overrides:
+            pipes.matrix.freq_MHz: 1620
+            pipes.vector.freq_MHz: 1755
+            pipes.vector.num_units: 128
+            pipes.matrix.systolic_depth: 16
+            pipes.vector.instructions.mac.fp16: 2.0
+        memory:
+          ip       : hbm3
+          num_units: 5
+          ip_overrides:
+            freq_MHz: 1593
+    L40-PCIe:
+      ipgroups:
+        compute:
+          ip          : nvidia_sm
+          num_units   : 142
+          ramp_penalty: 50
+          ip_overrides:
+            pipes.matrix.freq_MHz: 2490
+            pipes.vector.freq_MHz: 2490
+            pipes.vector.num_units: 128
+            pipes.matrix.systolic_depth: 2
+            pipes.matrix.instructions.mac.fp64: 0.0
+            pipes.vector.instructions.mac.fp16: 0.0
+            pipes.vector.instructions.mac.fp64: 0.0
+            pipes.vector.instructions.mac.fp16: 0.0
+            pipes.vector.instructions.mac.bf16: 0.0
+        memory:
+          ip       : gddr6
+          num_units: 12
+          ip_overrides:
+            freq_MHz: 1125
+    L4-PCIe:
+      ipgroups:
+        compute:
+          ip          : nvidia_sm
+          num_units   : 58
+          systolic_depth: 4
+          ramp_penalty: 10
+          ip_overrides:
+            pipes.matrix.freq_MHz: 2040
+            pipes.vector.freq_MHz: 2040
+            pipes.vector.num_units: 128
+            pipes.matrix.systolic_depth: 8
+            pipes.matrix.instructions.mac.fp64: 0.0
+            pipes.vector.instructions.mac.fp16: 0.0
+            pipes.vector.instructions.mac.fp64: 0.0
+            pipes.vector.instructions.mac.fp16: 0.0
+            pipes.vector.instructions.mac.bf16: 0.0
+        memory:
+          ip       : gddr6
+          num_units: 6
+          ip_overrides:
+            freq_MHz: 781.25

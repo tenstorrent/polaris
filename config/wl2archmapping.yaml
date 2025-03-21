@@ -1,0 +1,22 @@
+op_data_type_spec:
+  global_type: int8
+  override:
+    dropout: int32
+
+op_removal_spec:
+  - Dropout
+  - Identity
+  - Constant
+
+op_fusion_spec:
+  - [Reshape, Transpose]
+  - [Matmul, Mul]
+  - [Matmul, Add]
+  - [Matmul, Gelu, Add]
+  - [Conv, Relu]
+
+op_rsrc_spec:
+  compute:
+    matrix: [Matmul, Conv]
+    vector: [Gather, Reshape, Transpose, Gelu, Relu, Add, Mul, Dropout, Split, Softmax, LayerNormalization, Identity,
+             Constant, Where, Pow, Tanh, MaxPool, BatchNormalization, Concat, Unsqueeze, Trilu]

@@ -1,0 +1,14 @@
+workloads:
+  - api: TTSIM
+    name: basic_llm
+    basedir: workloads
+    module : BasicLLM.py
+    params : {vocab_sz: 50257, embd_pdrop: 0.1, attn_pdrop: 0.1, resid_pdrop: 0.1, mlp_pdrop: 0.1, bs: 1}
+    instances:
+      gpt_nano  : { nL:  3, nH:  3, dE:   48, nW:   32}
+      gpt_micro : { nL:  4, nH:  4, dE:  128, nW:   32}
+      gpt_mini  : { nL:  6, nH:  6, dE:  192, nW:   32}
+      gpt1      : { nL: 12, nH: 12, dE:  768, nW:  512}
+      gpt2_m    : { nL: 24, nH: 16, dE:  768, nW:  768}
+      gpt2_l    : { nL: 36, nH: 20, dE: 1280, nW: 1024}
+      gpt_j     : { nL: 28, nH: 16, dE: 4096, nW: 2048}

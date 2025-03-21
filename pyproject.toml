@@ -1,0 +1,33 @@
+[tool.pytest.ini_options]
+markers = [
+    "unit: unit tests",
+    "opunit: unit tests for operators",
+]
+
+[tool.mypy]
+check_untyped_defs = true
+explicit_package_bases = true
+exclude = "^__.*/"
+
+[tool.coverage.run]
+branch = true
+omit = ["tests/*"]
+
+[tool.coverage.report]
+# Regexes for lines to exclude from consideration
+exclude_also = [
+    # Don't complain about missing debug-only code:
+    "def __repr__",
+    "if self\\.debug",
+
+    # Don't complain if tests don't hit defensive assertion code:
+    "raise AssertionError",
+    "raise NotImplementedError",
+
+    # Don't complain if non-runnable code isn't run:
+    "if 0:",
+    "if __name__ == .__main__.:",
+    ]
+[tool.coverage.html]
+# Output directory, prefix __ to ensure it is ignored by .gitignore
+directory = "__htmlcov"
