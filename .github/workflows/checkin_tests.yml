@@ -42,10 +42,10 @@ jobs:
     #   run: |
     #     conda env update --file environment.yml --name base
     - name: Run Checkin Tests
-      continue-on-error: true
       run: |
         python checkin_tests.py
     - name: Upload artifacts
+      if: always()
       uses: actions/upload-artifact@v4
       with:
         name: dist-wo-onnxdumps
