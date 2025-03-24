@@ -1,0 +1,20 @@
+name: Check licenses    
+
+on:
+  workflow_dispatch:
+  workflow_call:
+  push:
+  pull_request:
+    branches:
+    - main
+
+jobs:
+  check-spdx-headers:
+    runs-on: ubuntu-latest
+    steps:
+    - name: checkout
+      uses: actions/checkout@v4
+    - uses: enarx/spdx@master
+      with:
+        licenses: |-
+          MIT
