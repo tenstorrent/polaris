@@ -44,6 +44,14 @@ jobs:
     - name: Run Checkin Tests
       run: |
         python checkin_tests.py
+    - name: Upload artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: dist-wo-onnxdumps
+        path: |
+           __RUN_TESTS
+           !__RUN_TESTS/**/*.onnx
+    
     # - name: Lint with flake8
     #   run: |
     #     conda install flake8
