@@ -21,6 +21,7 @@ class PYDWlMapSpecValidator(BaseModel, extra='forbid'):
 class PYDPkgMemoryValidator(BaseModel, extra='forbid'):
     ip: str
     num_units: int
+    freq_MHz: Optional[float] = None
     ip_overrides: Optional[dict[str, int | float]] = {}
 
 
@@ -29,6 +30,7 @@ class PYDPkgComputeValidator(BaseModel, extra='forbid'):
     num_units: int
     ramp_penalty: Optional[float] = 0.0
     freq_MHz: Optional[float] = None
+    systolic_depth: Optional[int] = None
     ip_overrides: Optional[dict[str, int | float]] = {}
 
 
