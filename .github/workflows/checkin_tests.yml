@@ -25,7 +25,7 @@ jobs:
       with:
         miniforge-version: latest
         channels: conda-forge
-        # TODO: check if removing this works # conda-remove-defaults: "true"
+        conda-remove-defaults: "true"
     - name: check-miniforge-config     # Ensure default channels are not being used
       run: |
         conda list
@@ -43,7 +43,7 @@ jobs:
     #     conda env update --file environment.yml --name base
     - name: Run Checkin Tests
       run: |
-        python checkin_tests
+        python checkin_tests.py
     # - name: Lint with flake8
     #   run: |
     #     conda install flake8
