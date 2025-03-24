@@ -5,7 +5,7 @@ import argparse
 import re
 from itertools import product
 import subprocess
-from typing import Any
+from typing import Any, Callable
 from shutil import rmtree
 
 ODIR = '__RUN_TESTS'
@@ -13,18 +13,23 @@ LOGD = f'{ODIR}/logs'
 OptionalString = str | None
 
 
-def prepare_commands(condaenvprefix: OptionalString) -> list[str]:
+CommandHandler = Callable[[OptionalString], list[str]]
+
+def prepare_commands_coverage(condaenvprefix: OptionalString) -> list[str]:
     # Knobs for coverage, pytest (as part of coverage run), mypy are picked up from
     # pyproject.toml. These knobs are NOT replicated here, to avoid inconsistency
     commands = [
         f'{condaenvprefix} coverage run -m pytest && coverage report && coverage html',
+    ]
+    return commands
+
+
+def prepare_commands_static(condaenvprefix: OptionalString) -> list[str]:
+    # Knobs for coverage, pytest (as part of coverage run), mypy are picked up from
+    # pyproject.toml. These knobs are NOT replicated here, to avoid inconsistency
+    commands = [
         f'{condaenvprefix} mypy ./ ',
     ]
-    # NOTE: We do NOT run workloads/*.py, since each such workload is now exercised
-    #       by a corresponding test in tests/test_workloads. Any workloads added to
-    #       workloads/ directory, which need to be tested, should follow a pattern
-    #       to other workloads and their test equivalents
-
     return commands
 
 
@@ -74,6 +79,14 @@ def prepare_commands_parse_all_wlyaml(condaenvprefix: OptionalString, dryrun: bo
     return commands
 
 
+def prepare_commands_workload_tests(condaenvprefix: OptionalString, dryrun: bool = True) -> list[str]:
+    commands = []
+    commands.extend(prepare_commands_run_all_tests(condaenvprefix))
+    commands.extend(prepare_commands_parse_all_wlyaml(condaenvprefix, dryrun=True))
+    commands.extend(prepare_commands_parse_all_wlyaml(condaenvprefix, dryrun=False))
+    return commands
+
+
 def run_a_job(cmd: str, outputfilename:str)->subprocess.CompletedProcess:
     with open(outputfilename, 'w') as cmdfout:
         print('Command:', cmd, file=cmdfout)
@@ -88,17 +101,32 @@ def main() -> int:
     parser.add_argument('--stop', '-x', action='store_true', help='Stop tests on first failure')
     parser.add_argument('--filter', help='filter commands')
     parser.add_argument('--dryrun', '-n', action='store_true', help='Show but do not execute the commands')
+    parser.add_argument('tests', nargs='*', choices=['coverage', 'static', 'workloads', 'all'])
     args = parser.parse_args()
+    test_handlers: dict[str, CommandHandler] = {
+        'coverage': prepare_commands_coverage,
+        'static': prepare_commands_static,
+        'workloads': prepare_commands_workload_tests,
+    }
+    enabled_tests: set = set()
+    if not args.tests or 'all' in args.tests:
+        enabled_tests = {x for x in test_handlers}
+    else:
+        enabled_tests = set(args.tests)
+        unsupported_tests = enabled_tests - set(test_handlers.keys())
+        if unsupported_tests:
+            print(f'error: tests {unsupported_tests} are not supported')
+            exit(1)
+
 
     condaenvprefix: OptionalString = ''
     if args.condaenv is not None:
         condabase: str = os.popen('conda info --base').read().strip()
         condaenvprefix = f'source {condabase}/etc/profile.d/conda.sh && conda activate {args.condaenv} && '
 
-    commands = prepare_commands(condaenvprefix)
-    commands.extend(prepare_commands_run_all_tests(condaenvprefix))
-    commands.extend(prepare_commands_parse_all_wlyaml(condaenvprefix, dryrun=True))
-    commands.extend(prepare_commands_parse_all_wlyaml(condaenvprefix, dryrun=False))
+    commands = []
+    for test in enabled_tests:
+        commands.extend(test_handlers[test](condaenvprefix))
     if args.filter:
         commands = [cmd for cmd in commands if re.search(args.filter, cmd)]
 
