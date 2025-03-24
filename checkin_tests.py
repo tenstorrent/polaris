@@ -141,6 +141,17 @@ def main() -> int:
                 continue
             print(f"{result["id"]:{mf}s}  RESULT= {res}")
 
+    if num_failures == 0:
+        errorlines = os.popen(f'grep ERROR: {LOGD}/*.log').readlines()
+        if errorlines:
+            print('Warning: log lines containing ERROR: messages')
+            for l in errorlines:
+                l = l.rstrip()
+                print('\t' + l)
+            print('--------------------------------------------------------------------------')
+            print('Warning: log lines containing ERROR: messages though runs exit with code 0')
+            print('--------------------------------------------------------------------------')
+
     if num_failures:
         print(f'{num_failures} of {len(commands)} failed')
     else:
