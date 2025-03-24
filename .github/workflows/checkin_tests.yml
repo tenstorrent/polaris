@@ -26,6 +26,10 @@ jobs:
         miniforge-version: latest
         channels: conda-forge
         conda-remove-defaults: "true"
+        activate-environment: polenv
+        environment-file: environment.yaml
+        condarc-file: etc/condarc
+        auto-activate-base: false
     - name: check-miniforge-config     # Ensure default channels are not being used
       run: |
         conda list
