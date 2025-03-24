@@ -1,3 +1,4 @@
+![Checkin Tests](https://github.com/tenstorrent/polaris/actions/workflows/checkin_tests.yml/badge.svg)
 # Polaris
 Yet Another High Level AI Simulator
 
