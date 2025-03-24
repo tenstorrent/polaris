@@ -14,6 +14,10 @@ jobs:
     strategy:
       max-parallel: 5
 
+    defaults:
+      run:
+        shell: bash -el {0}
+
     steps:
     - uses: actions/checkout@v4
     - uses: conda-incubator/setup-miniconda@v3
@@ -21,10 +25,10 @@ jobs:
       with:
         miniforge-version: latest
         channels: conda-forge
-        conda-remove-defaults: "true"
+        # TODO: check if removing this works # conda-remove-defaults: "true"
     - name: check-miniforge-config     # Ensure default channels are not being used
-      shell: bash -el {0}
       run: |
+        conda list
         conda config --show-sources
     # - name: Set up Python 3.10
     #   uses: actions/setup-python@v3
