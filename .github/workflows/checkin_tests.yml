@@ -54,6 +54,7 @@ jobs:
       with:
         name: dist-wo-onnxdumps
         path: |
+           .coverage
            __RUN_TESTS
            !__RUN_TESTS/**/*.onnx
     
