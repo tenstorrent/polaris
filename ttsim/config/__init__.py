@@ -22,7 +22,7 @@ def get_arspec_from_yaml(cfg_yaml_file):
                 else:
                     raise AssertionError('should not reach here')
             except Exception as e:
-                logging.error('Error validating %s IP block named %s, configuration=%s: %s', ip_type, ip_name, ip_cfg, e)
+                logging.error('%s: error validating %s IP block named %s, configuration=%s: %s', cfg_yaml_file, ip_type, ip_name, ip_cfg, e)
                 raise
             ipblocks[ip_name] = create_ipblock(ip_type, ip_name, ip_cfg)
 
@@ -32,11 +32,13 @@ def get_arspec_from_yaml(cfg_yaml_file):
             try:
                 validated_result_3 = PYDPkgComputeValidator(**pkg_cfg['ipgroups']['compute'])
             except Exception as e:
-                logging.error('Error validating package %s of %s, %s: %s', pkg_type, pkg_name, pkg_cfg, e)
+                logging.error('%s: error validating package/compute %s of %s, %s: %s', cfg_yaml_file, pkg_type, pkg_name, pkg_cfg, e)
+                raise
             try:
                 validated_result_4 = PYDPkgMemoryValidator(**pkg_cfg['ipgroups']['memory'])
             except Exception as e:
-                logging.error('Error validating package %s of %s, %s: %s', pkg_type, pkg_name, pkg_cfg, e)
+                logging.error('%s: error validating package/memory %s of %s, %s: %s', cfg_yaml_file, pkg_type, pkg_name, pkg_cfg, e)
+                raise
             packages[pkg_name] = create_package(pkg_type, pkg_name, pkg_cfg, ipblocks)
 
     return ipblocks, packages

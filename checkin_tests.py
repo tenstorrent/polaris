@@ -5,7 +5,7 @@ import argparse
 import re
 from itertools import product
 import subprocess
-from typing import Any
+from typing import Any, Callable
 from shutil import rmtree
 
 ODIR = '__RUN_TESTS'
@@ -13,18 +13,23 @@ LOGD = f'{ODIR}/logs'
 OptionalString = str | None
 
 
-def prepare_commands(condaenvprefix: OptionalString) -> list[str]:
+CommandHandler = Callable[[OptionalString], list[str]]
+
+def prepare_commands_coverage(condaenvprefix: OptionalString) -> list[str]:
     # Knobs for coverage, pytest (as part of coverage run), mypy are picked up from
     # pyproject.toml. These knobs are NOT replicated here, to avoid inconsistency
     commands = [
         f'{condaenvprefix} coverage run -m pytest && coverage report && coverage html',
+    ]
+    return commands
+
+
+def prepare_commands_static(condaenvprefix: OptionalString) -> list[str]:
+    # Knobs for coverage, pytest (as part of coverage run), mypy are picked up from
+    # pyproject.toml. These knobs are NOT replicated here, to avoid inconsistency
+    commands = [
         f'{condaenvprefix} mypy ./ ',
     ]
-    # NOTE: We do NOT run workloads/*.py, since each such workload is now exercised
-    #       by a corresponding test in tests/test_workloads. Any workloads added to
-    #       workloads/ directory, which need to be tested, should follow a pattern
-    #       to other workloads and their test equivalents
-
     return commands
 
 
@@ -49,7 +54,7 @@ def prepare_commands_run_all_tests(condaenvprefix: OptionalString) -> list[str]:
 
     for exp_no, exp in enumerate(ALL_EXPS):
         exp_str    = "".join(exp)
-        study_name = f"study_{exp_no+1}"
+        study_name = f"study_{exp_no+1:02}"
         command    = f"{cmd} -s {study_name} {exp_str} --log_level debug"
         commands.append(command)
 
@@ -62,14 +67,23 @@ def prepare_commands_parse_all_wlyaml(condaenvprefix: OptionalString, dryrun: bo
     wlspecs    = [f'config/{f}.yaml' for f in ['all_workloads' ]]
 
     commands = []
-    cmd  = f"{condaenvprefix} python {script} -a {arspec} -m {wlmspec} -o {ODIR} -s __dummy"
+    cmd  = f"{condaenvprefix} python {script} -a {arspec} -m {wlmspec} -o {ODIR}"
     if dryrun:
         cmd += ' --dryrun'
 
-    for wlspec in wlspecs:
-        command    = f"{cmd} -w {wlspec}"
+    base = 0 if dryrun else len(wlspecs)
+    for wlindex, wlspec in enumerate(wlspecs):
+        command    = f"{cmd} -w {wlspec} -s wltest_{base+wlindex:02}"
         commands.append(command)
 
+    return commands
+
+
+def prepare_commands_workload_tests(condaenvprefix: OptionalString, dryrun: bool = True) -> list[str]:
+    commands = []
+    commands.extend(prepare_commands_run_all_tests(condaenvprefix))
+    commands.extend(prepare_commands_parse_all_wlyaml(condaenvprefix, dryrun=True))
+    commands.extend(prepare_commands_parse_all_wlyaml(condaenvprefix, dryrun=False))
     return commands
 
 
@@ -87,17 +101,32 @@ def main() -> int:
     parser.add_argument('--stop', '-x', action='store_true', help='Stop tests on first failure')
     parser.add_argument('--filter', help='filter commands')
     parser.add_argument('--dryrun', '-n', action='store_true', help='Show but do not execute the commands')
+    parser.add_argument('tests', nargs='*', choices=['coverage', 'static', 'workloads', 'all'])
     args = parser.parse_args()
+    test_handlers: dict[str, CommandHandler] = {
+        'coverage': prepare_commands_coverage,
+        'static': prepare_commands_static,
+        'workloads': prepare_commands_workload_tests,
+    }
+    enabled_tests: set = set()
+    if not args.tests or 'all' in args.tests:
+        enabled_tests = {x for x in test_handlers}
+    else:
+        enabled_tests = set(args.tests)
+        unsupported_tests = enabled_tests - set(test_handlers.keys())
+        if unsupported_tests:
+            print(f'error: tests {unsupported_tests} are not supported')
+            exit(1)
+
 
     condaenvprefix: OptionalString = ''
     if args.condaenv is not None:
         condabase: str = os.popen('conda info --base').read().strip()
         condaenvprefix = f'source {condabase}/etc/profile.d/conda.sh && conda activate {args.condaenv} && '
 
-    commands = prepare_commands(condaenvprefix)
-    commands.extend(prepare_commands_run_all_tests(condaenvprefix))
-    commands.extend(prepare_commands_parse_all_wlyaml(condaenvprefix, dryrun=True))
-    commands.extend(prepare_commands_parse_all_wlyaml(condaenvprefix, dryrun=False))
+    commands = []
+    for test in enabled_tests:
+        commands.extend(test_handlers[test](condaenvprefix))
     if args.filter:
         commands = [cmd for cmd in commands if re.search(args.filter, cmd)]
 
@@ -109,11 +138,11 @@ def main() -> int:
     num_failures: int = 0
     results: list[dict[str, Any]] = [dict() for _ in range(len(commands))]
     for cmdno, cmd in enumerate(commands):
-        study_match = re.search('-s (study_[0-9]+)', cmd)
+        study_match = re.search('-s ([^ ]+)', cmd)
         if study_match:
             log_file = os.path.join(LOGD, study_match.group(1)+'.log')
         else:
-            log_file = os.path.join(LOGD, f'checkin_test_{cmdno+1}.log')
+            log_file = os.path.join(LOGD, f'checkin_test_{cmdno+1:02}.log')
         print(f'#{cmdno+1}/{len(commands)}: {cmd} -> {log_file}')
         if args.dryrun:
             continue
@@ -140,6 +169,17 @@ def main() -> int:
             if result['status'] != res:
                 continue
             print(f"{result["id"]:{mf}s}  RESULT= {res}")
+
+    if num_failures == 0:
+        errorlines = os.popen(f'grep ERROR: {LOGD}/*.log').readlines()
+        if errorlines:
+            print('Warning: log lines containing ERROR: messages')
+            for l in errorlines:
+                l = l.rstrip()
+                print('\t' + l)
+            print('--------------------------------------------------------------------------')
+            print('Warning: log lines containing ERROR: messages though runs exit with code 0')
+            print('--------------------------------------------------------------------------')
 
     if num_failures:
         print(f'{num_failures} of {len(commands)} failed')

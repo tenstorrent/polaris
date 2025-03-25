@@ -1,0 +1,18 @@
+name: Check licenses in source files
+
+# TODO: Identify the relevant licenses for our simulators
+# TODO: Identify the correct triggers for this action
+on:
+  workflow_dispatch:
+  workflow_call:
+
+jobs:
+  check-spdx-headers:
+    runs-on: ubuntu-latest
+    steps:
+    - name: checkout
+      uses: actions/checkout@v4
+    - uses: enarx/spdx@master
+      with:
+        licenses: |-
+          MIT
