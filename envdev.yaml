@@ -24,4 +24,3 @@ dependencies:
     - types-PYYAML==6.0.12.20241230
     - types-networkx==3.4.2.20241227
     - types-tqdm==4.67.0.20241221
-    - genbadge[all]
