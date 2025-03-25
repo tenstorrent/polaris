@@ -34,9 +34,16 @@ jobs:
       run: |
         conda list
         conda config --show-sources
+    - name: Run Unit and Coverage Tests
+      run: | 
+        coverage run -m pytest --junitxml __ci/xml/junit.xml
+        coverage report 
+        coverage html -d __ci/html/
+        coverage xml -o __ci/xml/coverage.xml
     - name: Run Checkin Tests
+      if: always()
       run: |
-        python checkin_tests.py
+        python checkin_tests.py static workloads
     - name: Upload artifacts
       if: always()
       uses: actions/upload-artifact@v4
