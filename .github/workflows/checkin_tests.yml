@@ -38,7 +38,7 @@ jobs:
       run: | 
         coverage run -m pytest --junitxml __ci/xml/junit.xml
         coverage report 
-        coverage html -o __ci/html/
+        coverage html -d __ci/html/
         coverage xml -o __ci/xml/coverage.xml
         genbadge tests -i __ci/xml/junit.xml -o __ci/badge/pytest.svg
         genbadge coverage -i __ci/xml/coverage.xml -o __ci/badge/coverage.svg
