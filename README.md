@@ -1,4 +1,8 @@
+[![Python 3.13](https://img.shields.io/badge/python-3.13-blue.svg)](https://www.python.org/downloads/release/python-3132/)
 ![Checkin Tests](https://github.com/tenstorrent/polaris/actions/workflows/checkin_tests.yml/badge.svg)
+![Unit Tests](https://github/tenstorrent/polaris/__ci/badge/pytest.svg)
+[![Coverage](https://github/tenstorrent/polaris/__ci/badge/coverage.svg)](https://github/tenstorrent/polaris/__ci/html/index.html)
+
 # Polaris
 Yet Another High Level AI Simulator
 
