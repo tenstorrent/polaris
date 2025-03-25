@@ -1,8 +1,9 @@
 [![Python 3.13](https://img.shields.io/badge/python-3.13-blue.svg)](https://www.python.org/downloads/release/python-3132/)
-![Checkin Tests](https://github.com/tenstorrent/polaris/actions/workflows/checkin_tests.yml/badge.svg)
-![Unit Tests](./__ci/badge/pytest.svg?dummy=8484744)
-[![Coverage](./__ci/badge/coverage.svg?dummy=8484744)](./__ci/html/index.html)
-
+![Checkin Tests](https://github.com/tenstorrent/polaris/actions/workflows/checkin_tests.yml/badge.svg?branch=main)
+<!-- 
+  ![Unit Tests](./__ci/badge/pytest.svg?dummy=8484744)
+  [![Coverage](./__ci/badge/coverage.svg?dummy=8484744)](./__ci/html/index.html)
+-->
 # Polaris
 Yet Another High Level AI Simulator
 
