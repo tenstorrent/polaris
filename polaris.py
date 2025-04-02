@@ -12,11 +12,14 @@ import argparse
 import json
 import tracemalloc
 import cProfile
+import yaml
+import copy
 
 from collections import defaultdict
 from itertools import product
 
-from ttsim.config import get_arspec_from_yaml, get_wlspec_from_yaml, get_wlmapspec_from_yaml
+from ttsim.config import get_arspec_from_yaml, get_wlspec_from_yaml, get_wlmapspec_from_yaml, \
+    TTSimHLWlDevRunOpCSVPerfStats, TTSimHLWlDevRunPerfStats, PackageInstanceModel
 from ttsim.front import onnx2graph
 from ttsim.utils.common import print_csv, get_ttsim_functional_instance, str_to_bool
 
@@ -27,7 +30,7 @@ from ttsim.utils.common import print_csv, get_ttsim_functional_instance, str_to_
 #      #elems for input/ouput in op.perf_stats, so that we can correctly calculate
 #      in/out mem-Bytes during op.execute!!
 #4) Tiler - Matmul on QSR
-#5) Perf Correlation: on NVidia 
+#5) Perf Correlation: on NVidia
 #      GPT-J performance MLPerf Inference
 #        20,552 tok/sec for 8xH200-SXM-141GB = 2569 tok/sec/GPU
 #        19,878 tok/sec for 8xH100-SXM-80GB  = 2485 tok/sec/GPU
@@ -179,7 +182,6 @@ def get_wlgraph(TBL, wlg, wln, wli, gcfg, wpath, enable_memalloc):
             f"Workload= {wlg}.{wln}.{wli}.b{wlb} missing in workloads graph table!!"
 
     if TBL[(wlg,wln,wli,wlb)] is None:
-        print(">>>", wlg, wln, wli, wlb)
         if wlg == 'TTSIM':
             ttsim_wl  = get_ttsim_functional_instance(wpath, wln, gcfg) #<--- This is slow...
 
@@ -270,7 +272,6 @@ def setup_cmdline_args():
                         action='append', help='frequency (in MHz) range specification (arith-seq)')
     parser.add_argument('--batchsize', nargs=3, metavar=('start', 'end', 'step'), type=int,
                         action='append', help='batchsize range specification (geom-seq)')
-
 
     #cmdline args processing
     args = parser.parse_args()
@@ -375,9 +376,16 @@ def do_dryrun(_wl, _dl):
 
     return
 
+
 def execute_wl_on_dev(_wl, _dl, _wspec, _dspec, _op2dt, _op2rsrc, _null_ops, _op_fusion_list, _WLG,
-                      _statDir, _enable_memalloc):
-    _summary_stats: List = []
+                      _odir, _enable_memalloc):
+    # TODO: Reduce number of arguments to this function
+    stat_dir    = os.path.join(_odir, 'STATS')
+    config_dir  = os.path.join(_odir, 'CONFIG')
+    os.makedirs(stat_dir,    exist_ok=True)
+    os.makedirs(config_dir, exist_ok=True)
+    saved_devices = set()
+    _summary_stats = []
     ALL_EXPS = product(_wl, _dl)
     for exp_no, (exp_wl, exp_dev) in enumerate(ALL_EXPS):
         wlgroup, wlname, wlins_name, wlins_cfg, wlbatch = exp_wl
@@ -407,6 +415,7 @@ def execute_wl_on_dev(_wl, _dl, _wspec, _dspec, _op2dt, _op2rsrc, _null_ops, _op
 
         #publish stats
         rows   = []
+        model_rows = []
         for i,x in enumerate(wlgraph.get_ordered_nodes()):
             is_inode = x in wlgraph._input_nodes
             is_onode = x in wlgraph._output_nodes
@@ -468,15 +477,40 @@ def execute_wl_on_dev(_wl, _dl, _wspec, _dspec, _op2dt, _op2rsrc, _null_ops, _op
                 'cycles'    : cycles,
                 'msecs'     : msecs
                 })
-            rows.append(val)
 
+            rows.append(val)
+            opval = copy.deepcopy(val)
+            for tmp in ['devname', 'freq_MHz', 'wlgroup', 'wlname', 'wlinstance', 'batch']:
+                del opval[tmp]
+            model_rows.append(opval)
+
+        model_dict = {
+            'devname': devname,
+            'freq_MHz': dev_freq_MHz,
+            'wlgroup': wlgroup,
+            'wlname': wlname,
+            'wlinstance': wlins_name,
+            'batch': wlcfg['bs'],
+            'operatorstats': model_rows
+        }
+        model = TTSimHLWlDevRunPerfStats(**model_dict)
         statF_parts  = [f"{devname}"]
         statF_parts += [] if devfreq is None else [f"f{devfreq}"]
         statF_parts += [f"{wlgroup}", f"{wlname}", f"{wlins_name}"]
         statF_parts += [] if wlbatch is None else [f"b{wlbatch}"]
         statF = "-".join(statF_parts) + '-opstats.csv'
-        statP = os.path.join(_statDir, statF)
+        statP = os.path.join(stat_dir, statF)
         print_csv(rows[0].keys(), rows, statP)
+        statyamlP = statP.replace('.csv', '.yaml')
+        with open(statyamlP, 'w') as fout:
+            yaml.dump(model.model_dump(), fout, indent=4)
+
+        if devname not in saved_devices:
+            devF = os.path.join(config_dir, f'{devname}.yaml')
+            devobj_dict = dev_obj.model_dump()
+            with open(devF, 'w') as fout:
+                yaml.dump(devobj_dict, fout, indent=4, Dumper=yaml.CDumper)
+            saved_devices.add(devname)
 
         reduced_stat  = ReducedStats(devname, wlgroup, wlname, wlins_name, dev_obj)
         _summary_stats.append( reduced_stat.summarize (rows) )
@@ -491,13 +525,11 @@ def main() -> int:
         profiler   = cProfile.Profile()
         profiler.enable()
 
-    #create outdir & output book-keeping assets 
+    #create outdir & output book-keeping assets
     odir        = os.path.join(args.odir, args.study)
-    run_log     = os.path.join(odir, args.study + '.log')
-    stat_dir    = os.path.join(odir, 'STATS')
     summary_dir = os.path.join(odir, 'SUMMARY')
+    run_log     = os.path.join(odir, args.study + '.log')
     os.makedirs(odir,        exist_ok=True)
-    os.makedirs(stat_dir,    exist_ok=True)
     os.makedirs(summary_dir, exist_ok=True)
 
     device_list, devspec  = get_devices(args.archspec, freqsweep, args.filterarch)
@@ -513,7 +545,7 @@ def main() -> int:
         INFO(f'simulation: workload+ --> device+')
         summary_stats = execute_wl_on_dev(workload_list, device_list, wlspec, devspec,
                                           OP2DT, OP2RSRC, NULL_OPS, OP_FUSION_LIST,
-                                          workload_graphs, stat_dir, args.enable_memalloc)
+                                          workload_graphs, odir, args.enable_memalloc)
 
         summary_stat_filename = os.path.join(summary_dir, f"{args.study}-summary.csv")
         print_csv(summary_stats[0].keys(), summary_stats, summary_stat_filename)

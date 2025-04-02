@@ -23,7 +23,7 @@ class Module:
         if isinstance(value, SimTensor):
             self._tensors[name] = value
         elif isinstance(value, (F.SimOpHandle, F.SplitOpHandle, F.VariadicInputOpHandle)):
-            #IMPLICIT_INPUTS are not constructed till SimOpHandle::__call__ 
+            #IMPLICIT_INPUTS are not constructed till SimOpHandle::__call__
             # is executed; so, we need to do this after the __call__ is done :-(
             # For an example of this: check SplitOpHandle::__call__
             self._op_hndls[name] = value

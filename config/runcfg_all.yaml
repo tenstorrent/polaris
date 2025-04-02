@@ -1,0 +1,8 @@
+# Run Configuration yaml file, to be used with polproj.py
+title: Run all workloads
+study: runall
+output: __runall
+wlspec: config/all_workloads.yaml
+archspec: config/all_archs.yaml
+wlmapspec: config/wl2archmapping.yaml
+filterapi: TTSIM

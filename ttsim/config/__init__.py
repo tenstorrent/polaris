@@ -3,48 +3,80 @@
 # SPDX-License-Identifier: Apache-2.0
 from collections import Counter
 import logging
+import copy
 from ..utils.common import parse_yaml, parse_worksheet
-from .simconfig import SimConfig, XlsxConfig, create_ipblock, create_package, WorkloadGroup, AWorkload
+from .simconfig import SimConfig, XlsxConfig, WorkloadGroup, AWorkload
+from pydantic import ValidationError
 from .validators import PYDWlMapDataSpecValidator, PYDWlMapResourceSpecValidator, PYDWlMapSpecValidator, PYDPkgMemoryValidator, PYDPkgComputeValidator, PYDComputePipeValidator, \
-     PYDL2CacheValidator, PYDMemoryBlockValidator, PYDComputeBlockValidator, PYDWorkloadListValidator
+     PYDL2CacheValidator, PYDMemoryBlockValidator, PYDComputeBlockValidator, PYDWorkloadListValidator, TTSimHLWlDevRunOpCSVPerfStats, \
+    TTSimHLWlDevRunPerfStats
+from .simconfig import IPBlocksModel, PackageInstanceModel
 
+
+def get_child(base, key, idattr='name'):
+    if isinstance(base, dict):
+        return base.get(key, None)
+    if isinstance(base, list):
+        subbases = [entry for entry in base if entry[idattr] == key]
+        if not subbases:
+            raise ValueError(f'{key} not found')
+        if len(subbases) != 1:
+            raise ValueError(f'{key} has multiple occurrences')
+        return subbases[0]
+    raise ValueError(f'{key} can not be searched in {base}')
 
 def get_arspec_from_yaml(cfg_yaml_file):
-    cfg_dict = parse_yaml(cfg_yaml_file)
+    arch_dict = parse_yaml(cfg_yaml_file)
+
     for k in ['packages', 'ipblocks']:
-        assert k in cfg_dict, f"no {k} field in architecture spec {cfg_yaml_file}"
+        assert k in arch_dict, f"no {k} field in architecture spec {cfg_yaml_file}"
+    ipblocks_dict = arch_dict['ipblocks']
+    ipblocks_db = IPBlocksModel(**{'ipblocks': ipblocks_dict})
+    ipblocks_name_2_block = {ipblock_entry['name']: ipblock_entry for ipblock_entry in ipblocks_dict}
 
-    ipblocks = {}
-    for ip_type, ip_dict in cfg_dict['ipblocks'].items():
-        for ip_name, ip_cfg in ip_dict.items():
+    pkg_instance_db = dict()
+    for pkgentry in arch_dict['packages']:
+        for pkginstance in pkgentry['instances']:
+            pkginstance['devname'] = pkgentry['name']
+            ipgroups = []
+            for ipgroup_base in pkginstance['ipgroups']:
+                ipgroup = {x: ipgroup_base[x] for x in ipgroup_base if x != 'ip_overrides'}
+                ipgroups.append(ipgroup)
+                ipobj = copy.deepcopy(ipblocks_name_2_block[ipgroup_base['ipname']])
+                ipgroup['ipobj'] = ipobj
+                overrides = ipgroup_base.get('ip_overrides', None)
+                if overrides is None:
+                    overrides = {}
+                for override_key, override_value in overrides.items():
+                    base = ipobj
+                    override_key_parts = override_key.split('.')
+                    for ovkey_part in override_key_parts[:-1]:
+                        newbase = get_child(base, ovkey_part)
+                        if newbase is None:
+                            raise ValueError(f'child for {ovkey_part} not found in {base}')
+                        base = newbase
+                        continue
+                    logging.debug(f'{override_key=} {override_value=} {base=} {override_key_parts[-1]=}')
+                    last_key = override_key_parts[-1]
+                    old_value = base.get(last_key, None)
+                    if old_value is None:
+                        raise ValueError(f'attribute {last_key} not defined in {base}')
+                    if old_value == override_value:
+                        logging.warning('device %s ipgroup %s overrode value of %s from %s to %s (NO DIFFERENCE)',
+                                        pkgentry['name'], ipgroup_base['ipname'], override_key, old_value, override_value)
+                    else:
+                        logging.info('device %s ipgroup %s overrode value of %s from %s to %s',
+                                        pkgentry['name'], ipgroup_base['ipname'], override_key, old_value, override_value)
+                    base[last_key] = override_value
+            pkginstance['ipgroups'] = ipgroups
             try:
-                if ip_type == 'compute':
-                    validated_result_1 = PYDComputeBlockValidator(**ip_cfg)
-                elif ip_type == 'memory':
-                    validated_result_2 = PYDMemoryBlockValidator(**ip_cfg)
-                else:
-                    raise AssertionError('should not reach here')
-            except Exception as e:
-                logging.error('%s: error validating %s IP block named %s, configuration=%s: %s', cfg_yaml_file, ip_type, ip_name, ip_cfg, e)
+                _tmp = PackageInstanceModel(**pkginstance)
+            except ValidationError as e:
+                logging.error('validation error when creating %s', pkginstance['name'])
                 raise
-            ipblocks[ip_name] = create_ipblock(ip_type, ip_name, ip_cfg)
-
-    packages = {}
-    for pkg_type, pkg_dict in cfg_dict['packages'].items():
-        for pkg_name, pkg_cfg in pkg_dict.items():
-            try:
-                validated_result_3 = PYDPkgComputeValidator(**pkg_cfg['ipgroups']['compute'])
-            except Exception as e:
-                logging.error('%s: error validating package/compute %s of %s, %s: %s', cfg_yaml_file, pkg_type, pkg_name, pkg_cfg, e)
-                raise
-            try:
-                validated_result_4 = PYDPkgMemoryValidator(**pkg_cfg['ipgroups']['memory'])
-            except Exception as e:
-                logging.error('%s: error validating package/memory %s of %s, %s: %s', cfg_yaml_file, pkg_type, pkg_name, pkg_cfg, e)
-                raise
-            packages[pkg_name] = create_package(pkg_type, pkg_name, pkg_cfg, ipblocks)
-
-    return ipblocks, packages
+            logging.info('created instance %s', _tmp.name)
+            pkg_instance_db[_tmp.name] = _tmp
+    return ipblocks_db, pkg_instance_db
 
 
 def get_wlspec_from_yaml(cfg_yaml_file):
@@ -60,7 +92,7 @@ def get_wlspec_from_yaml(cfg_yaml_file):
 def get_wlmapspec_from_yaml(cfg_yaml_file):
     cfg_dict   = parse_yaml(cfg_yaml_file)
     cfg_object = PYDWlMapSpecValidator(**cfg_dict)
-    
+
     required_fields = ['op_data_type_spec', 'op_removal_spec', 'op_fusion_spec', 'op_rsrc_spec']
     for ff in required_fields:
         assert ff in cfg_dict, f"required attribute: {ff} missing in workload map file: {cfg_yaml_file}"

@@ -56,6 +56,7 @@ def prepare_commands_run_all_tests(condaenvprefix: OptionalString) -> list[str]:
 
     for exp_no, exp in enumerate(ALL_EXPS):
         exp_str    = "".join(exp)
+        study_name = f"study_{exp_no+1:02}"
         command    = f"{cmd} --study PLACEHOLDER {exp_str} --log_level debug"
         commands.append(command)
 
@@ -65,7 +66,7 @@ def prepare_commands_parse_all_wlyaml(condaenvprefix: OptionalString, dryrun: bo
     script     = 'polaris.py'
     arspec     = 'config/all_archs.yaml'
     wlmspec    = 'config/wl2archmapping.yaml'
-    wlspecs    = [f'config/{f}.yaml' for f in ['all_workloads' ]]
+    wlspecs    = [f'config/{f}.yaml' for f in ['all_workloads', 'mlperf_inference' ]]
 
     commands = []
     cmd  = f"{condaenvprefix} python {script} -a {arspec} -m {wlmspec} -o {ODIR}"
@@ -83,7 +84,6 @@ def prepare_commands_parse_all_wlyaml(condaenvprefix: OptionalString, dryrun: bo
 def prepare_commands_workload_tests(condaenvprefix: OptionalString, dryrun: bool = True) -> list[str]:
     commands = []
     commands.extend(prepare_commands_run_all_tests(condaenvprefix))
-    commands.extend(prepare_commands_parse_all_wlyaml(condaenvprefix, dryrun=True))
     commands.extend(prepare_commands_parse_all_wlyaml(condaenvprefix, dryrun=False))
     return commands
 
