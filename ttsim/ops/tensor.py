@@ -8,7 +8,7 @@ class SimTensor:
         self.name     = cfg['name']         # String
         self.shape    = cfg.get('shape')    # List
         self.dtype    = cfg.get('dtype')    # Numpy datatype 
-        self.data     = cfg.get('data')     # Actual data (numpy array)
+        self.data     = cfg.get('data', None)     # Actual data (numpy array)
         self.resolve  = cfg.get('resolve','_')    # Has the tensor shape been resolved (intermediate tensor shapes) (Boolean)
         self.op_in    = cfg.get('op_in', [])      # Which operators is this "input" for (consumer list)
         self.op_out   = cfg.get('op_out', [])     # Which operators is this "output" of (producer list)

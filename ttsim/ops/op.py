@@ -11,7 +11,7 @@ import torch
 from typing import Union, TYPE_CHECKING, Dict, Any
 
 from onnx.mapping import TENSOR_TYPE_MAP
-from onnx.backend.test.case.node.reshape import reshape_reference_implementation
+#from onnx.backend.test.case.node.reshape import reshape_reference_implementation
 import ttsim.utils.common as common
 from .tensor import SimTensor
 
@@ -42,6 +42,26 @@ class GRAD_TENSOR_INFO:
         x += f"  new_tensors\n"
         for ppp in self._new_tensors: x += f"  {ppp}\n"
         return x
+
+def get_tensor_broadcast_shape(shape1, shape2):
+    """Determine broadcasted shape for element-wise operations"""
+    s1 = shape1[::-1]
+    s2 = shape2[::-1]
+    max_len = max(len(s1), len(s2))
+    s1.extend([1] * (max_len - len(s1)))
+    s2.extend([1] * (max_len - len(s2)))
+
+    result = []
+    for d1, d2 in zip(s1, s2):
+        if d1 == d2:
+            result.append(d1)
+        elif d1 == 1:
+            result.append(d2)
+        elif d2 == 1:
+            result.append(d1)
+        else:
+            raise ValueError(f"Shapes {shape1} and {shape2} not broadcast-compatible")
+    return result[::-1]
 
 def clone_tensor_by_shape(itensor, /, data_maybe_missing = True):
     assert itensor.check_shape(), f"Illegal Shape in Tensor {itensor}"
@@ -319,31 +339,22 @@ class EltwiseBinaryOp(SimOp):
     def get_perf_counts(self, inT, outT, **kwargs):
         if self.perf_stats is not None:
             return self.perf_stats
-        A = clone_tensor_by_shape(inT[0])
-        B = clone_tensor_by_shape(inT[1])
 
-        #for now, using np.+ as a proxy for generic binop
-        #we can later change it to specific ops when we pass kwargs properly
-        np_out =  A.data + B.data
+        outT[0].shape = get_tensor_broadcast_shape(inT[0].shape, inT[1].shape)
+        #print("\nDBG>>", inT[0].name, inT[1].name, outT[0].name)
+        #print("\nDBG>>", inT[0].shape, inT[1].shape, outT[0].shape)
+        outT[0].dtype = inT[0].dtype
+        if inT[0].shape == outT[0].shape:
+            outT[0].data = inT[0].data
+        elif inT[1].shape == outT[0].shape:
+            outT[0].data = inT[1].data
+        else:
+            assert False, f"Complicated Broadcasting for EltwiseBinaryOp!!"
 
-        is_backprop = kwargs.get('is_backprop', False)
-        batch_axis  = kwargs.get('batch_axis',  None)
-
-        if is_backprop and outT[0].is_param and batch_axis is not None:
-            assert batch_axis >=0 and batch_axis < len(np_out.shape), f"DIPPY"
-            #reduce across all samples in batch for paramter gradients
-            # is_backprop -> this is a gradient calculation
-            # is_param    -> this is a parameter tensor
-            # batch_axis  -> this is the batch axis
-            #TODO: add this cost to instrs
-            np_out = np.mean(np_out, axis=(batch_axis))
-
-        tmp_outT = build_tmp_data_tensor(np_out, self.name + '__tmp_out__')
-        update_output_tensor(self, tmp_outT, outT[0])
         self.perf_stats =  {
-                'inElems' : A.nelems() + B.nelems(),
+                'inElems' : inT[0].nelems() + inT[1].nelems(),
                 'outElems': outT[0].nelems(),
-                'inBytes' : A.nbytes() + B.nbytes(),
+                'inBytes' : inT[0].nbytes() + inT[1].nbytes(),
                 'outBytes': outT[0].nbytes(),
                 'instrs'  : {self.optype.lower(): outT[0].nelems()}
                 }
@@ -406,23 +417,22 @@ class GatherOp(SimOp):
         if self.perf_stats is not None:
             return self.perf_stats
         axis     = self.attrs.get('axis', 0)
-        dummy_dataT_shape  = [inT[0].shape[i] if i != axis else 1 for i in range(len(inT[0].shape))]
-        dummy_indexT_shape = [1,1]
-        dummy_np_out = np.take(dummy_dataT_shape, dummy_indexT_shape, axis=axis)
-        dataT    = clone_tensor_by_shape(inT[0])
-        inT[1].check_shape(), f"Illegal Input Tensor Shape: {inT[1]}"
-        if inT[1].data is None:
-            indicesT = build_tmp_int64_tensor_from_range(0, dataT.shape[0], inT[1].shape, self.name + '__tmp_indexT_from_shape')
-        else:
-            indicesT = inT[1]
-        np_out   = np.take(dataT.data, indicesT.data, axis=axis)
-        tmp_outT = build_tmp_data_tensor(np_out, self.name + '_tmp_out__')
-        update_output_tensor(self, tmp_outT, outT[0])
-        #TODO: check if this works for all cases/workloads
-        # in LLMs Gather is used for Embedding Lookups, so
-        # instead of reading the entire dataT from memory,
-        # we only read those dataT elements referenced by indicesT
-        # also, instead of mov - maybe the instr should be load
+        assert isinstance(axis, int), f"attribute axis ({axis}) is not an int!!"
+
+        dataT    = inT[0]
+        indicesT = inT[1]
+        assert dataT.check_shape(), f"Illegal input dataT shape: {dataT}!!"
+        assert indicesT.check_shape(), f"Illegal input indicesT shape: {indicesT}!!"
+
+        data_rank  = dataT.rank()
+        data_shape = dataT.shape
+        # Normalize negative axis
+        axis = axis if axis >= 0 else data_rank + axis
+        assert axis >= 0 and axis < data_rank, f"Axis {axis} is out of bounds for dataT.shape {dataT.shape()}"
+        outT[0].shape = data_shape[:axis] + indicesT.shape + data_shape[axis + 1:]
+        outT[0].dtype = dataT.dtype
+        #print("DBG>> GATHER\ndataT:", dataT, "\nindicesT:", indicesT, "\noutT:", outT[0])
+
         self.perf_stats = {
                 'inElems' : dataT.nelems(), #inT[0].nelems(),
                 'outElems': outT[0].nelems(),
@@ -452,8 +462,11 @@ class LayerNormalizationOp(SimOp):
         X      = inT[0]
         scaleT = inT[1]
         biasT  = inT[2] if len(inT) == 3 else None
+        #X      = clone_tensor_by_shape(inT[0])
+        #scaleT = clone_tensor_by_shape(inT[1])
+        #biasT  = clone_tensor_by_shape(inT[2]) if len(inT) == 3 else None
         assert X.check_shape(), f"Illegal Shape for {X}"
-        assert X.data is not None, f"Illegal Data for {X}"
+        #assert X.data is not None, f"Illegal Data for {X}"
         XShape = X.shape
         XRank  = X.rank()
 
@@ -496,53 +509,60 @@ class LayerNormalizationOp(SimOp):
         # After reshaping input tensor X into a matrix, layer norm
         # is equivalent to conducting standardization on each column
         # (s.t. each col has zero mean and unit variance).
-        x_mat = np.reshape(X.data, (row, col))
+        #x_mat = np.reshape(X.data, (row, col))
 
         # compute mean for every x_mat's col
-        x_mean = np.sum(x_mat, axis=1, keepdims=True)/col
+        #x_mean = np.sum(x_mat, axis=1, keepdims=True)/col
         instr_count['add'] += input_count
         instr_count['div'] += reduction_count
-        x_diff = x_mat - x_mean
+        #x_diff = x_mat - x_mean
         instr_count['sub'] += input_count
-        x_squared_diff = x_diff * x_diff
+        #x_squared_diff = x_diff * x_diff
         instr_count['mul'] += input_count
         # compute variance for every x_mat's col
-        variance = np.sum(x_squared_diff, axis=1, keepdims=True)/col
+        #variance = np.sum(x_squared_diff, axis=1, keepdims=True)/col
         instr_count['add'] += input_count
         instr_count['div'] += reduction_count
-        variance_eps = variance + epsilon
+        #variance_eps = variance + epsilon
         instr_count['add'] += reduction_count
-        std_dev = np.sqrt(variance_eps)
-        inv_std_dev = np.reciprocal(std_dev)
+        #std_dev = np.sqrt(variance_eps)
+        #inv_std_dev = np.reciprocal(std_dev)
         instr_count['rsqrt'] += reduction_count
 
         # Standardization step. y_mat is zero-mean and unit-variance.
-        y_mat = x_diff * inv_std_dev
+        #y_mat = x_diff * inv_std_dev
         instr_count['mul'] += input_count
 
         # -------x------- Stage-2 Implementation -------x-------
         # Apply affine transform on normalization outcome.
-        assert scaleT.data is not None, f"Illegal DATA in Tensor {scaleT}"
-        y_mat = np.reshape(y_mat, XShape) * scaleT.data
+        #assert scaleT.data is not None, f"Illegal DATA in Tensor {scaleT}"
+        #y_mat = np.reshape(y_mat, XShape) * scaleT.data
         instr_count['mac'] += input_count
         if biasT is not None:
-            assert biasT.data is not None, f"Illegal DATA in Tensor {biasT}"
-            y_mat = y_mat + biasT.data
+            #assert biasT.data is not None, f"Illegal DATA in Tensor {biasT}"
+            #y_mat = y_mat + biasT.data
+            pass
 
-        tmp_outT = build_tmp_data_tensor(y_mat, self.name + '__tmp_Y_out__')
-        update_output_tensor(self, tmp_outT, outT[0])
+        #tmp_outT = build_tmp_data_tensor(y_mat, self.name + '__tmp_Y_out__')
+        #update_output_tensor(self, tmp_outT, outT[0])
+        outT[0].shape = X.shape
+        outT[0].dtype = X.dtype
 
         if len(outT) >= 2:
             # reshape needed because of initial tensor-to-matrix reshape in Step-1.
-            X_mean = np.reshape(x_mean, reduction_shape)
-            tmp_meanT = build_tmp_data_tensor(X_mean, self.name + '__tmp_mean_out__')
-            update_output_tensor(self, tmp_meanT, outT[1])
+            #X_mean = np.reshape(x_mean, reduction_shape)
+            #tmp_meanT = build_tmp_data_tensor(X_mean, self.name + '__tmp_mean_out__')
+            #update_output_tensor(self, tmp_meanT, outT[1])
+            outT[1].shape = reduction_shape
+            outT[1].dtype = X.dtype
 
         if len(outT) == 3:
             # reshape needed because of initial tensor-to-matrix reshape in Step-1.
-            X_invSDT = np.reshape(inv_std_dev, reduction_shape)
-            tmp_invSDT = build_tmp_data_tensor(X_invSDT, self.name + '__tmp_invSDT_out__')
-            update_output_tensor(self, tmp_invSDT, outT[2])
+            #X_invSDT = np.reshape(inv_std_dev, reduction_shape)
+            #tmp_invSDT = build_tmp_data_tensor(X_invSDT, self.name + '__tmp_invSDT_out__')
+            #update_output_tensor(self, tmp_invSDT, outT[2])
+            outT[1].shape = reduction_shape
+            outT[1].dtype = X.dtype
 
         biasElems   = 0 if biasT is None else biasT.nelems()
         meanElems   = 0 if len(outT) < 2 else outT[1].nelems()
@@ -993,35 +1013,55 @@ class MatMulOp(SimOp):
     def get_perf_counts(self, inT, outT, **kwargs):
         if self.perf_stats is not None:
             return self.perf_stats
-        A = clone_tensor_by_shape(inT[0])
-        B = clone_tensor_by_shape(inT[1])
-        np_out = np.matmul(A.data, B.data)
 
         is_backprop = kwargs.get('is_backprop', False)
         batch_axis  = kwargs.get('batch_axis',  None)
+        assert is_backprop == False, f"Matmul in Backward Pass!!"
 
-        if is_backprop and outT[0].is_param and batch_axis is not None:
-            assert batch_axis >=0 and batch_axis < len(np_out.shape), f"DIPPY"
-            #reduce across all samples in batch for paramter gradients
-            # is_backprop -> this is a gradient calculation
-            # is_param    -> this is a parameter tensor
-            # batch_axis  -> this is the batch axis
-            #TODO: add this cost to instrs
-            np_out = np.mean(np_out, axis=(batch_axis))
+        ######## New Implementation Begin #########
+        AShape = inT[0].shape
+        BShape = inT[1].shape
 
-        tmp_outT = build_tmp_data_tensor(np_out, self.name + '__tmp_C_out__')
-        update_output_tensor(self, tmp_outT, outT[0])
-        assert A.shape[-1] == B.shape[-2], f"Kdim Mismatch {A.shape} * {B.shape}"
-        Mdim = A.shape[-2]
-        Kdim = A.shape[-1] #same as B.shape[-2]
-        Ndim = B.shape[-1]
-        BPE  = A.dtype.itemsize
-        self.perf_stats ={
-            'inElems' : (Mdim + Ndim) * Kdim,
-            'outElems': Mdim * Ndim,
-            'inBytes' : (Mdim + Ndim) * Kdim * BPE,
-            'outBytes': Mdim * Ndim * BPE,
-            'instrs'  : {'mac': Mdim * Kdim * Ndim}
+        #find output shape
+        CShape = None
+        if len(AShape) < 1 or len(BShape) < 1:
+            raise ValueError("Shapes must have at least 1 dimension")
+
+        # Handle 1D cases
+        if len(AShape) == 1 and len(BShape) == 1:
+            if AShape[0] != BShape[0]:
+                raise ValueError(f"Matmul incompatible: {AShape[0]} != {BShape[0]}")
+            CShape = [] # Scalar result
+        elif len(AShape) == 1:
+            if AShape[0] != BShape[-2]:
+                raise ValueError(f"Matmul incompatible: {AShape[0]} != {BShape[-2]}")
+            CShape = BShape[:-2] + [BShape[-1]]
+        elif len(BShape) == 1:
+            if AShape[-1] != BShape[0]:
+                raise ValueError(f"Matmul incompatible: {AShape[-1]} != {BShape[0]}")
+            CShape = AShape[:-1]
+
+        # Handle 2D+ cases
+        batch1, mat1 = AShape[:-2], AShape[-2:]
+        batch2, mat2 = BShape[:-2], BShape[-2:]
+
+        # Check matrix multiplication compatibility
+        if mat1[-1] != mat2[-2]:
+            raise ValueError(f"Matmul incompatible: {mat1[-1]} != {mat2[-2]}")
+        broadcast_batch = get_tensor_broadcast_shape(batch1, batch2)
+        CShape = broadcast_batch + [mat1[0], mat2[-1]]
+
+        reduced_dim   = mat1[-1]
+        outT[0].shape = CShape
+        outT[0].dtype = inT[0].dtype
+        ######## New Implementation Begin #########
+
+        self.perf_stats = {
+            'inElems' : inT[0].nelems() + inT[1].nelems(),
+            'outElems': outT[0].nelems(),
+            'inBytes' : inT[0].nelems() * inT[0].dtype.itemsize + inT[1].nelems() * inT[1].dtype.itemsize,
+            'outBytes': outT[0].nelems() * outT[0].dtype.itemsize,
+            'instrs'  : {'mac': outT[0].nelems() * reduced_dim}
             }
         return self.perf_stats
 
@@ -1087,7 +1127,7 @@ class SplitOp(SimOp):
             split_dim = A.shape[axis] // num_outputs
             split = [split_dim for i in range(num_outputs)]
         else:
-            split = splitT.data
+            split = [x.item() for x in splitT.data]
         assert len(split) == num_outputs, f"split mismatch len( {split} ) != {num_outputs}"
 
         outShapes = []
@@ -1100,8 +1140,10 @@ class SplitOp(SimOp):
         outElems = 0
         for tidx, tout in enumerate(outT):
             tshape0 = outShapes[tidx]
-            tmp_outT = build_tmp_fp32_tensor_from_shape(tshape0, self.name + f"__tmp_out__{tidx}")
-            update_output_tensor(self, tmp_outT, tout)
+            #tmp_outT = build_tmp_fp32_tensor_from_shape(tshape0, self.name + f"__tmp_out__{tidx}")
+            #update_output_tensor(self, tmp_outT, tout)
+            tout.shape = tshape0
+            tout.dtype = A.dtype
             outBytes += tout.nbytes()
             outElems += tout.nelems()
 
@@ -1124,17 +1166,63 @@ class ReshapeOp(SimOp):
         if self.perf_stats is not None:
             return self.perf_stats
         allowzero = self.attrs.get('allowzero', 0)
-        A = clone_tensor_by_shape(inT[0])
+
+        #A = clone_tensor_by_shape(inT[0])
         B = clone_tensor_by_shape(inT[1], data_maybe_missing=False) #B.data should exist
         assert B.dtype == np.int64, f"Input Data-Type should be np.int64 {B}"
+        assert inT[0].check_shape(), f"Illegal Input Shape: {inT[0].shape}"
+        input_shape  = inT[0].shape
+        input_size   = inT[0].nelems()
+        target_shape = [x.item() for x in B.data]
 
-        np_out = reshape_reference_implementation(A.data, B.data, allowzero=allowzero)
-        tmp_outT = build_tmp_data_tensor(np_out, self.name + '__tmp_C_out__')
-        update_output_tensor(self, tmp_outT, outT[0])
+        minus_one_count = 0
+        minus_one_index = None
+        zeros_count     = 0
+        zeros_index     = []
+        for i,x in enumerate(target_shape):
+            if x == -1:
+                minus_one_count += 1
+                minus_one_index = i
+            elif x == 0:
+                zeros_count += 1
+                zeros_index.append(i)
+            else:
+                pass
+        assert minus_one_count <= 1, f"Only one -1 is allowed in target shape {target_shape}"
+
+        if allowzero == 1 and minus_one_count == 1 and zeros_count > 0:
+            assert False, f"Cannot have -1 and zeros simultaneously with allowzero in target_shape({target_shape})"
+
+        #copy dims from input_shape, if required
+        output_shape = [x for x in target_shape]
+        if allowzero == 0:
+            for idx in zeros_index:
+                assert idx < len(input_shape), f"Illegal index({idx}) for input_shape({input_shape}) with allowzero=0"
+                output_shape[idx] = input_shape[idx]
+
+        # Handle -1 inference
+        if minus_one_count == 1:
+            output_size = reduce(operator.mul, filter(lambda x: x != -1, output_shape), 1)
+            assert input_size >= output_size and input_size % output_size == 0, \
+                    f"Cannot infer -1: input size {input_size}/{output_size}"
+            inferred_dim = input_size // output_size
+            output_shape[minus_one_index] = inferred_dim
+
+        # Final validation
+        final_output_size = reduce(operator.mul, output_shape, 1)
+        assert input_size  == final_output_size, \
+                f"in({input_size}) & out({final_output_size}) sizes are not equal!!"
+
+        #np_out = reshape_reference_implementation(A.data, B.data, allowzero=allowzero)
+        #tmp_outT = build_tmp_data_tensor(np_out, self.name + '__tmp_C_out__')
+        #update_output_tensor(self, tmp_outT, outT[0])
+        outT[0].shape = output_shape
+        outT[0].dtype = inT[0].dtype
+
         self.perf_stats = {
-                'inElems' : A.nelems() + B.nelems(),
+                'inElems' : inT[0].nelems() + B.nelems(),
                 'outElems': outT[0].nelems(),
-                'inBytes' : A.nbytes() + B.nbytes(),
+                'inBytes' : inT[0].nbytes() + B.nbytes(),
                 'outBytes': outT[0].nbytes(),
                 'instrs'  : {'mov': outT[0].nelems()}
                 }
@@ -1190,14 +1278,17 @@ class TransposeOp(SimOp):
         if self.perf_stats is not None:
             return self.perf_stats
         perms  = self.attrs['perm']
-        A      = clone_tensor_by_shape(inT[0])
-        np_out = np.transpose(A.data, perms)
-        tmp_outT = build_tmp_data_tensor(np_out, self.name + '__tmp_out__')
-        update_output_tensor(self, tmp_outT, outT[0])
+        assert len(perms) == inT[0].rank(), f"perms({perms}) must be equal to input rank ({inT[0].rank()})!!"
+        #A      = clone_tensor_by_shape(inT[0])
+        #np_out = np.transpose(A.data, perms)
+        #tmp_outT = build_tmp_data_tensor(np_out, self.name + '__tmp_out__')
+        #update_output_tensor(self, tmp_outT, outT[0])
+        outT[0].shape = [inT[0].shape[i] for i in perms]
+        outT[0].dtype = inT[0].dtype
         self.perf_stats = {
-                'inElems' : A.nelems(),
+                'inElems' : inT[0].nelems(),
                 'outElems': outT[0].nelems(),
-                'inBytes' : A.nbytes(),
+                'inBytes' : inT[0].nbytes(),
                 'outBytes': outT[0].nbytes(),
                 'instrs'  : {'mov': outT[0].nelems()}
                 }
@@ -1273,17 +1364,19 @@ class SoftmaxOp(SimOp):
         is_backprop = kwargs.get('is_backprop', False)
         assert is_backprop == False, f"Softmax cannot be a backward op!!"
 
-        axis = self.attrs.get('axis', -1)
-        X    = clone_tensor_by_shape(inT[0])
-        x_max  = np.max(X.data, axis=axis, keepdims=True)
-        tmp    = np.exp(X.data - x_max)
-        np_out = tmp / np.sum(tmp, axis=axis, keepdims=True)
-        tmp_outT = build_tmp_data_tensor(np_out, self.name + '__tmp_out__')
-        update_output_tensor(self, tmp_outT, outT[0])
+        #axis = self.attrs.get('axis', -1)
+        #X    = clone_tensor_by_shape(inT[0])
+        #x_max  = np.max(X.data, axis=axis, keepdims=True)
+        #tmp    = np.exp(X.data - x_max)
+        #np_out = tmp / np.sum(tmp, axis=axis, keepdims=True)
+        #tmp_outT = build_tmp_data_tensor(np_out, self.name + '__tmp_out__')
+        #update_output_tensor(self, tmp_outT, outT[0])
+        outT[0].shape = inT[0].shape
+        outT[0].dtype = inT[0].dtype
         outElems = outT[0].nelems()
         self.perf_stats = {
-                'inBytes' : X.nbytes(),
-                'inElems' : X.nelems(),
+                'inBytes' : inT[0].nbytes(),
+                'inElems' : inT[0].nelems(),
                 'outBytes': outT[0].nbytes(),
                 'outElems': outElems,
                 'instrs'  : {
@@ -1575,7 +1668,8 @@ class DropoutOp(SimOp):
         # ratio is same as drop_probability
         # outT = scale * dataT * maskT, where scale = 1./(1-ratio).
         seed = self.attrs.get('seed', 1.0)
-        X    = clone_tensor_by_shape(inT[0], data_maybe_missing=False) #dataT.data must be present
+        #X    = clone_tensor_by_shape(inT[0], data_maybe_missing=False) #dataT.data must be present
+        X = inT[0]
 
         inBytes = X.nbytes()
         inElems = X.nelems()
@@ -1596,22 +1690,24 @@ class DropoutOp(SimOp):
 
 
         if ratio == 0 or training_mode == False:
-            np_out      = X.data
+            #np_out      = X.data
             np_mask_out = np.ones(X.shape, dtype=bool)
             instr_count = {'nop': X.nelems()}
         else:
             #np.random.seed(seed)
             mask   = np.random.uniform(0, 1.0, X.shape) >= ratio
             scale  = 1. / (1. - ratio)
-            np_out = mask * X.data * scale
+            #np_out = mask * X.data * scale
             np_mask_out = mask.astype(bool)
             instr_count = {
                     'mov': X.nelems(), #mask
                     'mul': X.nelems(), #mask * x * scale
                     }
 
-        tmp_outT = build_tmp_data_tensor(np_out, self.name + '__tmp_out__')
-        update_output_tensor(self, tmp_outT, outT[0])
+        #tmp_outT = build_tmp_data_tensor(np_out, self.name + '__tmp_out__')
+        #update_output_tensor(self, tmp_outT, outT[0])
+        outT[0].shape = X.shape
+        outT[0].dtype = X.dtype
 
         return_mask = True if len(outT) == 2 else False
 
@@ -1783,11 +1879,14 @@ class GeluOp(SimOp):
         # we assume approximate to be 'tanh' always for now....
         # TODO: add default option as well...
 
-        X = clone_tensor_by_shape(inT[0])
-        update_output_tensor(self, X, outT[0])
+        #X = clone_tensor_by_shape(inT[0])
+        #update_output_tensor(self, X, outT[0])
+        outT[0].shape = inT[0].shape
+        outT[0].dtype = inT[0].dtype
         #instr count calc.
         # Y= <const> * X * ( <const> + tanh( <const> * ( X + <const> * X^3 ) ) )
-        nElem = X.nelems()
+        #nElem = X.nelems()
+        nElem = inT[0].nelems()
         mul_count, add_count, tanh_count = 0,0,0
         mul_count  += 2 * nElem # X^3
         mul_count  += nElem     # <const> * X^3
@@ -1799,8 +1898,8 @@ class GeluOp(SimOp):
         instr = {'mul': mul_count, 'add': add_count, 'tanh': tanh_count}
 
         self.perf_stats = {
-                'inElems' : X.nelems(),
-                'inBytes' : X.nbytes(),
+                'inElems' : inT[0].nelems(),
+                'inBytes' : inT[0].nbytes(),
                 'outElems': outT[0].nelems(),
                 'outBytes': outT[0].nbytes(),
                 'instrs'  : instr
@@ -2009,9 +2108,6 @@ class ReduceSumOp(SimOp):
             inElems += axes.nelems()
             inBytes += axes.nbytes()
             np_out = np.sum(T.data, axis=tuple(axes.data.tolist()), keepdims=keepdims==1)
-            print(">>> REDUCESUM DBG>>> data.shape=", T.shape)
-            print(">>> REDUCESUM DBG>>> axis      =", tuple(axes.data.tolist()))
-            print(">>> REDUCESUM DBG>>> out.shape =", np_out.shape)
         else:
             np_out = np.sum(T.data, axis=None, keepdims=keepdims==1)
 

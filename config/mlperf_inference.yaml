@@ -1,0 +1,19 @@
+workloads:
+  - api: TTSIM
+    name: BERT_SQUAD_v1p1
+    basedir: workloads
+    module : BasicLLM@BasicLLM.py
+    params : {vocab_sz: 30522, embd_pdrop: 0.1, attn_pdrop: 0.1, resid_pdrop: 0.1, mlp_pdrop: 0.1}
+    instances:
+      b1   : {nL: 24, nH: 16, dE: 1024, nW:  384, bs: 1   }
+      b2   : {nL: 24, nH: 16, dE: 1024, nW:  384, bs: 2   }
+      b4   : {nL: 24, nH: 16, dE: 1024, nW:  384, bs: 4   }
+      b8   : {nL: 24, nH: 16, dE: 1024, nW:  384, bs: 8   }
+      b16  : {nL: 24, nH: 16, dE: 1024, nW:  384, bs: 16  }
+      b32  : {nL: 24, nH: 16, dE: 1024, nW:  384, bs: 32  }
+      b64  : {nL: 24, nH: 16, dE: 1024, nW:  384, bs: 64  }
+      b128 : {nL: 24, nH: 16, dE: 1024, nW:  384, bs: 128 }
+      b256 : {nL: 24, nH: 16, dE: 1024, nW:  384, bs: 256 }
+      b512 : {nL: 24, nH: 16, dE: 1024, nW:  384, bs: 512 }
+      b1024: {nL: 24, nH: 16, dE: 1024, nW:  384, bs: 1024}
+      b2048: {nL: 24, nH: 16, dE: 1024, nW:  384, bs: 2048}

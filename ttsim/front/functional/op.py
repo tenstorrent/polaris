@@ -9,16 +9,10 @@ import ttsim.utils.common as common
 
 #creates a tensor from shape/dtype specification
 def _from_shape(name: str, shape: list[int], is_param: bool = False, is_const=False, np_dtype=np.float32) -> SimTensor:
-    if len(shape) == 0: #rank-0 tensor
-        _data = np.random.randn(1).astype(np_dtype)
-        _data = _data[0]
-    else:
-        _data = np.random.randn(*shape).astype(np_dtype)
     return SimTensor({
         'name' : name,
         'shape': shape,
         'dtype': np.dtype(np_dtype),
-        'data' : _data,
         'is_param': is_param,
         'is_const': is_const,
         })

@@ -7,6 +7,8 @@ import logging
 import time
 import argparse
 import json
+import tracemalloc
+import cProfile
 
 from collections import defaultdict
 from itertools import product
@@ -175,11 +177,19 @@ def get_wlgraph(TBL, wlg, wln, wli, gcfg, wpath):
             f"Workload= {wlg}.{wln}.{wli}.b{wlb} missing in workloads graph table!!"
 
     if TBL[(wlg,wln,wli,wlb)] is None:
-        #print(">>>", wlg, wln, wli, wlb)
+        print(">>>", wlg, wln, wli, wlb)
         if wlg == 'TTSIM':
             ttsim_wl  = get_ttsim_functional_instance(wpath, wln, gcfg) #<--- This is slow...
+
+            tracemalloc.start()
             ttsim_wl.create_input_tensors()
             ttsim_wl_out   = ttsim_wl() #we execute the graph and all the nodes are well formed
+            snapshot = tracemalloc.take_snapshot()
+            top_stats = snapshot.statistics("lineno")
+            for stat in top_stats[:10]:
+                print("TRACEMALLOC:", stat)
+            print("ttsim", "="*50, "\n")
+
             ttsim_wl_graph = ttsim_wl.get_forward_graph() #we should have a valid workload graph at this point
             TBL[(wlg,wln,wli,wlb)] = (ttsim_wl, ttsim_wl_graph)
             DEBUG(f">>ttsim-wl analytical parameter count {wlg}.{wln}.{wli}.b{wlb}= {ttsim_wl.analytical_param_count():,d}")
@@ -452,6 +462,13 @@ def execute_wl_on_dev(_wl, _dl, _wspec, _dspec, _op2dt, _op2rsrc, _null_ops, _op
                 })
             rows.append(val)
 
+        #for tname, tval in wlgraph._tensors.items():
+        #    print(tname, tval)
+        #exit(0)
+
+        #free obj/graph (memory)
+        del _WLG[(wlgroup,wlname,wlins_name,wlcfg['bs'])]
+
         statF_parts  = [f"{devname}"]
         statF_parts += [] if devfreq is None else [f"f{devfreq}"]
         statF_parts += [f"{wlgroup}", f"{wlname}", f"{wlins_name}"]
@@ -507,8 +524,12 @@ def main() -> int:
     return tot_exp_run
 
 if __name__ == '__main__':
+    profiler   = cProfile.Profile()
     start_time = time.perf_counter()
+    profiler.enable()
     num_exps   = main()
+    profiler.disable()
+    profiler.dump_stats("profile_stats.prof")
     end_time   = time.perf_counter()
     del_time   = end_time - start_time
 
