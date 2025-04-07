@@ -1695,10 +1695,10 @@ class DropoutOp(SimOp):
             instr_count = {'nop': X.nelems()}
         else:
             #np.random.seed(seed)
-            mask   = np.random.uniform(0, 1.0, X.shape) >= ratio
+            # mask   = np.random.uniform(0, 1.0, X.shape) >= ratio  # Avoid allocation of dead data
             scale  = 1. / (1. - ratio)
             #np_out = mask * X.data * scale
-            np_mask_out = mask.astype(bool)
+            # np_mask_out = mask.astype(bool)                       # Avoid allocation of dead data
             instr_count = {
                     'mov': X.nelems(), #mask
                     'mul': X.nelems(), #mask * x * scale
