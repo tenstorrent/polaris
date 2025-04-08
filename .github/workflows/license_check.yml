@@ -1,10 +1,12 @@
 name: Check licenses in source files
 
-# TODO: Identify the relevant licenses for our simulators
-# TODO: Identify the correct triggers for this action
 on:
   workflow_dispatch:
   workflow_call:
+  push:
+  pull_request:
+    branches:
+      - main
 
 jobs:
   check-spdx-headers:
@@ -15,4 +17,4 @@ jobs:
     - uses: enarx/spdx@master
       with:
         licenses: |-
-          MIT
+          Apache-2.0

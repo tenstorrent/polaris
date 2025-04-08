@@ -1,3 +1,5 @@
+#!/usr/bin/env python
+# SPDX-License-Identifier: Apache-2.0
 import sys, os
 sys.path.append(os.getcwd())
 import ttsim.front.functional.op as funcop

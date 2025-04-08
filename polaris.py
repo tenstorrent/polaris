@@ -1,3 +1,5 @@
+#!/usr/bin/env python
+# SPDX-License-Identifier: Apache-2.0
 import sys
 import os
 from typing import Any

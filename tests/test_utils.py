@@ -1,3 +1,5 @@
+#!/usr/bin/env python
+# SPDX-License-Identifier: Apache-2.0
 import os
 import pytest
 from itertools import product

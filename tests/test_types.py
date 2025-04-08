@@ -1,3 +1,5 @@
+#!/usr/bin/env python
+# SPDX-License-Identifier: Apache-2.0
 import pytest
 from itertools import product
 import ttsim.utils.types as types

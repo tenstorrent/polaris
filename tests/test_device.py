@@ -1,3 +1,5 @@
+#!/usr/bin/env python
+# SPDX-License-Identifier: Apache-2.0
 from ttsim.utils.common import parse_yaml, parse_csv
 from ttsim.config import create_ipblock, create_package
 

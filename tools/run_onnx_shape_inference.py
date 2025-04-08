@@ -1,3 +1,5 @@
+#!/usr/bin/env python
+# SPDX-License-Identifier: Apache-2.0
 import argparse
 import onnx
 from onnx import helper, shape_inference

@@ -1,3 +1,5 @@
+#!/usr/bin/env python
+# SPDX-License-Identifier: Apache-2.0
 from collections import Counter
 import logging
 from ..utils.common import parse_yaml, parse_worksheet

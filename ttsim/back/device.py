@@ -1,3 +1,5 @@
+#!/usr/bin/env python
+# SPDX-License-Identifier: Apache-2.0
 
 #if __name__ == '__main__':
     #convert_units testcase

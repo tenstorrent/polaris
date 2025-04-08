@@ -1,3 +1,5 @@
+#!/usr/bin/env python
+# SPDX-License-Identifier: Apache-2.0
 import numpy as np
 from workloads.BasicLLM import BasicLLM
 import ttsim.front.functional.op as F
