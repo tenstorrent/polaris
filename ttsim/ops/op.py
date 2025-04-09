@@ -425,11 +425,7 @@ class LayerNormalizationOp(SimOp):
         X      = inT[0]
         scaleT = inT[1]
         biasT  = inT[2] if len(inT) == 3 else None
-        #X      = clone_tensor_by_shape(inT[0])
-        #scaleT = clone_tensor_by_shape(inT[1])
-        #biasT  = clone_tensor_by_shape(inT[2]) if len(inT) == 3 else None
         assert X.check_shape(), f"Illegal Shape for {X}"
-        #assert X.data is not None, f"Illegal Data for {X}"
         XShape = X.shape
         XRank  = X.rank()
 
@@ -502,30 +498,24 @@ class LayerNormalizationOp(SimOp):
         #y_mat = np.reshape(y_mat, XShape) * scaleT.data
         instr_count['mac'] += input_count
         if biasT is not None:
-            #assert biasT.data is not None, f"Illegal DATA in Tensor {biasT}"
+            #Check: this add is already counted in the 'mac' above?
             #y_mat = y_mat + biasT.data
             pass
 
-        #tmp_outT = build_tmp_data_tensor(y_mat, self.name + '__tmp_Y_out__')
-        #update_output_tensor(self, tmp_outT, outT[0])
         outT[0].shape = X.shape
         outT[0].dtype = X.dtype
 
         if len(outT) >= 2:
             # reshape needed because of initial tensor-to-matrix reshape in Step-1.
             #X_mean = np.reshape(x_mean, reduction_shape)
-            #tmp_meanT = build_tmp_data_tensor(X_mean, self.name + '__tmp_mean_out__')
-            #update_output_tensor(self, tmp_meanT, outT[1])
             outT[1].shape = reduction_shape
             outT[1].dtype = X.dtype
 
         if len(outT) == 3:
             # reshape needed because of initial tensor-to-matrix reshape in Step-1.
             #X_invSDT = np.reshape(inv_std_dev, reduction_shape)
-            #tmp_invSDT = build_tmp_data_tensor(X_invSDT, self.name + '__tmp_invSDT_out__')
-            #update_output_tensor(self, tmp_invSDT, outT[2])
-            outT[1].shape = reduction_shape
-            outT[1].dtype = X.dtype
+            outT[2].shape = reduction_shape
+            outT[2].dtype = X.dtype
 
         biasElems   = 0 if biasT is None else biasT.nelems()
         meanElems   = 0 if len(outT) < 2 else outT[1].nelems()
