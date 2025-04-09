@@ -1622,7 +1622,6 @@ class DropoutOp(SimOp):
         # ratio is same as drop_probability
         # outT = scale * dataT * maskT, where scale = 1./(1-ratio).
         seed = self.attrs.get('seed', 1.0)
-        #X    = clone_tensor_by_shape(inT[0], data_maybe_missing=False) #dataT.data must be present
         X = inT[0]
 
         inBytes = X.nbytes()
@@ -1633,7 +1632,7 @@ class DropoutOp(SimOp):
             ratio = inT[1].data
             inBytes += inT[1].dtype.itemsize
             inElems += 1
-        else: # len(inT) == 3
+        elif len(inT) == 3:
             assert inT[1].data is not None, f"missing ratio {inT[1]}"
             assert inT[2].data is not None, f"missing training_mode {inT[2]}"
             ratio = inT[1].data
@@ -1650,7 +1649,7 @@ class DropoutOp(SimOp):
         else:
             #np.random.seed(seed)
             # mask   = np.random.uniform(0, 1.0, X.shape) >= ratio  # Avoid allocation of dead data
-            scale  = 1. / (1. - ratio)
+            #scale  = 1. / (1. - ratio)
             #np_out = mask * X.data * scale
             # np_mask_out = mask.astype(bool)                       # Avoid allocation of dead data
             instr_count = {
@@ -1658,17 +1657,14 @@ class DropoutOp(SimOp):
                     'mul': X.nelems(), #mask * x * scale
                     }
 
-        #tmp_outT = build_tmp_data_tensor(np_out, self.name + '__tmp_out__')
-        #update_output_tensor(self, tmp_outT, outT[0])
         outT[0].shape = X.shape
         outT[0].dtype = X.dtype
 
         return_mask = True if len(outT) == 2 else False
 
         if return_mask:
-            #tmp_mask_outT = build_tmp_data_tensor(np_out, self.name + '__tmp_mask_out__')
-            #update_output_tensor(self, tmp_mask_outT, outT[1])
             outT[1].shape = X.shape
+            outT[1].dtype = np.dtype(np.bool_)
             outT[1].has_grad = False
 
         outBytes = outT[0].nbytes()
@@ -1834,13 +1830,10 @@ class GeluOp(SimOp):
         # we assume approximate to be 'tanh' always for now....
         # TODO: add default option as well...
 
-        #X = clone_tensor_by_shape(inT[0])
-        #update_output_tensor(self, X, outT[0])
         outT[0].shape = inT[0].shape
         outT[0].dtype = inT[0].dtype
         #instr count calc.
         # Y= <const> * X * ( <const> + tanh( <const> * ( X + <const> * X^3 ) ) )
-        #nElem = X.nelems()
         nElem = inT[0].nelems()
         mul_count, add_count, tanh_count = 0,0,0
         mul_count  += 2 * nElem # X^3
@@ -1907,14 +1900,14 @@ class ReluOp(SimOp):
         # where the rectified linear function, y = max(0, x), is applied to
         # the tensor elementwise.
 
-        X = clone_tensor_by_shape(inT[0])
-        update_output_tensor(self, X, outT[0])
-        nElem = X.nelems()
+        nElem = inT[0].nelems()
+        outT[0].shape = inT[0].shape
+        outT[0].dtype = inT[0].dtype
         self.perf_stats = {
-                'inElems' : nElem,
-                'inBytes' : X.nbytes(),
-                'outElems': nElem,
-                'outBytes': X.nbytes(),
+                'inElems' : inT[0].nelems(),
+                'inBytes' : inT[0].nbytes(),
+                'outElems': outT[0].nelems(),
+                'outBytes': outT[0].nbytes(),
                 'instrs'  : {'cmp': nElem, 'mov': nElem}
                 }
         return self.perf_stats
