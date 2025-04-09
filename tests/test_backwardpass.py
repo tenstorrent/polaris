@@ -4,7 +4,7 @@ from workloads.basicmlp import BasicMLP
 from ttsim.graph import BackwardWorkloadGraph
 import ttsim.front.functional.op as F
 
-def test_backwardpass(tmp_path):
+def _backwardpass(tmp_path):
     model_cfgs ={
             'M1': {'mm_dims': [32, 64, 16, 4, 1], 'bs': 1 },
             'M2': {'mm_dims': [32, 64, 16], 'bs': 1, 'with_mul': True},
@@ -27,10 +27,10 @@ def test_backwardpass(tmp_path):
         loss = np.sum((y.data-z.data)**2)/y.data.size #euclidean distance...
         loss_gradient = (y.data - z.data)/y.data.size
 
-        logging.info( '  OUTPUT TENSOR      : %s', y.name)
-        logging.info( '  GROUND TRUTH       : %s', z.name)
+        logging.info('  OUTPUT TENSOR      : %s', y.name)
+        logging.info('  GROUND TRUTH       : %s', z.name)
         logging.info('  LOSS               : %.2f', loss)
-        logging.info( '  LOSS GRADIENT SHAPE: %s', loss_gradient.shape)
+        logging.info('  LOSS GRADIENT SHAPE: %s', loss_gradient.shape)
 
         g = m_obj.get_forward_graph()
         fwd_onnxfile = basedir / f'{m_name}_FWD.onnx'

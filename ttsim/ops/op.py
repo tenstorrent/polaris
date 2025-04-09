@@ -1,7 +1,3 @@
-# Inspired by onnx.backend.test.case.node
-# A dummy backend of Onnx operators to generate intermediate tensor shapes...
-# Caution: no guarantees on data correctness... 
-
 from functools import lru_cache, reduce
 import operator
 import math
@@ -11,7 +7,6 @@ import torch
 from typing import Union, TYPE_CHECKING, Dict, Any
 
 from onnx.mapping import TENSOR_TYPE_MAP
-#from onnx.backend.test.case.node.reshape import reshape_reference_implementation
 import ttsim.utils.common as common
 from .tensor import SimTensor
 
@@ -89,34 +84,6 @@ def clone_tensor_by_shape(itensor, /, data_maybe_missing = True):
         assert itensor.data is not None, f"Illegal Data in Tensor {itensor}"
         clone = itensor
     return clone
-
-def build_tmp_fp32_tensor_from_shape(shape, name):
-    tmp_data: Union[np.floating, np.ndarray]
-    if len(shape) == 0: #rank-0 tensor
-        tmp_data = np.float32(1.0)
-    else:
-        tmp_data = np.random.randn(*shape).astype(np.float32)
-    return SimTensor({
-        'name' : name,
-        'shape': shape,
-        'dtype': np.dtype(np.float32),
-        'data' : tmp_data,
-        'resolve': '_',
-        'op_in': [],
-        'op_out': [],
-        })
-
-def build_tmp_int64_tensor_from_range(range_low, range_high, tsize, name):
-    tmp_data = np.random.randint(range_low, range_high, size=tsize)
-    return SimTensor({
-        'name' : name,
-        'shape': list(tmp_data.shape),
-        'dtype': np.int64,
-        'data' : tmp_data,
-        'resolve': '_',
-        'op_in': [],
-        'op_out': [],
-        })
 
 def build_tmp_data_tensor(data, name):
     return SimTensor({
@@ -266,6 +233,9 @@ class ConstantOp(SimOp):
     def get_perf_counts(self, inT, outT, **kwargs):
         if self.perf_stats is not None:
             return self.perf_stats
+
+        assert False, f"{self.opclass_str} get_perf_stats not supported at present!!"
+
         attr_val_count = 0
         attr_val_field = ""
         for ff in ['sparse_value', 'value', 'value_float', 'value_floats',
@@ -297,34 +267,35 @@ class EltwiseUnaryOp(SimOp):
         # just forward input shape/data and update ops
         if self.perf_stats is not None:
             return self.perf_stats
-        A = clone_tensor_by_shape(inT[0])
-        np_out = A.data
 
-        is_backprop = kwargs.get('is_backprop', False)
-        batch_axis  = kwargs.get('batch_axis',  None)
-        bias_axis   = kwargs.get('bias_axis',   None)
-        if is_backprop and outT[0].is_param and batch_axis is not None:
-            assert batch_axis >=0 and batch_axis < len(np_out.shape), f"DIPPY"
-            #reduce across all samples in batch for paramter gradients
-            # is_backprop -> this is a gradient calculation
-            # is_param    -> this is a parameter tensor
-            # batch_axis  -> this is the batch axis
-            #TODO: add this cost to instrs
-            if bias_axis is not None: #HACK HACK HACK -- need ReduceSum operator in BWD PASS
-                np_out = np.sum(np_out.data, axis=(batch_axis, bias_axis))
-            else:
-                np_out = np.sum(np_out.data, axis=(batch_axis))
+        #is_backprop = kwargs.get('is_backprop', False)
+        #batch_axis  = kwargs.get('batch_axis',  None)
+        #bias_axis   = kwargs.get('bias_axis',   None)
+        #if is_backprop and outT[0].is_param and batch_axis is not None:
+        #    assert batch_axis >=0 and batch_axis < len(np_out.shape), f"DIPPY"
+        #    #reduce across all samples in batch for paramter gradients
+        #    # is_backprop -> this is a gradient calculation
+        #    # is_param    -> this is a parameter tensor
+        #    # batch_axis  -> this is the batch axis
+        #    #TODO: add this cost to instrs
+        #    if bias_axis is not None: #HACK HACK HACK -- need ReduceSum operator in BWD PASS
+        #        np_out = np.sum(np_out.data, axis=(batch_axis, bias_axis))
+        #    else:
+        #        np_out = np.sum(np_out.data, axis=(batch_axis))
 
-        tmp_outT = build_tmp_data_tensor(np_out, self.name + '__tmp_out__')
-        update_output_tensor(self, tmp_outT, outT[0])
+        #tmp_outT = build_tmp_data_tensor(np_out, self.name + '__tmp_out__')
+        #update_output_tensor(self, tmp_outT, outT[0])
+        outT[0].shape = inT[0].shape
+        outT[0].dtype = inT[0].dtype
+
         optype2instr = {'identity': 'mov'}
         instr_name = self.optype.lower()
         if instr_name in optype2instr:
             instr_name = optype2instr[instr_name]
         self.perf_stats =  {
-                'inElems' : A.nelems(),
+                'inElems' : inT[0].nelems(),
                 'outElems': outT[0].nelems(),
-                'inBytes' : A.nbytes(),
+                'inBytes' : inT[0].nbytes(),
                 'outBytes': outT[0].nbytes(),
                 'instrs'  : {instr_name: outT[0].nelems()}
                 }
@@ -341,16 +312,7 @@ class EltwiseBinaryOp(SimOp):
             return self.perf_stats
 
         outT[0].shape = get_tensor_broadcast_shape(inT[0].shape, inT[1].shape)
-        #print("\nDBG>>", inT[0].name, inT[1].name, outT[0].name)
-        #print("\nDBG>>", inT[0].shape, inT[1].shape, outT[0].shape)
         outT[0].dtype = inT[0].dtype
-        if inT[0].shape == outT[0].shape:
-            outT[0].data = inT[0].data
-        elif inT[1].shape == outT[0].shape:
-            outT[0].data = inT[1].data
-        else:
-            assert False, f"Complicated Broadcasting for EltwiseBinaryOp!!"
-
         self.perf_stats =  {
                 'inElems' : inT[0].nelems() + inT[1].nelems(),
                 'outElems': outT[0].nelems(),
@@ -361,9 +323,11 @@ class EltwiseBinaryOp(SimOp):
         return self.perf_stats
 
     def backward(self, inT, outT, inGT, outGT):
-        # C = ADD(A,B),           Z = MUL(X,Y)
-        # dA = Identity(dC)      dX = MUL(dZ, Y)
-        # dB = Identity(dC)      dY = MUL(X, dZ)
+        """
+        C = ADD(A,B),           Z = MUL(X,Y)
+        dA = Identity(dC)      dX = MUL(dZ, Y)
+        dB = Identity(dC)      dY = MUL(X, dZ)
+        """
         G_OP: Union[EltwiseBinaryOp, EltwiseUnaryOp]
         assert self.perf_stats is not None, f"{self.name} backward() called before get_perf_stats()"
         assert len(inT) == len(outGT), f"#inT != #outGT!!"
@@ -431,12 +395,11 @@ class GatherOp(SimOp):
         assert axis >= 0 and axis < data_rank, f"Axis {axis} is out of bounds for dataT.shape {dataT.shape()}"
         outT[0].shape = data_shape[:axis] + indicesT.shape + data_shape[axis + 1:]
         outT[0].dtype = dataT.dtype
-        #print("DBG>> GATHER\ndataT:", dataT, "\nindicesT:", indicesT, "\noutT:", outT[0])
 
         self.perf_stats = {
-                'inElems' : dataT.nelems(), #inT[0].nelems(),
+                'inElems' : dataT.nelems(),
                 'outElems': outT[0].nelems(),
-                'inBytes' : dataT.nbytes(), #inT[0].nbytes(),
+                'inBytes' : dataT.nbytes(),
                 'outBytes': outT[0].nbytes(),
                 'instrs'  : {'mov': outT[0].nelems()}
                 }
@@ -803,7 +766,6 @@ class BatchNormalization(SimOp):
 
         return grad_results
 
-
 class ConvOp(SimOp): #version 22
     def __init__(self, opinfo):
         super().__init__(opinfo)
@@ -816,7 +778,7 @@ class ConvOp(SimOp): #version 22
             'group': 1,
             'kernel_shape': None,
             'pads': [0, 0, 0, 0],
-            'strides': [1, 1],            
+            'strides': [1, 1],
         }
         if 'attrs' in opinfo:
             self.check_known_args(opinfo['attrs'])
@@ -1003,7 +965,6 @@ class AveragePoolOp(SimOp):
             'instrs'  : instr_count
         }
 
-
 class MatMulOp(SimOp):
     def __init__(self, opinfo):
         super().__init__(opinfo)
@@ -1140,8 +1101,6 @@ class SplitOp(SimOp):
         outElems = 0
         for tidx, tout in enumerate(outT):
             tshape0 = outShapes[tidx]
-            #tmp_outT = build_tmp_fp32_tensor_from_shape(tshape0, self.name + f"__tmp_out__{tidx}")
-            #update_output_tensor(self, tmp_outT, tout)
             tout.shape = tshape0
             tout.dtype = A.dtype
             outBytes += tout.nbytes()
@@ -1176,7 +1135,7 @@ class ReshapeOp(SimOp):
         target_shape = [x.item() for x in B.data]
 
         minus_one_count = 0
-        minus_one_index = None
+        minus_one_index: Any = None
         zeros_count     = 0
         zeros_index     = []
         for i,x in enumerate(target_shape):
@@ -1279,10 +1238,6 @@ class TransposeOp(SimOp):
             return self.perf_stats
         perms  = self.attrs['perm']
         assert len(perms) == inT[0].rank(), f"perms({perms}) must be equal to input rank ({inT[0].rank()})!!"
-        #A      = clone_tensor_by_shape(inT[0])
-        #np_out = np.transpose(A.data, perms)
-        #tmp_outT = build_tmp_data_tensor(np_out, self.name + '__tmp_out__')
-        #update_output_tensor(self, tmp_outT, outT[0])
         outT[0].shape = [inT[0].shape[i] for i in perms]
         outT[0].dtype = inT[0].dtype
         self.perf_stats = {
@@ -1649,7 +1604,6 @@ class TriluOp(SimOp):
                 }
         return self.perf_stats
 
-
 class DropoutOp(SimOp):
     def __init__(self, opinfo):
         super().__init__(opinfo)
@@ -1691,7 +1645,7 @@ class DropoutOp(SimOp):
 
         if ratio == 0 or training_mode == False:
             #np_out      = X.data
-            np_mask_out = np.ones(X.shape, dtype=bool)
+            #np_mask_out = np.ones(X.shape, dtype=bool)
             instr_count = {'nop': X.nelems()}
         else:
             #np.random.seed(seed)
@@ -1712,8 +1666,9 @@ class DropoutOp(SimOp):
         return_mask = True if len(outT) == 2 else False
 
         if return_mask:
-            tmp_mask_outT = build_tmp_data_tensor(np_out, self.name + '__tmp_mask_out__')
-            update_output_tensor(self, tmp_mask_outT, outT[1])
+            #tmp_mask_outT = build_tmp_data_tensor(np_out, self.name + '__tmp_mask_out__')
+            #update_output_tensor(self, tmp_mask_outT, outT[1])
+            outT[1].shape = X.shape
             outT[1].has_grad = False
 
         outBytes = outT[0].nbytes()
@@ -2127,9 +2082,6 @@ class ReduceSumOp(SimOp):
                 }
 
         return self.perf_stats
-
-
-
 
 ######################  CONCRETE OP IMPLEMENTATION END ##################
 

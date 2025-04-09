@@ -62,3 +62,6 @@ class SimTensor:
             return True
         else:
             return False
+
+def make_tensor(name: str) -> SimTensor:
+    return SimTensor({'name': name, 'shape': [], 'dtype': None})

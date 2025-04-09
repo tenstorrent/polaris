@@ -1,6 +1,6 @@
 import sys
 import os
-from typing import Any
+from typing import Any, List
 import re
 import warnings
 import logging
@@ -375,7 +375,7 @@ def do_dryrun(_wl, _dl):
 
 def execute_wl_on_dev(_wl, _dl, _wspec, _dspec, _op2dt, _op2rsrc, _null_ops, _op_fusion_list, _WLG,
                       _statDir, _enable_memalloc):
-    _summary_stats = []
+    _summary_stats: List = []
     ALL_EXPS = product(_wl, _dl)
     for exp_no, (exp_wl, exp_dev) in tqdm(enumerate(ALL_EXPS), unit="Jobs", desc="Running Jobs"):
         wlgroup, wlname, wlins_name, wlins_cfg, wlbatch = exp_wl
@@ -468,9 +468,9 @@ def execute_wl_on_dev(_wl, _dl, _wspec, _dspec, _op2dt, _op2rsrc, _null_ops, _op
                 })
             rows.append(val)
 
-        #for tname, tval in wlgraph._tensors.items():
-        #    print(tname, tval)
-        #exit(0)
+        for tname, tval in wlgraph._tensors.items():
+            print(tname, tval)
+        exit(0)
 
         statF_parts  = [f"{devname}"]
         statF_parts += [] if devfreq is None else [f"f{devfreq}"]

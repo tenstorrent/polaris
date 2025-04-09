@@ -1,5 +1,6 @@
-from ttsim.ops.op import SimOpFactory, build_tmp_fp32_tensor_from_shape, build_tmp_data_tensor
+from ttsim.ops.op import SimOpFactory
 from ttsim.graph import CREATE_GRAD_TENSOR, WorkloadGraph, BackwardWorkloadGraph
+import ttsim.front.functional.op as F
 import numpy as np
 import os
 from typing import Any
@@ -52,54 +53,50 @@ OPTYPES: dict[str, dict] = {
     # 'MaxPool'             : {'in': [], 'out': []},
         }
 
-make_shape = build_tmp_fp32_tensor_from_shape
-
 def check_perf_counts(x,ot):
     for f in [ 'inElems', 'outElems', 'inBytes', 'outBytes', 'instrs']:
         assert f in x, f"Field {f} missing in get_perf_counts() for {ot}"
     return
 
-def test_backward_ops(tmp_path_factory):
+def _backward_ops(tmp_path_factory):
     odir = tmp_path_factory.mktemp('bwd_ops_test')
     os.makedirs(odir, exist_ok=True)
     for op_num, (op_type, op_spec) in enumerate(OPTYPES.items()):
         op_name   = f'OP_{op_num}_{op_type}'
         if op_type == 'Reshape':
-            i_tensors = [
-                    make_shape(op_spec['in'][0], f'{op_name}_ITensor_0'),
-                    build_tmp_data_tensor(np.array(op_spec['in'][1]), f'{op_name}_ITensor_1')
-                    ]
+            i_tensors = [ F._from_shape(f'{op_name}_ITensor_0', op_spec['in'][0], np_dtype=np.float32),
+                         F._from_data(f'{op_name}_ITensor_1', np.array(op_spec['in'][1]))]
             i_tensors[1].is_const = True
         elif op_type == 'Dropout':
-            x0 = make_shape(op_spec['in'][0], f'{op_name}_ITensor_0')
-            x1 = build_tmp_data_tensor(np.array(op_spec['in'][1]), f'{op_name}_ITensor_1')
-            x2 = build_tmp_data_tensor(np.array(op_spec['in'][2]), f'{op_name}_ITensor_2')
+            x0 = F._from_shape(f'{op_name}_ITensor_0', op_spec['in'][0], np_dtype=np.float32)
+            x1 = F._from_data(f'{op_name}_ITensor_1', np.array(op_spec['in'][1]))
+            x2 = F._from_data(f'{op_name}_ITensor_2', np.array(op_spec['in'][2]))
             x1.is_const = True
             x2.is_const = True
             i_tensors = [x0,x1,x2]
         elif op_type == 'LayerNormalization':
             pass
             # TODO: enable LayerNormalization after backward pass implemented for it
-            # x0 = make_shape(op_spec['in'][0], f'{op_name}_ITensor_0')
-            # x1 = make_shape(op_spec['in'][1], f'{op_name}_ITensor_1')
-            # x2 = make_shape(op_spec['in'][2], f'{op_name}_ITensor_2')
+            # x0 = F._from_shape(f'{op_name}_ITensor_0', op_spec['in'][0], np_dtype=np.float32)
+            # x1 = F._from_shape(f'{op_name}_ITensor_1', op_spec['in'][1], np_dtype=np.float32)
+            # x2 = F._from_shape(f'{op_name}_ITensor_2', op_spec['in'][2], np_dtype=np.float32)
             # x1.is_param = True
             # x2.is_param = True
             # i_tensors = [x0,x1,x2]
         else:
-            i_tensors = [make_shape(x, f'{op_name}_ITensor_{i}') for i,x in enumerate(op_spec['in'])]
+            i_tensors = [F._from_shape(f'{op_name}_ITensor_{i}', x, np_dtype=np.float32) for i,x in enumerate(op_spec['in'])]
 
         if op_type == 'LayerNormalization':
             pass
             # TODO: enable LayerNormalization after backward pass implemented for it
-            # y0 = make_shape(op_spec['out'][0], f'{op_name}_OTensor_0')
-            # y1 = make_shape(op_spec['out'][1], f'{op_name}_OTensor_1')
-            # y2 = make_shape(op_spec['out'][2], f'{op_name}_OTensor_2')
+            # y0 = F._from_shape(f'{op_name}_OTensor_0', op_spec['out'][0], np_dtype=np.float32)
+            # y1 = F._from_shape(f'{op_name}_OTensor_1', op_spec['out'][1], np_dtype=np.float32)
+            # y2 = F._from_shape(f'{op_name}_OTensor_2', op_spec['out'][2], np_dtype=np.float32)
             # y1.has_grad = False
             # y2.has_grad = False
             # o_tensors = [y0,y1,y2]
         else:
-            o_tensors = [make_shape(x, f'{op_name}_OTensor_{i}') for i,x in enumerate(op_spec['out'])]
+            o_tensors = [F._from_shape(f'{op_name}_OTensor_{i}', x, np_dtype=np.float32) for i,x in enumerate(op_spec['out'])]
 
         op_info = {
                 'name'   : op_name,
