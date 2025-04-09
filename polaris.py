@@ -13,7 +13,6 @@ import json
 
 from collections import defaultdict
 from itertools import product
-from tqdm import tqdm
 
 from ttsim.config import get_arspec_from_yaml, get_wlspec_from_yaml, get_wlmapspec_from_yaml
 from ttsim.front import onnx2graph
@@ -365,7 +364,7 @@ def do_dryrun(_wl, _dl):
 def execute_wl_on_dev(_wl, _dl, _wspec, _dspec, _op2dt, _op2rsrc, _null_ops, _op_fusion_list, _WLG, _statDir):
     _summary_stats = []
     ALL_EXPS = product(_wl, _dl)
-    for exp_no, (exp_wl, exp_dev) in tqdm(enumerate(ALL_EXPS), unit="Jobs", desc="Running Jobs"):
+    for exp_no, (exp_wl, exp_dev) in enumerate(ALL_EXPS):
         wlgroup, wlname, wlins_name, wlins_cfg, wlbatch = exp_wl
         devname, devfreq                                = exp_dev
 
@@ -465,6 +464,7 @@ def execute_wl_on_dev(_wl, _dl, _wspec, _dspec, _op2dt, _op2rsrc, _null_ops, _op
 
         reduced_stat  = ReducedStats(devname, wlgroup, wlname, wlins_name, dev_obj)
         _summary_stats.append( reduced_stat.summarize (rows) )
+        logging.info('ran job #%d %s %s %s', exp_no, wlins_name, devname, devfreq)
 
     return _summary_stats
 
