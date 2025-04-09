@@ -1,4 +1,5 @@
 #!/usr/bin/env python
+# SPDX-FileCopyrightText: (C) 2025 Tenstorrent
 # SPDX-License-Identifier: Apache-2.0
 from ttsim.ops.op import SimOpFactory, build_tmp_fp32_tensor_from_shape, build_tmp_data_tensor
 from ttsim.graph import CREATE_GRAD_TENSOR, WorkloadGraph, BackwardWorkloadGraph

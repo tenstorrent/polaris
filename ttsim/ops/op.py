@@ -1,4 +1,5 @@
 #!/usr/bin/env python
+# SPDX-FileCopyrightText: (C) 2025 Tenstorrent
 # SPDX-License-Identifier: Apache-2.0
 # Inspired by onnx.backend.test.case.node
 # A dummy backend of Onnx operators to generate intermediate tensor shapes...
