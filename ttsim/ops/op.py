@@ -761,101 +761,130 @@ class ConvOp(SimOp): #version 22
         super().__init__(opinfo)
         self.opclass_str: str = 'Conv'
         check_io_counts(self, in_counts=[2,3], out_counts=[1,1])
-        # TODO: Support arbitrary number of dimensions, currently only 2 dims supported
         self._kw_args_defaults = {
-            'auto_pad': 'NOTSET',
-            'dilations': [1, 1],
-            'group': 1,
+            'auto_pad'    : 'NOTSET',
+            'dilations'   : [1, 1],
+            'strides'     : [1, 1],
+            'pads'        : [0, 0, 0, 0],
+            'group'       : 1,
             'kernel_shape': None,
-            'pads': [0, 0, 0, 0],
-            'strides': [1, 1],
         }
         if 'attrs' in opinfo:
             self.check_known_args(opinfo['attrs'])
 
     def get_perf_counts(self, inT, outT, **kwargs):
-        """
-            Reference definition: https://pytorch.org/docs/stable/generated/torch.nn.Conv2d.html
-            Out = bias + weight * input
-            Each weight * input done height//Kh * width//Kw times (in the absence of padding)
-            With padding, it is done (height+2*paddingH-Kh)//Sh * (width+2*paddingW-kW)//Sw times
-            Each operation has Kh * Kw mac operations
-        """
         if self.perf_stats is not None:
             return self.perf_stats
 
-        # TODO: Support dimensions other than 2
-        # NOTE: ONNX reference implementation (onnx.reference.ops.op_conv) supports only 1-, 2- and 3-D convolutions,
-        # determining the dimension from the input tensor shape
-        input_tensor = clone_tensor_by_shape(inT[0])
-        assert input_tensor.check_shape(), f"Illegal Shape for {input_tensor}"
-        assert input_tensor.data is not None, f"Illegal Data for {input_tensor}"
-        param_tensor = clone_tensor_by_shape(inT[1])
-        assert param_tensor.check_shape(), f"Illegal Shape for {param_tensor}"
-        assert param_tensor.data is not None, f"Illegal Data for {param_tensor}"
-        input_shape = input_tensor.shape
-        param_shape = param_tensor.shape
-        if len(input_shape) not in range(3, 6):
-            raise RuntimeError(f'Unsupported conv input shape {input_shape}')
-        if len(input_shape) != 4:
-            raise NotImplementedError(f'Conv{len(input_shape)-2}D not implemented yet')
+        assert inT[0].check_shape(), f"Illegal Shape for {inT[0]}"
+        assert inT[1].check_shape(), f"Illegal Shape for {inT[1]}"
+        if len(inT) == 3: assert inT[2].check_shape(), f"Illegal Shape for {inT[2]}"
 
-        eff_args     = self.get_effective_args(self.attrs)
-        group        = eff_args['group']           # int
-        dilations    = eff_args['dilations']       # [int] default: 1 along each spatial axis
-        strides      = eff_args['strides']         # [int]: default: 1 along each spatial axis
-        pads         = eff_args['pads']            # [int] should be >= 0, one pair for each axis, if not present defaults to 0 along each axis
-        kernel_shape = eff_args['kernel_shape']    # [int] : if not present, should be inferred from input width
-        # NOTE: For torch conv2d, the weights have out_channels as the first, and in_channels/group as second dimension
-        out_channels = param_shape[0]
-        in_channels = param_shape[1] * group
-        conv_dims = len(input_shape) - 2
-        if kernel_shape is None:
-            kernel_shape = inT[1].shape[-2:]
-        if group != 1:
-            raise NotImplementedError(f'non-default group ({group}) for Conv')
-        # TODO: clean up dilations (implement influence on # ops)
-        if dilations != 1 and dilations != (1, 1) and dilations != [1, 1]:
-            raise NotImplementedError(f'non-default dilations ({dilations}) for Conv')
+        X = inT[0]
+        W = inT[1]
+        if len(inT) == 3: B = inT[2]
 
-        # Proxy Conv will be run on torch tensors, so converting input_tensor to torch
-        input_tensor_torch = torch.from_numpy(input_tensor.data)
-        param_tensor = clone_tensor_by_shape(inT[1])
+        num_spatial_dims = X.rank() - 2
+        if num_spatial_dims < 1:
+            raise ValueError("X must have at least 1 spatial dimension (N, C, spatial...): {X}")
 
-        stride_tuple = common.make_tuple(strides, conv_dims)
-        kernel_shape_tuple = common.make_tuple(kernel_shape, conv_dims)
-        pad_tuple = common.make_tuple(pads, conv_dims*2)
-        dilations_tuple = common.make_tuple(dilations, conv_dims)
+        group        = self.attrs.get('group', 1)
+        dilations    = self.attrs.get('dilations', [1] * num_spatial_dims)
+        strides      = self.attrs.get('strides',   [1] * num_spatial_dims)
+        pads         = self.attrs.get('pads',      [0] * (2 * num_spatial_dims))
+        auto_pad     = self.attrs.get('auto_pad', 'NOTSET')
+        kernel_shape = self.attrs.get('kernel_shape', None)
 
-        height, width = input_shape[-2:]
-        kern_ht, kern_wid = kernel_shape_tuple
-        stride_ht, stride_wid = stride_tuple
-        pad_htbegin, pad_htend, pad_widbegin, pad_widend = pad_tuple
-        nonwh_factor = reduce(lambda x, y: x * y, input_shape[:-2], 1)
-        logging.debug(f'#ops: {height+pad_htbegin+pad_htend-kern_ht+1}/{stride_ht} * {width+pad_widbegin+pad_widend-kern_wid+1}/{stride_wid} * {kern_wid} * {kern_ht}')
-        instr_count = {
-            'mac': nonwh_factor * ((height+pad_htbegin+pad_htend-kern_ht+1)//stride_ht) * ((width+pad_widbegin+pad_widend-kern_wid+1)//stride_wid) * (kern_wid * kern_ht)
-        }
-        biasElems = 0
-        biasBytes = biasElems * 4   # TODO: account for dtype
+        # Validate inputs
+        if W.rank() != num_spatial_dims + 2:
+            raise ValueError(f"Weight shape must have {num_spatial_dims + 2} dims (C_out, C_in/group, kernel_dims): {W}")
+        if len(dilations) != num_spatial_dims or len(strides) != num_spatial_dims or len(pads) != 2 * num_spatial_dims:
+            raise ValueError("Dilations, strides, and pads must match spatial dimensions")
+        if group <= 0 or X.shape[1] % group != 0:
+            raise ValueError(f"C_in {X.shape[1]} must be divisible by group {group}")
+        if W.shape[1] != X.shape[1] // group:
+            raise ValueError(f"Weight C_in/group {W.shape[1]} must match input C_in/group {X.shape[1] // group}")
+        if len(inT) == 3:
+            if B.rank() != 1 or B.shape[0] != W.shape[0]:
+                raise ValueError(f"Bias shape {B.shape} must be (C_out,) matching weight C_out {W.shape[0]}")
 
-        conv2d_obj = torch.nn.Conv2d(in_channels, out_channels, kernel_size=kernel_shape,
-                                     stride=strides, 
-                                     padding=(pads[0], pads[2]), # Torch Conv padding should be symmetric (2 values, not 4)
-                                     dilation=dilations,
-                                     groups=group
-                                     )
-        # https: // stackoverflow.com / questions / 49768306 / pytorch - tensor - to - numpy - array
-        tmp_output = conv2d_obj(input_tensor_torch).cpu().detach().numpy()
+        N, C_in          = X.shape[0], X.shape[1]
+        C_out            = W.shape[0]
+        spatial_dims     = X.shape[2:]
+        kernel_dims      = W.shape[2:]
 
-        tmp_outT = build_tmp_data_tensor(tmp_output, self.name + '__tmp_conv_out__')
+        if len(kernel_dims) != num_spatial_dims:
+            raise ValueError("Kernel spatial dims must match input spatial dims")
 
-        update_output_tensor(self, tmp_outT, outT[0])
+        if kernel_shape is not None:
+            if kernel_shape != kernel_dims:
+                raise ValueError("Kernel Shape does not match Kernel-dims calculated from input spatial dims")
+
+        # Compute effective kernel size with dilation
+        effective_kernel = [ (kernel_dims[i] - 1) * dilations[i] + 1 for i in range(num_spatial_dims) ]
+
+        # Compute output spatial dimensions
+        output_spatial = []
+        for i in range(num_spatial_dims):
+            Di       = spatial_dims[i]
+            ki       = effective_kernel[i]
+            stride_i = strides[i]
+            if auto_pad == "NOTSET":
+                pad_begin_i   = pads[i]
+                pad_end_i     = pads[i + num_spatial_dims]
+                total_padding = pad_begin_i + pad_end_i
+                Oi            = (Di + total_padding - ki) // stride_i + 1
+            elif auto_pad == "VALID":
+                Oi = (Di - ki) // stride_i + 1
+            elif auto_pad == "SAME_UPPER" or auto_pad == "SAME_LOWER":
+                Oi = int(np.ceil(Di/stride_i))
+            else:
+                raise ValueError(f"Unsupported auto_pad value: {auto_pad}")
+
+            if Oi <= 0:
+                raise ValueError(f"Output dimension {i} would be <= 0: {Oi}")
+            output_spatial.append(Oi)
+
+        output_shape = [N, C_out] + output_spatial
+        #print(">> X.shape         :", X.shape)
+        #print(">> W.shape         :", W.shape)
+        #if len(inT) == 3: print(">> B.shape         :", B.shape)
+        #print(">> group           :", group)
+        #print(">> dilations       :", dilations)
+        #print(">> strides         :", strides)
+        #print(">> pads            :", pads)
+        #print(">> auto_pad        :", auto_pad)
+        #print(">> N               :", N)
+        #print(">> C_in            :", C_in)
+        #print(">> C_out           :", C_out)
+        #print(">> spatial_dims    :", spatial_dims)
+        #print(">> kernel_shape    :", kernel_shape)
+        #print(">> kernel_dims     :", kernel_dims)
+        #print(">> num_spatial_dims:", num_spatial_dims)
+        #print(">> output_spatial  :", output_spatial)
+        #print(">> output_shape    :", output_shape)
+        #if len(inT) == 3: print(">> B.shape         :", B.shape)
+
+        if X.shape[0] != output_shape[0] or W.shape[0] != output_shape[1]:
+            raise ValueError("Batch size (N) and C_out must match across shapes")
+
+        outT[0].shape = output_shape
+        outT[0].dtype = X.dtype
+
+        macs_per_output = (C_in // group) * np.prod(kernel_dims)
+        output_elements = N * C_out * np.prod(spatial_dims)
+        total_macs      = output_elements * macs_per_output
+        instr_count     = { 'mac': total_macs }
+        if len(inT) == 3:
+            instr_count['add'] = output_elements
+
+        inElems = X.nelems() + W.nelems() + B.nelems() if len(inT) == 3 else 0
+        inBytes = X.nbytes() + W.nbytes() + B.nbytes() if len(inT) == 3 else 0
 
         self.perf_stats = {
-            'inElems' : input_tensor.nelems() + param_tensor.nelems() + biasElems,
+            'inElems' : inElems,
             'outElems': outT[0].nelems(),
-            'inBytes' : inT[0].nbytes() + inT[1].nbytes() + biasBytes,
+            'inBytes' : inBytes,
             'outBytes': outT[0].nbytes(),
             'instrs'  : instr_count
         }
