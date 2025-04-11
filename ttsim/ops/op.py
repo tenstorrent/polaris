@@ -1,17 +1,11 @@
-# Inspired by onnx.backend.test.case.node
-# A dummy backend of Onnx operators to generate intermediate tensor shapes...
-# Caution: no guarantees on data correctness... 
-
 from functools import lru_cache, reduce
 import operator
 import math
 import logging
 import numpy as np
-import torch
 from typing import Union, TYPE_CHECKING, Dict, Any
 
 from onnx.mapping import TENSOR_TYPE_MAP
-from onnx.backend.test.case.node.reshape import reshape_reference_implementation
 import ttsim.utils.common as common
 from .tensor import SimTensor
 
@@ -43,6 +37,107 @@ class GRAD_TENSOR_INFO:
         for ppp in self._new_tensors: x += f"  {ppp}\n"
         return x
 
+def get_tensor_broadcast_shape(shape1, shape2):
+    """Determine broadcasted shape for element-wise operations"""
+    s1 = shape1[::-1]
+    s2 = shape2[::-1]
+    max_len = max(len(s1), len(s2))
+    s1.extend([1] * (max_len - len(s1)))
+    s2.extend([1] * (max_len - len(s2)))
+
+    result = []
+    for d1, d2 in zip(s1, s2):
+        if d1 == d2:
+            result.append(d1)
+        elif d1 == 1:
+            result.append(d2)
+        elif d2 == 1:
+            result.append(d1)
+        else:
+            raise ValueError(f"Shapes {shape1} and {shape2} not broadcast-compatible")
+    return result[::-1]
+
+def pooling_shape_inference(input_shape, kernel_shape, attrs):
+    """Shape inference for pooling operators"""
+
+    # Validate inputs
+    if len(input_shape) < 2:
+        raise ValueError(f"Expected at least 2D input tensor, got shape {input_shape}")
+
+    num_spatial_dims = len(kernel_shape)
+    if num_spatial_dims > len(input_shape) - 2:
+        raise ValueError(f"Too many spatial dimensions ({num_spatial_dims}) for input shape {input_shape}")
+
+    auto_pad      = attrs.get('auto_pad',      'NOTSET')
+    ceil_mode     = attrs.get('ceil_mode',     0)
+    dilations     = attrs.get('dilations',     [1] * num_spatial_dims)
+    pads          = attrs.get('pads',          [0] * (2 * num_spatial_dims))
+    storage_order = attrs.get('storage_order', 0)
+    strides       = attrs.get('strides',       [1] * num_spatial_dims)
+
+    # Extract spatial dimensions (assume last num_spatial_dims are spatial)
+    non_spatial_dims = input_shape[:-num_spatial_dims]
+    spatial_dims     = input_shape[-num_spatial_dims:]
+    if len(spatial_dims) != num_spatial_dims:
+        raise ValueError(f"Expected {num_spatial_dims} spatial dimensions, got {spatial_dims}")
+
+    # Handle padding
+    if pads is not None:
+        if len(pads) != 2 * num_spatial_dims:
+            raise ValueError(f"Expected pads length 2 * {num_spatial_dims}, got {pads}")
+        pad_before = pads[:num_spatial_dims]
+        pad_after = pads[num_spatial_dims:]
+    else:
+        if auto_pad == "VALID":
+            pad_before = [0] * num_spatial_dims
+            pad_after = [0] * num_spatial_dims
+        elif auto_pad in ["SAME_UPPER", "SAME_LOWER"]:
+            pad_before = []
+            pad_after = []
+            for i in range(num_spatial_dims):
+                # Effective kernel size with dilation
+                effective_kernel_size = (kernel_shape[i] - 1) * dilations[i] + 1
+                # For SAME padding, output size is ceil(input_size / stride)
+                out_size = math.ceil(spatial_dims[i] / strides[i])
+                # Compute total padding needed
+                pad_total = max((out_size - 1) * strides[i] + effective_kernel_size - spatial_dims[i], 0)
+                # Distribute padding
+                if auto_pad == "SAME_UPPER":
+                    pad_b = pad_total // 2
+                    pad_a = pad_total - pad_b
+                else:  # SAME_LOWER
+                    pad_a = pad_total // 2
+                    pad_b = pad_total - pad_a
+                pad_before.append(pad_b)
+                pad_after.append(pad_a)
+        else:  # NOTSET with pads=None
+            pad_before = [0] * num_spatial_dims
+            pad_after = [0] * num_spatial_dims
+
+    # Compute output spatial dimensions
+    output_spatial_dims = []
+    for i in range(num_spatial_dims):
+        # Compute effective kernel size with dilation
+        effective_kernel_size = (kernel_shape[i] - 1) * dilations[i] + 1
+        # Compute output size
+        padded_size = spatial_dims[i] + pad_before[i] + pad_after[i]
+        if ceil_mode == 0:
+            out_size = math.floor((padded_size - effective_kernel_size) / strides[i]) + 1
+        else:  # ceil_mode == 1
+            out_size = math.ceil((padded_size - effective_kernel_size) / strides[i]) + 1
+        if out_size <= 0:
+            raise ValueError(
+                f"Invalid output dimension {i}: size={out_size}. "
+                f"Check input shape {input_shape}, kernel {kernel_shape}, "
+                f"strides {strides}, pads {pads}, auto_pad {auto_pad}, "
+                f"ceil_mode {ceil_mode}, dilations {dilations}."
+            )
+        output_spatial_dims.append(out_size)
+
+    # Construct output shape
+    output_shape = non_spatial_dims + output_spatial_dims
+    return output_shape
+
 def clone_tensor_by_shape(itensor, /, data_maybe_missing = True):
     assert itensor.check_shape(), f"Illegal Shape in Tensor {itensor}"
     if data_maybe_missing:
@@ -69,34 +164,6 @@ def clone_tensor_by_shape(itensor, /, data_maybe_missing = True):
         assert itensor.data is not None, f"Illegal Data in Tensor {itensor}"
         clone = itensor
     return clone
-
-def build_tmp_fp32_tensor_from_shape(shape, name):
-    tmp_data: Union[np.floating, np.ndarray]
-    if len(shape) == 0: #rank-0 tensor
-        tmp_data = np.float32(1.0)
-    else:
-        tmp_data = np.random.randn(*shape).astype(np.float32)
-    return SimTensor({
-        'name' : name,
-        'shape': shape,
-        'dtype': np.dtype(np.float32),
-        'data' : tmp_data,
-        'resolve': '_',
-        'op_in': [],
-        'op_out': [],
-        })
-
-def build_tmp_int64_tensor_from_range(range_low, range_high, tsize, name):
-    tmp_data = np.random.randint(range_low, range_high, size=tsize)
-    return SimTensor({
-        'name' : name,
-        'shape': list(tmp_data.shape),
-        'dtype': np.int64,
-        'data' : tmp_data,
-        'resolve': '_',
-        'op_in': [],
-        'op_out': [],
-        })
 
 def build_tmp_data_tensor(data, name):
     return SimTensor({
@@ -246,6 +313,9 @@ class ConstantOp(SimOp):
     def get_perf_counts(self, inT, outT, **kwargs):
         if self.perf_stats is not None:
             return self.perf_stats
+
+        assert False, f"{self.opclass_str} get_perf_stats not supported at present!!"
+
         attr_val_count = 0
         attr_val_field = ""
         for ff in ['sparse_value', 'value', 'value_float', 'value_floats',
@@ -277,34 +347,35 @@ class EltwiseUnaryOp(SimOp):
         # just forward input shape/data and update ops
         if self.perf_stats is not None:
             return self.perf_stats
-        A = clone_tensor_by_shape(inT[0])
-        np_out = A.data
 
-        is_backprop = kwargs.get('is_backprop', False)
-        batch_axis  = kwargs.get('batch_axis',  None)
-        bias_axis   = kwargs.get('bias_axis',   None)
-        if is_backprop and outT[0].is_param and batch_axis is not None:
-            assert batch_axis >=0 and batch_axis < len(np_out.shape), f"DIPPY"
-            #reduce across all samples in batch for paramter gradients
-            # is_backprop -> this is a gradient calculation
-            # is_param    -> this is a parameter tensor
-            # batch_axis  -> this is the batch axis
-            #TODO: add this cost to instrs
-            if bias_axis is not None: #HACK HACK HACK -- need ReduceSum operator in BWD PASS
-                np_out = np.sum(np_out.data, axis=(batch_axis, bias_axis))
-            else:
-                np_out = np.sum(np_out.data, axis=(batch_axis))
+        #is_backprop = kwargs.get('is_backprop', False)
+        #batch_axis  = kwargs.get('batch_axis',  None)
+        #bias_axis   = kwargs.get('bias_axis',   None)
+        #if is_backprop and outT[0].is_param and batch_axis is not None:
+        #    assert batch_axis >=0 and batch_axis < len(np_out.shape), f"DIPPY"
+        #    #reduce across all samples in batch for paramter gradients
+        #    # is_backprop -> this is a gradient calculation
+        #    # is_param    -> this is a parameter tensor
+        #    # batch_axis  -> this is the batch axis
+        #    #TODO: add this cost to instrs
+        #    if bias_axis is not None: #HACK HACK HACK -- need ReduceSum operator in BWD PASS
+        #        np_out = np.sum(np_out.data, axis=(batch_axis, bias_axis))
+        #    else:
+        #        np_out = np.sum(np_out.data, axis=(batch_axis))
 
-        tmp_outT = build_tmp_data_tensor(np_out, self.name + '__tmp_out__')
-        update_output_tensor(self, tmp_outT, outT[0])
+        #tmp_outT = build_tmp_data_tensor(np_out, self.name + '__tmp_out__')
+        #update_output_tensor(self, tmp_outT, outT[0])
+        outT[0].shape = inT[0].shape
+        outT[0].dtype = inT[0].dtype
+
         optype2instr = {'identity': 'mov'}
         instr_name = self.optype.lower()
         if instr_name in optype2instr:
             instr_name = optype2instr[instr_name]
         self.perf_stats =  {
-                'inElems' : A.nelems(),
+                'inElems' : inT[0].nelems(),
                 'outElems': outT[0].nelems(),
-                'inBytes' : A.nbytes(),
+                'inBytes' : inT[0].nbytes(),
                 'outBytes': outT[0].nbytes(),
                 'instrs'  : {instr_name: outT[0].nelems()}
                 }
@@ -319,40 +390,24 @@ class EltwiseBinaryOp(SimOp):
     def get_perf_counts(self, inT, outT, **kwargs):
         if self.perf_stats is not None:
             return self.perf_stats
-        A = clone_tensor_by_shape(inT[0])
-        B = clone_tensor_by_shape(inT[1])
 
-        #for now, using np.+ as a proxy for generic binop
-        #we can later change it to specific ops when we pass kwargs properly
-        np_out =  A.data + B.data
-
-        is_backprop = kwargs.get('is_backprop', False)
-        batch_axis  = kwargs.get('batch_axis',  None)
-
-        if is_backprop and outT[0].is_param and batch_axis is not None:
-            assert batch_axis >=0 and batch_axis < len(np_out.shape), f"DIPPY"
-            #reduce across all samples in batch for paramter gradients
-            # is_backprop -> this is a gradient calculation
-            # is_param    -> this is a parameter tensor
-            # batch_axis  -> this is the batch axis
-            #TODO: add this cost to instrs
-            np_out = np.mean(np_out, axis=(batch_axis))
-
-        tmp_outT = build_tmp_data_tensor(np_out, self.name + '__tmp_out__')
-        update_output_tensor(self, tmp_outT, outT[0])
+        outT[0].shape = get_tensor_broadcast_shape(inT[0].shape, inT[1].shape)
+        outT[0].dtype = inT[0].dtype
         self.perf_stats =  {
-                'inElems' : A.nelems() + B.nelems(),
+                'inElems' : inT[0].nelems() + inT[1].nelems(),
                 'outElems': outT[0].nelems(),
-                'inBytes' : A.nbytes() + B.nbytes(),
+                'inBytes' : inT[0].nbytes() + inT[1].nbytes(),
                 'outBytes': outT[0].nbytes(),
                 'instrs'  : {self.optype.lower(): outT[0].nelems()}
                 }
         return self.perf_stats
 
     def backward(self, inT, outT, inGT, outGT):
-        # C = ADD(A,B),           Z = MUL(X,Y)
-        # dA = Identity(dC)      dX = MUL(dZ, Y)
-        # dB = Identity(dC)      dY = MUL(X, dZ)
+        """
+        C = ADD(A,B),           Z = MUL(X,Y)
+        dA = Identity(dC)      dX = MUL(dZ, Y)
+        dB = Identity(dC)      dY = MUL(X, dZ)
+        """
         G_OP: Union[EltwiseBinaryOp, EltwiseUnaryOp]
         assert self.perf_stats is not None, f"{self.name} backward() called before get_perf_stats()"
         assert len(inT) == len(outGT), f"#inT != #outGT!!"
@@ -406,27 +461,25 @@ class GatherOp(SimOp):
         if self.perf_stats is not None:
             return self.perf_stats
         axis     = self.attrs.get('axis', 0)
-        dummy_dataT_shape  = [inT[0].shape[i] if i != axis else 1 for i in range(len(inT[0].shape))]
-        dummy_indexT_shape = [1,1]
-        dummy_np_out = np.take(dummy_dataT_shape, dummy_indexT_shape, axis=axis)
-        dataT    = clone_tensor_by_shape(inT[0])
-        inT[1].check_shape(), f"Illegal Input Tensor Shape: {inT[1]}"
-        if inT[1].data is None:
-            indicesT = build_tmp_int64_tensor_from_range(0, dataT.shape[0], inT[1].shape, self.name + '__tmp_indexT_from_shape')
-        else:
-            indicesT = inT[1]
-        np_out   = np.take(dataT.data, indicesT.data, axis=axis)
-        tmp_outT = build_tmp_data_tensor(np_out, self.name + '_tmp_out__')
-        update_output_tensor(self, tmp_outT, outT[0])
-        #TODO: check if this works for all cases/workloads
-        # in LLMs Gather is used for Embedding Lookups, so
-        # instead of reading the entire dataT from memory,
-        # we only read those dataT elements referenced by indicesT
-        # also, instead of mov - maybe the instr should be load
+        assert isinstance(axis, int), f"attribute axis ({axis}) is not an int!!"
+
+        dataT    = inT[0]
+        indicesT = inT[1]
+        assert dataT.check_shape(), f"Illegal input dataT shape: {dataT}!!"
+        assert indicesT.check_shape(), f"Illegal input indicesT shape: {indicesT}!!"
+
+        data_rank  = dataT.rank()
+        data_shape = dataT.shape
+        # Normalize negative axis
+        axis = axis if axis >= 0 else data_rank + axis
+        assert axis >= 0 and axis < data_rank, f"Axis {axis} is out of bounds for dataT.shape {dataT.shape()}"
+        outT[0].shape = data_shape[:axis] + indicesT.shape + data_shape[axis + 1:]
+        outT[0].dtype = dataT.dtype
+
         self.perf_stats = {
-                'inElems' : dataT.nelems(), #inT[0].nelems(),
+                'inElems' : dataT.nelems(),
                 'outElems': outT[0].nelems(),
-                'inBytes' : dataT.nbytes(), #inT[0].nbytes(),
+                'inBytes' : dataT.nbytes(),
                 'outBytes': outT[0].nbytes(),
                 'instrs'  : {'mov': outT[0].nelems()}
                 }
@@ -453,7 +506,6 @@ class LayerNormalizationOp(SimOp):
         scaleT = inT[1]
         biasT  = inT[2] if len(inT) == 3 else None
         assert X.check_shape(), f"Illegal Shape for {X}"
-        assert X.data is not None, f"Illegal Data for {X}"
         XShape = X.shape
         XRank  = X.rank()
 
@@ -496,53 +548,54 @@ class LayerNormalizationOp(SimOp):
         # After reshaping input tensor X into a matrix, layer norm
         # is equivalent to conducting standardization on each column
         # (s.t. each col has zero mean and unit variance).
-        x_mat = np.reshape(X.data, (row, col))
+        #x_mat = np.reshape(X.data, (row, col))
 
         # compute mean for every x_mat's col
-        x_mean = np.sum(x_mat, axis=1, keepdims=True)/col
+        #x_mean = np.sum(x_mat, axis=1, keepdims=True)/col
         instr_count['add'] += input_count
         instr_count['div'] += reduction_count
-        x_diff = x_mat - x_mean
+        #x_diff = x_mat - x_mean
         instr_count['sub'] += input_count
-        x_squared_diff = x_diff * x_diff
+        #x_squared_diff = x_diff * x_diff
         instr_count['mul'] += input_count
         # compute variance for every x_mat's col
-        variance = np.sum(x_squared_diff, axis=1, keepdims=True)/col
+        #variance = np.sum(x_squared_diff, axis=1, keepdims=True)/col
         instr_count['add'] += input_count
         instr_count['div'] += reduction_count
-        variance_eps = variance + epsilon
+        #variance_eps = variance + epsilon
         instr_count['add'] += reduction_count
-        std_dev = np.sqrt(variance_eps)
-        inv_std_dev = np.reciprocal(std_dev)
+        #std_dev = np.sqrt(variance_eps)
+        #inv_std_dev = np.reciprocal(std_dev)
         instr_count['rsqrt'] += reduction_count
 
         # Standardization step. y_mat is zero-mean and unit-variance.
-        y_mat = x_diff * inv_std_dev
+        #y_mat = x_diff * inv_std_dev
         instr_count['mul'] += input_count
 
         # -------x------- Stage-2 Implementation -------x-------
         # Apply affine transform on normalization outcome.
-        assert scaleT.data is not None, f"Illegal DATA in Tensor {scaleT}"
-        y_mat = np.reshape(y_mat, XShape) * scaleT.data
+        #assert scaleT.data is not None, f"Illegal DATA in Tensor {scaleT}"
+        #y_mat = np.reshape(y_mat, XShape) * scaleT.data
         instr_count['mac'] += input_count
         if biasT is not None:
-            assert biasT.data is not None, f"Illegal DATA in Tensor {biasT}"
-            y_mat = y_mat + biasT.data
+            #Check: this add is already counted in the 'mac' above?
+            #y_mat = y_mat + biasT.data
+            pass
 
-        tmp_outT = build_tmp_data_tensor(y_mat, self.name + '__tmp_Y_out__')
-        update_output_tensor(self, tmp_outT, outT[0])
+        outT[0].shape = X.shape
+        outT[0].dtype = X.dtype
 
         if len(outT) >= 2:
             # reshape needed because of initial tensor-to-matrix reshape in Step-1.
-            X_mean = np.reshape(x_mean, reduction_shape)
-            tmp_meanT = build_tmp_data_tensor(X_mean, self.name + '__tmp_mean_out__')
-            update_output_tensor(self, tmp_meanT, outT[1])
+            #X_mean = np.reshape(x_mean, reduction_shape)
+            outT[1].shape = reduction_shape
+            outT[1].dtype = X.dtype
 
         if len(outT) == 3:
             # reshape needed because of initial tensor-to-matrix reshape in Step-1.
-            X_invSDT = np.reshape(inv_std_dev, reduction_shape)
-            tmp_invSDT = build_tmp_data_tensor(X_invSDT, self.name + '__tmp_invSDT_out__')
-            update_output_tensor(self, tmp_invSDT, outT[2])
+            #X_invSDT = np.reshape(inv_std_dev, reduction_shape)
+            outT[2].shape = reduction_shape
+            outT[2].dtype = X.dtype
 
         biasElems   = 0 if biasT is None else biasT.nelems()
         meanElems   = 0 if len(outT) < 2 else outT[1].nelems()
@@ -559,43 +612,33 @@ class LayerNormalizationOp(SimOp):
                 }
         return self.perf_stats
 
-class BatchNormalization(SimOp):
-    """
-        Interface Ref: https://github.com/onnx/onnx/blob/main/docs/Operators.md#batchnormalization
-        Operator Version: 15
-        Backend Ref:  https://pytorch.org/docs/stable/generated/torch.nn.BatchNorm2d.html#torch.nn.BatchNorm2d
-    """
-
+class BatchNormalizationOp(SimOp):
     def __init__(self, opinfo):
         super().__init__(opinfo)
         self.opclass_str: str = 'BatchNormalization'
-        check_io_counts(self, in_counts=[5,5], out_counts=[1,1])
+        check_io_counts(self, in_counts=[5,5], out_counts=[1,3])
 
     def get_perf_counts(self, inT, outT, **kwargs):
         if self.perf_stats is not None:
             return self.perf_stats
 
-        x = clone_tensor_by_shape(inT[0])
-        scale= clone_tensor_by_shape(inT[1])
-        bias = clone_tensor_by_shape(inT[2])
-        input_mean = clone_tensor_by_shape(inT[3])
-        input_var = clone_tensor_by_shape(inT[4])
+        assert all([itensor.check_shape() for itensor in inT]), \
+                f"input tensor shapes not well formed!!"
+        assert len(outT) in [1,3], f"output can either be 1 or 3"
+        x          = inT[0]
+        scale      = inT[1]
+        bias       = inT[2]
+        input_mean = inT[3]
+        input_var  = inT[4]
 
-        for tmp in [x, scale, bias, input_mean, input_var]:
-            assert tmp.check_shape(), f"Illegal Shape for {tmp.name}"
-            assert tmp.data is not None, f"Illegal Data for {tmp.name}"
-        x_torch = torch.from_numpy(x.data)
+        outT[0].shape = x.shape
+        outT[0].dtype = x.dtype
+        if len(outT) == 3:
+            outT[1].shape = scale.shape
+            outT[1].dtype = scale.dtype
+            outT[2].shape = scale.shape
+            outT[2].dtype = scale.dtype
 
-        channels = scale.shape[0]
-
-        batchnorm_obj = torch.nn.BatchNorm2d(channels, **self.attrs)
-        output_tensor = batchnorm_obj(x_torch).cpu().detach().numpy()
-        output_simtensor = build_tmp_data_tensor(output_tensor, self.name + '__tmp_batchnorm_out__')
-
-        update_output_tensor(self, output_simtensor, outT[0])
-
-        read_elems = x.nelems() + scale.nelems() + bias.nelems() + input_mean.nelems() + input_var.nelems()
-        write_elems = output_simtensor.nelems()
         instr_count = {
             'add': x.nelems(),
             'mac': x.nelems(),
@@ -605,15 +648,14 @@ class BatchNormalization(SimOp):
             'add': 1,
         }
         self.perf_stats = {
-            'inElems' : read_elems,
-            'outElems': write_elems,
-            'inBytes' : read_elems * 4, # TODO: dtype based width
-            'outBytes': write_elems * 4, # TODO: dtype based width
+            'inElems' : sum([i.nelems() for i in inT]),
+            'outElems': sum([o.nelems() for o in outT]),
+            'inBytes' : sum([i.nbytes() for i in inT]),
+            'outBytes': sum([o.nbytes() for o in outT]),
             'instrs'  : instr_count
         }
-
         return self.perf_stats
-      
+
     def backward(self, inT, outT, inGT, outGT):
         print("-"*50)
         print("\nLN_BWD_DBG>>")
@@ -783,107 +825,135 @@ class BatchNormalization(SimOp):
 
         return grad_results
 
-
-class ConvOp(SimOp): #version 22
+class ConvOp(SimOp):
     def __init__(self, opinfo):
         super().__init__(opinfo)
         self.opclass_str: str = 'Conv'
         check_io_counts(self, in_counts=[2,3], out_counts=[1,1])
-        # TODO: Support arbitrary number of dimensions, currently only 2 dims supported
         self._kw_args_defaults = {
-            'auto_pad': 'NOTSET',
-            'dilations': [1, 1],
-            'group': 1,
+            'auto_pad'    : 'NOTSET',
+            'dilations'   : [1, 1],
+            'strides'     : [1, 1],
+            'pads'        : [0, 0, 0, 0],
+            'group'       : 1,
             'kernel_shape': None,
-            'pads': [0, 0, 0, 0],
-            'strides': [1, 1],            
         }
         if 'attrs' in opinfo:
             self.check_known_args(opinfo['attrs'])
 
     def get_perf_counts(self, inT, outT, **kwargs):
-        """
-            Reference definition: https://pytorch.org/docs/stable/generated/torch.nn.Conv2d.html
-            Out = bias + weight * input
-            Each weight * input done height//Kh * width//Kw times (in the absence of padding)
-            With padding, it is done (height+2*paddingH-Kh)//Sh * (width+2*paddingW-kW)//Sw times
-            Each operation has Kh * Kw mac operations
-        """
         if self.perf_stats is not None:
             return self.perf_stats
 
-        # TODO: Support dimensions other than 2
-        # NOTE: ONNX reference implementation (onnx.reference.ops.op_conv) supports only 1-, 2- and 3-D convolutions,
-        # determining the dimension from the input tensor shape
-        input_tensor = clone_tensor_by_shape(inT[0])
-        assert input_tensor.check_shape(), f"Illegal Shape for {input_tensor}"
-        assert input_tensor.data is not None, f"Illegal Data for {input_tensor}"
-        param_tensor = clone_tensor_by_shape(inT[1])
-        assert param_tensor.check_shape(), f"Illegal Shape for {param_tensor}"
-        assert param_tensor.data is not None, f"Illegal Data for {param_tensor}"
-        input_shape = input_tensor.shape
-        param_shape = param_tensor.shape
-        if len(input_shape) not in range(3, 6):
-            raise RuntimeError(f'Unsupported conv input shape {input_shape}')
-        if len(input_shape) != 4:
-            raise NotImplementedError(f'Conv{len(input_shape)-2}D not implemented yet')
+        assert inT[0].check_shape(), f"Illegal Shape for {inT[0]}"
+        assert inT[1].check_shape(), f"Illegal Shape for {inT[1]}"
+        if len(inT) == 3: assert inT[2].check_shape(), f"Illegal Shape for {inT[2]}"
 
-        eff_args     = self.get_effective_args(self.attrs)
-        group        = eff_args['group']           # int
-        dilations    = eff_args['dilations']       # [int] default: 1 along each spatial axis
-        strides      = eff_args['strides']         # [int]: default: 1 along each spatial axis
-        pads         = eff_args['pads']            # [int] should be >= 0, one pair for each axis, if not present defaults to 0 along each axis
-        kernel_shape = eff_args['kernel_shape']    # [int] : if not present, should be inferred from input width
-        # NOTE: For torch conv2d, the weights have out_channels as the first, and in_channels/group as second dimension
-        out_channels = param_shape[0]
-        in_channels = param_shape[1] * group
-        conv_dims = len(input_shape) - 2
-        if kernel_shape is None:
-            kernel_shape = inT[1].shape[-2:]
-        if group != 1:
-            raise NotImplementedError(f'non-default group ({group}) for Conv')
-        # TODO: clean up dilations (implement influence on # ops)
-        if dilations != 1 and dilations != (1, 1) and dilations != [1, 1]:
-            raise NotImplementedError(f'non-default dilations ({dilations}) for Conv')
+        X = inT[0]
+        W = inT[1]
+        if len(inT) == 3: B = inT[2]
 
-        # Proxy Conv will be run on torch tensors, so converting input_tensor to torch
-        input_tensor_torch = torch.from_numpy(input_tensor.data)
-        param_tensor = clone_tensor_by_shape(inT[1])
+        num_spatial_dims = X.rank() - 2
+        if num_spatial_dims < 1:
+            raise ValueError("X must have at least 1 spatial dimension (N, C, spatial...): {X}")
 
-        stride_tuple = common.make_tuple(strides, conv_dims)
-        kernel_shape_tuple = common.make_tuple(kernel_shape, conv_dims)
-        pad_tuple = common.make_tuple(pads, conv_dims*2)
-        dilations_tuple = common.make_tuple(dilations, conv_dims)
+        group        = self.attrs.get('group', 1)
+        dilations    = self.attrs.get('dilations', [1] * num_spatial_dims)
+        strides      = self.attrs.get('strides',   [1] * num_spatial_dims)
+        pads         = self.attrs.get('pads',      [0] * (2 * num_spatial_dims))
+        auto_pad     = self.attrs.get('auto_pad', 'NOTSET')
+        kernel_shape = self.attrs.get('kernel_shape', None)
 
-        height, width = input_shape[-2:]
-        kern_ht, kern_wid = kernel_shape_tuple
-        stride_ht, stride_wid = stride_tuple
-        pad_htbegin, pad_htend, pad_widbegin, pad_widend = pad_tuple
-        nonwh_factor = reduce(lambda x, y: x * y, input_shape[:-2], 1)
-        logging.debug(f'#ops: {height+pad_htbegin+pad_htend-kern_ht+1}/{stride_ht} * {width+pad_widbegin+pad_widend-kern_wid+1}/{stride_wid} * {kern_wid} * {kern_ht}')
-        instr_count = {
-            'mac': nonwh_factor * ((height+pad_htbegin+pad_htend-kern_ht+1)//stride_ht) * ((width+pad_widbegin+pad_widend-kern_wid+1)//stride_wid) * (kern_wid * kern_ht)
-        }
-        biasElems = 0
-        biasBytes = biasElems * 4   # TODO: account for dtype
+        # Validate inputs
+        if W.rank() != num_spatial_dims + 2:
+            raise ValueError(f"Weight shape must have {num_spatial_dims + 2} dims (C_out, C_in/group, kernel_dims): {W}")
+        if len(dilations) != num_spatial_dims or len(strides) != num_spatial_dims or len(pads) != 2 * num_spatial_dims:
+            raise ValueError("Dilations, strides, and pads must match spatial dimensions")
+        if group <= 0 or X.shape[1] % group != 0:
+            raise ValueError(f"C_in {X.shape[1]} must be divisible by group {group}")
+        if W.shape[1] != X.shape[1] // group:
+            raise ValueError(f"Weight C_in/group {W.shape[1]} must match input C_in/group {X.shape[1] // group}")
+        if len(inT) == 3:
+            if B.rank() != 1 or B.shape[0] != W.shape[0]:
+                raise ValueError(f"Bias shape {B.shape} must be (C_out,) matching weight C_out {W.shape[0]}")
 
-        conv2d_obj = torch.nn.Conv2d(in_channels, out_channels, kernel_size=kernel_shape,
-                                     stride=strides, 
-                                     padding=(pads[0], pads[2]), # Torch Conv padding should be symmetric (2 values, not 4)
-                                     dilation=dilations,
-                                     groups=group
-                                     )
-        # https: // stackoverflow.com / questions / 49768306 / pytorch - tensor - to - numpy - array
-        tmp_output = conv2d_obj(input_tensor_torch).cpu().detach().numpy()
+        N, C_in          = X.shape[0], X.shape[1]
+        C_out            = W.shape[0]
+        spatial_dims     = X.shape[2:]
+        kernel_dims      = W.shape[2:]
 
-        tmp_outT = build_tmp_data_tensor(tmp_output, self.name + '__tmp_conv_out__')
+        if len(kernel_dims) != num_spatial_dims:
+            raise ValueError("Kernel spatial dims must match input spatial dims")
 
-        update_output_tensor(self, tmp_outT, outT[0])
+        if kernel_shape is not None:
+            if kernel_shape != kernel_dims:
+                raise ValueError("Kernel Shape does not match Kernel-dims calculated from input spatial dims")
+
+        # Compute effective kernel size with dilation
+        effective_kernel = [ (kernel_dims[i] - 1) * dilations[i] + 1 for i in range(num_spatial_dims) ]
+
+        # Compute output spatial dimensions
+        output_spatial = []
+        for i in range(num_spatial_dims):
+            Di       = spatial_dims[i]
+            ki       = effective_kernel[i]
+            stride_i = strides[i]
+            if auto_pad == "NOTSET":
+                pad_begin_i   = pads[i]
+                pad_end_i     = pads[i + num_spatial_dims]
+                total_padding = pad_begin_i + pad_end_i
+                Oi            = (Di + total_padding - ki) // stride_i + 1
+            elif auto_pad == "VALID":
+                Oi = (Di - ki) // stride_i + 1
+            elif auto_pad == "SAME_UPPER" or auto_pad == "SAME_LOWER":
+                Oi = int(np.ceil(Di/stride_i))
+            else:
+                raise ValueError(f"Unsupported auto_pad value: {auto_pad}")
+
+            if Oi <= 0:
+                raise ValueError(f"Output dimension {i} would be <= 0: {Oi}")
+            output_spatial.append(Oi)
+
+        output_shape = [N, C_out] + output_spatial
+        #print(">> X.shape         :", X.shape)
+        #print(">> W.shape         :", W.shape)
+        #if len(inT) == 3: print(">> B.shape         :", B.shape)
+        #print(">> group           :", group)
+        #print(">> dilations       :", dilations)
+        #print(">> strides         :", strides)
+        #print(">> pads            :", pads)
+        #print(">> auto_pad        :", auto_pad)
+        #print(">> N               :", N)
+        #print(">> C_in            :", C_in)
+        #print(">> C_out           :", C_out)
+        #print(">> spatial_dims    :", spatial_dims)
+        #print(">> kernel_shape    :", kernel_shape)
+        #print(">> kernel_dims     :", kernel_dims)
+        #print(">> num_spatial_dims:", num_spatial_dims)
+        #print(">> output_spatial  :", output_spatial)
+        #print(">> output_shape    :", output_shape)
+        #if len(inT) == 3: print(">> B.shape         :", B.shape)
+
+        if X.shape[0] != output_shape[0] or W.shape[0] != output_shape[1]:
+            raise ValueError("Batch size (N) and C_out must match across shapes")
+
+        outT[0].shape = output_shape
+        outT[0].dtype = X.dtype
+
+        macs_per_output = (C_in // group) * np.prod(kernel_dims)
+        output_elements = N * C_out * np.prod(spatial_dims)
+        total_macs      = output_elements * macs_per_output
+        instr_count     = { 'mac': total_macs }
+        if len(inT) == 3:
+            instr_count['add'] = output_elements
+
+        inElems = X.nelems() + W.nelems() + B.nelems() if len(inT) == 3 else 0
+        inBytes = X.nbytes() + W.nbytes() + B.nbytes() if len(inT) == 3 else 0
 
         self.perf_stats = {
-            'inElems' : input_tensor.nelems() + param_tensor.nelems() + biasElems,
+            'inElems' : inElems,
             'outElems': outT[0].nelems(),
-            'inBytes' : inT[0].nbytes() + inT[1].nbytes() + biasBytes,
+            'inBytes' : inBytes,
             'outBytes': outT[0].nbytes(),
             'instrs'  : instr_count
         }
@@ -893,59 +963,43 @@ class MaxPoolOp(SimOp):
     def __init__(self, opinfo):
         super().__init__(opinfo)
         self.opclass_str: str = 'MaxPool'
-        # TODO: Support arbitrary number of dimensions, currently only 2 dims supported
         self._kw_args_defaults = {
-            'kernel_shape': None, # Not a KW argument, but kernel_shape passed as this attribute
-            'auto_pad': 'NOTSET',
-            'ceil_mode': 0,
-            'dilations': [1, 1],
-            'pads': [0, 0, 0, 0],
-            'storage_order': 0,
-            'strides': [1, 1],
-        }
-        check_io_counts(self, in_counts=[1, 1], out_counts=[1, 1])
-        if 'attrs' in opinfo:
-            self.check_known_args(opinfo['attrs'])
+                #'kernel_shape' : None,
+                #'auto_pad'     : 'NOTSET',
+                #'ceil_mode'    : 0,
+                #'dilations'    : None,
+                #'pads'         : None,
+                #'storage_order': None,
+                #'strides'      : None,
+                }
+        check_io_counts(self, in_counts=[1, 1], out_counts=[1, 2])
+        #if 'attrs' in opinfo:
+        #    self.check_known_args(opinfo['attrs'])
 
     def get_perf_counts(self, inT, outT, **kwargs):
-        """
-            Reference definition: https://pytorch.org/docs/stable/generated/torch.nn.MaxPool2d.html#torch.nn.MaxPool2d
-
-        """
         if self.perf_stats is not None:
             return self.perf_stats
 
-        kernel_shape = self.attrs.get('kernel_shape') # Required argument, no default
-        input_tensor = clone_tensor_by_shape(inT[0])
-        assert input_tensor.check_shape(), f"Illegal Shape for {input_tensor}"
-        assert input_tensor.data is not None, f"Illegal Data for {input_tensor}"
-        auto_pad = self.attrs.get('auto_pad', self._kw_args_defaults['auto_pad'])
-        ceil_mode = self.attrs.get('ceil_mode', self._kw_args_defaults['ceil_mode'])
-        dilations = self.attrs.get('dilations', self._kw_args_defaults['dilations'])
-        pads = self.attrs.get('pads', self._kw_args_defaults['pads'])
-        # storage_order = self.attrs.get('storage_order', self._kw_args_defaults['storage_order'])
-        strides = self.attrs.get('strides', self._kw_args_defaults['strides'])
+        assert inT[0].check_shape(), f"Illegal Shape for {inT[0]}"
+        input_shape   = inT[0].shape
+        kernel_shape  = self.attrs.get('kernel_shape') #required attribute
+        output_shape  = pooling_shape_inference(input_shape, kernel_shape, self.attrs)
+        outT[0].shape = output_shape
+        outT[0].dtype = inT[0].dtype
 
-        input_tensor_torch = torch.from_numpy(input_tensor.data)
-        # Since maxpool2d obj is created from torch, the kwargs should be torch compatible
-        maxpool2d_obj = torch.nn.MaxPool2d(kernel_shape,
-                                           ceil_mode=ceil_mode != '0',
-                                           dilation=dilations,
-                                           padding=pads,
-                                           stride=strides)
-        tmp_output = maxpool2d_obj(input_tensor_torch).cpu().detach().numpy()
-        tmp_outtensor = build_tmp_data_tensor(tmp_output, self.name + '__tmp_maxpool_out__')
-        update_output_tensor(self, tmp_outtensor, outT[0])
-        instr_count = {
-            'cmp': input_tensor.nelems()
-        }
+        if len(outT) == 2:
+            outT[1].shape = output_shape
+            outT[1].dtype = np.dtype(np.int64)
+
+        instr_count = { 'cmp': inT[0].nelems(), 'mov': outT[0].nelems() }
         self.perf_stats = {
-            'inElems' : input_tensor.nelems(),
+            'inElems' : inT[0].nelems(),
             'outElems': outT[0].nelems(),
-            'inBytes' : input_tensor.nbytes(),
+            'inBytes' : inT[0].nbytes(),
             'outBytes': outT[0].nbytes(),
             'instrs'  : instr_count
         }
+        return self.perf_stats
 
 class AveragePoolOp(SimOp):
     def __init__(self, opinfo):
@@ -954,35 +1008,26 @@ class AveragePoolOp(SimOp):
         check_io_counts(self, in_counts=[1, 1], out_counts=[1, 1])
 
     def get_perf_counts(self, inT, outT, **kwargs):
-        """
-            Reference definition: https://pytorch.org/docs/stable/generated/torch.nn.MaxPool2d.html#torch.nn.MaxPool2d
-
-        """
         if self.perf_stats is not None:
             return self.perf_stats
 
-        kernel_shape = self.attrs.get('kernel_shape') # Required argument, no default
+        assert inT[0].check_shape(), f"Illegal Shape for {inT[0]}"
+        input_shape   = inT[0].shape
+        kernel_shape  = self.attrs.get('kernel_shape') #required attribute
+        output_shape  = pooling_shape_inference(input_shape, kernel_shape, self.attrs)
+        outT[0].shape = output_shape
+        outT[0].dtype = inT[0].dtype
 
-        input_tensor = clone_tensor_by_shape(inT[0])
-        assert input_tensor.check_shape(), f"Illegal Shape for {input_tensor}"
-        assert input_tensor.data is not None, f"Illegal Data for {input_tensor}"
-        input_tensor_torch = torch.from_numpy(input_tensor.data)
-        avgpool2d_obj = torch.nn.AvgPool2d(kernel_shape, **self.attrs)
-        tmp_output = avgpool2d_obj(input_tensor_torch).cpu().detach().numpy()
-        tmp_outtensor = build_tmp_data_tensor(tmp_output, self.name + '__tmp_maxpool_out__')
-        update_output_tensor(self, tmp_outtensor, outT[0])
-        instr_count = {
-            'add': input_tensor.nelems(),
-            'div': 1,
-        }
+        instr_count = {'add': inT[0].nelems(), 'div': outT[0].nelems(), 'mov': outT[0].nelems()}
+
         self.perf_stats = {
-            'inElems' : input_tensor.nelems(),
+            'inElems' : inT[0].nelems(),
             'outElems': outT[0].nelems(),
-            'inBytes' : input_tensor.nbytes(),
+            'inBytes' : inT[0].nbytes(),
             'outBytes': outT[0].nbytes(),
             'instrs'  : instr_count
         }
-
+        return self.perf_stats
 
 class MatMulOp(SimOp):
     def __init__(self, opinfo):
@@ -993,35 +1038,55 @@ class MatMulOp(SimOp):
     def get_perf_counts(self, inT, outT, **kwargs):
         if self.perf_stats is not None:
             return self.perf_stats
-        A = clone_tensor_by_shape(inT[0])
-        B = clone_tensor_by_shape(inT[1])
-        np_out = np.matmul(A.data, B.data)
 
         is_backprop = kwargs.get('is_backprop', False)
         batch_axis  = kwargs.get('batch_axis',  None)
+        assert is_backprop == False, f"Matmul in Backward Pass!!"
 
-        if is_backprop and outT[0].is_param and batch_axis is not None:
-            assert batch_axis >=0 and batch_axis < len(np_out.shape), f"DIPPY"
-            #reduce across all samples in batch for paramter gradients
-            # is_backprop -> this is a gradient calculation
-            # is_param    -> this is a parameter tensor
-            # batch_axis  -> this is the batch axis
-            #TODO: add this cost to instrs
-            np_out = np.mean(np_out, axis=(batch_axis))
+        ######## New Implementation Begin #########
+        AShape = inT[0].shape
+        BShape = inT[1].shape
 
-        tmp_outT = build_tmp_data_tensor(np_out, self.name + '__tmp_C_out__')
-        update_output_tensor(self, tmp_outT, outT[0])
-        assert A.shape[-1] == B.shape[-2], f"Kdim Mismatch {A.shape} * {B.shape}"
-        Mdim = A.shape[-2]
-        Kdim = A.shape[-1] #same as B.shape[-2]
-        Ndim = B.shape[-1]
-        BPE  = A.dtype.itemsize
-        self.perf_stats ={
-            'inElems' : (Mdim + Ndim) * Kdim,
-            'outElems': Mdim * Ndim,
-            'inBytes' : (Mdim + Ndim) * Kdim * BPE,
-            'outBytes': Mdim * Ndim * BPE,
-            'instrs'  : {'mac': Mdim * Kdim * Ndim}
+        #find output shape
+        CShape = None
+        if len(AShape) < 1 or len(BShape) < 1:
+            raise ValueError("Shapes must have at least 1 dimension")
+
+        # Handle 1D cases
+        if len(AShape) == 1 and len(BShape) == 1:
+            if AShape[0] != BShape[0]:
+                raise ValueError(f"Matmul incompatible: {AShape[0]} != {BShape[0]}")
+            CShape = [] # Scalar result
+        elif len(AShape) == 1:
+            if AShape[0] != BShape[-2]:
+                raise ValueError(f"Matmul incompatible: {AShape[0]} != {BShape[-2]}")
+            CShape = BShape[:-2] + [BShape[-1]]
+        elif len(BShape) == 1:
+            if AShape[-1] != BShape[0]:
+                raise ValueError(f"Matmul incompatible: {AShape[-1]} != {BShape[0]}")
+            CShape = AShape[:-1]
+
+        # Handle 2D+ cases
+        batch1, mat1 = AShape[:-2], AShape[-2:]
+        batch2, mat2 = BShape[:-2], BShape[-2:]
+
+        # Check matrix multiplication compatibility
+        if mat1[-1] != mat2[-2]:
+            raise ValueError(f"Matmul incompatible: {mat1[-1]} != {mat2[-2]}")
+        broadcast_batch = get_tensor_broadcast_shape(batch1, batch2)
+        CShape = broadcast_batch + [mat1[0], mat2[-1]]
+
+        reduced_dim   = mat1[-1]
+        outT[0].shape = CShape
+        outT[0].dtype = inT[0].dtype
+        ######## New Implementation Begin #########
+
+        self.perf_stats = {
+            'inElems' : inT[0].nelems() + inT[1].nelems(),
+            'outElems': outT[0].nelems(),
+            'inBytes' : inT[0].nelems() * inT[0].dtype.itemsize + inT[1].nelems() * inT[1].dtype.itemsize,
+            'outBytes': outT[0].nelems() * outT[0].dtype.itemsize,
+            'instrs'  : {'mac': outT[0].nelems() * reduced_dim}
             }
         return self.perf_stats
 
@@ -1087,7 +1152,7 @@ class SplitOp(SimOp):
             split_dim = A.shape[axis] // num_outputs
             split = [split_dim for i in range(num_outputs)]
         else:
-            split = splitT.data
+            split = [x.item() for x in splitT.data]
         assert len(split) == num_outputs, f"split mismatch len( {split} ) != {num_outputs}"
 
         outShapes = []
@@ -1100,8 +1165,8 @@ class SplitOp(SimOp):
         outElems = 0
         for tidx, tout in enumerate(outT):
             tshape0 = outShapes[tidx]
-            tmp_outT = build_tmp_fp32_tensor_from_shape(tshape0, self.name + f"__tmp_out__{tidx}")
-            update_output_tensor(self, tmp_outT, tout)
+            tout.shape = tshape0
+            tout.dtype = A.dtype
             outBytes += tout.nbytes()
             outElems += tout.nelems()
 
@@ -1124,17 +1189,63 @@ class ReshapeOp(SimOp):
         if self.perf_stats is not None:
             return self.perf_stats
         allowzero = self.attrs.get('allowzero', 0)
-        A = clone_tensor_by_shape(inT[0])
+
+        #A = clone_tensor_by_shape(inT[0])
         B = clone_tensor_by_shape(inT[1], data_maybe_missing=False) #B.data should exist
         assert B.dtype == np.int64, f"Input Data-Type should be np.int64 {B}"
+        assert inT[0].check_shape(), f"Illegal Input Shape: {inT[0].shape}"
+        input_shape  = inT[0].shape
+        input_size   = inT[0].nelems()
+        target_shape = [x.item() for x in B.data]
 
-        np_out = reshape_reference_implementation(A.data, B.data, allowzero=allowzero)
-        tmp_outT = build_tmp_data_tensor(np_out, self.name + '__tmp_C_out__')
-        update_output_tensor(self, tmp_outT, outT[0])
+        minus_one_count = 0
+        minus_one_index: Any = None
+        zeros_count     = 0
+        zeros_index     = []
+        for i,x in enumerate(target_shape):
+            if x == -1:
+                minus_one_count += 1
+                minus_one_index = i
+            elif x == 0:
+                zeros_count += 1
+                zeros_index.append(i)
+            else:
+                pass
+        assert minus_one_count <= 1, f"Only one -1 is allowed in target shape {target_shape}"
+
+        if allowzero == 1 and minus_one_count == 1 and zeros_count > 0:
+            assert False, f"Cannot have -1 and zeros simultaneously with allowzero in target_shape({target_shape})"
+
+        #copy dims from input_shape, if required
+        output_shape = [x for x in target_shape]
+        if allowzero == 0:
+            for idx in zeros_index:
+                assert idx < len(input_shape), f"Illegal index({idx}) for input_shape({input_shape}) with allowzero=0"
+                output_shape[idx] = input_shape[idx]
+
+        # Handle -1 inference
+        if minus_one_count == 1:
+            output_size = reduce(operator.mul, filter(lambda x: x != -1, output_shape), 1)
+            assert input_size >= output_size and input_size % output_size == 0, \
+                    f"Cannot infer -1: input size {input_size}/{output_size}"
+            inferred_dim = input_size // output_size
+            output_shape[minus_one_index] = inferred_dim
+
+        # Final validation
+        final_output_size = reduce(operator.mul, output_shape, 1)
+        assert input_size  == final_output_size, \
+                f"in({input_size}) & out({final_output_size}) sizes are not equal!!"
+
+        #np_out = reshape_reference_implementation(A.data, B.data, allowzero=allowzero)
+        #tmp_outT = build_tmp_data_tensor(np_out, self.name + '__tmp_C_out__')
+        #update_output_tensor(self, tmp_outT, outT[0])
+        outT[0].shape = output_shape
+        outT[0].dtype = inT[0].dtype
+
         self.perf_stats = {
-                'inElems' : A.nelems() + B.nelems(),
+                'inElems' : inT[0].nelems() + B.nelems(),
                 'outElems': outT[0].nelems(),
-                'inBytes' : A.nbytes() + B.nbytes(),
+                'inBytes' : inT[0].nbytes() + B.nbytes(),
                 'outBytes': outT[0].nbytes(),
                 'instrs'  : {'mov': outT[0].nelems()}
                 }
@@ -1190,14 +1301,13 @@ class TransposeOp(SimOp):
         if self.perf_stats is not None:
             return self.perf_stats
         perms  = self.attrs['perm']
-        A      = clone_tensor_by_shape(inT[0])
-        np_out = np.transpose(A.data, perms)
-        tmp_outT = build_tmp_data_tensor(np_out, self.name + '__tmp_out__')
-        update_output_tensor(self, tmp_outT, outT[0])
+        assert len(perms) == inT[0].rank(), f"perms({perms}) must be equal to input rank ({inT[0].rank()})!!"
+        outT[0].shape = [inT[0].shape[i] for i in perms]
+        outT[0].dtype = inT[0].dtype
         self.perf_stats = {
-                'inElems' : A.nelems(),
+                'inElems' : inT[0].nelems(),
                 'outElems': outT[0].nelems(),
-                'inBytes' : A.nbytes(),
+                'inBytes' : inT[0].nbytes(),
                 'outBytes': outT[0].nbytes(),
                 'instrs'  : {'mov': outT[0].nelems()}
                 }
@@ -1273,17 +1383,19 @@ class SoftmaxOp(SimOp):
         is_backprop = kwargs.get('is_backprop', False)
         assert is_backprop == False, f"Softmax cannot be a backward op!!"
 
-        axis = self.attrs.get('axis', -1)
-        X    = clone_tensor_by_shape(inT[0])
-        x_max  = np.max(X.data, axis=axis, keepdims=True)
-        tmp    = np.exp(X.data - x_max)
-        np_out = tmp / np.sum(tmp, axis=axis, keepdims=True)
-        tmp_outT = build_tmp_data_tensor(np_out, self.name + '__tmp_out__')
-        update_output_tensor(self, tmp_outT, outT[0])
+        #axis = self.attrs.get('axis', -1)
+        #X    = clone_tensor_by_shape(inT[0])
+        #x_max  = np.max(X.data, axis=axis, keepdims=True)
+        #tmp    = np.exp(X.data - x_max)
+        #np_out = tmp / np.sum(tmp, axis=axis, keepdims=True)
+        #tmp_outT = build_tmp_data_tensor(np_out, self.name + '__tmp_out__')
+        #update_output_tensor(self, tmp_outT, outT[0])
+        outT[0].shape = inT[0].shape
+        outT[0].dtype = inT[0].dtype
         outElems = outT[0].nelems()
         self.perf_stats = {
-                'inBytes' : X.nbytes(),
-                'inElems' : X.nelems(),
+                'inBytes' : inT[0].nbytes(),
+                'inElems' : inT[0].nelems(),
                 'outBytes': outT[0].nbytes(),
                 'outElems': outElems,
                 'instrs'  : {
@@ -1556,7 +1668,6 @@ class TriluOp(SimOp):
                 }
         return self.perf_stats
 
-
 class DropoutOp(SimOp):
     def __init__(self, opinfo):
         super().__init__(opinfo)
@@ -1575,7 +1686,7 @@ class DropoutOp(SimOp):
         # ratio is same as drop_probability
         # outT = scale * dataT * maskT, where scale = 1./(1-ratio).
         seed = self.attrs.get('seed', 1.0)
-        X    = clone_tensor_by_shape(inT[0], data_maybe_missing=False) #dataT.data must be present
+        X = inT[0]
 
         inBytes = X.nbytes()
         inElems = X.nelems()
@@ -1585,7 +1696,7 @@ class DropoutOp(SimOp):
             ratio = inT[1].data
             inBytes += inT[1].dtype.itemsize
             inElems += 1
-        else: # len(inT) == 3
+        elif len(inT) == 3:
             assert inT[1].data is not None, f"missing ratio {inT[1]}"
             assert inT[2].data is not None, f"missing training_mode {inT[2]}"
             ratio = inT[1].data
@@ -1596,28 +1707,28 @@ class DropoutOp(SimOp):
 
 
         if ratio == 0 or training_mode == False:
-            np_out      = X.data
-            np_mask_out = np.ones(X.shape, dtype=bool)
+            #np_out      = X.data
+            #np_mask_out = np.ones(X.shape, dtype=bool)
             instr_count = {'nop': X.nelems()}
         else:
             #np.random.seed(seed)
-            mask   = np.random.uniform(0, 1.0, X.shape) >= ratio
-            scale  = 1. / (1. - ratio)
-            np_out = mask * X.data * scale
-            np_mask_out = mask.astype(bool)
+            # mask   = np.random.uniform(0, 1.0, X.shape) >= ratio  # Avoid allocation of dead data
+            #scale  = 1. / (1. - ratio)
+            #np_out = mask * X.data * scale
+            # np_mask_out = mask.astype(bool)                       # Avoid allocation of dead data
             instr_count = {
                     'mov': X.nelems(), #mask
                     'mul': X.nelems(), #mask * x * scale
                     }
 
-        tmp_outT = build_tmp_data_tensor(np_out, self.name + '__tmp_out__')
-        update_output_tensor(self, tmp_outT, outT[0])
+        outT[0].shape = X.shape
+        outT[0].dtype = X.dtype
 
         return_mask = True if len(outT) == 2 else False
 
         if return_mask:
-            tmp_mask_outT = build_tmp_data_tensor(np_out, self.name + '__tmp_mask_out__')
-            update_output_tensor(self, tmp_mask_outT, outT[1])
+            outT[1].shape = X.shape
+            outT[1].dtype = np.dtype(np.bool_)
             outT[1].has_grad = False
 
         outBytes = outT[0].nbytes()
@@ -1783,11 +1894,11 @@ class GeluOp(SimOp):
         # we assume approximate to be 'tanh' always for now....
         # TODO: add default option as well...
 
-        X = clone_tensor_by_shape(inT[0])
-        update_output_tensor(self, X, outT[0])
+        outT[0].shape = inT[0].shape
+        outT[0].dtype = inT[0].dtype
         #instr count calc.
         # Y= <const> * X * ( <const> + tanh( <const> * ( X + <const> * X^3 ) ) )
-        nElem = X.nelems()
+        nElem = inT[0].nelems()
         mul_count, add_count, tanh_count = 0,0,0
         mul_count  += 2 * nElem # X^3
         mul_count  += nElem     # <const> * X^3
@@ -1799,8 +1910,8 @@ class GeluOp(SimOp):
         instr = {'mul': mul_count, 'add': add_count, 'tanh': tanh_count}
 
         self.perf_stats = {
-                'inElems' : X.nelems(),
-                'inBytes' : X.nbytes(),
+                'inElems' : inT[0].nelems(),
+                'inBytes' : inT[0].nbytes(),
                 'outElems': outT[0].nelems(),
                 'outBytes': outT[0].nbytes(),
                 'instrs'  : instr
@@ -1853,14 +1964,14 @@ class ReluOp(SimOp):
         # where the rectified linear function, y = max(0, x), is applied to
         # the tensor elementwise.
 
-        X = clone_tensor_by_shape(inT[0])
-        update_output_tensor(self, X, outT[0])
-        nElem = X.nelems()
+        nElem = inT[0].nelems()
+        outT[0].shape = inT[0].shape
+        outT[0].dtype = inT[0].dtype
         self.perf_stats = {
-                'inElems' : nElem,
-                'inBytes' : X.nbytes(),
-                'outElems': nElem,
-                'outBytes': X.nbytes(),
+                'inElems' : inT[0].nelems(),
+                'inBytes' : inT[0].nbytes(),
+                'outElems': outT[0].nelems(),
+                'outBytes': outT[0].nbytes(),
                 'instrs'  : {'cmp': nElem, 'mov': nElem}
                 }
         return self.perf_stats
@@ -2009,9 +2120,6 @@ class ReduceSumOp(SimOp):
             inElems += axes.nelems()
             inBytes += axes.nbytes()
             np_out = np.sum(T.data, axis=tuple(axes.data.tolist()), keepdims=keepdims==1)
-            print(">>> REDUCESUM DBG>>> data.shape=", T.shape)
-            print(">>> REDUCESUM DBG>>> axis      =", tuple(axes.data.tolist()))
-            print(">>> REDUCESUM DBG>>> out.shape =", np_out.shape)
         else:
             np_out = np.sum(T.data, axis=None, keepdims=keepdims==1)
 
@@ -2031,9 +2139,6 @@ class ReduceSumOp(SimOp):
                 }
 
         return self.perf_stats
-
-
-
 
 ######################  CONCRETE OP IMPLEMENTATION END ##################
 
@@ -2089,7 +2194,7 @@ def SimOpFactory(optype: str) -> type[SimOp]:
             ReluOp               : ['Relu'],
             ConvOp               : ['Conv'],   # TBD: step in adding new operator / layer typez
             MaxPoolOp            : ['MaxPool'],
-            BatchNormalization   : ['BatchNormalization'],
+            BatchNormalizationOp : ['BatchNormalization'],
             AveragePoolOp        : ['AveragePool', 'GlobalAveragePool'],
           }
     optype2cls: dict[str, type[SimOp]] = {}

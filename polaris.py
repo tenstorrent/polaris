@@ -1,12 +1,14 @@
 import sys
 import os
-from typing import Any
+from typing import Any, List
 import re
 import warnings
 import logging
 import time
 import argparse
 import json
+import tracemalloc
+import cProfile
 
 from collections import defaultdict
 from itertools import product
@@ -160,7 +162,7 @@ def apply_filter(L, filter_csv_str, get_param_func):
         L = [x for x in L if get_param_func(x) in filter_fields]
     return L
 
-def get_wlgraph(TBL, wlg, wln, wli, gcfg, wpath):
+def get_wlgraph(TBL, wlg, wln, wli, gcfg, wpath, enable_memalloc):
     xrows = [xrec for xrec in TBL if xrec[0] == wlg and xrec[1] == wln and xrec[2] == wli]
     wlb  = gcfg['bs']
     num_xrows = len(xrows)
@@ -175,11 +177,21 @@ def get_wlgraph(TBL, wlg, wln, wli, gcfg, wpath):
             f"Workload= {wlg}.{wln}.{wli}.b{wlb} missing in workloads graph table!!"
 
     if TBL[(wlg,wln,wli,wlb)] is None:
-        #print(">>>", wlg, wln, wli, wlb)
+        print(">>>", wlg, wln, wli, wlb)
         if wlg == 'TTSIM':
             ttsim_wl  = get_ttsim_functional_instance(wpath, wln, gcfg) #<--- This is slow...
+
+            if enable_memalloc:
+                tracemalloc.start()
             ttsim_wl.create_input_tensors()
             ttsim_wl_out   = ttsim_wl() #we execute the graph and all the nodes are well formed
+            if enable_memalloc:
+                snapshot = tracemalloc.take_snapshot()
+                top_stats = snapshot.statistics("lineno")
+                for stat in top_stats[:10]:
+                    print("TRACEMALLOC:", stat)
+                print("TRACEMALLOC: ttsim", "="*50, "\n")
+
             ttsim_wl_graph = ttsim_wl.get_forward_graph() #we should have a valid workload graph at this point
             TBL[(wlg,wln,wli,wlb)] = (ttsim_wl, ttsim_wl_graph)
             DEBUG(f">>ttsim-wl analytical parameter count {wlg}.{wln}.{wli}.b{wlb}= {ttsim_wl.analytical_param_count():,d}")
@@ -234,6 +246,8 @@ def setup_cmdline_args():
     parser.add_argument('--dryrun',    '-n', action='store_true', default=False, help='show but do not run')
     parser.add_argument('--instr_profile',   action='store_true', default=False, help='Collect Instruction Profile for Workloads')
     parser.add_argument('--dump_ttsim_onnx', action='store_true', default=False, help='Dump ONNX graph for TTSIM Workload')
+    parser.add_argument('--enable_memalloc', action='store_true', default=False, help='Enable Memory Allocation Stats')
+    parser.add_argument('--enable_cprofile', action='store_true', default=False, help='Enable CProfiler Stats ')
 
     parser.add_argument('--training',  '-t', type=str_to_bool, default='false', help='Training run')
     parser.add_argument('--inference', '-i', type=str_to_bool, default='true',  help='Inference run')
@@ -359,8 +373,9 @@ def do_dryrun(_wl, _dl):
 
     return
 
-def execute_wl_on_dev(_wl, _dl, _wspec, _dspec, _op2dt, _op2rsrc, _null_ops, _op_fusion_list, _WLG, _statDir):
-    _summary_stats = []
+def execute_wl_on_dev(_wl, _dl, _wspec, _dspec, _op2dt, _op2rsrc, _null_ops, _op_fusion_list, _WLG,
+                      _statDir, _enable_memalloc):
+    _summary_stats: List = []
     ALL_EXPS = product(_wl, _dl)
     for exp_no, (exp_wl, exp_dev) in tqdm(enumerate(ALL_EXPS), unit="Jobs", desc="Running Jobs"):
         wlgroup, wlname, wlins_name, wlins_cfg, wlbatch = exp_wl
@@ -376,7 +391,8 @@ def execute_wl_on_dev(_wl, _dl, _wspec, _dspec, _op2dt, _op2rsrc, _null_ops, _op
             wlcfg['bs'] = wlbatch #override batch_size if we have batchsweep
 
         try:
-            wlobj, wlgraph = get_wlgraph(_WLG, wlgroup, wlname, wlins_name, wlcfg, wlpath)
+            wlobj, wlgraph = get_wlgraph(_WLG, wlgroup, wlname, wlins_name, wlcfg, wlpath,
+                                         _enable_memalloc)
         except Exception as e:
             logging.error('workload %s failed with %s', exp_wl, e)
             raise
@@ -452,6 +468,10 @@ def execute_wl_on_dev(_wl, _dl, _wspec, _dspec, _op2dt, _op2rsrc, _null_ops, _op
                 })
             rows.append(val)
 
+        for tname, tval in wlgraph._tensors.items():
+            print(tname, tval)
+        exit(0)
+
         statF_parts  = [f"{devname}"]
         statF_parts += [] if devfreq is None else [f"f{devfreq}"]
         statF_parts += [f"{wlgroup}", f"{wlname}", f"{wlins_name}"]
@@ -467,6 +487,10 @@ def execute_wl_on_dev(_wl, _dl, _wspec, _dspec, _op2dt, _op2rsrc, _null_ops, _op
 
 def main() -> int:
     args, freqsweep, batchsweep = setup_cmdline_args()
+
+    if args.enable_cprofile:
+        profiler   = cProfile.Profile()
+        profiler.enable()
 
     #create outdir & output book-keeping assets 
     odir        = os.path.join(args.odir, args.study)
@@ -490,7 +514,7 @@ def main() -> int:
         INFO(f'simulation: workload+ --> device+')
         summary_stats = execute_wl_on_dev(workload_list, device_list, wlspec, devspec,
                                           OP2DT, OP2RSRC, NULL_OPS, OP_FUSION_LIST,
-                                          workload_graphs, stat_dir)
+                                          workload_graphs, stat_dir, args.enable_memalloc)
 
         summary_stat_filename = os.path.join(summary_dir, f"{args.study}-summary.csv")
         print_csv(summary_stats[0].keys(), summary_stats, summary_stat_filename)
@@ -503,6 +527,10 @@ def main() -> int:
             dump_ttsim_onnx(workload_graphs, odir)
 
         tot_exp_run = len(summary_stats)
+
+    if args.enable_cprofile:
+        profiler.disable()
+        profiler.dump_stats("polaris_cprofile_stats.prof")
 
     return tot_exp_run
 

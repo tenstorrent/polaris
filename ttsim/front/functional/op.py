@@ -9,16 +9,10 @@ import ttsim.utils.common as common
 
 #creates a tensor from shape/dtype specification
 def _from_shape(name: str, shape: list[int], is_param: bool = False, is_const=False, np_dtype=np.float32) -> SimTensor:
-    if len(shape) == 0: #rank-0 tensor
-        _data = np.random.randn(1).astype(np_dtype)
-        _data = _data[0]
-    else:
-        _data = np.random.randn(*shape).astype(np_dtype)
     return SimTensor({
         'name' : name,
         'shape': shape,
         'dtype': np.dtype(np_dtype),
-        'data' : _data,
         'is_param': is_param,
         'is_const': is_const,
         })
@@ -364,9 +358,10 @@ def Linear(name, nrow, ncol, **kwargs):
 
 def Conv2d(name, in_channels, out_channels, kernel_size, **kwargs):
     kernel_dims = (kernel_size, kernel_size)
-    arg_defaults = {'stride': 1, 'padding': 0, 'dilation': 1, 'groups': 1,
-                    'bias': True, 'padding_mode': 'zeros', 'device': None,
-                    'dtype': None}
+    arg_defaults = {
+            'stride': 1, 'padding': 0, 'dilation': 1, 'groups': 1,
+            'bias': True, 'padding_mode': 'zeros', 'device': None, 'dtype': None
+            }
     eff_args   = common.get_kwargs_with_defaults('Conv', args=kwargs, default_args=arg_defaults)
     stride     = common.make_tuple(eff_args['stride'], 2)
     padding    = common.make_tuple(eff_args['padding'], 2*2)
@@ -391,7 +386,6 @@ def MaxPool2d(name, kernel_size, **kwargs):
         'ceil_mode': False,
     }
     eff_args   = common.get_kwargs_with_defaults('Maxpool', args=kwargs, default_args=arg_defaults)
- 
     kernel_shape = common.make_tuple(kernel_size, 2)
     stride = eff_args['stride']
     if stride is None:
@@ -400,7 +394,7 @@ def MaxPool2d(name, kernel_size, **kwargs):
         stride = common.make_tuple(kernel_size, 2)
     else:
         stride = common.make_tuple(stride, 2)
-    padding = common.make_tuple(eff_args['padding'], 2)
+    padding = common.make_tuple(eff_args['padding'], 2*2)
     dilation = common.make_tuple(eff_args['dilation'], 2)
     ceil_mode = eff_args['ceil_mode']
     op_hndl = SimOpHandle(name, 'MaxPool',

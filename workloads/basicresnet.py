@@ -50,7 +50,7 @@ class Bottleneck(SimNN.Module):
             z = self.add(y, x)
         else:
             x1 = self.conv_ds(x)
-            logging.debug('DBG conv-ds %s = %s', x, x1)
+            #logging.debug('DBG conv-ds %s = %s', x, x1)
             z  = self.add(y, x1)
             x2 = self.bn_ds(x1)
             #z  = self.add(y, x2)
@@ -114,47 +114,47 @@ class ResNet(SimNN.Module):
         x = self.input_tensors['x_in']
         assert len(x.shape) == 4, f"Input to ResNet should be a tensor: [N,C,H,W] : {x.shape}!!"
 
-        logging.info('x=%s', x)
+        #logging.info('x=%s', x)
         x = self.conv0(x)
-        logging.info('x=%s', x)
+        #logging.info('x=%s', x)
         x = self.bn0(x)
-        logging.info('x=%s', x)
+        #logging.info('x=%s', x)
         x = self.relu0(x)
-        logging.info('x=%s', x)
-        logging.debug("RESNET RELU DBG>> %s", x)
+        #logging.info('x=%s', x)
+        ##logging.debug("RESNET RELU DBG>> %s", x)
 
         x = self.maxpool0(x)
-        logging.info('x=%s', x)
-        logging.debug("RESNET MAXPOOL DBG>> %s", x)
+        #logging.info('x=%s', x)
+        ##logging.debug("RESNET MAXPOOL DBG>> %s", x)
 
         for blk in self.layer1: 
             x = blk(x)
-            logging.info('x=%s', x)
-            logging.debug("RESNET LAYER-1 DBG>> %s", x)
+            #logging.info('x=%s', x)
+            ##logging.debug("RESNET LAYER-1 DBG>> %s", x)
 
         for blk in self.layer2: 
             x = blk(x)
-            logging.info('x=%s', x)
-        logging.debug("RESNET LAYER-2 DBG>> %s", x)
+            #logging.info('x=%s', x)
+        ##logging.debug("RESNET LAYER-2 DBG>> %s", x)
 
         for blk in self.layer3:
             x = blk(x)
-            logging.info('x=%s', x)
-        logging.debug("RESNET LAYER-3 DBG>> %s", x)
+            #logging.info('x=%s', x)
+        ##logging.debug("RESNET LAYER-3 DBG>> %s", x)
 
         for blk in self.layer4:
             x = blk(x)
-            logging.info('x=%s', x)
-        logging.debug("RESNET LAYER-4 DBG>> %s", x)
+            #logging.info('x=%s', x)
+        ##logging.debug("RESNET LAYER-4 DBG>> %s", x)
 
         x = self.avgpool(x)
-        logging.debug("RESNET AVGPOOL DBG>> %s", x)
+        ##logging.debug("RESNET AVGPOOL DBG>> %s", x)
 
         x = self.reshape(x)
-        logging.debug("RESNET RESHAPE DBG>> %s", x)
+        ##logging.debug("RESNET RESHAPE DBG>> %s", x)
 
         x = self.fc(x)
-        logging.debug("RESNET FC DBG>> %s", x)
+        #logging.debug("RESNET FC DBG>> %s", x)
 
         return x
 
@@ -189,11 +189,11 @@ def run_standalone(outdir: str ='.')->None:
     dtype = np.float32
     _data = np.random.randn(*shape).astype(dtype)
     x = SimTensor({'name': 'x', 'shape': shape, 'data': _data, 'dtype': np.dtype(dtype)})
-    logging.debug(x)
+    #logging.debug(x)
 
     #bn_model = Bottleneck('bneck', {'in_channels': 64, 'out_channels': 64})
     #y = bn_model(x)
-    #logging.debug(y)
+    ##logging.debug(y)
 
     #gg = bn_model.get_forward_graph(x)
     #gg.graph2onnx('xyxy.onnx')
@@ -209,7 +209,7 @@ def run_standalone(outdir: str ='.')->None:
         rn_model = ResNet(k,v)
         rn_model.create_input_tensors()
         y = rn_model()
-        logging.debug(y)
+        #logging.debug(y)
         gg = rn_model.get_forward_graph()
         gg.graph2onnx(f'{outdir}/{k}.onnx', do_model_check=True)
 
