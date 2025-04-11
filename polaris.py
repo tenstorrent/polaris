@@ -470,10 +470,6 @@ def execute_wl_on_dev(_wl, _dl, _wspec, _dspec, _op2dt, _op2rsrc, _null_ops, _op
                 })
             rows.append(val)
 
-        for tname, tval in wlgraph._tensors.items():
-            print(tname, tval)
-        exit(0)
-
         statF_parts  = [f"{devname}"]
         statF_parts += [] if devfreq is None else [f"f{devfreq}"]
         statF_parts += [f"{wlgroup}", f"{wlname}", f"{wlins_name}"]
