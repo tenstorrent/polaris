@@ -393,7 +393,6 @@ def MaxPool2d(name, kernel_size, **kwargs):
     stride = eff_args['stride']
     if stride is None:
         # stride defaults to kernel_size and not 1!!
-        # ref https://pytorch.org/docs/stable/generated/torch.nn.MaxPool2d.html#torch.nn.MaxPool2d
         stride = common.make_tuple(kernel_size, 2)
     else:
         stride = common.make_tuple(stride, 2)

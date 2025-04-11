@@ -212,7 +212,6 @@ distributed as part of the software:
 - numpy      - https://numpy.org/doc/stable/license.html
 - onnx       - https://github.com/onnx/onnx/blob/main/LICENSE
 - openpyxl   - https://openpyxl.readthedocs.io/en/stable/
-- pytorch    - https://github.com/pytorch/pytorch/blob/main/LICENSE
 - pyyaml     - https://github.com/yaml/pyyaml/blob/main/LICENSE
 - sphinx     - https://github.com/sphinx-doc/sphinx/blob/master/LICENSE.rst
 - sphinx-rtd-theme     - https://github.com/readthedocs/sphinx_rtd_theme/blob/master/LICENSE
