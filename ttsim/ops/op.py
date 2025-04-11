@@ -3,7 +3,6 @@ import operator
 import math
 import logging
 import numpy as np
-import torch
 from typing import Union, TYPE_CHECKING, Dict, Any
 
 from onnx.mapping import TENSOR_TYPE_MAP
