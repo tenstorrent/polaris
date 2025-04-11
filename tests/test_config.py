@@ -1,3 +1,6 @@
+#!/usr/bin/env python
+# SPDX-FileCopyrightText: (C) 2025 Tenstorrent
+# SPDX-License-Identifier: Apache-2.0
 import pytest
 from ttsim.utils.common import parse_yaml, parse_csv
 from ttsim.config import create_ipblock, create_package, parse_xlsx_config, \

@@ -1,4 +1,7 @@
-from ttsim.ops.op import SimOpFactory
+#!/usr/bin/env python
+# SPDX-FileCopyrightText: (C) 2025 Tenstorrent
+# SPDX-License-Identifier: Apache-2.0
+from ttsim.ops.op import SimOpFactory, build_tmp_data_tensor
 from ttsim.graph import CREATE_GRAD_TENSOR, WorkloadGraph, BackwardWorkloadGraph
 import ttsim.front.functional.op as F
 import numpy as np

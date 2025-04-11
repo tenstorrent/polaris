@@ -1,3 +1,6 @@
+#!/usr/bin/env python
+# SPDX-FileCopyrightText: (C) 2025 Tenstorrent
+# SPDX-License-Identifier: Apache-2.0
 
 #if __name__ == '__main__':
     #convert_units testcase

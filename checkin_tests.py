@@ -1,4 +1,6 @@
 #!/usr/bin/env python
+# SPDX-FileCopyrightText: (C) 2025 Tenstorrent
+# SPDX-License-Identifier: Apache-2.0
 import os
 from glob import glob
 import argparse
@@ -54,8 +56,7 @@ def prepare_commands_run_all_tests(condaenvprefix: OptionalString) -> list[str]:
 
     for exp_no, exp in enumerate(ALL_EXPS):
         exp_str    = "".join(exp)
-        study_name = f"study_{exp_no+1:02}"
-        command    = f"{cmd} -s {study_name} {exp_str} --log_level debug"
+        command    = f"{cmd} --study PLACEHOLDER {exp_str} --log_level debug"
         commands.append(command)
 
     return commands
@@ -73,7 +74,7 @@ def prepare_commands_parse_all_wlyaml(condaenvprefix: OptionalString, dryrun: bo
 
     base = 0 if dryrun else len(wlspecs)
     for wlindex, wlspec in enumerate(wlspecs):
-        command    = f"{cmd} -w {wlspec} -s wltest_{base+wlindex:02}"
+        command    = f"{cmd} -w {wlspec} --study PLACEHOLDER "
         commands.append(command)
 
     return commands
@@ -138,11 +139,12 @@ def main() -> int:
     num_failures: int = 0
     results: list[dict[str, Any]] = [dict() for _ in range(len(commands))]
     for cmdno, cmd in enumerate(commands):
-        study_match = re.search('-s ([^ ]+)', cmd)
+        cmd = cmd.replace('--study PLACEHOLDER ', f'--study study_{cmdno+1:03} ')
+        study_match = re.search('--study', cmd)
         if study_match:
-            log_file = os.path.join(LOGD, study_match.group(1)+'.log')
+            log_file = os.path.join(LOGD, f'study_{cmdno+1:03}.log')
         else:
-            log_file = os.path.join(LOGD, f'checkin_test_{cmdno+1:02}.log')
+            log_file = os.path.join(LOGD, f'checkin_test_{cmdno+1:03}.log')
         print(f'#{cmdno+1}/{len(commands)}: {cmd} -> {log_file}')
         if args.dryrun:
             continue

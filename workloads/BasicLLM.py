@@ -1,3 +1,6 @@
+#!/usr/bin/env python
+# SPDX-FileCopyrightText: (C) 2025 Tenstorrent
+# SPDX-License-Identifier: Apache-2.0
 import os, sys
 sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
 from typing import Any

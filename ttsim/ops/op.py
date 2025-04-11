@@ -1,3 +1,6 @@
+#!/usr/bin/env python
+# SPDX-FileCopyrightText: (C) 2025 Tenstorrent
+# SPDX-License-Identifier: Apache-2.0
 from functools import lru_cache, reduce
 import operator
 import math

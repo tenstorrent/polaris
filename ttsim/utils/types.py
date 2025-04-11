@@ -1,3 +1,6 @@
+#!/usr/bin/env python
+# SPDX-FileCopyrightText: (C) 2025 Tenstorrent
+# SPDX-License-Identifier: Apache-2.0
 from typing import NewType, NamedTuple, Union
 from enum import Enum, StrEnum, auto
 from dataclasses import dataclass
