@@ -23,3 +23,19 @@ workloads:
       b32768: {nL: 24, nH: 16, dE: 1024, nW:  384, bs: 32768}
       b65536: {nL: 24, nH: 16, dE: 1024, nW:  384, bs: 65536}
       b131072: {nL: 24, nH: 16, dE: 1024, nW:  384, bs: 131072}
+  - api: TTSIM
+    name: RESNET50
+    basedir: workloads
+    module : ResNet@basicresnet.py
+    instances:
+      b1    : { layers: [3, 4, 6, 3], num_classes: 1000, num_channels: 3, bs: 1    }
+      b2    : { layers: [3, 4, 6, 3], num_classes: 1000, num_channels: 3, bs: 2    }
+      b4    : { layers: [3, 4, 6, 3], num_classes: 1000, num_channels: 3, bs: 4    }
+      b8    : { layers: [3, 4, 6, 3], num_classes: 1000, num_channels: 3, bs: 8    }
+      b16   : { layers: [3, 4, 6, 3], num_classes: 1000, num_channels: 3, bs: 16   }
+      b32   : { layers: [3, 4, 6, 3], num_classes: 1000, num_channels: 3, bs: 32   }
+      b64   : { layers: [3, 4, 6, 3], num_classes: 1000, num_channels: 3, bs: 64   }
+      b128  : { layers: [3, 4, 6, 3], num_classes: 1000, num_channels: 3, bs: 128  }
+      b256  : { layers: [3, 4, 6, 3], num_classes: 1000, num_channels: 3, bs: 256  }
+      b512  : { layers: [3, 4, 6, 3], num_classes: 1000, num_channels: 3, bs: 512  }
+      b1024 : { layers: [3, 4, 6, 3], num_classes: 1000, num_channels: 3, bs: 1024 }

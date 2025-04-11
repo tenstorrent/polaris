@@ -613,43 +613,33 @@ class LayerNormalizationOp(SimOp):
                 }
         return self.perf_stats
 
-class BatchNormalization(SimOp):
-    """
-        Interface Ref: https://github.com/onnx/onnx/blob/main/docs/Operators.md#batchnormalization
-        Operator Version: 15
-        Backend Ref:  https://pytorch.org/docs/stable/generated/torch.nn.BatchNorm2d.html#torch.nn.BatchNorm2d
-    """
-
+class BatchNormalizationOp(SimOp):
     def __init__(self, opinfo):
         super().__init__(opinfo)
         self.opclass_str: str = 'BatchNormalization'
-        check_io_counts(self, in_counts=[5,5], out_counts=[1,1])
+        check_io_counts(self, in_counts=[5,5], out_counts=[1,3])
 
     def get_perf_counts(self, inT, outT, **kwargs):
         if self.perf_stats is not None:
             return self.perf_stats
 
-        x = clone_tensor_by_shape(inT[0])
-        scale= clone_tensor_by_shape(inT[1])
-        bias = clone_tensor_by_shape(inT[2])
-        input_mean = clone_tensor_by_shape(inT[3])
-        input_var = clone_tensor_by_shape(inT[4])
+        assert all([itensor.check_shape() for itensor in inT]), \
+                f"input tensor shapes not well formed!!"
+        assert len(outT) in [1,3], f"output can either be 1 or 3"
+        x          = inT[0]
+        scale      = inT[1]
+        bias       = inT[2]
+        input_mean = inT[3]
+        input_var  = inT[4]
 
-        for tmp in [x, scale, bias, input_mean, input_var]:
-            assert tmp.check_shape(), f"Illegal Shape for {tmp.name}"
-            assert tmp.data is not None, f"Illegal Data for {tmp.name}"
-        x_torch = torch.from_numpy(x.data)
+        outT[0].shape = x.shape
+        outT[0].dtype = x.dtype
+        if len(outT) == 3:
+            outT[1].shape = scale.shape
+            outT[1].dtype = scale.dtype
+            outT[2].shape = scale.shape
+            outT[2].dtype = scale.dtype
 
-        channels = scale.shape[0]
-
-        batchnorm_obj = torch.nn.BatchNorm2d(channels, **self.attrs)
-        output_tensor = batchnorm_obj(x_torch).cpu().detach().numpy()
-        output_simtensor = build_tmp_data_tensor(output_tensor, self.name + '__tmp_batchnorm_out__')
-
-        update_output_tensor(self, output_simtensor, outT[0])
-
-        read_elems = x.nelems() + scale.nelems() + bias.nelems() + input_mean.nelems() + input_var.nelems()
-        write_elems = output_simtensor.nelems()
         instr_count = {
             'add': x.nelems(),
             'mac': x.nelems(),
@@ -659,15 +649,14 @@ class BatchNormalization(SimOp):
             'add': 1,
         }
         self.perf_stats = {
-            'inElems' : read_elems,
-            'outElems': write_elems,
-            'inBytes' : read_elems * 4, # TODO: dtype based width
-            'outBytes': write_elems * 4, # TODO: dtype based width
+            'inElems' : sum([i.nelems() for i in inT]),
+            'outElems': sum([o.nelems() for o in outT]),
+            'inBytes' : sum([i.nbytes() for i in inT]),
+            'outBytes': sum([o.nbytes() for o in outT]),
             'instrs'  : instr_count
         }
-
         return self.perf_stats
-      
+
     def backward(self, inT, outT, inGT, outGT):
         print("-"*50)
         print("\nLN_BWD_DBG>>")
@@ -2206,7 +2195,7 @@ def SimOpFactory(optype: str) -> type[SimOp]:
             ReluOp               : ['Relu'],
             ConvOp               : ['Conv'],   # TBD: step in adding new operator / layer typez
             MaxPoolOp            : ['MaxPool'],
-            BatchNormalization   : ['BatchNormalization'],
+            BatchNormalizationOp : ['BatchNormalization'],
             AveragePoolOp        : ['AveragePool', 'GlobalAveragePool'],
           }
     optype2cls: dict[str, type[SimOp]] = {}
