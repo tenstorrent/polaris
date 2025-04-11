@@ -130,12 +130,8 @@ class BasicLLM(SimNN.Module):
 
     def create_input_tensors(self):
         self.input_tensors = {
-                'tokens': F._from_shape('tokens',
-                                        [self.bs, self.nW],
-                                        is_param=False, np_dtype=np.int64),
-                'mask': F._from_data('mask',
-                                      np.array([1 for _ in range(self.bs * self.nW)], dtype=np.int64).reshape(self.bs, self.nW),
-                                      is_param=False)
+                'tokens': F._from_shape('tokens', [self.bs, self.nW], is_param=False, np_dtype=np.int64),
+                'mask': F._from_shape('mask', [self.bs, self.nW], is_param=False, np_dtype=np.int64)
                 }
         return
 

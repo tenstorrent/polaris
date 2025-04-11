@@ -122,7 +122,13 @@ def print_json(jsdata, jsfilename):
     with open(jsfilename, 'w') as jsf:
         json.dump(jsdata, jsf)
 
-def get_ttsim_functional_instance(python_module_path, python_instance_name, python_instance_cfg):    
+
+@lru_cache(128)
+def get_ttsim_python_class(python_module_path):
+    """
+        Use lru_cache - the same python_module_path is used for each instance of a workload. The dynamic import is
+        required only once for the module path (inclusive of the @ class specifier)
+    """
     module_path = Path(python_module_path)
     python_module_name = module_path.stem
     if '@' in python_module_name:              # name@file means import name from file
@@ -139,6 +145,10 @@ def get_ttsim_functional_instance(python_module_path, python_instance_name, pyth
     assert spec.loader is not None
     spec.loader.exec_module(mod)
     wl_cls = getattr(mod, python_module_name)
+    return wl_cls
+
+def get_ttsim_functional_instance(python_module_path, python_instance_name, python_instance_cfg):
+    wl_cls = get_ttsim_python_class(python_module_path)
     python_instance = wl_cls(python_instance_name, python_instance_cfg)
     return python_instance
 

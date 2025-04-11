@@ -260,9 +260,14 @@ class WorkloadGraph():
             shape0 = tuple([int(d) for d in tval.shape])
             assert tval.dtype.type in nptype_map, f"dtype={tval.dtype} not yet supported. Pl. edit wl_graph accordingly!!"
 
-            if shape0 == ():
+            if shape0 == (): #rank-0 tensor
+                if tval.data is None:
+                    _data = np.random.randn(1).astype(tval.dtype)
+                    tval.data = _data[0]
                 val_list = [tval.data]
             else:
+                if tval.data is None:
+                    tval.data = np.random.randn(*shape0).astype(tval.dtype)
                 val_list = tval.data.flatten().tolist()
 
 
