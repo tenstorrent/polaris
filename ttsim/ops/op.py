@@ -58,6 +58,87 @@ def get_tensor_broadcast_shape(shape1, shape2):
             raise ValueError(f"Shapes {shape1} and {shape2} not broadcast-compatible")
     return result[::-1]
 
+def pooling_shape_inference(input_shape, kernel_shape, attrs):
+    """Shape inference for pooling operators"""
+
+    # Validate inputs
+    if len(input_shape) < 2:
+        raise ValueError(f"Expected at least 2D input tensor, got shape {input_shape}")
+
+    num_spatial_dims = len(kernel_shape)
+    if num_spatial_dims > len(input_shape) - 2:
+        raise ValueError(f"Too many spatial dimensions ({num_spatial_dims}) for input shape {input_shape}")
+
+    auto_pad      = attrs.get('auto_pad',      'NOTSET')
+    ceil_mode     = attrs.get('ceil_mode',     0)
+    dilations     = attrs.get('dilations',     [1] * num_spatial_dims)
+    pads          = attrs.get('pads',          [0] * (2 * num_spatial_dims))
+    storage_order = attrs.get('storage_order', 0)
+    strides       = attrs.get('strides',       [1] * num_spatial_dims)
+
+    # Extract spatial dimensions (assume last num_spatial_dims are spatial)
+    non_spatial_dims = input_shape[:-num_spatial_dims]
+    spatial_dims     = input_shape[-num_spatial_dims:]
+    if len(spatial_dims) != num_spatial_dims:
+        raise ValueError(f"Expected {num_spatial_dims} spatial dimensions, got {spatial_dims}")
+
+    # Handle padding
+    if pads is not None:
+        if len(pads) != 2 * num_spatial_dims:
+            raise ValueError(f"Expected pads length 2 * {num_spatial_dims}, got {pads}")
+        pad_before = pads[:num_spatial_dims]
+        pad_after = pads[num_spatial_dims:]
+    else:
+        if auto_pad == "VALID":
+            pad_before = [0] * num_spatial_dims
+            pad_after = [0] * num_spatial_dims
+        elif auto_pad in ["SAME_UPPER", "SAME_LOWER"]:
+            pad_before = []
+            pad_after = []
+            for i in range(num_spatial_dims):
+                # Effective kernel size with dilation
+                effective_kernel_size = (kernel_shape[i] - 1) * dilations[i] + 1
+                # For SAME padding, output size is ceil(input_size / stride)
+                out_size = math.ceil(spatial_dims[i] / strides[i])
+                # Compute total padding needed
+                pad_total = max((out_size - 1) * strides[i] + effective_kernel_size - spatial_dims[i], 0)
+                # Distribute padding
+                if auto_pad == "SAME_UPPER":
+                    pad_b = pad_total // 2
+                    pad_a = pad_total - pad_b
+                else:  # SAME_LOWER
+                    pad_a = pad_total // 2
+                    pad_b = pad_total - pad_a
+                pad_before.append(pad_b)
+                pad_after.append(pad_a)
+        else:  # NOTSET with pads=None
+            pad_before = [0] * num_spatial_dims
+            pad_after = [0] * num_spatial_dims
+
+    # Compute output spatial dimensions
+    output_spatial_dims = []
+    for i in range(num_spatial_dims):
+        # Compute effective kernel size with dilation
+        effective_kernel_size = (kernel_shape[i] - 1) * dilations[i] + 1
+        # Compute output size
+        padded_size = spatial_dims[i] + pad_before[i] + pad_after[i]
+        if ceil_mode == 0:
+            out_size = math.floor((padded_size - effective_kernel_size) / strides[i]) + 1
+        else:  # ceil_mode == 1
+            out_size = math.ceil((padded_size - effective_kernel_size) / strides[i]) + 1
+        if out_size <= 0:
+            raise ValueError(
+                f"Invalid output dimension {i}: size={out_size}. "
+                f"Check input shape {input_shape}, kernel {kernel_shape}, "
+                f"strides {strides}, pads {pads}, auto_pad {auto_pad}, "
+                f"ceil_mode {ceil_mode}, dilations {dilations}."
+            )
+        output_spatial_dims.append(out_size)
+
+    # Construct output shape
+    output_shape = non_spatial_dims + output_spatial_dims
+    return output_shape
+
 def clone_tensor_by_shape(itensor, /, data_maybe_missing = True):
     assert itensor.check_shape(), f"Illegal Shape in Tensor {itensor}"
     if data_maybe_missing:
@@ -756,7 +837,7 @@ class BatchNormalization(SimOp):
 
         return grad_results
 
-class ConvOp(SimOp): #version 22
+class ConvOp(SimOp):
     def __init__(self, opinfo):
         super().__init__(opinfo)
         self.opclass_str: str = 'Conv'
@@ -894,59 +975,43 @@ class MaxPoolOp(SimOp):
     def __init__(self, opinfo):
         super().__init__(opinfo)
         self.opclass_str: str = 'MaxPool'
-        # TODO: Support arbitrary number of dimensions, currently only 2 dims supported
         self._kw_args_defaults = {
-            'kernel_shape': None, # Not a KW argument, but kernel_shape passed as this attribute
-            'auto_pad': 'NOTSET',
-            'ceil_mode': 0,
-            'dilations': [1, 1],
-            'pads': [0, 0, 0, 0],
-            'storage_order': 0,
-            'strides': [1, 1],
-        }
-        check_io_counts(self, in_counts=[1, 1], out_counts=[1, 1])
-        if 'attrs' in opinfo:
-            self.check_known_args(opinfo['attrs'])
+                #'kernel_shape' : None,
+                #'auto_pad'     : 'NOTSET',
+                #'ceil_mode'    : 0,
+                #'dilations'    : None,
+                #'pads'         : None,
+                #'storage_order': None,
+                #'strides'      : None,
+                }
+        check_io_counts(self, in_counts=[1, 1], out_counts=[1, 2])
+        #if 'attrs' in opinfo:
+        #    self.check_known_args(opinfo['attrs'])
 
     def get_perf_counts(self, inT, outT, **kwargs):
-        """
-            Reference definition: https://pytorch.org/docs/stable/generated/torch.nn.MaxPool2d.html#torch.nn.MaxPool2d
-
-        """
         if self.perf_stats is not None:
             return self.perf_stats
 
-        kernel_shape = self.attrs.get('kernel_shape') # Required argument, no default
-        input_tensor = clone_tensor_by_shape(inT[0])
-        assert input_tensor.check_shape(), f"Illegal Shape for {input_tensor}"
-        assert input_tensor.data is not None, f"Illegal Data for {input_tensor}"
-        auto_pad = self.attrs.get('auto_pad', self._kw_args_defaults['auto_pad'])
-        ceil_mode = self.attrs.get('ceil_mode', self._kw_args_defaults['ceil_mode'])
-        dilations = self.attrs.get('dilations', self._kw_args_defaults['dilations'])
-        pads = self.attrs.get('pads', self._kw_args_defaults['pads'])
-        # storage_order = self.attrs.get('storage_order', self._kw_args_defaults['storage_order'])
-        strides = self.attrs.get('strides', self._kw_args_defaults['strides'])
+        assert inT[0].check_shape(), f"Illegal Shape for {inT[0]}"
+        input_shape   = inT[0].shape
+        kernel_shape  = self.attrs.get('kernel_shape') #required attribute
+        output_shape  = pooling_shape_inference(input_shape, kernel_shape, self.attrs)
+        outT[0].shape = output_shape
+        outT[0].dtype = inT[0].dtype
 
-        input_tensor_torch = torch.from_numpy(input_tensor.data)
-        # Since maxpool2d obj is created from torch, the kwargs should be torch compatible
-        maxpool2d_obj = torch.nn.MaxPool2d(kernel_shape,
-                                           ceil_mode=ceil_mode != '0',
-                                           dilation=dilations,
-                                           padding=pads,
-                                           stride=strides)
-        tmp_output = maxpool2d_obj(input_tensor_torch).cpu().detach().numpy()
-        tmp_outtensor = build_tmp_data_tensor(tmp_output, self.name + '__tmp_maxpool_out__')
-        update_output_tensor(self, tmp_outtensor, outT[0])
-        instr_count = {
-            'cmp': input_tensor.nelems()
-        }
+        if len(outT) == 2:
+            outT[1].shape = output_shape
+            outT[1].dtype = np.dtype(np.int64)
+
+        instr_count = { 'cmp': inT[0].nelems(), 'mov': outT[0].nelems() }
         self.perf_stats = {
-            'inElems' : input_tensor.nelems(),
+            'inElems' : inT[0].nelems(),
             'outElems': outT[0].nelems(),
-            'inBytes' : input_tensor.nbytes(),
+            'inBytes' : inT[0].nbytes(),
             'outBytes': outT[0].nbytes(),
             'instrs'  : instr_count
         }
+        return self.perf_stats
 
 class AveragePoolOp(SimOp):
     def __init__(self, opinfo):
@@ -955,34 +1020,26 @@ class AveragePoolOp(SimOp):
         check_io_counts(self, in_counts=[1, 1], out_counts=[1, 1])
 
     def get_perf_counts(self, inT, outT, **kwargs):
-        """
-            Reference definition: https://pytorch.org/docs/stable/generated/torch.nn.MaxPool2d.html#torch.nn.MaxPool2d
-
-        """
         if self.perf_stats is not None:
             return self.perf_stats
 
-        kernel_shape = self.attrs.get('kernel_shape') # Required argument, no default
+        assert inT[0].check_shape(), f"Illegal Shape for {inT[0]}"
+        input_shape   = inT[0].shape
+        kernel_shape  = self.attrs.get('kernel_shape') #required attribute
+        output_shape  = pooling_shape_inference(input_shape, kernel_shape, self.attrs)
+        outT[0].shape = output_shape
+        outT[0].dtype = inT[0].dtype
 
-        input_tensor = clone_tensor_by_shape(inT[0])
-        assert input_tensor.check_shape(), f"Illegal Shape for {input_tensor}"
-        assert input_tensor.data is not None, f"Illegal Data for {input_tensor}"
-        input_tensor_torch = torch.from_numpy(input_tensor.data)
-        avgpool2d_obj = torch.nn.AvgPool2d(kernel_shape, **self.attrs)
-        tmp_output = avgpool2d_obj(input_tensor_torch).cpu().detach().numpy()
-        tmp_outtensor = build_tmp_data_tensor(tmp_output, self.name + '__tmp_maxpool_out__')
-        update_output_tensor(self, tmp_outtensor, outT[0])
-        instr_count = {
-            'add': input_tensor.nelems(),
-            'div': 1,
-        }
+        instr_count = {'add': inT[0].nelems(), 'div': outT[0].nelems(), 'mov': outT[0].nelems()}
+
         self.perf_stats = {
-            'inElems' : input_tensor.nelems(),
+            'inElems' : inT[0].nelems(),
             'outElems': outT[0].nelems(),
-            'inBytes' : input_tensor.nbytes(),
+            'inBytes' : inT[0].nbytes(),
             'outBytes': outT[0].nbytes(),
             'instrs'  : instr_count
         }
+        return self.perf_stats
 
 class MatMulOp(SimOp):
     def __init__(self, opinfo):
