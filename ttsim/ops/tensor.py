@@ -15,7 +15,7 @@ class SimTensor:
         self.resolve  = cfg.get('resolve','_')    # Has the tensor shape been resolved (intermediate tensor shapes) (Boolean)
         self.op_in    = cfg.get('op_in', [])      # Which operators is this "input" for (consumer list)
         self.op_out   = cfg.get('op_out', [])     # Which operators is this "output" of (producer list)
-        self.is_param = cfg.get('is_param', False)    # Is it parameter? Boolean 
+        self.is_param = cfg.get('is_param', False)    # Is it parameter? Boolean
         self.is_const = cfg.get('is_const', False)    # Is it constant? Boolean
         self.has_grad = cfg.get('has_grad', True)     # Has a gradient during bwd pass? Boolean
 

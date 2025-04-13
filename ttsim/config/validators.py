@@ -96,3 +96,180 @@ AnyWorkload = Annotated[PYDWorkloadTTSIMModelValidator | PYDWorkloadONNXModelVal
 class PYDWorkloadListValidator(BaseModel):
     workloads: List[AnyWorkload]
 
+type TypeDeviceName = str
+type TypePipeName = str
+type TypePrecision = str
+type TypeOpType = str
+type TypeOpClass = str
+type TypeResourceName = str
+type TypeDomain = str
+type TypeInstrName = str
+
+# Option 1 : Direct representation of output CSV
+class TTSimHLWlDevRunOpCSVPerfStats(BaseModel, extra='forbid'):
+    devname: TypeDeviceName = Field(
+        description = 'Device Name'
+    )
+    freq_MHz: float = Field(
+        description = 'Frequency in MHz'
+    )
+    pipe: TypePipeName = Field(
+        description = 'Pipe name'
+    )
+    precision: TypePrecision = Field(
+        description = 'Precision'
+    )
+    wlgroup: str = Field(
+        description = 'Workload group (API - TTSIM, ONNX etc)'
+    )
+    wlname: str = Field(
+        description = 'Workload name'
+    )
+    wlinstance: str = Field(
+        description = 'Workload instance (specific workload configuration)'
+    )
+    batch: int = Field(
+        description = 'Batch Size'
+    )
+    opnum: int = Field(
+        description = 'Operator sequence number'
+    )
+    opname: str = Field(
+        description = 'Operator name'
+    )
+    is_input_node: bool = Field(
+        description = 'Is this a network input node? (boolean)' # TODO: P1 Is this right?
+    )
+    is_output_node: bool = Field(
+        description = 'Is this a network output node? (boolean)' # TODO: P1 Is this right?
+    )
+    optype: TypeOpType = Field(
+        description = 'Operator type'
+    )
+    op_rpt_count: int = Field(
+        description = 'Repeat count' # TODO: P1 What is this?
+    )
+    attrs: dict = Field(
+        description = 'Operator attributes'
+    )
+    inList: list = Field(
+        description = 'List of tensors input to this operator'
+    )
+    outList: list = Field(
+        description = 'List of tensors output by this operator'
+    )
+    domain: TypeDomain = Field(
+        description = '???' # TODO: P1 What is this?
+    )
+    opclass: TypeOpClass = Field(
+        description = 'Operator class' # TODO: P1 Distinguish between operator type and class
+    )
+    removed: bool = Field(
+        description = 'Is this operator removed'
+    )
+    fused: bool = Field(
+        description = 'Is this operator fused with another'
+    )
+    fused_with_op: str = Field(
+        description = 'The operator (name) with which this operator is fused'
+    )
+    inElems: int = Field(
+        description = 'Count of input elements'
+    )
+    outElems: int = Field(
+        description = 'Count of output elements'
+    )
+    inBytes: int = Field(
+        description = 'Size in bytes of input elements'
+    )
+    outBytes: int = Field(
+        description = 'Size in bytes of output elements'
+    )
+    instrs: dict[TypeInstrName, int] = Field(
+        description = 'Map of instruction name to its count, within this operator'
+    )
+    inParamCount: int = Field(
+        description = 'Count of (input) parameters'
+    )
+    inActCount: int = Field(
+        description = 'Count if input activation elements'
+    )
+    outActCount:int = Field(
+        description = 'Count if output activation elements'
+    )
+    instr_count: int = Field(
+        description = 'Count of instructions' # TODO: elaborate
+    )
+    compute_cycles: float = Field(
+        description = 'Number of cycles required for compute during the execution this operator'
+    )
+    mem_rd_cycles: float = Field(
+        description = 'Number of cycles required for reading memory during the execution this operator'
+    )
+    mem_wr_cycles: float = Field(
+        description = 'Number of cycles required for writing memory during the execution this operator'
+    )
+    ramp_penalty: float = Field(
+        description = 'Ramp Penalty cycles (roughly speaking, the time required for ramping the operator execution till the entire system is loaded)'
+    )
+    rsrc_bnck: TypeResourceName = Field(
+        description = 'Bottleneck resource for this operator; among all resources, the operator required most cycles in this resource'
+    )
+    cycles: float = Field(
+        description = 'Number of cycles required to execute the operator'
+    )
+    msecs: float = Field(
+        description = 'Time (msec) required to execute the operator'
+    )
+
+# Option 2 - Structured Stats
+
+class TTSimHLWlDevRunOperatorPerfStats(BaseModel, extra='forbid'):
+    pipe: TypePipeName
+    precision: TypePrecision
+    opnum: int
+    opname: str
+    is_input_node: bool
+    is_output_node: bool
+    optype: TypeOpType
+    op_rpt_count: int
+    attrs: dict
+    inList: list
+    outList: list
+    domain: TypeDomain
+    opclass: TypeOpClass
+    removed: bool
+    fused: bool
+    fused_with_op: str
+    inElems: int
+    outElems: int
+    inBytes: int
+    outBytes: int
+    instrs: dict[TypeInstrName, int]
+    inParamCount: int
+    inActCount: int
+    outActCount:int
+    instr_count: int
+    compute_cycles: float
+    mem_rd_cycles: float
+    mem_wr_cycles: float
+    ramp_penalty: float
+    rsrc_bnck: TypeResourceName
+    cycles: float
+    msecs: float
+
+class TTSimHLWlDevRunPerfStats(BaseModel, extra='forbid'):
+    """
+        This model represents a "run" of the high level simulator on:
+           - one specific workload instance,
+           - one specific hardware
+
+        The performance metrics of individual operators comprising the workload appear as a list in this model
+    """
+    devname: TypeDeviceName
+    freq_MHz: float
+    wlgroup: str
+    wlname: str
+    wlinstance: str
+    batch: int    # TODO: Run or Operator?
+    operatorstats: list[TTSimHLWlDevRunOperatorPerfStats]

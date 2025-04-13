@@ -139,6 +139,7 @@ def get_ttsim_python_class(python_module_path):
         python_module_name = name_parts[0]
         module_path = module_path.parent / name_parts[1]
     spec = importlib_util.spec_from_file_location(python_module_name, module_path)
+    # TODO: If module name not found in module path, give hint about known class names and the @ syntax
     assert spec is not None
     mod = importlib_util.module_from_spec(spec)
     assert mod is not None
@@ -206,14 +207,14 @@ def make_tuple(value, tuple_len):
     raise NotImplementedError(f'{value} for make_tuple')
 
 def check_known_args(opname: str, /,
-                     args: dict[str, Any], 
+                     args: dict[str, Any],
                      default_args: dict[str, Any]) -> None:
     unknown_args = set(args.keys()) - set(default_args.keys())
     if unknown_args:
          raise AssertionError(f'Unknown args {unknown_args} used with operator {opname}')
 
 def get_kwargs_with_defaults(opname: str, /,
-                             args: dict[str, Any], 
+                             args: dict[str, Any],
                              default_args: dict[str, Any]) -> dict[str, Any]:
     """
         Utility function to get the values of arguments, with defaults for missing ones.

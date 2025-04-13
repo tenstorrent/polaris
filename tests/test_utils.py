@@ -69,7 +69,7 @@ def test_dict2obj():
 def test_str_to_bool():
     assert common.str_to_bool(True)
     assert not common.str_to_bool(False)
-    assert not common.str_to_bool(0) 
+    assert not common.str_to_bool(0)
     assert common.str_to_bool(1)
     assert not common.str_to_bool(0.0)
     assert common.str_to_bool(0.5)
@@ -83,7 +83,7 @@ def test_str_to_bool():
 def test_ttsim_functional_instance():
     common.get_ttsim_functional_instance('workloads/ResNet@basicresnet.py', '',
                                          {'bs': 1, 'layers': [3,4,6,3],  'num_classes': 1000, 'num_channels': 3})
-    
+
 
 def test_parsers():
     common.parse_worksheet('config/nvidia_ref_metrics.csv')

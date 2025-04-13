@@ -14,3 +14,5 @@ dependencies:
   - sphinx-rtd-theme=3.0.1
   - yaml=0.2.5
   - pydantic=2.10.6
+  - gitpython
+  - deepdiff

@@ -4,13 +4,15 @@
 import logging
 import re
 import os
-
 from copy import deepcopy
-
+from typing import Any, Type, Optional
+import yaml
+import sys
+from pydantic import BaseModel, model_validator, ValidationError
+from typing import Optional, List, Union, NewType, TYPE_CHECKING
+from collections import Counter
+import deepdiff
 from ttsim.utils.common import convert_units, warnonce
-from typing import Any, Type
-
-from typing import Optional
 
 LOG   = logging.getLogger(__name__)
 INFO  = LOG.info
@@ -26,6 +28,7 @@ class SimConfig:
     def __iter__(self):
         for i in vars(self).keys():
             yield i
+
 
 class XlsxConfig:
     def __init__(self, cfgname):
@@ -52,6 +55,7 @@ class XlsxConfig:
                 raise AttributeError(f'undefined value for "{name}" in config "{self.cfgname}"')
             self.defaulted_keys.add(name)
             return defvalue
+
 
 class SimCfgBlk: #Generic Sim Configuration Block
     def __init__(self, blkname, **kwargs):
@@ -188,6 +192,7 @@ class WorkloadTTSIM(WorkloadCfgBlk):
             result[iname]['path'] = os.path.join(self.basedir, self.module)
         return result
 
+
 class WorkloadONNX(WorkloadCfgBlk):
     # Type declarations for INSTANCE attributes
     instances: dict
@@ -220,6 +225,7 @@ class AWorkload:
         wlclass = AWorkload.WLCLS_TBL[apiname.upper()]
         return wlclass(kwargs['name'], **kwargs)
 
+
 class WorkloadGroup(WorkloadCfgBlk):
     # Type hints for instance attributes
     workloads: dict[str, WorkloadCfgBlk]
@@ -246,18 +252,22 @@ class WorkloadGroup(WorkloadCfgBlk):
 #####################
 
 
-class ComputePipe(SimCfgBlk):
-    # Type declaration of INSTANCE attributes
+class ComputeInsnModel(BaseModel, extra='forbid'):
+    name: str
+    tpt: dict[str, float]
+
+class ComputePipeModel(BaseModel, extra='forbid'):
+    name: str
     num_units: int
     freq_MHz: float
-    systolic_depth: int
-    instructions: dict[str, Any]
-    # Class attributes
-    required_fields = ['num_units', 'freq_MHz', 'instructions']
-    optional_fields = {'systolic_depth': 1}
+    systolic_depth: Optional[int] = 1
+    instructions: List[ComputeInsnModel]
 
-    def __init__(self, name, **kwargs):
-        super().__init__(name, **kwargs)
+    def get_insn(self, instr: str) -> ComputeInsnModel:
+        matches = [insn for insn in self.instructions if insn.name == instr]
+        if len(matches) != 1:
+            raise AssertionError(f'non-unique matches for instruction {instr} in {self.name} pipe')
+        return matches[0]
 
     def frequency(self, units="MHz"):
         return convert_units(self.freq_MHz, 'MHz', units)
@@ -266,7 +276,8 @@ class ComputePipe(SimCfgBlk):
         self.freq_MHz = convert_units(newfreq, units, 'MHz')
         return
 
-    def handle_missing_precision(self, instr, prec):
+
+    def handle_missing_precision(self, insn: ComputeInsnModel, prec: str) -> Union[str, None]:
         tblx = {
             'int4' : ['int8', 'int16', 'int32'],
             'int8' : ['int16', 'int32'],
@@ -279,62 +290,70 @@ class ComputePipe(SimCfgBlk):
             'tf32' : ['fp32', 'fp64'],
             'fp64' : [],
         }
-        assert prec in tblx, f"unable to handle missing precision: {prec} for instruction= {instr} in ComputePipe.{self.name}!!"
-        for new_prec in tblx[prec]:
-            if new_prec in self.instructions[instr]:
-                return new_prec
-        return None
+        if prec not in tblx:
+            raise AssertionError(f'unable to handle missing precision: {prec} for instruction= {insn.name} in ComputePipe.{self.name}!!')
+        common_precisions = [new_prec for new_prec in tblx[prec] if new_prec in insn.tpt]
+        if not common_precisions:
+            raise AssertionError(f'no substitute precisions for {prec} for instruction {insn.name} under pipe {self.name}')
+        return common_precisions[0]
 
-    def peak_ipc(self, instr, prec):
-        assert instr in self.instructions, f"Throughput for instruction= {instr} for ComputePipe.{self.name} not specified!!"
+
+    def peak_ipc(self, instr: str, prec: str) -> float:
+        insn = self.get_insn(instr)
+        if insn is None:
+            raise AssertionError(f"Throughput for instruction= {instr} for ComputePipe.{self.name} not specified!!")
         try:
-            ipc = self.instructions[instr][prec]
+            ipc = insn.tpt[prec]
         except KeyError:
             warnonce(f"WARNING: Missing Support for Precision={prec} with Instruction={instr}@ComputePipe={self.name}")
-            upgraded_prec = self.handle_missing_precision(instr, prec)
+            upgraded_prec = self.handle_missing_precision(insn, prec)
             warnonce(f">>>> upgraded_prec=   {upgraded_prec}")
             if upgraded_prec is None:
-                raise
+                raise AssertionError(f"Missing Support for Precision={prec} with Instruction={instr}@ComputePipe={self.name}")
             else:
                 warnonce(f"WARNING: Using Precision={upgraded_prec} with Instruction={instr}@ComputePipe={self.name} instead!!")
-                ipc = self.instructions[instr][upgraded_prec]
+                ipc = insn.tpt[upgraded_prec]
+        if TYPE_CHECKING:
+            assert self.systolic_depth is not None
         return ipc * self.systolic_depth * self.num_units
 
-    def peak_flops(self, instr, prec, /, units='TFLOPS', mul_factor=1):
+    def peak_flops(self, instr: str, prec: str, /, units:str='TFLOPS', mul_factor:int=1) -> float:
         mflops = self.peak_ipc(instr, prec) * mul_factor * self.frequency(units="MHZ")
         tflops = convert_units(mflops, 'MFLOPS', 'TFLOPS')
         return tflops
 
 
-class ComputeIP(SimCfgBlk):
-
-    def __init__(self, name, **kwargs):
-        self.pipes = {}
-        for pp in kwargs['pipes']:
-            self.pipes[pp] = ComputePipe(pp, **kwargs['pipes'][pp])
-        super().__init__(name)
-
-        #make sure required compute pipes are specified
-        for p in ['vector', 'matrix']:
-            assert p in self.pipes, f"missing compute pipe: {p} for {self.kind()}.{self.name}"
-
-    def set_frequency(self, newfreq, units="MHZ"):
-        for pn, po in self.pipes.items():
-            po.set_frequency(newfreq, units)
+class L2CacheModel(BaseModel, extra='forbid'):
+    num_banks: int
+    bytes_per_clk_per_bank: int
 
 
-class MemoryIP(SimCfgBlk):
-    # Type declaration of INSTANCE attributes
+class ComputeBlockModel(BaseModel, extra='forbid'):
+    name: str
+    iptype: str
+    l2_cache: Optional[L2CacheModel] = None
+    pipes: List[ComputePipeModel]
+
+    def get_pipe(self, pipename: str) -> ComputePipeModel:
+        matches = [pipe for pipe in self.pipes if pipe.name == pipename]
+        if len(matches) != 1:
+            raise AssertionError(f'non-unique matches for pipe {pipename} in {self.name}')
+        return matches[0]
+
+    def set_frequency(self, newfreq, units="MHZ")->None:
+        for pipe in self.pipes:
+            pipe.set_frequency(newfreq, units)
+
+
+class MemoryBlockModel(BaseModel, extra='forbid'):
+    name: str
+    iptype: str
+    technology: str
     data_bits: int
     freq_MHz: float
     size_GB: int
     stacks: Optional[int] = 1
     data_rate: Optional[int] = 1
-    # Class attributes
-    required_fields = ['technology', 'data_bits', 'freq_MHz', 'size_GB']
-    optional_fields = {'stacks': 1, 'data_rate': 1}
-    def __init__(self, name, **kwargs):
-        super().__init__(name, **kwargs)
 
     def size(self, /, units="GB"):
         return convert_units(self.size_GB, 'GB', units)
@@ -348,92 +367,138 @@ class MemoryIP(SimCfgBlk):
         bw   = Tps * self.data_bits / 8
         return bw
 
-def create_ipblock(ip_type, ip_name, ip_cfg):
-    cls_tbl = {
-        'compute': ComputeIP,
-        'memory':  MemoryIP,
-    }
-    ip_obj = cls_tbl[ip_type.lower()](ip_name, **ip_cfg)
-    return ip_obj
 
-#####################
-# Packages
-#####################
-class IPGroup(SimCfgBlk):
-    # Type declarations of INSTANCE attributes
-    ip: str
+type BlockModelType = Union[ComputeBlockModel, MemoryBlockModel]  # type: ignore[no-redef]
+
+class IPGroupComponentModel(BaseModel, extra='forbid'):
+    ipname: str
+    iptype: str
     num_units: int
-    ramp_penalty: float
-    # Class attributes
-    required_fields = ['ip', 'num_units']
-    optional_fields = {'ramp_penalty': 0}
+    freq_MHz: Optional[float] = None
+    ramp_penalty: Optional[float] = 0.0
+    ipobj: BlockModelType | None = None
 
-    def __init__(self, name, ipdb, **kwargs):
-        super().__init__(name, **kwargs)
-        try:
-            self.ipobj = deepcopy(ipdb[self.ip])
-        except KeyError:
-            DEBUG(f"Error: ip={self.ip} specification not found for {self.kind()}.{self.name}!!")
-            raise
-        if 'ip_overrides' in kwargs:
-            for ok, ov in kwargs['ip_overrides'].items():
-                res = self.ipobj.set_param(ok, ov)
-                if not res:
-                    DEBUG(f"WARNING: Illegal ip_override specification {ok}, IGNORED!!")
+class IPGroupComputeModel(IPGroupComponentModel):
+    systolic_depth: Optional[int] = None
+
+class IPGroupMemoryModel(IPGroupComponentModel):
+    size_GB: Optional[float] = None
+
+# IPBlocksModel = NewType('IPBlocksModel', BaseModel)
+type IPGroupModel = Union[IPGroupComputeModel, IPGroupMemoryModel]
 
 
-class Package(SimCfgBlk):
+# #####################
+# # Packages
+# #####################
 
-    def __init__(self, name, ipdb, **kwargs):
-        self.ipgroups = {}
-        for pg in kwargs['ipgroups']:
-            self.ipgroups[pg] = IPGroup(pg, ipdb, **kwargs['ipgroups'][pg])
-        super().__init__(name)
 
-        #make sure required ip-groups are specified
-        for g in ['compute', 'memory']:
-            assert g in self.ipgroups, f"missing ip-group: {g} for {self.kind()}.{self.name}"
+class PackageInstanceModel(BaseModel, extra='forbid'):
+    devname: str
+    name: str
+    ipgroups: List[IPGroupModel]
 
-    #compute api
+    def get_ipgroup(self, iptype: str) -> IPGroupModel:
+        matching = [ipgroup for ipgroup in self.ipgroups if ipgroup.iptype == iptype]
+        if len(matching) != 1:
+            raise AssertionError(f'non-unique matches for {iptype} in {self.name}')
+        return matching[0]
+
+    # Compute group interfaces
     def set_frequency(self, newfreq, units="MHZ"):
-        self.ipgroups['compute'].ipobj.set_frequency(newfreq, units)
+        compute_group = self.get_ipgroup(iptype='compute')
+        if TYPE_CHECKING:
+            assert compute_group.ipobj is not None
+            assert isinstance(compute_group, ComputeBlockModel)
+        compute_group.ipobj.set_frequency(newfreq, units)
 
-    def peak_ipc(self, pipe, instr, precision):
-        N        = self.ipgroups['compute'].num_units
-        pipe_obj = self.ipgroups['compute'].ipobj.pipes[pipe]
+
+    def peak_ipc(self, pipe: str, instr: str, precision: str):
+        compute_group = self.get_ipgroup(iptype='compute')
+        if TYPE_CHECKING:
+            assert compute_group.ipobj is not None
+            assert isinstance(compute_group, ComputeBlockModel)
+        N        = compute_group.num_units
+        pipe_obj = compute_group.ipobj.get_pipe(pipe)
         ipc      = pipe_obj.peak_ipc(instr, precision)
         return N * ipc
 
-    def peak_flops(self, pipe, instr, precision, mul_factor=1, units='TFLOPS'):
-        pipe_obj = self.ipgroups['compute'].ipobj.pipes[pipe]
+    def peak_flops(self, pipe, instr, precision, mul_factor=1, units='TFLOPS') -> float:
+        compute_group = self.get_ipgroup(iptype='compute')
+        if TYPE_CHECKING:
+            assert compute_group.ipobj is not None
+            assert isinstance(compute_group, ComputeBlockModel)
+        pipe_obj = compute_group.ipobj.get_pipe(pipe)
         flops    = pipe_obj.peak_flops(instr, precision, mul_factor=mul_factor, units=units)
-        N        = self.ipgroups['compute'].num_units
+        N        = compute_group.num_units
         return N * flops
 
-    def ramp_penalty(self):
-        return self.ipgroups['compute'].ramp_penalty
-
     def frequency(self, pipe, units="MHz"):
-        pipe_obj = self.ipgroups['compute'].ipobj.pipes[pipe]
+        compute_group = self.get_ipgroup(iptype='compute')
+        if TYPE_CHECKING:
+            assert compute_group.ipobj is not None
+            assert isinstance(compute_group, ComputeBlockModel)
+        pipe_obj = compute_group.ipobj.get_pipe(pipe)
         freq     = pipe_obj.frequency(units)
         return freq
 
-    #memory api
+    def ramp_penalty(self):
+        compute_group = self.get_ipgroup(iptype='compute')
+        if TYPE_CHECKING:
+            assert compute_group.ipobj is not None
+            assert isinstance(compute_group, ComputeBlockModel)
+        return compute_group.ramp_penalty
+
+    # Memory group interfaces
     def mem_size(self, units='GB'):
-        N = self.ipgroups['memory'].num_units
-        S = self.ipgroups['memory'].ipobj.size(units)
+        memory_group =  self.get_ipgroup('memory')
+        if TYPE_CHECKING:
+            assert memory_group.ipobj is not None
+            assert isinstance(memory_group, MemoryBlockModel)
+        N = memory_group.num_units
+        S = memory_group.ipobj.size(units)
         return N * S
 
     def peak_bandwidth(self, freq_units='GHz'):
-        N = self.ipgroups['memory'].num_units
-        B = self.ipgroups['memory'].ipobj.peak_bandwidth(freq_units=freq_units)
+        memory_group =  self.get_ipgroup('memory')
+        if TYPE_CHECKING:
+            assert memory_group.ipobj is not None
+            assert isinstance(memory_group, MemoryBlockModel)
+        N = memory_group.num_units
+        B = memory_group.ipobj.peak_bandwidth(freq_units=freq_units)
         return N * B
 
     def mem_frequency(self, units="MHz"):
-        pipe_obj = self.ipgroups['memory'].ipobj
+        memory_group =  self.get_ipgroup('memory')
+        if TYPE_CHECKING:
+            assert memory_group.ipobj is not None
+            assert isinstance(memory_group, MemoryBlockModel)
+        pipe_obj = memory_group.ipobj
         freq     = pipe_obj.frequency(units)
         return freq
 
 
-def create_package(pkg_type, pkg_name, pkg_cfg, ip_db):
-    return Package(pkg_name, ip_db, **pkg_cfg)
+def find_duplicates(counters: Counter):
+    dups = {_key: _value for _key, _value in counters.items() if _value > 1}
+    return dups
+
+
+class IPBlocksModel(BaseModel, extra='forbid'): # type: ignore[no-redef]
+    ipblocks: List[BlockModelType]
+
+    @model_validator(mode='after')
+    def validate_ipblocks(self):
+        ipblocks_frequencies: Counter = Counter()
+        for _tmp in self.ipblocks:
+            ipblocks_frequencies[_tmp.name] += 1
+        duplicates = find_duplicates(ipblocks_frequencies)
+        if duplicates:
+            raise AssertionError(f'ipblocks have multiple definitions: {duplicates}')
+        return self
+
+    def get_ipblock(self, blockname: str) -> BlockModelType:
+        for _tmp in self.ipblocks:
+            if _tmp.name == blockname:
+                return _tmp
+        raise AssertionError(f'IPBlock {blockname} not defined')
+

@@ -169,6 +169,6 @@ class BasicLLM(SimNN.Module):
         #  Embedding Tables:
         #        WTE = vocab_sz * dE
         #        WPE = nW * dE
-        #  Therefore Total Params = nL * ( 12 * dE^2 + 10 * dE ) + vocab_sz * dE + nW * dE 
+        #  Therefore Total Params = nL * ( 12 * dE^2 + 10 * dE ) + vocab_sz * dE + nW * dE
         #                         = nL * ( 12 * dE^2 + 10 * dE ) + dE (vocab_sz + nW )
         return self.nL * (12 * self.dE * self.dE + 10 * self.dE) + self.dE * (self.vocab_sz + self.nW)

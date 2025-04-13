@@ -248,11 +248,11 @@ class SimOp:
         return s
 
     def check_known_args(self, args: dict[str, Any]) -> None:
-        common.check_known_args(str(type(self)), args=args, 
+        common.check_known_args(str(type(self)), args=args,
                                 default_args=self._kw_args_defaults)
 
     def get_effective_args(self, args: dict[str, Any]) -> dict[str, Any]:
-        return common.get_kwargs_with_defaults(str(type(self)), 
+        return common.get_kwargs_with_defaults(str(type(self)),
                                                args=args,
                                                default_args=self._kw_args_defaults)
 
@@ -1419,7 +1419,7 @@ class SoftmaxOp(SimOp):
         #    S = ReduceSum(T, axis, keepdims=1) <- dot_product per slice-j: Sum_j(dY_j * #    Y_j)
         #    Z = dY - S (sub)
         #    dX = Y . Z (elemwise mul)
-        #    
+        #
 
         assert self.perf_stats is not None, f"{self.name} backward() called before get_perf_stats()"
         assert len(inT) == len(outGT), f"#inT != #outGT!!"
@@ -2151,21 +2151,21 @@ class ReduceSumOp(SimOp):
 
 #Missing ORT operators used for Training Graphs..
 #
-# 'SoftmaxCrossEntropyLoss'     
-# 'Sum'                         
-# 'ReduceSum'                   
-# 'Gemm'                        
+# 'SoftmaxCrossEntropyLoss'
+# 'Sum'
+# 'ReduceSum'
+# 'Gemm'
 # #domain=com.microsoft Operators
 # #https
-# 'FastGelu'                    
-# 'FusedMatMul'                 
+# 'FastGelu'
+# 'FusedMatMul'
 # #Grad Operators,
-# 'InPlaceAccumulatorV2'        
-# 'ConcatTraining'              
-# 'DropoutGrad'                 
-# 'FastGeluGrad'                
-# 'SoftmaxGrad_13'              
-# 'GatherGrad'                  
+# 'InPlaceAccumulatorV2'
+# 'ConcatTraining'
+# 'DropoutGrad'
+# 'FastGeluGrad'
+# 'SoftmaxGrad_13'
+# 'GatherGrad'
 # 'SoftmaxCrossEntropyLossGrad'
 
 

@@ -111,7 +111,7 @@ class ResNet(SimNN.Module):
 
     def analytical_param_count(self):
         return 0
-    
+
     def __call__(self):
         assert len(self.input_tensors) == 1, f"input_tensors missing!! Need create_input_tensors() before __call__: {self.input_tensors}"
         x = self.input_tensors['x_in']
@@ -130,12 +130,12 @@ class ResNet(SimNN.Module):
         #logging.info('x=%s', x)
         ##logging.debug("RESNET MAXPOOL DBG>> %s", x)
 
-        for blk in self.layer1: 
+        for blk in self.layer1:
             x = blk(x)
             #logging.info('x=%s', x)
             ##logging.debug("RESNET LAYER-1 DBG>> %s", x)
 
-        for blk in self.layer2: 
+        for blk in self.layer2:
             x = blk(x)
             #logging.info('x=%s', x)
         ##logging.debug("RESNET LAYER-2 DBG>> %s", x)
