@@ -2,13 +2,12 @@
 # SPDX-FileCopyrightText: (C) 2025 Tenstorrent
 # SPDX-License-Identifier: Apache-2.0
 import os
-from glob import glob
 import argparse
 import re
-from itertools import product
 import subprocess
-from typing import Any, Callable
+from itertools import product
 from shutil import rmtree
+from typing import Any, Callable
 
 ODIR = '__RUN_TESTS'
 LOGD = f'{ODIR}/logs'
@@ -56,7 +55,6 @@ def prepare_commands_run_all_tests(condaenvprefix: OptionalString) -> list[str]:
 
     for exp_no, exp in enumerate(ALL_EXPS):
         exp_str    = "".join(exp)
-        study_name = f"study_{exp_no+1:02}"
         command    = f"{cmd} --study PLACEHOLDER {exp_str} --log_level debug"
         commands.append(command)
 
@@ -73,7 +71,6 @@ def prepare_commands_parse_all_wlyaml(condaenvprefix: OptionalString, dryrun: bo
     if dryrun:
         cmd += ' --dryrun'
 
-    base = 0 if dryrun else len(wlspecs)
     for wlindex, wlspec in enumerate(wlspecs):
         command    = f"{cmd} -w {wlspec} --study PLACEHOLDER "
         commands.append(command)
@@ -176,9 +173,9 @@ def main() -> int:
         errorlines = os.popen(f'grep ERROR: {LOGD}/*.log').readlines()
         if errorlines:
             print('Warning: log lines containing ERROR: messages')
-            for l in errorlines:
-                l = l.rstrip()
-                print('\t' + l)
+            for line in errorlines:
+                line = line.rstrip()
+                print('\t' + line)
             print('--------------------------------------------------------------------------')
             print('Warning: log lines containing ERROR: messages though runs exit with code 0')
             print('--------------------------------------------------------------------------')
