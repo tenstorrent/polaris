@@ -1,27 +1,27 @@
 #!/usr/bin/env python
 # SPDX-FileCopyrightText: (C) 2025 Tenstorrent
 # SPDX-License-Identifier: Apache-2.0
-import sys
 import os
-from typing import Any, List
-import re
-import warnings
-import logging
-import time
+import sys
 import argparse
-import json
-import tracemalloc
-import cProfile
-import yaml
 import copy
-
+import cProfile
+import logging
+import pickle
+import time
+import tracemalloc
 from collections import defaultdict
+from enum import Enum, auto
+from functools import lru_cache
 from itertools import product
+from typing import Any
 
-from ttsim.config import get_arspec_from_yaml, get_wlspec_from_yaml, get_wlmapspec_from_yaml, \
-    TTSimHLWlDevRunOpCSVPerfStats, TTSimHLWlDevRunPerfStats, PackageInstanceModel
+import yaml
+from pydantic import BaseModel
+
+from ttsim.config import TTSimHLWlDevRunPerfStats, get_arspec_from_yaml, get_wlmapspec_from_yaml, get_wlspec_from_yaml
 from ttsim.front import onnx2graph
-from ttsim.utils.common import print_csv, get_ttsim_functional_instance, str_to_bool
+from ttsim.utils.common import get_ttsim_functional_instance, print_csv, str_to_bool
 
 """ Polaris top-level executable. """
 #TODO
@@ -45,6 +45,23 @@ LOG   = logging.getLogger(__name__)
 INFO  = LOG.info
 DEBUG = LOG.debug
 
+
+class OutputFormat(Enum):
+    FMT_NONE = auto()
+    FMT_YAML = auto()
+    FMT_JSON = auto()
+    FMT_PICKLE = auto()
+
+    @classmethod
+    def enumvalue(cls, s:str):
+        return OutputFormat['FMT_' + s.upper()]
+
+    @property
+    @lru_cache(4)
+    def cname(self)->str:
+        return self.name.replace('FMT_', '').lower()
+
+
 class ReducedStats:
     # Type hints for instance attributes
     rsrc_bound: dict[Any, int]
@@ -66,7 +83,7 @@ class ReducedStats:
         F2 = ['inActCount', 'outActCount', 'precision']
 
         L1 = [tuple([s[f] for f in F1]) for s in _stats]
-        L2 = [tuple([s[f] for f in F2]) for s in _stats if s['removed'] == False and s['fused'] == False]
+        L2 = [tuple([s[f] for f in F2]) for s in _stats if not (s['removed'] or s['fused'])]
         BPE_TBL = {'INT8': 1, 'INT32': 4}
 
         self.tot_cycles   = sum([r*c for r,c,m,p,b,rb in L1])
@@ -171,7 +188,7 @@ def get_wlgraph(TBL, wlg, wln, wli, gcfg, wpath, enable_memalloc):
     xrows = [xrec for xrec in TBL if xrec[0] == wlg and xrec[1] == wln and xrec[2] == wli]
     wlb  = gcfg['bs']
     num_xrows = len(xrows)
-    if num_xrows == 1 and xrows[0][3] == None:
+    if num_xrows == 1 and xrows[0][3] is None:
         # we did not have the workload batch-size when we created TBL because batchsweep
         # was not set; now that the workload is instantiated, we have the batch-size
         # so, update the TBL accordingly
@@ -188,7 +205,7 @@ def get_wlgraph(TBL, wlg, wln, wli, gcfg, wpath, enable_memalloc):
             if enable_memalloc:
                 tracemalloc.start()
             ttsim_wl.create_input_tensors()
-            ttsim_wl_out   = ttsim_wl() #we execute the graph and all the nodes are well formed
+            ttsim_wl_out   = ttsim_wl() # noqa: F841 # we execute the graph and all the nodes are well formed
             if enable_memalloc:
                 snapshot = tracemalloc.take_snapshot()
                 top_stats = snapshot.statistics("lineno")
@@ -196,7 +213,7 @@ def get_wlgraph(TBL, wlg, wln, wli, gcfg, wpath, enable_memalloc):
                     print("TRACEMALLOC:", stat)
                 print("TRACEMALLOC: ttsim", "="*50, "\n")
 
-            ttsim_wl_graph = ttsim_wl.get_forward_graph() #we should have a valid workload graph at this point
+            ttsim_wl_graph = ttsim_wl.get_forward_graph() # we should have a valid workload graph at this point
             TBL[(wlg,wln,wli,wlb)] = (ttsim_wl, ttsim_wl_graph)
             DEBUG(f">>ttsim-wl analytical parameter count {wlg}.{wln}.{wli}.b{wlb}= {ttsim_wl.analytical_param_count():,d}")
         elif wlg == 'ONNX':
@@ -220,11 +237,11 @@ def get_wlgraph(TBL, wlg, wln, wli, gcfg, wpath, enable_memalloc):
 def do_instr_profile(_WLG, _ODIR):
     ITBL: dict[tuple[str, str, str, int], Any] = {}
     for _wlx, (wlobj, wlgraph) in _WLG.items():
-        if _wlx not in ITBL: ITBL[_wlx] = {}
+        if _wlx not in ITBL: ITBL[_wlx] = {}  # noqa: E701
         for i,x in enumerate(wlgraph.get_ordered_nodes()):
             fwd_op = wlgraph._ops[x]
             for k,v in fwd_op.perf_stats['instrs'].items():
-                if k not in ITBL[_wlx]: ITBL[_wlx][k] = 0
+                if k not in ITBL[_wlx]: ITBL[_wlx][k] = 0  # noqa: E701
                 ITBL[_wlx][k] += v
 
     profile_data = []
@@ -244,7 +261,7 @@ def do_instr_profile(_WLG, _ODIR):
 
 def setup_cmdline_args():
     logging_levels = [ 'debug', 'info', 'warning', 'error', 'critical' ]
-    data_types     = [ 'fp64', 'fp32', 'tf32', 'fp16', 'bf16', 'fp8', 'int32', 'int8' ]
+    data_types     = [ 'fp64', 'fp32', 'tf32', 'fp16', 'bf16', 'fp8', 'int32', 'int8' ]  # noqa: F841
     parser = argparse.ArgumentParser('polaris')
 
     parser.add_argument('--dryrun',    '-n', action='store_true', default=False, help='show but do not run')
@@ -272,6 +289,9 @@ def setup_cmdline_args():
                         action='append', help='frequency (in MHz) range specification (arith-seq)')
     parser.add_argument('--batchsize', nargs=3, metavar=('start', 'end', 'step'), type=int,
                         action='append', help='batchsize range specification (geom-seq)')
+    parser.add_argument('--outputformat', choices=['none', 'yaml', 'json', 'pickle'], default='json', type=str.lower)
+    parser.add_argument('--dumpstatscsv', dest='dump_stats_csv', action='store_true', 
+                        default=False, help='Dump stats in CSV format')
 
     #cmdline args processing
     args = parser.parse_args()
@@ -377,8 +397,22 @@ def do_dryrun(_wl, _dl):
     return
 
 
+def save_data(model: BaseModel, filename, outputfmt: OutputFormat)->None:
+    if outputfmt == OutputFormat.FMT_NONE:
+        return
+    elif outputfmt == OutputFormat.FMT_YAML:
+        with open(filename, 'w') as fout:
+            yaml.dump(model.model_dump, fout, indent=4, Dumper=yaml.CDumper)
+    elif outputfmt == OutputFormat.FMT_JSON:
+        with open(filename, 'w') as fout:
+            print(model.model_dump_json(indent=4), file=fout)
+    elif outputfmt == OutputFormat.FMT_PICKLE:
+        with open(filename, 'wb') as foutbin:
+            pickle.dump(model, foutbin)
+
+
 def execute_wl_on_dev(_wl, _dl, _wspec, _dspec, _op2dt, _op2rsrc, _null_ops, _op_fusion_list, _WLG,
-                      _odir, _enable_memalloc):
+                      _odir, _enable_memalloc, outputfmt, flag_dump_stats_csv):
     # TODO: Reduce number of arguments to this function
     stat_dir    = os.path.join(_odir, 'STATS')
     config_dir  = os.path.join(_odir, 'CONFIG')
@@ -500,17 +534,16 @@ def execute_wl_on_dev(_wl, _dl, _wspec, _dspec, _op2dt, _op2rsrc, _null_ops, _op
         statF_parts += [] if wlbatch is None else [f"b{wlbatch}"]
         statF = "-".join(statF_parts) + '-opstats.csv'
         statP = os.path.join(stat_dir, statF)
-        print_csv(rows[0].keys(), rows, statP)
-        statyamlP = statP.replace('.csv', '.yaml')
-        with open(statyamlP, 'w') as fout:
-            yaml.dump(model.model_dump(), fout, indent=4)
+        if flag_dump_stats_csv:
+            print_csv(rows[0].keys(), rows, statP)
+        if outputfmt != OutputFormat.FMT_NONE:
+            statyamlP = statP.replace('.csv', '.' + outputfmt.cname)
+            save_data(model, statyamlP, outputfmt)
 
-        if devname not in saved_devices:
-            devF = os.path.join(config_dir, f'{devname}.yaml')
-            devobj_dict = dev_obj.model_dump()
-            with open(devF, 'w') as fout:
-                yaml.dump(devobj_dict, fout, indent=4, Dumper=yaml.CDumper)
-            saved_devices.add(devname)
+            if devname not in saved_devices:
+                devF = os.path.join(config_dir, f'{devname}.' + outputfmt.cname)
+                save_data(dev_obj, devF, outputfmt)
+                saved_devices.add(devname)
 
         reduced_stat  = ReducedStats(devname, wlgroup, wlname, wlins_name, dev_obj)
         _summary_stats.append( reduced_stat.summarize (rows) )
@@ -528,7 +561,6 @@ def main() -> int:
     #create outdir & output book-keeping assets
     odir        = os.path.join(args.odir, args.study)
     summary_dir = os.path.join(odir, 'SUMMARY')
-    run_log     = os.path.join(odir, args.study + '.log')
     os.makedirs(odir,        exist_ok=True)
     os.makedirs(summary_dir, exist_ok=True)
 
@@ -542,10 +574,12 @@ def main() -> int:
     else:
         workload_graphs = create_uniq_workloads_tbl(workload_list)
 
-        INFO(f'simulation: workload+ --> device+')
+        INFO('simulation: workload+ --> device+')
         summary_stats = execute_wl_on_dev(workload_list, device_list, wlspec, devspec,
                                           OP2DT, OP2RSRC, NULL_OPS, OP_FUSION_LIST,
-                                          workload_graphs, odir, args.enable_memalloc)
+                                          workload_graphs, odir, args.enable_memalloc,
+                                          OutputFormat.enumvalue(args.outputformat),
+                                          args.dump_stats_csv)
 
         summary_stat_filename = os.path.join(summary_dir, f"{args.study}-summary.csv")
         print_csv(summary_stats[0].keys(), summary_stats, summary_stat_filename)

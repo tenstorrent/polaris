@@ -34,3 +34,16 @@ exclude_also = [
 [tool.coverage.html]
 # Output directory, prefix __ to ensure it is ignored by .gitignore
 directory = "__htmlcov"
+
+[tool.isort]
+force_to_top = ["sys" , "os"]
+honor_noqa = true
+line_length = 120
+
+[tool.ruff]
+line-length = 120
+indent-width = 4
+
+[tool.ruff.format]
+quote-style = "single"
+
