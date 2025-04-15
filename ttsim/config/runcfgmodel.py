@@ -1,8 +1,9 @@
 #!/usr/bin/env python
 # SPDX-FileCopyrightText: (C) 2025 Tenstorrent
 # SPDX-License-Identifier: Apache-2.0
-from typing import Optional, Literal, Tuple, Union
-from pydantic import BaseModel, Field, field_validator, ValidationInfo
+from typing import Literal, Optional, Tuple, Union
+
+from pydantic import BaseModel, Field, ValidationInfo, field_validator
 
 type TYPE_SWEEP = Literal['all', 'first-parent']
 type TYPE_RUN = Literal['inference', 'training']
@@ -54,7 +55,6 @@ class PolarisRunConfig(BaseModel, extra='forbid'):
     filterrun: Optional[TYPE_RUN] = Field(
         default='inference',
         description='Filter either inference or training runs',
-        alias='runtype'
     )
 
     filter: Optional[str] = Field(
@@ -68,6 +68,8 @@ class PolarisRunConfig(BaseModel, extra='forbid'):
 
     @field_validator('frequency')
     def validate_frequency(cls, v: TYPE_frequency, info: ValidationInfo) -> TYPE_frequency:
+        if v is None:
+            return v
         if any([v[0] <= 0, v[1] <= 0, v[2] <= 0]):
             raise AssertionError(f'frequency values should be positive in {v}')
         if v[0] >= v[1]:
@@ -76,6 +78,8 @@ class PolarisRunConfig(BaseModel, extra='forbid'):
 
     @field_validator('batchsize')
     def validate_batchsize(cls, v: TYPE_batchsize, info: ValidationInfo) -> TYPE_batchsize:
+        if v is None:
+            return v
         if any([v[0] <= 0, v[1] <= 0, v[2] <= 0]):
             raise AssertionError(f'batchsize values should be positive in {v}')
         if v[2] == 1:
@@ -103,9 +107,10 @@ class PolarisRunConfig(BaseModel, extra='forbid'):
         default=None, description='Particular git commit'
     )
 
-    @property
-    def runtype(self):
-        return self.filterrun
+    saved_copy: Optional[bool] = Field(
+        default=False,
+        description='Only for internal use. This attribute should be true for yaml copies saved by polaris system only'
+    )
 
 
 type TYPE_GITHASH = Union[str, None]
