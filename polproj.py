@@ -65,7 +65,7 @@ def timestamp(tm: datetime.datetime) -> str:
 def execute(runcfg: RUNCFG_TYPE, jtemplate: JTemplate, jdict: JDICT_TYPE,
             args: argparse.Namespace, passdown_args: list[str], diagnostic: bool = True) -> int:
     command_words = ['python', 'polaris.py',
-                     '--odir', jtemplate.expand(runcfg.output, jdict),
+                     '--odir', jtemplate.expand(runcfg.odir, jdict),
                      '--study', jtemplate.expand(runcfg.study, jdict),
                      ]
     if runcfg.filterrun == 'inference':
@@ -73,7 +73,6 @@ def execute(runcfg: RUNCFG_TYPE, jtemplate: JTemplate, jdict: JDICT_TYPE,
     else:
         rt_inference, rt_training = (False, True)
     command_words.extend(['--inference', str(rt_inference).lower(), '--training', str(rt_training).lower()])
-    command_words.extend(['--archspec', runcfg.archspec])
     if args.dryrun:
         command_words.extend(['--dryrun'])
     if runcfg.dump_ttsim_onnx:
@@ -81,8 +80,6 @@ def execute(runcfg: RUNCFG_TYPE, jtemplate: JTemplate, jdict: JDICT_TYPE,
     if runcfg.instr_profile:
         command_words.extend(['--instr_profile'])
 
-    if runcfg.filter is not None:
-        command_words.extend(['--filter', runcfg.filter])
     if runcfg.filterapi is not None:
         command_words.extend(['--filterwlg', runcfg.filterapi])
     if runcfg.filterarch is not None:
@@ -92,7 +89,7 @@ def execute(runcfg: RUNCFG_TYPE, jtemplate: JTemplate, jdict: JDICT_TYPE,
     if runcfg.filterwli is not None:
         command_words.extend(['--filterwli', runcfg.filterwli])
 
-    command_words.extend(['--log_level', str(runcfg.loglevel)])
+    command_words.extend(['--log_level', str(runcfg.log_level)])
 
     command_words.extend(['--wlspec', runcfg.wlspec])
     command_words.extend(['--archspec', runcfg.archspec])
@@ -101,9 +98,18 @@ def execute(runcfg: RUNCFG_TYPE, jtemplate: JTemplate, jdict: JDICT_TYPE,
         command_words.extend(['--frequency'] + [str(_tmp) for _tmp in runcfg.frequency])
     if runcfg.batchsize is not None:
         command_words.extend(['--batchsize'] + [str(_tmp) for _tmp in runcfg.batchsize])
+    if runcfg.knobs:
+        command_words.extend(runcfg.knobs)
+    if runcfg.enable_memalloc:
+        command_words.extend(['--enable_memalloc'])
+    if runcfg.enable_cprofile:
+        command_words.extend(['--enable_cprofile'])
+    command_words.extend(['--outputformat', runcfg.outputformat])
+    if runcfg.dumpstatscsv:
+        command_words.extend(['--dumpstatscsv'])
     command_words.extend(passdown_args)
 
-    infopath = os.path.join(runcfg.output, 'inputs', 'runinfo.json')
+    infopath = os.path.join(runcfg.odir, 'inputs', 'runinfo.json')
     os.makedirs(os.path.dirname(infopath), exist_ok=True)
     with open(infopath, 'w') as fout:
         json.dump(jdict, fout, indent=4)
@@ -174,9 +180,9 @@ def get_args() -> Tuple[argparse.Namespace, list[str]]:
 
 def prepare_for_run(runconfig: RUNCFG_TYPE, jtemplate: JTemplate, jdict: dict[str, Any], 
                     args: argparse.Namespace, passdown_args: list[str]) -> RUNCFG_TYPE:
-    outdir = jtemplate.expand(runconfig.output, jdict)
+    outdir = jtemplate.expand(runconfig.odir, jdict)
     study = jtemplate.expand(runconfig.study, jdict)
-    runconfig.output = outdir
+    runconfig.odir = outdir
     runconfig.study = study
     if not os.path.isdir(outdir):
         os.makedirs(outdir)
@@ -209,13 +215,13 @@ def override_runconfig(runconfig: RUNCFG_TYPE, passdown_args: list[str]) -> None
         if arg == '--odir':
             if ndx + 1 >= len(passdown_args):
                 raise ValueError('missing argument for --odir')
-            runconfig.output = passdown_args[ndx + 1]
-            logging.warning('overriding output directory with %s', runconfig.output)
+            runconfig.odir = passdown_args[ndx + 1]
+            logging.warning('overriding output directory with %s', runconfig.odir)
         elif arg == '--study':
             if ndx + 1 >= len(passdown_args):
                 raise ValueError('missing argument for --study')
             runconfig.study = passdown_args[ndx + 1]
-            logging.warning('overriding output directory with %s', runconfig.output)
+            logging.warning('overriding study name with %s', runconfig.study)
 
 
 def main() -> int:
