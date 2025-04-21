@@ -17,12 +17,14 @@ ipblocks:
             - {name: rsqrt, tpt: { int32: 1., bf16: 2., fp16: 2., fp32: 1., fp64: 0.5 }}
             - {name: cmp,   tpt: { int32: 1., bf16: 2., fp16: 2., fp32: 1., fp64: 0.5 }}
             - {name: mov,   tpt: { int32: 1., bf16: 2., fp16: 2., fp32: 1., fp64: 0.5 }}
+            - {name: max,   tpt: { int32: 1., bf16: 2., fp16: 2., fp32: 1., fp64: 0.5 }}
         -   name: matrix
             num_units: 4
             freq_MHz: 1410
             systolic_depth: 8
             instructions  :
             - {name: mac, tpt: { int4: 128.0, int8: 64.0, fp8: 64.0, bf16: 32.0, fp16: 32.0, tf32: 16.0, fp32: 0.0, fp64: 2.0}}
+            - {name: add, tpt: { int4: 128.0, int8: 64.0, fp8: 64.0, bf16: 32.0, fp16: 32.0, tf32: 16.0, fp32: 0.0, fp64: 2.0}}
     -   name: tensix  # neo config
         iptype: compute
         l2_cache:
@@ -52,6 +54,7 @@ ipblocks:
             -   {name: rsqrt, tpt: { int32: 32., fp32: 32. }}
             -   {name: cmp,   tpt: { int32: 32., fp32: 32. }}
             -   {name: mov,   tpt: { int32: 32., fp32: 32. }}
+            -   {name: max,   tpt: { int32: 32., fp32: 32. }}
 
 
     -   name: gddr6

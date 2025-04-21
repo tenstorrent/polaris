@@ -317,19 +317,22 @@ class ConstantOp(SimOp):
         if self.perf_stats is not None:
             return self.perf_stats
 
-        assert False, f"{self.opclass_str} get_perf_stats not supported at present!!"
+        if outT[0].check_shape():
+            pass
+        else:
+            attr_val_count = 0
+            attr_val_field = ""
+            for ff in ['sparse_value', 'value', 'value_float', 'value_floats',
+                       'value_int', 'value_ints', 'value_string', 'value_strings']:
+                if ff in self.attrs:
+                    attr_val_count += 1
+                    attr_val_field = ff
+            assert attr_val_count == 1, f"ERROR: More than one val attribute: {self}"
+            tdata  = self.attrs[attr_val_field]
+            tmp_tensor = build_tmp_data_tensor(tdata, '_tmp_constant_tensor_ op=' + self.name)
+            update_output_tensor(self, tmp_tensor, outT[0])
 
-        attr_val_count = 0
-        attr_val_field = ""
-        for ff in ['sparse_value', 'value', 'value_float', 'value_floats',
-                   'value_int', 'value_ints', 'value_string', 'value_strings']:
-            if ff in self.attrs:
-                attr_val_count += 1
-                attr_val_field = ff
-        assert attr_val_count == 1, f"ERROR: More than one val attribute: {self}"
-        tdata  = self.attrs[attr_val_field]
-        tmp_tensor = build_tmp_data_tensor(tdata, '_tmp_constant_tensor_ op=' + self.name)
-        update_output_tensor(self, tmp_tensor, outT[0])
+        assert outT[0].check_shape(), f"output shape: outT[0]"
         self.perf_stats =  {
                 'inElems' : 0,
                 'outElems': outT[0].nelems(),
@@ -368,8 +371,11 @@ class EltwiseUnaryOp(SimOp):
 
         #tmp_outT = build_tmp_data_tensor(np_out, self.name + '__tmp_out__')
         #update_output_tensor(self, tmp_outT, outT[0])
-        outT[0].shape = inT[0].shape
-        outT[0].dtype = inT[0].dtype
+        if outT[0].check_shape() and outT[0].shape == inT[0].shape:
+            outT[0].dtype = inT[0].dtype
+        else:
+            outT[0].shape = inT[0].shape
+            outT[0].dtype = inT[0].dtype
 
         optype2instr = {'identity': 'mov'}
         instr_name = self.optype.lower()
@@ -396,6 +402,7 @@ class EltwiseBinaryOp(SimOp):
 
         outT[0].shape = get_tensor_broadcast_shape(inT[0].shape, inT[1].shape)
         outT[0].dtype = inT[0].dtype
+
         self.perf_stats =  {
                 'inElems' : inT[0].nelems() + inT[1].nelems(),
                 'outElems': outT[0].nelems(),
@@ -480,9 +487,9 @@ class GatherOp(SimOp):
         outT[0].dtype = dataT.dtype
 
         self.perf_stats = {
-                'inElems' : dataT.nelems(),
+                'inElems' : outT[0].nelems(), #read just what we need, not the whole embed. tbl
                 'outElems': outT[0].nelems(),
-                'inBytes' : dataT.nbytes(),
+                'inBytes' : outT[0].nbytes(),
                 'outBytes': outT[0].nbytes(),
                 'instrs'  : {'mov': outT[0].nelems()}
                 }
@@ -1046,7 +1053,6 @@ class MatMulOp(SimOp):
         batch_axis  = kwargs.get('batch_axis',  None)
         assert is_backprop == False, f"Matmul in Backward Pass!!"
 
-        ######## New Implementation Begin #########
         AShape = inT[0].shape
         BShape = inT[1].shape
 
@@ -1082,7 +1088,6 @@ class MatMulOp(SimOp):
         reduced_dim   = mat1[-1]
         outT[0].shape = CShape
         outT[0].dtype = inT[0].dtype
-        ######## New Implementation Begin #########
 
         self.perf_stats = {
             'inElems' : inT[0].nelems() + inT[1].nelems(),
@@ -1148,6 +1153,7 @@ class SplitOp(SimOp):
             return self.perf_stats
         num_outputs = self.attrs.get('num_outputs', len(outT))
         axis        = self.attrs.get('axis',0)
+
         A      = inT[0]
         splitT = inT[1] if len(inT) == 2 else None
         assert A.check_shape(), "Illegal shape!!"
@@ -1180,6 +1186,7 @@ class SplitOp(SimOp):
                 'outBytes': outBytes,
                 'instrs'  : {'mov': outElems}
                 }
+
         return self.perf_stats
 
 class ReshapeOp(SimOp):
@@ -1357,6 +1364,8 @@ class WhereOp(SimOp):
     def get_perf_counts(self, inT, outT, **kwargs):
         if self.perf_stats is not None:
             return self.perf_stats
+        '''
+        ASSUME ONNX SHAPE INFERENCE
         condB = clone_tensor_by_shape(inT[0], data_maybe_missing=False) #condB.data should exist
         X     = clone_tensor_by_shape(inT[1])
         Y     = clone_tensor_by_shape(inT[2])
@@ -1364,10 +1373,12 @@ class WhereOp(SimOp):
         np_out = np.where(condB.data, X.data, Y.data)
         tmp_outT = build_tmp_data_tensor(np_out, self.name + '__tmp_out__')
         update_output_tensor(self, tmp_outT, outT[0])
+        '''
+        assert outT[0].check_shape(), f"SHAPE INFERENCE ERROR!!"
         self.perf_stats = {
-                'inElems' : condB.nelems() + X.nelems() + Y.nelems(),
+                'inElems' : inT[0].nelems() + inT[1].nelems() + inT[2].nelems(),
                 'outElems': outT[0].nelems(),
-                'inBytes' : condB.nbytes() + X.nbytes() + Y.nbytes(),
+                'inBytes' : inT[0].nbytes() + inT[1].nbytes() + inT[2].nbytes(),
                 'outBytes': outT[0].nbytes(),
                 'instrs'  : {'mov': outT[0].nelems(), 'cmp': outT[0].nelems()}
                 }
@@ -1496,19 +1507,24 @@ class PowOp(SimOp):
     def get_perf_counts(self, inT, outT, **kwargs):
         if self.perf_stats is not None:
             return self.perf_stats
+        '''
+        ASSUME ONNX SHAPE INFERENCE
         X = clone_tensor_by_shape(inT[0])
         Y = clone_tensor_by_shape(inT[1])
         np_out = pow(X.data, Y.data)
         tmp_outT = build_tmp_data_tensor(np_out, self.name + '__tmp_out__')
         update_output_tensor(self, tmp_outT, outT[0])
-        outElems = outT[0].nelems()
+        '''
+        assert outT[0].check_shape(), f"SHAPE INFERENCE ERROR!!"
         self.perf_stats = {
-                'inBytes' : X.nbytes() + Y.nbytes(),
+                'inBytes' : inT[0].nbytes() + inT[1].nbytes(),
+                'inElems' : inT[0].nelems() + inT[1].nelems(),
                 'outBytes': outT[0].nbytes(),
+                'outElems': outT[0].nelems(),
                 'instrs'  : {
-                    'mul': outElems,
-                    'exp': outElems,
-                    'log': outElems
+                    'mul': outT[0].nelems(),
+                    'exp': outT[0].nelems(),
+                    'log': outT[0].nelems()
                     }
                 }
         return self.perf_stats
@@ -1522,17 +1538,21 @@ class UnsqueezeOp(SimOp):
     def get_perf_counts(self, inT, outT, **kwargs):
         if self.perf_stats is not None:
             return self.perf_stats
+
         X = clone_tensor_by_shape(inT[0], data_maybe_missing=False) #X.data must be present
         Y = clone_tensor_by_shape(inT[1], data_maybe_missing=False) #Y.data must be present
-
         np_out = X.data
         for d in Y.data:
             np_out = np.expand_dims(np_out, axis=d)
+
         tmp_outT = build_tmp_data_tensor(np_out, self.name + '__tmp_out__')
         update_output_tensor(self, tmp_outT, outT[0])
+
         self.perf_stats = {
                 'inBytes' : X.nbytes() + Y.nbytes(),
                 'outBytes': outT[0].nbytes(),
+                'inElems' : X.nelems() + Y.nelems(),
+                'outElems': outT[0].nelems(),
                 'instrs'  : {'mov': outT[0].nelems()}
                 }
         return self.perf_stats
@@ -1547,18 +1567,18 @@ class ConcatOp(SimOp):
     def get_perf_counts(self, inT, outT, **kwargs):
         if self.perf_stats is not None:
             return self.perf_stats
+
         axis = self.attrs['axis']
         Xs   = [clone_tensor_by_shape(x) for x in inT]
         #some sanity checks...
         chk_in_ranks = all([x.rank() == Xs[0].rank() for x in Xs])
         assert chk_in_ranks, f"Input Rank Mismatch: {[x.shape for x in Xs]}"
-
         np_x = [x.data for x in Xs]
         np_out = np.concatenate(np_x, axis)
         tmp_outT = build_tmp_data_tensor(np_out, self.name + '__tmp_out__')
         update_output_tensor(self, tmp_outT, outT[0])
         inBytes = sum((x.nbytes() for x in Xs))
-
+        inElems = sum((x.nelems() for x in Xs))
         # Placeholder: For Training, it may be required to output per-input tensor shape
         # Assumption: per-input tensor shape is a 1D-Tensor where each element
         # represents the length of the corresponding input along the axis
@@ -1567,9 +1587,12 @@ class ConcatOp(SimOp):
         #out2_data  = [x.shape for x in Xs]
         self.perf_stats = {
                 'inBytes' : inBytes,
+                'inElems' : inElems,
                 'outBytes': outT[0].nbytes(),
+                'outElems': outT[0].nelems(),
                 'instrs'  : {'mov': outT[0].nelems()}
                 }
+
         return self.perf_stats
 
 class SliceOp(SimOp):
@@ -1581,6 +1604,9 @@ class SliceOp(SimOp):
     def get_perf_counts(self, inT, outT, **kwargs):
         if self.perf_stats is not None:
             return self.perf_stats
+
+        '''
+        ASSUME ONNX SHAPE INFERENCE
         dataT   = clone_tensor_by_shape(inT[0], data_maybe_missing=False) #dataT.data must be present
         startsT = clone_tensor_by_shape(inT[1], data_maybe_missing=False) #startsT.data must be present
         endsT   = clone_tensor_by_shape(inT[2], data_maybe_missing=False) #endsT.data must be present
@@ -1623,10 +1649,13 @@ class SliceOp(SimOp):
         inBytes = dataT.nbytes() + startsT.nbytes() + endsT.nbytes()
         inBytes += axesT.nbytes()  if len(inT) >= 4 else 0 #assume 4 bytes per axis spec
         inBytes += stepsT.nbytes() if len(inT) == 5 else 0 #assume 4 bytes per steps spec
-
+        '''
+        assert outT[0].check_shape(), f"SHAPE INFERENCE ERROR!!"
         self.perf_stats = {
-                'inBytes' : inBytes,
+                'inBytes' : sum([x.nbytes() for x in inT]),
+                'inElems' : sum([x.nelems() for x in inT]),
                 'outBytes': outT[0].nbytes(),
+                'outElems': outT[0].nelems(),
                 'instrs'  : {'mov': outT[0].nelems()}
                 }
         return self.perf_stats
@@ -1812,6 +1841,8 @@ class CastOp(SimOp):
     def get_perf_counts(self, inT, outT, **kwargs):
         if self.perf_stats is not None:
             return self.perf_stats
+        '''
+        ASSUME ONNX SHAPE INFERENCE
         saturate =  self.attrs.get('saturate', 1)
         to_type  =  self.attrs['to']
         A = clone_tensor_by_shape(inT[0], data_maybe_missing=False) #A.data must be present
@@ -1819,9 +1850,12 @@ class CastOp(SimOp):
         np_out = A.data.astype(tensor_type.np_dtype)
         tmp_outT = build_tmp_data_tensor(np_out, self.name + '__tmp_out__')
         update_output_tensor(self, tmp_outT, outT[0])
+        '''
         self.perf_stats = {
-                'inBytes' : A.nbytes(),
+                'inBytes' : inT[0].nbytes(),
                 'outBytes': outT[0].nbytes(),
+                'inElems' : inT[0].nelems(),
+                'outElems': outT[0].nelems(),
                 'instrs'  : {'mov': outT[0].nelems()}
                 }
         return self.perf_stats
@@ -2011,6 +2045,103 @@ class ReluOp(SimOp):
         else:
             return {}
 
+class LeakyReluOp(SimOp):
+    def __init__(self, opinfo):
+        super().__init__(opinfo)
+        self.opclass_str: str = 'LeakyRelu'
+        check_io_counts( self, in_counts=[1,1], out_counts=[1,1] )
+        self._kw_args_defaults = { 'alpha': 0.01 }
+        if 'attrs' in opinfo:
+            self.check_known_args(opinfo['attrs'])
+
+
+    def get_perf_counts(self, inT, outT, **kwargs):
+        if self.perf_stats is not None:
+            return self.perf_stats
+        nElem = inT[0].nelems()
+        outT[0].shape = inT[0].shape
+        outT[0].dtype = inT[0].dtype
+        self.perf_stats = {
+                'inElems' : inT[0].nelems(),
+                'inBytes' : inT[0].nbytes(),
+                'outElems': outT[0].nelems(),
+                'outBytes': outT[0].nbytes(),
+                'instrs'  : {'cmp': nElem, 'mov': nElem}
+                }
+        return self.perf_stats
+
+class SigmoidOp(SimOp):
+    def __init__(self, opinfo):
+        super().__init__(opinfo)
+        self.opclass_str: str = 'Sigmoid'
+        check_io_counts( self, in_counts=[1,1], out_counts=[1,1] )
+        if 'attrs' in opinfo:
+            self.check_known_args(opinfo['attrs'])
+
+
+    def get_perf_counts(self, inT, outT, **kwargs):
+        if self.perf_stats is not None:
+            return self.perf_stats
+        nElem = inT[0].nelems()
+        outT[0].shape = inT[0].shape
+        outT[0].dtype = inT[0].dtype
+        self.perf_stats = {
+                'inElems' : inT[0].nelems(),
+                'inBytes' : inT[0].nbytes(),
+                'outElems': outT[0].nelems(),
+                'outBytes': outT[0].nbytes(),
+                'instrs'  : {'cmp': nElem, 'mov': nElem}
+                }
+        return self.perf_stats
+
+class ResizeOp(SimOp):
+    def __init__(self, opinfo):
+        super().__init__(opinfo)
+        self.opclass_str: str = 'Resize'
+        check_io_counts( self, in_counts=[1,4], out_counts=[1,1] )
+        self._kw_args_defaults = {
+                'antialias'                     : 0,
+                'axes'                          : None, #[0, 1, …, r-1], where r = rank(data)
+                'coordinate_transformation_mode': 'half_pixel',
+                'cubic_coeff_a'                 : -0.75,
+                'exclude_outside'               : 0,
+                'extrapolation_value'           : 0.0,
+                'keep_aspect_ratio_policy'      : 'stretch',
+                'mode'                          : 'nearest',
+                'nearest_mode'                  : 'round_prefer_floor',
+                }
+        if 'attrs' in opinfo:
+            self.check_known_args(opinfo['attrs'])
+
+
+    def get_perf_counts(self, inT, outT, **kwargs):
+        if self.perf_stats is not None:
+            return self.perf_stats
+        if outT[0].check_shape():
+            pass
+        else:
+            assert len(inT) >= 3, f"RESIZE #inputs ({len(inT)}) should be >= 3"
+            assert inT[0].check_shape(), f"Illegal Resize Input  Tensor Shape"
+            assert inT[1].check_shape(), f"Illegal Resize ROI    Tensor Shape"
+            assert inT[2].check_shape(), f"Illegal Resize SCALES Tensor Shape"
+            assert inT[2].data is not None, f"SCALES data missing"
+            XRank = inT[0].rank()
+            scales = [1.0] * XRank
+            scales[-1] = inT[2].data[-1]
+            scales[-2] = inT[2].data[-2]
+            outT[0].shape = [int(scales[i] * x) for i,x in enumerate(inT[0].shape)]
+            outT[0].dtype = inT[0].dtype
+
+        nElem = inT[0].nelems()
+        self.perf_stats = {
+                'inElems' : inT[0].nelems(),
+                'inBytes' : inT[0].nbytes(),
+                'outElems': outT[0].nelems(),
+                'outBytes': outT[0].nbytes(),
+                'instrs'  : {'cmp': nElem, 'mov': nElem}
+                }
+        return self.perf_stats
+
 class ReluGradOp(SimOp):
     def __init__(self, opinfo):
         super().__init__(opinfo)
@@ -2143,6 +2274,75 @@ class ReduceSumOp(SimOp):
 
         return self.perf_stats
 
+class ReduceMaxOp(SimOp):
+    def __init__(self, opinfo):
+        super().__init__(opinfo)
+        self.opclass_str: str = 'ReduceMax'
+        check_io_counts(self, in_counts=[1,2], out_counts=[1,1])
+        #self._kw_args_defaults = { 'keepdims': 1, 'noop_with_empty_axes': 0 }
+        #if 'attrs' in opinfo:
+        #    self.check_known_args(opinfo['attrs'])
+
+    def get_perf_counts(self, inT, outT, **kwargs):
+        if self.perf_stats is not None:
+            return self.perf_stats
+
+        self.perf_stats = {
+                'inElems' : sum([x.nelems() for x in inT]),
+                'inBytes' : sum([x.nbytes() for x in inT]),
+                'outElems': outT[0].nelems(),
+                'outBytes': outT[0].nbytes(),
+                'instrs'  : {'max': outT[0].nelems()}
+                }
+
+        return self.perf_stats
+
+class NonMaxSuppressionOp(SimOp):
+    def __init__(self, opinfo):
+        super().__init__(opinfo)
+        self.opclass_str: str = 'NonMaxSuppression'
+        check_io_counts(self, in_counts=[2,5], out_counts=[1,1])
+        self._kw_args_defaults = { 'center_point_box': 0 }
+        if 'attrs' in opinfo:
+            self.check_known_args(opinfo['attrs'])
+
+    def get_perf_counts(self, inT, outT, **kwargs):
+        if self.perf_stats is not None:
+            return self.perf_stats
+
+        self.perf_stats = {
+                'inElems' : sum([x.nelems() for x in inT]),
+                'inBytes' : sum([x.nbytes() for x in inT]),
+                'outElems': sum([y.nelems() for y in outT]),
+                'outBytes': sum([y.nbytes() for y in outT]),
+                'instrs'  : {'mov': sum([y.nbytes() for y in outT])},
+                }
+        return self.perf_stats
+
+class FlattenOp(SimOp):
+    def __init__(self, opinfo):
+        super().__init__(opinfo)
+        self.opclass_str: str = 'Flatten'
+        check_io_counts(self, in_counts=[1,1], out_counts=[1,1])
+        self._kw_args_defaults = { 'axis': 1 }
+        if 'attrs' in opinfo:
+            self.check_known_args(opinfo['attrs'])
+
+    def get_perf_counts(self, inT, outT, **kwargs):
+        if self.perf_stats is not None:
+            return self.perf_stats
+
+        self.perf_stats = {
+                'inElems' : sum([x.nelems() for x in inT]),
+                'inBytes' : sum([x.nbytes() for x in inT]),
+                'outElems': sum([y.nelems() for y in outT]),
+                'outBytes': sum([y.nbytes() for y in outT]),
+                'instrs'  : {'mov': sum([y.nbytes() for y in outT])},
+                }
+
+        return self.perf_stats
+
+
 ######################  CONCRETE OP IMPLEMENTATION END ##################
 
 #########################
@@ -2195,6 +2395,13 @@ def SimOpFactory(optype: str) -> type[SimOp]:
             RangeOp              : ['Range'],
             GeluOp               : ['Gelu'],
             ReluOp               : ['Relu'],
+            LeakyReluOp          : ['LeakyRelu'], #Yolo-v7
+            SigmoidOp            : ['Sigmoid'], #Yolo-v7
+            ResizeOp             : ['Resize'], #Yolo-v7
+            ReduceMaxOp          : ['ReduceMax', 'ArgMax'], #Yolo-v7
+            NonMaxSuppressionOp  : ['NonMaxSuppression'], #Yolo-v7
+            FlattenOp            : ['Flatten'], #Yolo-v7
+
             ConvOp               : ['Conv'],   # TBD: step in adding new operator / layer typez
             MaxPoolOp            : ['MaxPool'],
             BatchNormalizationOp : ['BatchNormalization'],

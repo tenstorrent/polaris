@@ -78,7 +78,11 @@ class Module:
         #v.imp note: attributes across instances have same names, so we should not
         #use the attr-name to accumulate ALL ops across submodules...
         for k,v in self._op_hndls.items():
-            tbl[v.sim_op.name] = v.sim_op
+            if v.sim_op is not None:
+                # sometimes we use ops conditionally in workloads, when it is not known at
+                # construction time whether a SimOpHandle.__call__() will be invoked
+                # in those cases, sim_op is None
+                tbl[v.sim_op.name] = v.sim_op
         for k,v in self._submodules.items():
             v.get_ops(tbl)
         return tbl
@@ -149,6 +153,7 @@ class Module:
     def __call__(self, *args, **kwargs):
         # "Pure Virtual" function, should never get called.
         # Defined to ensure Module class is "callable", and ensure no static type check fails (mypy)
+        print(f'__call__() not implemented for {self.__class__.__name__}::{self.name}')
         raise AssertionError
 
 class ModuleList:
