@@ -1,0 +1,10 @@
+workloads:
+  - api: TTSIM
+    name: YOLOv7
+    basedir: workloads
+    module : YOLO7@YOLO_v7.py
+    instances:
+      yolov7-tiny      : {yaml_cfg_path: 'config/yolov7_cfgs/deploy/yolov7-tiny.yaml',      in_channels: 3, in_resolution: 640, bs: 1}
+      yolov7-tiny-silu : {yaml_cfg_path: 'config/yolov7_cfgs/deploy/yolov7-tiny-silu.yaml', in_channels: 3, in_resolution: 640, bs: 1}
+      yolov7           : {yaml_cfg_path: 'config/yolov7_cfgs/deploy/yolov7.yaml',           in_channels: 3, in_resolution: 640, bs: 1}
+      yolov7x          : {yaml_cfg_path: 'config/yolov7_cfgs/deploy/yolov7x.yaml',          in_channels: 3, in_resolution: 640, bs: 1}

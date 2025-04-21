@@ -14,9 +14,14 @@ op_fusion_spec:
   - [Matmul, Add]
   - [Matmul, Gelu, Add]
   - [Conv, Relu]
+  - [Conv, BatchNormalization, LeakyRelu]
+  - [Conv, BatchNormalization, Sigmoid, Mul]
+  - [Conv, BatchNormalization, Mul]
 
 op_rsrc_spec:
   compute:
     matrix: [Matmul, Conv]
-    vector: [Gather, Reshape, Transpose, Gelu, Relu, Add, Mul, Dropout, Split, Softmax, LayerNormalization, Identity,
-             Constant, Where, Pow, Tanh, MaxPool, BatchNormalization, Concat, Unsqueeze, Trilu]
+    vector: [Gather, Reshape, Transpose, Gelu, Relu, LeakyRelu, Resize, Sigmoid, Slice,
+             Flatten, ReduceMax, ArgMax, Cast, NonMaxSuppression, Add, Mul, Dropout, Split,
+             Softmax, LayerNormalization, Identity, Constant, Where, Pow, Tanh, MaxPool,
+             BatchNormalization, Concat, Unsqueeze, Trilu]

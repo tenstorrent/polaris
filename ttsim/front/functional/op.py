@@ -458,6 +458,12 @@ def AveragePool2d(name: str, kernel_shape: tuple[int, int], /, **kwargs):
     op_hndl = SimOpHandle(name, 'AveragePool', params=[], ipos=[0], **kwargs)
     return op_hndl
 
+def Resize(name: str, /, scale_factor, **kwargs):
+    roi     = _from_data(name + '.roi',    np.array([], dtype=np.float32), is_param=False, is_const=True)
+    scales  = _from_data(name + '.scales', np.array([scale_factor, scale_factor], dtype=np.float32), is_param=False, is_const=True)
+    op_hndl = SimOpHandle(name, 'Resize', params=[(1, roi), (2, scales)], ipos=[0], **kwargs)
+    return op_hndl
+
 ######################################################################################################
 # Simple Operator Mapping
 ######################################################################################################
@@ -474,6 +480,8 @@ Shape         = partial(UnaryOperator, optype='Shape')
 Transpose     = partial(UnaryOperator, optype='Transpose')
 Gelu          = partial(UnaryOperator, optype='Gelu')
 Relu          = partial(UnaryOperator, optype='Relu')
+LeakyReLU     = partial(UnaryOperator, optype='LeakyRelu')
+Sigmoid       = partial(UnaryOperator, optype='Sigmoid')
 
 #Binary Operators
 BinaryOperator = partial(UniversalOperator, params=[], ipos=[0,1])
