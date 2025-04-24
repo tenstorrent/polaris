@@ -1,0 +1,194 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title> Summary: Comparison of Performance Reports </title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="description" content="Performance Analysis">
+  <meta name="author" content="Samvit Kaul; Shreeniwas Sapre">
+
+  <!-- JQUERY -->
+  <script src="https://ajax.googleapis.com/ajax/libs/jquery/2.1.1/jquery.min.js"></script>
+
+  <!-- BOOTSTRAP -->
+  <link rel="stylesheet" href="https://maxcdn.bootstrapcdn.com/bootstrap/5.3.5/css/bootstrap.min.css">
+  <link rel="stylesheet" href="https://maxcdn.bootstrapcdn.com/bootstrap/5.3.5/css/bootstrap-theme.min.css">
+  <script src="https://maxcdn.bootstrapcdn.com/bootstrap/5.3.5/js/bootstrap.min.js"></script>
+
+  <!-- GOOGLE VISUALIZATION -->
+<script type="text/javascript" src='https://www.gstatic.com/charts/loader.js'></script>
+<script type="text/javascript">
+  google.charts.load('current', {packages:["corechart","table","controls"]});
+  google.charts.setOnLoadCallback(drawVisualization);
+  var ratio_name = {{ratio_name}};
+  var diff_name = {{diff_name}};
+  function savecsv(tbl, fname)
+  {
+      var hdrstr = tbl[0].join();
+      var datstr = tbl.slice(1).map(function(obj){
+          var rowstr = obj.join();
+          return rowstr;
+      }).join("\n");
+      var csvstr = hdrstr + "\n" + datstr + "\n";
+
+      var proxy = document.getElementById("saveproxy");
+      proxy.download = fname;
+      proxy.href = 'data:application/csv;charset=utf-8,' + encodeURIComponent(csvstr);
+      proxy.target = '_blank';
+      proxy.click()
+  }
+
+
+  var summary_val_table = {{summary_table}};
+  function  drawVisualization()
+  {
+    var tblChartOptions = {
+        'allowHtml'     : true,
+        'showRowNumber' : true,
+        'page'          : 'enable',
+        'pageSize'      : 25,
+        //'frozenColumns' : 3,
+    };
+    var uioptions = {
+        'labelStacking'       : 'vertical',
+        'selectedValuesLayout': 'belowStacked'
+    };
+    var uioptions_ratio = {
+        'labelStacking'       : 'vertical',
+        'selectedValuesLayout': 'belowStacked',
+        'minValue'            : 0.0,
+        'maxValue'            : 1.0,
+        'unitIncrement'       : 0.01,
+        'blockIncrement'      : 0.1,
+    };
+    var percentFormat    = new google.visualization.NumberFormat({fractionDigits: 2, suffix: "%"});
+    var noDecimalFormat  = new google.visualization.NumberFormat({fractionDigits: 0});
+    var twoDecimalFormat = new google.visualization.NumberFormat({fractionDigits: 2});
+    var highlightFormat  = new google.visualization.ColorFormat(); highlightFormat.addRange(0.95,1.05,'white','green');
+
+    var highlightStatusFormat = new google.visualization.ColorFormat();
+    highlightStatusFormat.addRange('FAILED', 'PASSED', 'white', 'red');
+    highlightStatusFormat.addRange('PASSED', null, 'white', 'green');
+
+    var diffTwoDecimalFormat = new google.visualization.NumberFormat({negativeColor: 'red', fractionDigits: 2});
+
+    var sDashBoard  = new google.visualization.Dashboard(document.getElementById('comparison-summary-dashboard-div'));
+    var sTableChart = new google.visualization.ChartWrapper({
+        'chartType'  : 'Table',
+        'containerId': 'comparison-summary-tbl-div',
+        'options'    : tblChartOptions
+    });
+    var filters = [];
+    var wFilter = new google.visualization.ControlWrapper({
+        'controlType': 'CategoryFilter',
+        'containerId': 'comparison-summary-workload-filter-div',
+        'options'    : { 'filterColumnLabel': 'Workload', 'ui': uioptions }
+    });
+    filters.push(wFilter);
+    var sFilter = new google.visualization.ControlWrapper({
+        'controlType': 'CategoryFilter',
+        'containerId': 'comparison-summary-status-filter-div',
+        'options'    : { 'filterColumnLabel': 'Status', 'ui': uioptions }
+    });
+    filters.push(sFilter);
+    if (diff_name != null)
+    {
+        var dFilter = new google.visualization.ControlWrapper({
+            'controlType': 'CategoryFilter',
+            'containerId': 'comparison-summary-diff-filter-div',
+            'options'    : {'filterColumnLabel': diff_name, 'ui': uioptions}
+        });
+        filters.push(dFilter);
+    }
+    if (ratio_name != null)
+    {
+        var rFilter = new google.visualization.ControlWrapper({
+            'controlType': 'CategoryFilter',
+            'containerId': 'comparison-summary-ratio-filter-div',
+            'options'    : {'filterColumnLabel': ratio_name, 'ui': uioptions}
+        });
+        filters.push(rFilter);
+    }
+    var summaryDataTable  = google.visualization.arrayToDataTable(summary_val_table,false);
+
+    if (summary_val_table[0].length > 5)
+    {
+        [4, 5, 6, 7].map(function(c){{twoDecimalFormat.format(summaryDataTable,c);}});
+        [6].map(function(c){{diffTwoDecimalFormat.format(summaryDataTable,c);}});
+        [7].map(function(c){{highlightFormat.format(summaryDataTable,c);}});
+    }
+
+    [3].map(function(c){{highlightStatusFormat.format(summaryDataTable,c);}});
+
+    sDashBoard.bind(filters, sTableChart ).draw(summaryDataTable);
+
+//    var static_inf_summary_val_tbl = {{static_inf_summary_tbl}};
+//    if (Array.isArray(static_inf_summary_val_tbl) && static_inf_summary_val_tbl.length)
+//    {
+//        var pDashBoard  = new google.visualization.Dashboard(document.getElementById('staticinf-comparison-summary-dashboard-div'));
+//        var pTableChart = new google.visualization.ChartWrapper({
+//            'chartType'  : 'Table',
+//            'containerId': 'staticinf-comparison-summary-tbl-div',
+//            'options'    : tblChartOptions
+//        });
+//        var pFilter = new google.visualization.ControlWrapper({
+//            'controlType': 'CategoryFilter',
+//            'containerId': 'staticinf-comparison-summary-filter-div',
+//            'options'    : { 'filterColumnLabel': 'Colname', 'ui': uioptions }
+//        });
+//        var staticInfSummaryDataTable  = google.visualization.arrayToDataTable(static_inf_summary_val_tbl,false);
+//        pDashBoard.bind( [pFilter], pTableChart ).draw(staticInfSummaryDataTable);
+//    }
+  }
+</script>
+</head>
+
+<body>
+  <div class="container-fluid"> <!-- toplevel container -->
+    <div class="row-fluid"> <!-- toplevel-1 -->
+    <h1><center>Comparison of Performance Reports: Summary</center></h1>
+
+    <h2> Information </h2>
+    <table class="table table-striped table-bordered">
+        <thead><th scope="col">Attribute</th><th scope="col">Value</th></thead>
+        <tbody>
+        <tr><th scope="row">dir1</th><td>{{dir1name}}</td></tr>
+        <tr><th scope="row">dir2</th><td>{{dir2name}}</td></tr>
+        <tr><th scope="row">Files</th><td>{{onlyleft}} only left, {{onlyright}} only right, {{both}} on both sides</td></tr>
+        <tr><th scope="row">Error Bar</th><td>{{error_bar}}</td></tr>
+        {{status_rows}}
+        </tbody>
+    </table>
+
+    <HR>
+    <h2> Static Inference Comparison</h2>
+    <div id="staticinf-comparison-summary-title-div"></div>
+    <div id="save-as-csv">
+      <br>
+      <button onclick="savecsv(summary_val_table, 'comparison-summary.csv');">Export Data As CSV</button>
+      <a href="#" id="saveproxy" style="visibility: hidden"></a>
+    </div>
+    <div id="staticinf-comparison-summary-dashboard-div">
+        <div id="staticinf-comparison-summary-filter-div"></div>
+        <div id="staticinf-comparison-summary-tbl-div"></div>
+    </div>
+    <A HREF="StaticInferenceReport.html"> Detailed Report </A>
+
+    <HR>
+    <h2> LayerWise Comparison Summary</h2>
+    <div id="comparison-summary-title-div"></div>
+    <div id="comparison-summary-dashboard-div">
+        <div class="row" id="comparison-summary-filter-div">
+          <div class="col-md-3" id="comparison-summary-workload-filter-div"></div>
+          <div class="col-md-2" id="comparison-summary-status-filter-div"></div>
+          <div class="col-md-2" id="comparison-summary-diff-filter-div"></div>
+          <div class="col-md-2" id="comparison-summary-ratio-filter-div"></div>
+        </div>
+        <br>
+        <div id="comparison-summary-tbl-div"></div>
+    </div>
+
+    </div> <!-- toplevel-1 -->
+  </div> <!-- toplevel container -->
+</body>
+</html>

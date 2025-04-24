@@ -5,6 +5,10 @@ import os
 from typing import Optional, List, Literal, Annotated
 from pydantic import BaseModel, Field
 
+type TypeFrequency = float
+type TypeTimeMS    = float
+type TypeMemsizeGB = float
+
 class PYDWlMapDataSpecValidator(BaseModel, extra='forbid'):
     global_type: Optional[str] = None
     override: Optional[dict[str, str]] = None
@@ -273,3 +277,31 @@ class TTSimHLWlDevRunPerfStats(BaseModel, extra='forbid'):
     wlinstance: str
     batch: int    # TODO: Run or Operator?
     operatorstats: list[TTSimHLWlDevRunOperatorPerfStats]
+
+class TTSimHLRunSummaryRow(BaseModel, extra='forbid'):
+    devname      : str
+    freq_Mhz     : TypeFrequency
+    wlcls        : str
+    wlname       : str
+    wlinstance   : str
+    bs           : int
+    inParams     : int
+    inActs       : int
+    outActs      : int
+    maxActs      : int
+    inParamBytes : int
+    inActBytes   : int
+    outActBytes  : int
+    maxActBytes  : int
+    tot_cycles   : int
+    tot_msecs    : TypeTimeMS
+    throughput   : float
+    mem_size_GB  : TypeMemsizeGB
+    device_mem_GB: int
+    fits_device  : bool
+    rsrc_mem     : float
+    rsrc_comp    : float
+    stat_filename: str
+
+class TTSimHLRunSummary(BaseModel, extra='forbid'):
+    summary: list[TTSimHLRunSummaryRow]
