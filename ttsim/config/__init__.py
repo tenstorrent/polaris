@@ -9,7 +9,7 @@ from .simconfig import SimConfig, XlsxConfig, WorkloadGroup, AWorkload
 from pydantic import ValidationError
 from .validators import PYDWlMapDataSpecValidator, PYDWlMapResourceSpecValidator, PYDWlMapSpecValidator, PYDPkgMemoryValidator, PYDPkgComputeValidator, PYDComputePipeValidator, \
      PYDL2CacheValidator, PYDMemoryBlockValidator, PYDComputeBlockValidator, PYDWorkloadListValidator, TTSimHLWlDevRunOpCSVPerfStats, \
-    TTSimHLWlDevRunPerfStats
+    TTSimHLWlDevRunPerfStats, TTSimHLRunSummary, TTSimHLRunSummaryRow
 from .simconfig import IPBlocksModel, PackageInstanceModel
 
 
@@ -108,7 +108,7 @@ def get_wlmapspec_from_yaml(cfg_yaml_file):
             pass
 
     op2rsrc = {}
-    assert 'compute' in cfg_dict['op_rsrc_spec'], f"Attribute(compute) missing in op_rsrc_spec"
+    assert 'compute' in cfg_dict['op_rsrc_spec'], "Attribute(compute) missing in op_rsrc_spec"
     for op_pipe, op_list in cfg_dict['op_rsrc_spec']['compute'].items():
         op2rsrc.update({o.upper(): op_pipe.lower() for o in op_list})
 
