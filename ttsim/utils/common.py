@@ -10,6 +10,7 @@ from pathlib import Path
 import logging
 from copy import deepcopy
 from functools import lru_cache
+from collections.abc import KeysView
 
 openpyxl = None
 
@@ -110,7 +111,7 @@ def parse_multidoc_yaml(yamlfile):
             res.append(rec)
     return res
 
-def print_csv(outcols, outrows, filename):
+def print_csv(outcols: KeysView[str] | list[str], outrows: list[dict[str, Any]], filename: Path | str):
     # newline should be '' for DictWriter
     with open(filename, 'w', newline='') as ocsv:
         writer = csv.DictWriter(ocsv, fieldnames=outcols)

@@ -14,12 +14,13 @@ from collections import defaultdict
 from enum import Enum, auto
 from functools import lru_cache
 from itertools import product
+from pathlib import Path
 from typing import Any
 
 import yaml
 from pydantic import BaseModel
 
-from ttsim.config import TTSimHLWlDevRunPerfStats, get_arspec_from_yaml, get_wlmapspec_from_yaml, get_wlspec_from_yaml
+from ttsim.config import TTSimHLWlDevRunPerfStats, TTSimHLRunSummary, get_arspec_from_yaml, get_wlmapspec_from_yaml, get_wlspec_from_yaml
 from ttsim.front import onnx2graph
 from ttsim.utils.common import get_ttsim_functional_instance, print_csv, str_to_bool
 
@@ -109,7 +110,7 @@ class ReducedStats:
 
         #arch resource bottleneck stats...
         for r in ['COMP', 'MEM']:
-            self.rsrc_bound['rsrc_' + r] /= self.tot_cycles
+            self.rsrc_bound['rsrc_' + r.lower()] /= self.tot_cycles
 
         sxrec = {
                 'devname'      : self.devname,
@@ -256,7 +257,7 @@ def do_instr_profile(_WLG, _ODIR):
                 'instruction': instr,
                 'count'      : count
                 })
-    instr_profile_file = os.path.join(_ODIR, 'workload_instruction_profile.csv')
+    instr_profile_file = _ODIR / 'workload_instruction_profile.csv'
     print_csv(profile_data[0].keys(), profile_data, instr_profile_file)
 
 def setup_cmdline_args():
@@ -318,7 +319,7 @@ def setup_cmdline_args():
     return args, fsweep, bsweep
 
 def dump_ttsim_onnx(TBL, _odir):
-    onnx_dir = os.path.join(_odir, 'ONNX')
+    onnx_dir = _odir / 'ONNX'
     os.makedirs(onnx_dir, exist_ok=True)
 
     #we pick the smallest batch to dump the ONNX...
@@ -327,7 +328,7 @@ def dump_ttsim_onnx(TBL, _odir):
         if wlb == min_batchsize:
             wlobj, wlgraph = TBL[(wlg, wln, wli, wlb)]
             onnx_ofilename = ".".join([wlg, wln, wli]) + f'.b{min_batchsize}' + '.onnx'
-            wlgraph.graph2onnx(os.path.join(onnx_dir, onnx_ofilename))
+            wlgraph.graph2onnx(onnx_dir / onnx_ofilename)
     return
 
 def get_devices(devspec, fsweep, filterarch):
@@ -412,14 +413,16 @@ def save_data(model: BaseModel, filename, outputfmt: OutputFormat)->None:
 
 
 def execute_wl_on_dev(_wl, _dl, _wspec, _dspec, _op2dt, _op2rsrc, _null_ops, _op_fusion_list, _WLG,
-                      _odir, _enable_memalloc, outputfmt, flag_dump_stats_csv):
+                      _odir, study, _enable_memalloc, outputfmt, flag_dump_stats_csv):
     # TODO: Reduce number of arguments to this function
-    stat_dir    = os.path.join(_odir, 'STATS')
-    config_dir  = os.path.join(_odir, 'CONFIG')
+    study_dir = _odir / study
+    stat_dir    = study_dir / 'STATS'
+    config_dir  = study_dir / 'CONFIG'
     os.makedirs(stat_dir,    exist_ok=True)
     os.makedirs(config_dir, exist_ok=True)
     saved_devices = set()
     _summary_stats = []
+    job_summaries: list[Any] = []
     ALL_EXPS = product(_wl, _dl)
     for exp_no, (exp_wl, exp_dev) in enumerate(ALL_EXPS):
         wlgroup, wlname, wlins_name, wlins_cfg, wlbatch = exp_wl
@@ -503,9 +506,9 @@ def execute_wl_on_dev(_wl, _dl, _wspec, _dspec, _op2dt, _op2rsrc, _null_ops, _op
                 cycles    = 0
                 msecs     = 0.0
             elif compute_cycles >= mem_cycles:
-                rsrc_bnck = 'COMP'
+                rsrc_bnck = 'COMP'.lower()
             else:
-                rsrc_bnck = 'MEM'
+                rsrc_bnck = 'MEM'.lower()
             val.update({
                 'rsrc_bnck' : rsrc_bnck,
                 'cycles'    : cycles,
@@ -533,20 +536,25 @@ def execute_wl_on_dev(_wl, _dl, _wspec, _dspec, _op2dt, _op2rsrc, _null_ops, _op
         statF_parts += [f"{wlgroup}", f"{wlname}", f"{wlins_name}"]
         statF_parts += [] if wlbatch is None else [f"b{wlbatch}"]
         statF = "-".join(statF_parts) + '-opstats.csv'
-        statP = os.path.join(stat_dir, statF)
+        statP = stat_dir / statF
         if flag_dump_stats_csv:
             print_csv(rows[0].keys(), rows, statP)
         if outputfmt != OutputFormat.FMT_NONE:
-            statyamlP = statP.replace('.csv', '.' + outputfmt.cname)
+            statyamlP = stat_dir / (statP.stem + '.' + outputfmt.cname)
             save_data(model, statyamlP, outputfmt)
 
             if devname not in saved_devices:
-                devF = os.path.join(config_dir, f'{devname}.' + outputfmt.cname)
+                devF = config_dir / f'{devname}.{outputfmt.cname}'
                 save_data(dev_obj, devF, outputfmt)
                 saved_devices.add(devname)
 
         reduced_stat  = ReducedStats(devname, wlgroup, wlname, wlins_name, dev_obj)
-        _summary_stats.append( reduced_stat.summarize (rows) )
+        summary_dict = reduced_stat.summarize(rows)
+        if outputfmt != OutputFormat.FMT_NONE:
+            summary_dict['stat_filename'] = statyamlP.relative_to(_odir).as_posix()
+        else:
+            summary_dict['stat_filename'] = ''
+        _summary_stats.append(summary_dict)
         logging.info('ran job #%d %s %s %s', exp_no, wlins_name, devname, devfreq)
 
     return _summary_stats
@@ -558,9 +566,11 @@ def main() -> int:
         profiler   = cProfile.Profile()
         profiler.enable()
 
+    outputformat = OutputFormat.enumvalue(args.outputformat)
     #create outdir & output book-keeping assets
-    odir        = os.path.join(args.odir, args.study)
-    summary_dir = os.path.join(odir, 'SUMMARY')
+    odir        = Path(args.odir)
+    studydir    = odir / args.study
+    summary_dir = studydir / 'SUMMARY'
     os.makedirs(odir,        exist_ok=True)
     os.makedirs(summary_dir, exist_ok=True)
 
@@ -577,12 +587,14 @@ def main() -> int:
         INFO('simulation: workload+ --> device+')
         summary_stats = execute_wl_on_dev(workload_list, device_list, wlspec, devspec,
                                           OP2DT, OP2RSRC, NULL_OPS, OP_FUSION_LIST,
-                                          workload_graphs, odir, args.enable_memalloc,
-                                          OutputFormat.enumvalue(args.outputformat),
-                                          args.dump_stats_csv)
+                                          workload_graphs, odir, args.study, args.enable_memalloc,
+                                          outputformat, args.dump_stats_csv)
 
-        summary_stat_filename = os.path.join(summary_dir, f"{args.study}-summary.csv")
-        print_csv(summary_stats[0].keys(), summary_stats, summary_stat_filename)
+        summary_stat_filename = summary_dir / f'study-summary.{outputformat.cname}'
+        save_data(TTSimHLRunSummary(**{'summary': summary_stats}), summary_stat_filename, outputformat)
+        if args.dump_stats_csv:
+            summary_stat_csv_filename = summary_dir / (summary_stat_filename.stem + '.csv')
+            print_csv(summary_stats[0].keys(), summary_stats, summary_stat_filename.replace(outputformat.cname, 'csv'))
 
 
         if args.instr_profile:
