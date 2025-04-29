@@ -3,7 +3,7 @@
 # SPDX-License-Identifier: Apache-2.0
 import argparse
 import onnx
-from onnx import helper, shape_inference
+from onnx import shape_inference
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser('run_onnx_shape_inference')

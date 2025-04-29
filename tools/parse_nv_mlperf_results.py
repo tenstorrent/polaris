@@ -148,7 +148,7 @@ class MLPerfTrainingLogParser:
 
             if self.stack.size() > 0:
                 __tmp_stack_top = self.stack.top() #to help mypy type checking
-                assert isinstance(__tmp_stack_top, dict), f"self.stack.top needs returned None!!"
+                assert isinstance(__tmp_stack_top, dict), "self.stack.top needs returned None!!"
                 parent_timestamp = __tmp_stack_top['timestamp']
                 parent_node = self.tree
                 for node in parent_node['intervals']:
