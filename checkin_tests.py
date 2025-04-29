@@ -20,7 +20,7 @@ def prepare_commands_coverage(condaenvprefix: OptionalString) -> list[str]:
     # Knobs for coverage, pytest (as part of coverage run), mypy are picked up from
     # pyproject.toml. These knobs are NOT replicated here, to avoid inconsistency
     commands = [
-        f'{condaenvprefix} coverage run -m pytest && coverage report && coverage html',
+        f'{condaenvprefix} coverage erase && coverage run -m pytest && coverage combine &&  coverage report && coverage html',
     ]
     return commands
 
@@ -55,7 +55,6 @@ def prepare_commands_run_all_tests(condaenvprefix: OptionalString) -> list[str]:
 
     for exp_no, exp in enumerate(ALL_EXPS):
         exp_str    = "".join(exp)
-        study_name = f"study_{exp_no+1:02}"
         command    = f"{cmd} --study PLACEHOLDER {exp_str} --log_level debug"
         commands.append(command)
 

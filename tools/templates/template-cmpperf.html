@@ -1,0 +1,138 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>{{report_title}}</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="description" content="Performance Analysis">
+  <meta name="author" content="Samvit Kaul; Shreeniwas Sapre">
+
+  <!-- JQUERY -->
+  <script src="https://ajax.googleapis.com/ajax/libs/jquery/2.1.1/jquery.min.js"></script>
+
+  <!-- BOOTSTRAP -->
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.5/dist/css/bootstrap.min.css" rel="stylesheet" integrity="sha384-SgOJa3DmI69IUzQ2PVdRZhwQ+dy64/BUtbMJw1MZ8t5HZApcHrRKUc4W0kG879m7" crossorigin="anonymous">
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.5/dist/js/bootstrap.bundle.min.js" integrity="sha384-k6d4wzSIapyDyv1kpU366/PK5hCdSbCRGRCMv+eplOQJWyd1fbcAu9OCUj5zNLiq" crossorigin="anonymous"></script>
+
+  <!-- GOOGLE VISUALIZATION -->
+  <script type="text/javascript" src='{{cwd}}/tools/js/cmputil.js'></script>
+  <script type="text/javascript" src='https://www.gstatic.com/charts/loader.js'></script>
+  <script type="text/javascript">
+    var comparison_data = {{comparison_data}};
+    var attr_desc = {{attr_desc}};
+    var epsilon = {{epsilon}};
+    {% if linkdir is not defined %}
+    {% set linkdir = "" %}
+    {% endif %}
+    var linkdir = "{{linkdir}}";
+    gchart_setup({packages:["corechart","table","controls"]});
+  </script>
+</head>
+
+<body>
+  <div class="container-fluid"> <!-- toplevel container -->
+    <div class="row-fluid"> <!-- toplevel-1 -->
+    <h1 style="text-align: center">{{report_title}}</h1>
+
+    <table class="table table-striped table-bordered" style="width: fit-content;">
+        <tbody>
+            <tr><th>Run 1</th>                       <td><pre>{{run1_name}}</pre></td></tr>
+            <tr><th>Run 2</th>                       <td><pre>{{run2_name}}</pre></td></tr>
+            <tr><th>&epsilon; for numeric ratios</th><td>{{epsilon_str}}</td></tr>
+            <tr><th>Matches</th>                     <td>{{num_matches}} &#x2714; + {{num_mismatches}} &#x2718;
+                = {{num_rows}}</td></tr>
+            <tr><th>Result</th>
+                <td>
+                    {% if result_final == "match" %}
+                    &#x2714;
+                    {% else %}
+                    &#x2718;
+                    {% endif %}
+                </td></tr>
+        </tbody>
+    </table>
+
+    <hr style="width: 100%; height: 3px; background-color: #000000;">
+    <h2> Comparison Summary</h2>
+    <div id="comparison-summary-title-div"></div>
+    <div id="comparison-summary-dashboard-div">
+        <div id="comparison-summary-filter-div"></div>
+        <div id="comparison-summary-pagesize-div">
+            Page Size:
+            <select name="Pagesize" id="colpagesize-dropdown">
+                <option value="5">5</option>
+                <option value="10">10</option>
+                <option value="25">25</option>
+            </select>
+        </div>
+        <div id="comparison-summary-tbl-div"></div>
+    </div>
+
+<!--TODO BEGIN>
+    <HR>
+    <h2> Summary Grouped By({ {filtercolname} })</h2>
+    <div id="abs-stat-summary-title-div"></div>
+        <div id="abs-stat-summary-dashboard-div">
+        <div id="abs-stat-summary-tbl-div"></div>
+    </div>
+<TODO END-->
+
+
+    <hr style="width: 100%; height: 1px; background-color: #000000;">
+    <h2> Details </h2>
+    <div id="abs-stat-title-div"></div>
+    <br>
+    <div id="save-as-csv" class="row">
+        <div class="col-2">
+            <button onclick="savecsv1(abs_val_table, 'save.csv', 'saveproxy');">Export Data As CSV</button>
+            <a href="#" id="saveproxy" style="visibility: hidden"></a>
+        </div>
+        <div class="col-1">
+            <table id="filter-row-status-table">
+              <tbody>
+                <tr>
+                    <td></td>
+                    <td>/</td>
+                    <td></td>
+                    <td>selected</td>
+                </tr>
+              </tbody>
+            </table>
+        </div>
+        <div class="col-1">
+            <table id="filter-column-status-table">
+              <tbody>
+                <tr>
+                    <td></td>
+                    <td>/</td>
+                    <td></td>
+                    <td>columns</td>
+                </tr>
+              </tbody>
+            </table>
+        </div>
+        <div class="col-1">
+            <!-- Intentionally blank for spacing -->
+        </div>
+        <div class="col-7">
+            <table id="actionbuttons" width="75%">
+              <tbody>
+                <tr>
+                    <td><input type="checkbox" checked onclick="toggle_catg(this, 'same');" id="toggle_same_cb"><label id="toggle_same" for="toggle_same_cb">Identical Columns</label></td>
+                    <td><input type="checkbox" checked onclick="toggle_catg(this, 'comp');" id="toggle_comp_cb"><label id="toggle_comp" for="toggle_comp_cb">Compute Columns</label></td>
+                    <td><input type="checkbox" checked onclick="toggle_catg(this, 'mem');" id="toggle_mem_cb"><label id="toggle_mem"   for="toggle_mem_cb">Memory Columns</label></td>
+                    <td><button onclick="showall();">All Columns</button></td>
+                    <td></td>
+                </tr>
+              </tbody>
+            </table>
+        </div>
+    </div>
+    <hr style="width: 100%; height: 1px; background-color: #000000;">
+    <div id="abs-stat-dashboard-div">
+        <div id="abs-stat-filter-div"></div><br>
+        <div id="abs-stat-tbl-div"></div>
+    </div>
+
+    </div> <!-- toplevel-1 -->
+  </div> <!-- toplevel container -

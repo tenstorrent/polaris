@@ -36,7 +36,9 @@ jobs:
         conda config --show-sources
     - name: Run Unit and Coverage Tests
       run: | 
+        coverage erase
         coverage run -m pytest --junitxml __ci/xml/junit.xml
+        coverage combine
         coverage report 
         coverage html -d __ci/html/
         coverage xml -o __ci/xml/coverage.xml
