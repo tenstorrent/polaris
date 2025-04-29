@@ -1,0 +1,63 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <title>Summary: Comparison of Performance Projections - Jobs</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="Performance Comparison">
+    <meta name="author" content="Shreeniwas Sapre, Samvit Kaul">
+    <script type="text/javascript" src="https://code.jquery.com/jquery-3.7.1.js"></script>
+    <link href="https://nightly.datatables.net/css/dataTables.dataTables.css" rel="stylesheet" type="text/css" />
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.5/dist/css/bootstrap.min.css" rel="stylesheet" integrity="sha384-SgOJa3DmI69IUzQ2PVdRZhwQ+dy64/BUtbMJw1MZ8t5HZApcHrRKUc4W0kG879m7" crossorigin="anonymous">
+    <script type="text/javascript" src="https://cdn.datatables.net/2.2.2/js/dataTables.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@popperjs/core@2.11.8/dist/umd/popper.min.js" integrity="sha384-I7E8VVD/ismYTF4hNIPjVp/Zjvgyol6VFvRkX/vR+Vc4jQkC+hVqc2pM8ODewa9r" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.5/dist/js/bootstrap.min.js" integrity="sha384-VQqxDN0EQCkWoxt/0vsQvZswzTHUVOImccYmSyhJTp7kGtPed0Qcx8rK9h9YEgx+" crossorigin="anonymous"></script>  </body>
+</head>
+<body>
+  <div class="container-fluid"> <!-- toplevel container -->
+    <h1 style="text-align:center;">Comparison of Performance Projection Run: Jobs</h1>
+    <table id="jobheader" class="display" style="width:100%" border="1"></table>
+    <table id="jobsummary" class="display" style="width:100%" border="1"></table>
+
+  <script type="text/javascript">
+    var job_columns = {{ job_columns }};
+    var job_column_structure = job_columns.map(function(column) {
+        return { title: column };
+    });
+    var hdrtable = new DataTable('#jobheader', {
+        columns: [
+            { title: 'Projection Run1' },
+            { title: 'Projection Run2' },
+            { title: 'Study' },
+            { title: 'Job Comparison Result' },
+            { title: 'Exact Matches' },
+            { title: 'Matches Within Threshold' },
+            { title: 'Misatches' },
+            { title: 'Only in 1 or 2'},
+            { title: 'Total' }
+        ],
+        data: [
+            [ '{{ run1_name }}', '{{ run2_name }}', '{{ study_name }}', '{{ job_compare_result }}',
+             '{{ exact_matches }}', '{{ approx_matches }}', '{{ mismatches }}', '{{ only_in_1_or_2 }}',
+             '{{ total }}' ]
+        ],
+        paging: false,
+        searching: false,
+        ordering: false,
+        info: false,
+        lengthChange: false
+    });
+
+    var job_dataset = {{ job_dataset }};
+    var table = new DataTable('#jobsummary', {
+        columns: job_column_structure,
+        data: job_dataset,
+        lengthMenu: [
+            [10, 25, 50, -1],
+            [10, 25, 50, 'All']
+	]
+      }
+    );
+  </script>
+</body>
+</html>

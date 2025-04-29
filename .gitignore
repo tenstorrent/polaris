@@ -11,6 +11,10 @@ __pycache__/
 
 # Temporary / transient directories
 __*/
+# Temporary files
+__*
+# Directory not to be checked in
+private/
 
 # Macbook etc.
 .DS_Store
