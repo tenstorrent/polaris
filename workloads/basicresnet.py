@@ -64,34 +64,53 @@ class Bottleneck(SimNN.Module):
 class ResNet(SimNN.Module):
     def __init__(self, name, cfg):
         super().__init__()
-        self.name         = name
-        self.in_channels  = 64
-        self.bs           = cfg.get('bs',             1)
-        self.img_height   = cfg.get('img_height',   224)
-        self.img_width    = cfg.get('img_width',    224)
-        self.num_channels = cfg.get('num_channels',   3)
-        self.num_classes  = cfg.get('num_classes', 1000)
-        self.layers       = cfg.get('layers', [3,4,6,3])
+        self.name = name
+        self.bs = cfg.get('batch_size', 1)
+        self.num_channels = cfg.get('num_channels', 3)
+        # Support for high resolution images (up to 8M pixels = ~2828x2828)
+        self.img_height = cfg.get('img_height', 224)
+        self.img_width = cfg.get('img_width', 224)
+        self.use_adaptive_pool = cfg.get('use_adaptive_pool', False)
+        
+        # Initial conv layer with larger stride for high-res images
+        init_stride = 4 if max(self.img_height, self.img_width) > 1000 else 2
+        self.conv0 = F.Conv2d(self.name + '.conv0', self.num_channels, 64, kernel_size=7, stride=init_stride, padding=3)
+        self.bn0 = F.BatchNorm2d(self.name + '.bn0', 64)
+        self.relu0 = F.Relu(self.name + '.relu0')
+        self.maxpool0 = F.MaxPool2d(self.name + '.maxpool0', kernel_size=3, stride=2, padding=1)
+
+        self.in_channels = 64
+        self.layers = cfg.get('layers', [3,4,6,3])
+        self.num_classes = cfg.get('num_classes', 1000)
 
         layers_msg = f"ResNet.layers should be [int, int, int, int] with each member > 0: {self.layers}"
         assert isinstance(self.layers, list) and \
                len(self.layers) == 4 and \
                all([isinstance(x, int) and x > 0 for x in self.layers]), layers_msg
 
-        #ops
-        self.conv0    = F.Conv2d(self.name +'.conv0', self.num_channels, self.in_channels, kernel_size=7, stride=2, padding=3)
-        self.bn0      = F.BatchNorm2d(self.name + '.bn0', self.in_channels)
-        self.relu0    = F.Relu(self.name + '.relu0')
-        self.maxpool0 = F.MaxPool2d(self.name + '.maxpool0', kernel_size=3, stride=2) #, padding=1)
+        self.layer1 = SimNN.ModuleList(self._make_layer(0, self.layers[0], planes=64, stride=1))
+        self.layer2 = SimNN.ModuleList(self._make_layer(1, self.layers[1], planes=128, stride=2))
+        self.layer3 = SimNN.ModuleList(self._make_layer(2, self.layers[2], planes=256, stride=2))
+        self.layer4 = SimNN.ModuleList(self._make_layer(3, self.layers[3], planes=512, stride=2))
 
-        self.layer1   = SimNN.ModuleList(self._make_layer(0, self.layers[0], planes= 64, stride=1))
-        self.layer2   = SimNN.ModuleList(self._make_layer(1, self.layers[1], planes=128, stride=2))
-        self.layer3   = SimNN.ModuleList(self._make_layer(2, self.layers[2], planes=256, stride=2))
-        self.layer4   = SimNN.ModuleList(self._make_layer(3, self.layers[3], planes=512, stride=2))
-
-        self.avgpool  = F.MaxPool2d(self.name + '.avgpool0', kernel_size=7, stride=1, padding=0)
-        self.reshape  = F.ReshapeFixed(self.name + '.reshape0', [self.bs, 512*Bottleneck.expansion])
-        self.fc       = F.Linear(self.name + '.fc0', 512*Bottleneck.expansion, self.num_classes)
+        # For high-resolution images, use adaptive pooling to ensure correct output dimensions
+        if self.use_adaptive_pool:
+            self.avgpool = F.AdaptiveAvgPool2d(self.name + '.avgpool', (1, 1))
+        else:
+            # Use fixed kernel size pooling (standard ResNet)
+            self.avgpool = F.AveragePool2d(self.name + '.avgpool', (7, 7))
+            
+        # Create reshape operation
+        self.reshape = F.ReshapeFixed(self.name + '.reshape', [self.bs, -1])
+        
+        # Register avgpool output tensor that will be reshape input
+        self._tensors[self.name + '.avgpool.out'] = F._from_shape(self.name + '.avgpool.out', 
+                                                                [self.bs, 512*Bottleneck.expansion, 1, 1])
+        # Register reshape output tensor
+        self._tensors[self.name + '.reshape.out'] = F._from_shape(self.name + '.reshape.out', 
+                                                                [self.bs, 512*Bottleneck.expansion])
+        
+        self.fc = F.Linear(self.name + '.fc0', 512*Bottleneck.expansion, self.num_classes)
 
         super().link_op2module()
 
@@ -117,47 +136,26 @@ class ResNet(SimNN.Module):
         x = self.input_tensors['x_in']
         assert len(x.shape) == 4, f"Input to ResNet should be a tensor: [N,C,H,W] : {x.shape}!!"
 
-        #logging.info('x=%s', x)
+        # Initial feature extraction with increased stride
         x = self.conv0(x)
-        #logging.info('x=%s', x)
         x = self.bn0(x)
-        #logging.info('x=%s', x)
         x = self.relu0(x)
-        #logging.info('x=%s', x)
-        ##logging.debug("RESNET RELU DBG>> %s", x)
-
         x = self.maxpool0(x)
-        #logging.info('x=%s', x)
-        ##logging.debug("RESNET MAXPOOL DBG>> %s", x)
 
+        # Process through ResNet blocks
         for blk in self.layer1:
             x = blk(x)
-            #logging.info('x=%s', x)
-            ##logging.debug("RESNET LAYER-1 DBG>> %s", x)
-
         for blk in self.layer2:
             x = blk(x)
-            #logging.info('x=%s', x)
-        ##logging.debug("RESNET LAYER-2 DBG>> %s", x)
-
         for blk in self.layer3:
             x = blk(x)
-            #logging.info('x=%s', x)
-        ##logging.debug("RESNET LAYER-3 DBG>> %s", x)
-
         for blk in self.layer4:
             x = blk(x)
-            #logging.info('x=%s', x)
-        ##logging.debug("RESNET LAYER-4 DBG>> %s", x)
 
+        # Fix: Pass kernel_shape parameter name explicitly
         x = self.avgpool(x)
-        ##logging.debug("RESNET AVGPOOL DBG>> %s", x)
-
         x = self.reshape(x)
-        ##logging.debug("RESNET RESHAPE DBG>> %s", x)
-
         x = self.fc(x)
-        #logging.debug("RESNET FC DBG>> %s", x)
 
         return x
 

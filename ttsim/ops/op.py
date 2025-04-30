@@ -317,22 +317,19 @@ class ConstantOp(SimOp):
         if self.perf_stats is not None:
             return self.perf_stats
 
-        if outT[0].check_shape():
-            pass
-        else:
-            attr_val_count = 0
-            attr_val_field = ""
-            for ff in ['sparse_value', 'value', 'value_float', 'value_floats',
-                       'value_int', 'value_ints', 'value_string', 'value_strings']:
-                if ff in self.attrs:
-                    attr_val_count += 1
-                    attr_val_field = ff
-            assert attr_val_count == 1, f"ERROR: More than one val attribute: {self}"
-            tdata  = self.attrs[attr_val_field]
-            tmp_tensor = build_tmp_data_tensor(tdata, '_tmp_constant_tensor_ op=' + self.name)
-            update_output_tensor(self, tmp_tensor, outT[0])
+        assert False, f"{self.opclass_str} get_perf_stats not supported at present!!"
 
-        assert outT[0].check_shape(), f"output shape: outT[0]"
+        attr_val_count = 0
+        attr_val_field = ""
+        for ff in ['sparse_value', 'value', 'value_float', 'value_floats',
+                   'value_int', 'value_ints', 'value_string', 'value_strings']:
+            if ff in self.attrs:
+                attr_val_count += 1
+                attr_val_field = ff
+        assert attr_val_count == 1, f"ERROR: More than one val attribute: {self}"
+        tdata  = self.attrs[attr_val_field]
+        tmp_tensor = build_tmp_data_tensor(tdata, '_tmp_constant_tensor_ op=' + self.name)
+        update_output_tensor(self, tmp_tensor, outT[0])
         self.perf_stats =  {
                 'inElems' : 0,
                 'outElems': outT[0].nelems(),
@@ -1022,11 +1019,49 @@ class AveragePoolOp(SimOp):
             return self.perf_stats
 
         assert inT[0].check_shape(), f"Illegal Shape for {inT[0]}"
-        input_shape   = inT[0].shape
-        kernel_shape  = self.attrs.get('kernel_shape') #required attribute
-        output_shape  = pooling_shape_inference(input_shape, kernel_shape, self.attrs)
-        outT[0].shape = output_shape
-        outT[0].dtype = inT[0].dtype
+        input_shape = inT[0].shape
+        
+        # Handle adaptive pooling if specified
+        is_adaptive = self.attrs.get('adaptive', False)
+        
+        if is_adaptive:
+            # For adaptive pooling, calculate kernel_shape dynamically based on input and desired output size
+            output_size = self.attrs.get('output_size', (1, 1))
+            
+            # Ensure output_size is a tuple of 2 elements
+            if isinstance(output_size, int):
+                output_size = (output_size, output_size)
+                
+            # Extract spatial dimensions (last 2 dimensions for 2D pooling)
+            input_height, input_width = input_shape[-2], input_shape[-1]
+            output_height, output_width = output_size
+            
+            # Calculate kernel size, stride, and padding to achieve the desired output size
+            # For simplicity, we use a kernel that divides the input evenly if possible
+            kernel_height = input_height // output_height if output_height > 0 else 1
+            kernel_width = input_width // output_width if output_width > 0 else 1
+            
+            # Set the calculated kernel shape
+            kernel_shape = (kernel_height, kernel_width)
+            
+            # Calculate appropriate strides
+            strides = (kernel_height, kernel_width)
+            
+            # Set attributes for the pooling_shape_inference function
+            self.attrs['kernel_shape'] = kernel_shape
+            self.attrs['strides'] = strides
+            self.attrs['pads'] = [0, 0, 0, 0]  # No padding for adaptive pooling
+            
+            # Set output shape directly (batch_size, channels, output_height, output_width)
+            output_shape = input_shape[0:2] + list(output_size)
+            outT[0].shape = output_shape
+            outT[0].dtype = inT[0].dtype
+        else:
+            # Traditional AveragePool with explicit kernel_shape
+            kernel_shape = self.attrs.get('kernel_shape')  # Required attribute
+            output_shape = pooling_shape_inference(input_shape, kernel_shape, self.attrs)
+            outT[0].shape = output_shape
+            outT[0].dtype = inT[0].dtype
 
         instr_count = {'add': inT[0].nelems(), 'div': outT[0].nelems(), 'mov': outT[0].nelems()}
 
@@ -1538,21 +1573,17 @@ class UnsqueezeOp(SimOp):
     def get_perf_counts(self, inT, outT, **kwargs):
         if self.perf_stats is not None:
             return self.perf_stats
-
         X = clone_tensor_by_shape(inT[0], data_maybe_missing=False) #X.data must be present
         Y = clone_tensor_by_shape(inT[1], data_maybe_missing=False) #Y.data must be present
+
         np_out = X.data
         for d in Y.data:
             np_out = np.expand_dims(np_out, axis=d)
-
         tmp_outT = build_tmp_data_tensor(np_out, self.name + '__tmp_out__')
         update_output_tensor(self, tmp_outT, outT[0])
-
         self.perf_stats = {
                 'inBytes' : X.nbytes() + Y.nbytes(),
                 'outBytes': outT[0].nbytes(),
-                'inElems' : X.nelems() + Y.nelems(),
-                'outElems': outT[0].nelems(),
                 'instrs'  : {'mov': outT[0].nelems()}
                 }
         return self.perf_stats
@@ -1567,18 +1598,18 @@ class ConcatOp(SimOp):
     def get_perf_counts(self, inT, outT, **kwargs):
         if self.perf_stats is not None:
             return self.perf_stats
-
         axis = self.attrs['axis']
         Xs   = [clone_tensor_by_shape(x) for x in inT]
         #some sanity checks...
         chk_in_ranks = all([x.rank() == Xs[0].rank() for x in Xs])
         assert chk_in_ranks, f"Input Rank Mismatch: {[x.shape for x in Xs]}"
+
         np_x = [x.data for x in Xs]
         np_out = np.concatenate(np_x, axis)
         tmp_outT = build_tmp_data_tensor(np_out, self.name + '__tmp_out__')
         update_output_tensor(self, tmp_outT, outT[0])
         inBytes = sum((x.nbytes() for x in Xs))
-        inElems = sum((x.nelems() for x in Xs))
+
         # Placeholder: For Training, it may be required to output per-input tensor shape
         # Assumption: per-input tensor shape is a 1D-Tensor where each element
         # represents the length of the corresponding input along the axis
@@ -1587,12 +1618,9 @@ class ConcatOp(SimOp):
         #out2_data  = [x.shape for x in Xs]
         self.perf_stats = {
                 'inBytes' : inBytes,
-                'inElems' : inElems,
                 'outBytes': outT[0].nbytes(),
-                'outElems': outT[0].nelems(),
                 'instrs'  : {'mov': outT[0].nelems()}
                 }
-
         return self.perf_stats
 
 class SliceOp(SimOp):
