@@ -91,7 +91,6 @@ def test_ttsim_functional_instance():
 
 @pytest.mark.unit
 def test_parsers():
-    common.parse_worksheet('config/nvidia_ref_metrics.csv')
     common.parse_worksheet('GPU@config/Nvidia.xlsx')
     with pytest.raises(RuntimeError, match='no worksheet'):
         common.parse_worksheet('undefined@config/Nvidia.xlsx')

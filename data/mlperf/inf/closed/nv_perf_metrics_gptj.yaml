@@ -1,0 +1,248 @@
+- benchmark: Benchmark.GPTJ
+  coalesced_tensor: true
+  cores: 56
+  enable_sort: false
+  gpu: NVIDIA H100-SXM-80GB
+  gpu_batch_size:
+    gptj: 192
+  gpu_copy_streams: 1
+  gpu_inference_streams: 1
+  id: 4.1-0043
+  input_dtype: int32
+  input_format: linear
+  llm_gen_config_path: code/gptj/tensorrt/generation_config.json
+  max_num_tokens: 4096
+  metric: Tokens/s
+  nodes: 1
+  num gpu: 8
+  num_sort_segments: 2
+  offline_expected_qps: 288
+  org: NVIDIA
+  perf: 19739.8
+  precision: fp16
+  processor: Intel(R) Xeon(R) Platinum 8480C
+  scenario: Scenario.Offline
+  sys: NVIDIA DGX H100 (8x H100-SXM-80GB TensorRT)
+  system: KnownSystem.H100_SXM_80GBx8
+  tensor_parallelism: 1
+  use_fp8: true
+  use_graphs: false
+  use_token_latencies: false
+  wlname: gptj-99
+- benchmark: Benchmark.GPTJ
+  coalesced_tensor: true
+  cores: 56
+  enable_sort: false
+  gpu: NVIDIA H100-SXM-80GB
+  gpu_batch_size:
+    gptj: 256
+  gpu_copy_streams: 1
+  gpu_inference_streams: 1
+  id: 4.1-0043
+  input_dtype: int32
+  input_format: linear
+  llm_gen_config_path: code/gptj/tensorrt/generation_config.json
+  max_num_tokens: 4096
+  metric: Tokens/s
+  nodes: 1
+  num gpu: 8
+  num_sort_segments: 2
+  org: NVIDIA
+  perf: 19233.8
+  precision: fp16
+  processor: Intel(R) Xeon(R) Platinum 8480C
+  scenario: Scenario.Server
+  server_target_qps: 279.36
+  sys: NVIDIA DGX H100 (8x H100-SXM-80GB TensorRT)
+  system: KnownSystem.H100_SXM_80GBx8
+  tensor_parallelism: 1
+  use_fp8: true
+  use_graphs: false
+  use_token_latencies: false
+  wlname: gptj-99
+- benchmark: Benchmark.GPTJ
+  coalesced_tensor: true
+  cores: 72
+  enable_sort: false
+  gpu: NVIDIA GH200 Grace Hopper Superchip 144GB
+  gpu_batch_size:
+    gptj: 396
+  gpu_copy_streams: 1
+  gpu_inference_streams: 1
+  id: 4.1-0044
+  input_dtype: int32
+  input_format: linear
+  llm_gen_config_path: code/gptj/tensorrt/generation_config.json
+  max_num_tokens: 4096
+  metric: Tokens/s
+  nodes: 1
+  num gpu: 1
+  num_sort_segments: 2
+  offline_expected_qps: 40
+  org: NVIDIA
+  perf: 2627.69
+  precision: fp16
+  processor: NVIDIA Grace CPU
+  scenario: Scenario.Offline
+  sys: NVIDIA GH200 NVL2 Platform (1x GH200-144GB_aarch64 TensorRT)
+  system: KnownSystem.GH200_144GB_ARMx1
+  tensor_parallelism: 1
+  use_fp8: true
+  use_graphs: false
+  use_token_latencies: false
+  wlname: gptj-99
+- benchmark: Benchmark.GPTJ
+  coalesced_tensor: true
+  cores: 72
+  enable_sort: false
+  gpu: NVIDIA GH200 Grace Hopper Superchip 144GB
+  gpu_batch_size:
+    gptj: 396
+  gpu_copy_streams: 1
+  gpu_inference_streams: 1
+  id: 4.1-0044
+  input_dtype: int32
+  input_format: linear
+  llm_gen_config_path: code/gptj/tensorrt/generation_config.json
+  max_num_tokens: 4096
+  metric: Tokens/s
+  nodes: 1
+  num gpu: 1
+  num_sort_segments: 2
+  org: NVIDIA
+  perf: 2513.38
+  precision: fp16
+  processor: NVIDIA Grace CPU
+  scenario: Scenario.Server
+  server_target_qps: 36.5
+  sys: NVIDIA GH200 NVL2 Platform (1x GH200-144GB_aarch64 TensorRT)
+  system: KnownSystem.GH200_144GB_ARMx1
+  tensor_parallelism: 1
+  use_fp8: true
+  use_graphs: false
+  use_token_latencies: false
+  wlname: gptj-99
+- benchmark: Benchmark.GPTJ
+  coalesced_tensor: true
+  cores: 56
+  enable_sort: false
+  gpu: NVIDIA H200-SXM-141GB
+  gpu_batch_size:
+    gptj: 396
+  gpu_copy_streams: 1
+  gpu_inference_streams: 1
+  id: 4.1-0047
+  input_dtype: int32
+  input_format: linear
+  llm_gen_config_path: code/gptj/tensorrt/generation_config.json
+  max_num_tokens: 4096
+  metric: Tokens/s
+  nodes: 1
+  num gpu: 1
+  num_sort_segments: 2
+  offline_expected_qps: 36
+  org: NVIDIA
+  perf: 2579.51
+  precision: fp16
+  processor: Intel(R) Xeon(R) Platinum 8480C
+  scenario: Scenario.Offline
+  sys: NVIDIA H200 (1x H200-SXM-141GB TensorRT)
+  system: KnownSystem.H200_SXM_141GBx1
+  tensor_parallelism: 1
+  use_fp8: true
+  use_graphs: false
+  use_token_latencies: false
+  wlname: gptj-99
+- benchmark: Benchmark.GPTJ
+  coalesced_tensor: true
+  cores: 56
+  enable_sort: false
+  gpu: NVIDIA H200-SXM-141GB
+  gpu_batch_size:
+    gptj: 396
+  gpu_copy_streams: 1
+  gpu_inference_streams: 1
+  id: 4.1-0047
+  input_dtype: int32
+  input_format: linear
+  llm_gen_config_path: code/gptj/tensorrt/generation_config.json
+  max_num_tokens: 4096
+  metric: Tokens/s
+  nodes: 1
+  num gpu: 1
+  num_sort_segments: 2
+  org: NVIDIA
+  perf: 2405.86
+  precision: fp16
+  processor: Intel(R) Xeon(R) Platinum 8480C
+  scenario: Scenario.Server
+  server_target_qps: 34.92
+  sys: NVIDIA H200 (1x H200-SXM-141GB TensorRT)
+  system: KnownSystem.H200_SXM_141GBx1
+  tensor_parallelism: 1
+  use_fp8: true
+  use_graphs: false
+  use_token_latencies: false
+  wlname: gptj-99
+- benchmark: Benchmark.GPTJ
+  coalesced_tensor: true
+  cores: 56
+  enable_sort: false
+  gpu: NVIDIA H200-SXM-141GB
+  gpu_batch_size:
+    gptj: 396
+  gpu_copy_streams: 1
+  gpu_inference_streams: 1
+  id: 4.1-0048
+  input_dtype: int32
+  input_format: linear
+  llm_gen_config_path: code/gptj/tensorrt/generation_config.json
+  max_num_tokens: 4096
+  metric: Tokens/s
+  nodes: 1
+  num gpu: 8
+  num_sort_segments: 2
+  offline_expected_qps: 288
+  org: NVIDIA
+  perf: 20086.1
+  precision: fp16
+  processor: Intel(R) Xeon(R) Platinum 8480C
+  scenario: Scenario.Offline
+  sys: NVIDIA H200 (8x H200-SXM-141GB TensorRT)
+  system: KnownSystem.H200_SXM_141GBx8
+  tensor_parallelism: 1
+  use_fp8: true
+  use_graphs: false
+  use_token_latencies: false
+  wlname: gptj-99
+- benchmark: Benchmark.GPTJ
+  coalesced_tensor: true
+  cores: 56
+  enable_sort: false
+  gpu: NVIDIA H200-SXM-141GB
+  gpu_batch_size:
+    gptj: 396
+  gpu_copy_streams: 1
+  gpu_inference_streams: 1
+  id: 4.1-0048
+  input_dtype: int32
+  input_format: linear
+  llm_gen_config_path: code/gptj/tensorrt/generation_config.json
+  max_num_tokens: 4096
+  metric: Tokens/s
+  nodes: 1
+  num gpu: 8
+  num_sort_segments: 2
+  org: NVIDIA
+  perf: 19243.3
+  precision: fp16
+  processor: Intel(R) Xeon(R) Platinum 8480C
+  scenario: Scenario.Server
+  server_target_qps: 279.36
+  sys: NVIDIA H200 (8x H200-SXM-141GB TensorRT)
+  system: KnownSystem.H200_SXM_141GBx8
+  tensor_parallelism: 1
+  use_fp8: true
+  use_graphs: false
+  use_token_latencies: false
+  wlname: gptj-99

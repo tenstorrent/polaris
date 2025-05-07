@@ -1,0 +1,55 @@
+- benchmark: Benchmark.ResNet50
+  cores: 56
+  gpu: NVIDIA H200-SXM-141GB
+  gpu_batch_size:
+    resnet50: 2048
+  gpu_copy_streams: 2
+  gpu_inference_streams: 1
+  id: 4.1-0048
+  input_dtype: int8
+  input_format: linear
+  map_path: data_maps/imagenet/val_map.txt
+  metric: Samples/s
+  nodes: 1
+  num gpu: 8
+  offline_expected_qps: 750000
+  org: NVIDIA
+  perf: 756960.0
+  precision: int8
+  processor: Intel(R) Xeon(R) Platinum 8480C
+  run_infer_on_copy_streams: false
+  scenario: Scenario.Offline
+  start_from_device: true
+  sys: NVIDIA H200 (8x H200-SXM-141GB TensorRT)
+  system: KnownSystem.H200_SXM_141GBx8
+  use_graphs: false
+  wlname: resnet
+- active_sms: 100
+  benchmark: Benchmark.ResNet50
+  cores: 56
+  deque_timeout_usec: 3000
+  gpu: NVIDIA H200-SXM-141GB
+  gpu_batch_size:
+    resnet50: 256
+  gpu_copy_streams: 4
+  gpu_inference_streams: 7
+  id: 4.1-0048
+  input_dtype: int8
+  input_format: linear
+  map_path: data_maps/imagenet/val_map.txt
+  metric: Queries/s
+  nodes: 1
+  num gpu: 8
+  org: NVIDIA
+  perf: 632229.0
+  precision: int8
+  processor: Intel(R) Xeon(R) Platinum 8480C
+  scenario: Scenario.Server
+  server_target_qps: 632000
+  start_from_device: true
+  sys: NVIDIA H200 (8x H200-SXM-141GB TensorRT)
+  system: KnownSystem.H200_SXM_141GBx8
+  use_cuda_thread_per_device: true
+  use_deque_limit: true
+  use_graphs: true
+  wlname: resnet

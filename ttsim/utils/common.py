@@ -123,6 +123,11 @@ def print_json(jsdata, jsfilename):
     with open(jsfilename, 'w') as jsf:
         json.dump(jsdata, jsf)
 
+def print_yaml(obj, ofilename):
+    yaml_str = yaml.dump(obj)
+    with open(ofilename, 'w', newline='') as YF:
+        YF.write(yaml_str)
+    return
 
 @lru_cache(128)
 def get_ttsim_python_class(python_module_path):
