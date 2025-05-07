@@ -6,18 +6,18 @@ ipblocks:
             num_units: 64
             freq_MHz : 1410
             instructions:
-            - {name: mac,   tpt: { int32: 1., bf16: 2., fp16: 2., fp32: 1., fp64: 0.5 }}
-            - {name: add,   tpt: { int32: 1., bf16: 2., fp16: 2., fp32: 1., fp64: 0.5 }}
-            - {name: sub,   tpt: { int32: 1., bf16: 2., fp16: 2., fp32: 1., fp64: 0.5 }}
-            - {name: mul,   tpt: { int32: 1., bf16: 2., fp16: 2., fp32: 1., fp64: 0.5 }}
-            - {name: div,   tpt: { int32: 1., bf16: 2., fp16: 2., fp32: 1., fp64: 0.5 }}
-            - {name: tanh,  tpt: { int32: 1., bf16: 2., fp16: 2., fp32: 1., fp64: 0.5 }}
-            - {name: log,   tpt: { int32: 1., bf16: 2., fp16: 2., fp32: 1., fp64: 0.5 }}
-            - {name: exp,   tpt: { int32: 1., bf16: 2., fp16: 2., fp32: 1., fp64: 0.5 }}
-            - {name: rsqrt, tpt: { int32: 1., bf16: 2., fp16: 2., fp32: 1., fp64: 0.5 }}
-            - {name: cmp,   tpt: { int32: 1., bf16: 2., fp16: 2., fp32: 1., fp64: 0.5 }}
-            - {name: mov,   tpt: { int32: 1., bf16: 2., fp16: 2., fp32: 1., fp64: 0.5 }}
-            - {name: max,   tpt: { int32: 1., bf16: 2., fp16: 2., fp32: 1., fp64: 0.5 }}
+            - {name: mac,   tpt: {int32: 1., int16: 1., int8: 4., bf16: 2., fp16: 2., fp32: 1., fp64: 0.5 }}
+            - {name: add,   tpt: {int32: 1., int16: 1., int8: 4., bf16: 2., fp16: 2., fp32: 1., fp64: 0.5 }}
+            - {name: sub,   tpt: {int32: 1., int16: 1., int8: 4., bf16: 2., fp16: 2., fp32: 1., fp64: 0.5 }}
+            - {name: mul,   tpt: {int32: 1., int16: 1., int8: 4., bf16: 2., fp16: 2., fp32: 1., fp64: 0.5 }}
+            - {name: div,   tpt: {int32: 1., int16: 1., int8: 4., bf16: 2., fp16: 2., fp32: 1., fp64: 0.5 }}
+            - {name: tanh,  tpt: {int32: 1., int16: 1., int8: 4., bf16: 2., fp16: 2., fp32: 1., fp64: 0.5 }}
+            - {name: log,   tpt: {int32: 1., int16: 1., int8: 4., bf16: 2., fp16: 2., fp32: 1., fp64: 0.5 }}
+            - {name: exp,   tpt: {int32: 1., int16: 1., int8: 4., bf16: 2., fp16: 2., fp32: 1., fp64: 0.5 }}
+            - {name: rsqrt, tpt: {int32: 1., int16: 1., int8: 4., bf16: 2., fp16: 2., fp32: 1., fp64: 0.5 }}
+            - {name: cmp,   tpt: {int32: 1., int16: 1., int8: 4., bf16: 2., fp16: 2., fp32: 1., fp64: 0.5 }}
+            - {name: mov,   tpt: {int32: 1., int16: 1., int8: 4., bf16: 2., fp16: 2., fp32: 1., fp64: 0.5 }}
+            - {name: max,   tpt: {int32: 1., int16: 1., int8: 4., bf16: 2., fp16: 2., fp32: 1., fp64: 0.5 }}
         -   name: matrix
             num_units: 4
             freq_MHz: 1410
@@ -43,18 +43,18 @@ ipblocks:
             num_units   : 4
             freq_MHz    : 1000
             instructions:
-            -   {name: add,   tpt: { int32: 32., fp32: 32. }}
-            -   {name: sub,   tpt: { int32: 32., fp32: 32. }}
-            -   {name: mul,   tpt: { int32: 32., fp32: 32. }}
-            -   {name: div,   tpt: { int32: 32., fp32: 32. }}
-            -   {name: mac,   tpt: { int32: 32., fp32: 32. }}
-            -   {name: tanh,  tpt: { int32: 32., fp32: 32. }}
-            -   {name: log,   tpt: { int32: 32., fp32: 32. }}
-            -   {name: exp,   tpt: { int32: 32., fp32: 32. }}
-            -   {name: rsqrt, tpt: { int32: 32., fp32: 32. }}
-            -   {name: cmp,   tpt: { int32: 32., fp32: 32. }}
-            -   {name: mov,   tpt: { int32: 32., fp32: 32. }}
-            -   {name: max,   tpt: { int32: 32., fp32: 32. }}
+            -   {name: add,   tpt: {int8: 128.,  int32: 32., fp32: 32. }}
+            -   {name: sub,   tpt: {int8: 128.,  int32: 32., fp32: 32. }}
+            -   {name: mul,   tpt: {int8: 128.,  int32: 32., fp32: 32. }}
+            -   {name: div,   tpt: {int8: 128.,  int32: 32., fp32: 32. }}
+            -   {name: mac,   tpt: {int8: 128.,  int32: 32., fp32: 32. }}
+            -   {name: tanh,  tpt: {int8: 128.,  int32: 32., fp32: 32. }}
+            -   {name: log,   tpt: {int8: 128.,  int32: 32., fp32: 32. }}
+            -   {name: exp,   tpt: {int8: 128.,  int32: 32., fp32: 32. }}
+            -   {name: rsqrt, tpt: {int8: 128.,  int32: 32., fp32: 32. }}
+            -   {name: cmp,   tpt: {int8: 128.,  int32: 32., fp32: 32. }}
+            -   {name: mov,   tpt: {int8: 128.,  int32: 32., fp32: 32. }}
+            -   {name: max,   tpt: {int8: 128.,  int32: 32., fp32: 32. }}
 
 
     -   name: gddr6
@@ -184,6 +184,26 @@ packages:
                 num_units: 5
                 ip_overrides:
                     freq_MHz: 2619
+        -   name: H200-SXM5
+            ipgroups:
+            -   ipname: nvidia_sm
+                iptype: compute
+                num_units   : 132
+                ramp_penalty: 200
+                ip_overrides:
+                    pipes.matrix.freq_MHz: 1830
+                    pipes.vector.freq_MHz: 1980
+                    pipes.vector.num_units: 128
+                    pipes.matrix.systolic_depth: 16
+                    pipes.vector.instructions.mac.tpt.fp16: 2.0
+            -   ipname: hbm3
+                iptype: memory
+                num_units: 6
+                ip_overrides:
+                    freq_MHz: 3200
+                    stacks    : 16
+                    data_bits : 64
+                    size_GB   : 24
         -   name: H100-PCIe
             ipgroups:
               - ipname: nvidia_sm

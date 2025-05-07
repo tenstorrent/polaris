@@ -1,0 +1,218 @@
+- benchmark: Benchmark.DLRMv2
+  bot_mlp_precision: int8
+  check_contiguity: true
+  coalesced_tensor: true
+  cores: 56
+  embedding_weights_on_gpu_part: 1.0
+  embeddings_path: /home/mlperf_inf_dlrmv2/model/embedding_weights
+  embeddings_precision: int8
+  final_linear_precision: int8
+  gpu: NVIDIA H100-SXM-80GB
+  gpu_batch_size:
+    dlrm-v2: 600000
+  gpu_copy_streams: 1
+  gpu_inference_streams: 1
+  gpu_num_bundles: 2
+  id: 4.1-0043
+  input_dtype: fp16
+  input_format: linear
+  interaction_op_precision: int8
+  metric: Samples/s
+  model_path: /home/mlperf_inf_dlrmv2/model/model_weights
+  nodes: 1
+  num gpu: 8
+  numa_config: 0-3:0-55,112-167&4-7:56-111,168-223
+  offline_expected_qps: 616000
+  org: NVIDIA
+  perf: 595658.0
+  precision: int8
+  processor: Intel(R) Xeon(R) Platinum 8480C
+  sample_partition_path: /home/mlperf_inf_dlrmv2/criteo/day23/sample_partition.npy
+  scenario: Scenario.Offline
+  sys: NVIDIA DGX H100 (8x H100-SXM-80GB TensorRT)
+  system: KnownSystem.H100_SXM_80GBx8
+  top_mlp_precision: int8
+  use_graphs: false
+  vboost_slider: 1
+  wlname: DLRM-v2-99
+- benchmark: Benchmark.DLRMv2
+  bot_mlp_precision: int8
+  coalesced_tensor: true
+  cores: 56
+  embedding_weights_on_gpu_part: 1.0
+  embeddings_path: /home/mlperf_inf_dlrmv2/model/embedding_weights
+  embeddings_precision: int8
+  final_linear_precision: int8
+  gpu: NVIDIA H100-SXM-80GB
+  gpu_batch_size:
+    dlrm-v2: 51200
+  gpu_copy_streams: 1
+  gpu_inference_streams: 1
+  gpu_num_bundles: 2
+  id: 4.1-0043
+  input_dtype: fp16
+  input_format: linear
+  interaction_op_precision: int8
+  metric: Queries/s
+  model_path: /home/mlperf_inf_dlrmv2/model/model_weights
+  nodes: 1
+  num gpu: 8
+  numa_config: 0-3:0-55,112-167&4-7:56-111,168-223
+  org: NVIDIA
+  perf: 510155.0
+  precision: int8
+  processor: Intel(R) Xeon(R) Platinum 8480C
+  sample_partition_path: /home/mlperf_inf_dlrmv2/criteo/day23/sample_partition.npy
+  scenario: Scenario.Server
+  server_num_issue_query_threads: 8
+  server_target_qps: 510000
+  sys: NVIDIA DGX H100 (8x H100-SXM-80GB TensorRT)
+  system: KnownSystem.H100_SXM_80GBx8
+  top_mlp_precision: int8
+  use_graphs: false
+  vboost_slider: 1
+  wlname: DLRM-v2-99
+- benchmark: Benchmark.DLRMv2
+  bot_mlp_precision: int8
+  check_contiguity: true
+  coalesced_tensor: true
+  cores: 72
+  embedding_weights_on_gpu_part: 1.0
+  embeddings_path: /home/mlperf_inf_dlrmv2/model/embedding_weights
+  embeddings_precision: int8
+  final_linear_precision: int8
+  gpu: NVIDIA GH200 Grace Hopper Superchip 144GB
+  gpu_batch_size:
+    dlrm-v2: 600000
+  gpu_copy_streams: 1
+  gpu_inference_streams: 1
+  gpu_num_bundles: 2
+  id: 4.1-0044
+  input_dtype: fp16
+  input_format: linear
+  interaction_op_precision: int8
+  metric: Samples/s
+  model_path: /home/mlperf_inf_dlrmv2/model/model_weights
+  nodes: 1
+  num gpu: 1
+  offline_expected_qps: 99000
+  org: NVIDIA
+  perf: 86731.2
+  precision: int8
+  processor: NVIDIA Grace CPU
+  sample_partition_path: /home/mlperf_inf_dlrmv2/criteo/day23/sample_partition.npy
+  scenario: Scenario.Offline
+  start_from_device: true
+  sys: NVIDIA GH200 NVL2 Platform (1x GH200-144GB_aarch64 TensorRT)
+  system: KnownSystem.GH200_144GB_ARMx1
+  top_mlp_precision: int8
+  use_graphs: false
+  wlname: DLRM-v2-99
+- benchmark: Benchmark.DLRMv2
+  bot_mlp_precision: int8
+  coalesced_tensor: true
+  cores: 72
+  embedding_weights_on_gpu_part: 1.0
+  embeddings_path: /home/mlperf_inf_dlrmv2/model/embedding_weights
+  embeddings_precision: int8
+  final_linear_precision: int8
+  gpu: NVIDIA GH200 Grace Hopper Superchip 144GB
+  gpu_batch_size:
+    dlrm-v2: 102400
+  gpu_copy_streams: 1
+  gpu_inference_streams: 1
+  gpu_num_bundles: 2
+  id: 4.1-0044
+  input_dtype: fp16
+  input_format: linear
+  interaction_op_precision: int8
+  metric: Queries/s
+  model_path: /home/mlperf_inf_dlrmv2/model/model_weights
+  nodes: 1
+  num gpu: 1
+  org: NVIDIA
+  perf: 81009.7
+  precision: int8
+  processor: NVIDIA Grace CPU
+  sample_partition_path: /home/mlperf_inf_dlrmv2/criteo/day23/sample_partition.npy
+  scenario: Scenario.Server
+  server_target_qps: 81000
+  start_from_device: true
+  sys: NVIDIA GH200 NVL2 Platform (1x GH200-144GB_aarch64 TensorRT)
+  system: KnownSystem.GH200_144GB_ARMx1
+  top_mlp_precision: int8
+  use_graphs: false
+  wlname: DLRM-v2-99
+- benchmark: Benchmark.DLRMv2
+  bot_mlp_precision: int8
+  check_contiguity: true
+  coalesced_tensor: true
+  cores: 56
+  embedding_weights_on_gpu_part: 1.0
+  embeddings_path: /home/mlperf_inf_dlrmv2/model/embedding_weights
+  embeddings_precision: int8
+  final_linear_precision: int8
+  gpu: NVIDIA H200-SXM-141GB
+  gpu_batch_size:
+    dlrm-v2: 600000
+  gpu_copy_streams: 1
+  gpu_inference_streams: 1
+  gpu_num_bundles: 2
+  id: 4.1-0048
+  input_dtype: fp16
+  input_format: linear
+  interaction_op_precision: int8
+  metric: Samples/s
+  model_path: /home/mlperf_inf_dlrmv2/model/model_weights
+  nodes: 1
+  num gpu: 8
+  offline_expected_qps: 720000
+  org: NVIDIA
+  perf: 637342.0
+  precision: int8
+  processor: Intel(R) Xeon(R) Platinum 8480C
+  sample_partition_path: /home/mlperf_inf_dlrmv2/criteo/day23/sample_partition.npy
+  scenario: Scenario.Offline
+  start_from_device: true
+  sys: NVIDIA H200 (8x H200-SXM-141GB TensorRT)
+  system: KnownSystem.H200_SXM_141GBx8
+  top_mlp_precision: int8
+  use_graphs: false
+  vboost_slider: 1
+  wlname: DLRM-v2-99
+- benchmark: Benchmark.DLRMv2
+  bot_mlp_precision: int8
+  coalesced_tensor: true
+  cores: 56
+  embedding_weights_on_gpu_part: 1.0
+  embeddings_path: /home/mlperf_inf_dlrmv2/model/embedding_weights
+  embeddings_precision: int8
+  final_linear_precision: int8
+  gpu: NVIDIA H200-SXM-141GB
+  gpu_batch_size:
+    dlrm-v2: 51200
+  gpu_copy_streams: 1
+  gpu_inference_streams: 1
+  gpu_num_bundles: 2
+  id: 4.1-0048
+  input_dtype: fp16
+  input_format: linear
+  interaction_op_precision: int8
+  metric: Queries/s
+  model_path: /home/mlperf_inf_dlrmv2/model/model_weights
+  nodes: 1
+  num gpu: 8
+  org: NVIDIA
+  perf: 585208.0
+  precision: int8
+  processor: Intel(R) Xeon(R) Platinum 8480C
+  sample_partition_path: /home/mlperf_inf_dlrmv2/criteo/day23/sample_partition.npy
+  scenario: Scenario.Server
+  server_target_qps: 585000
+  start_from_device: true
+  sys: NVIDIA H200 (8x H200-SXM-141GB TensorRT)
+  system: KnownSystem.H200_SXM_141GBx8
+  top_mlp_precision: int8
+  use_graphs: false
+  vboost_slider: 1
+  wlname: DLRM-v2-99

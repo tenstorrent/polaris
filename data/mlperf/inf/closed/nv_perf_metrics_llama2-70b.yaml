@@ -1,0 +1,430 @@
+- benchmark: Benchmark.LLAMA2
+  coalesced_tensor: true
+  cores: 56
+  enable_sort: false
+  gpu: NVIDIA H100-SXM-80GB
+  gpu_batch_size:
+    llama2-70b: 896
+  gpu_copy_streams: 1
+  gpu_inference_streams: 1
+  id: 4.1-0043
+  input_dtype: int32
+  input_format: linear
+  kvcache_free_gpu_mem_frac: 0.9
+  llm_gen_config_path: code/llama2-70b/tensorrt/generation_config.json
+  max_num_tokens: 4096
+  metric: Tokens/s
+  min_duration: 2400000
+  nodes: 1
+  num gpu: 8
+  offline_expected_qps: 80
+  org: NVIDIA
+  perf: 24524.9
+  pipeline_parallelism: 1
+  precision: fp16
+  processor: Intel(R) Xeon(R) Platinum 8480C
+  scenario: Scenario.Offline
+  sys: NVIDIA DGX H100 (8x H100-SXM-80GB TensorRT)
+  system: KnownSystem.H100_SXM_80GBx8
+  tensor_parallelism: 2
+  use_fp8: true
+  use_graphs: false
+  use_token_latencies: true
+  vboost_slider: 1
+  wlname: llama2-70b-99
+- benchmark: Benchmark.LLAMA2
+  coalesced_tensor: true
+  cores: 56
+  enable_sort: false
+  gpu: NVIDIA H100-SXM-80GB
+  gpu_batch_size:
+    llama2-70b: 1024
+  gpu_copy_streams: 1
+  gpu_inference_streams: 1
+  id: 4.1-0043
+  input_dtype: int32
+  input_format: linear
+  kvcache_free_gpu_mem_frac: 0.9
+  llm_gen_config_path: code/llama2-70b/tensorrt/generation_config.json
+  max_num_tokens: 4096
+  metric: Tokens/s
+  min_duration: 2400000
+  nodes: 1
+  num gpu: 8
+  org: NVIDIA
+  perf: 21605.79
+  pipeline_parallelism: 1
+  precision: fp16
+  processor: Intel(R) Xeon(R) Platinum 8480C
+  scenario: Scenario.Server
+  server_target_qps: 75
+  sys: NVIDIA DGX H100 (8x H100-SXM-80GB TensorRT)
+  system: KnownSystem.H100_SXM_80GBx8
+  tensor_parallelism: 2
+  use_fp8: true
+  use_graphs: false
+  use_token_latencies: true
+  vboost_slider: 1
+  wlname: llama2-70b-99
+- benchmark: Benchmark.LLAMA2
+  coalesced_tensor: true
+  cores: 72
+  enable_sort: false
+  gpu: NVIDIA GH200 Grace Hopper Superchip 144GB
+  gpu_batch_size:
+    llama2-70b: 806
+  gpu_copy_streams: 1
+  gpu_inference_streams: 1
+  id: 4.1-0044
+  input_dtype: int32
+  input_format: linear
+  kvcache_free_gpu_mem_frac: 0.9
+  llm_gen_config_path: code/llama2-70b/tensorrt/generation_config.json
+  max_num_tokens: 4096
+  metric: Tokens/s
+  min_duration: 2400000
+  nodes: 1
+  num gpu: 1
+  offline_expected_qps: 14.5
+  org: NVIDIA
+  perf: 4067.52
+  pipeline_parallelism: 1
+  precision: fp16
+  processor: NVIDIA Grace CPU
+  scenario: Scenario.Offline
+  sys: NVIDIA GH200 NVL2 Platform (1x GH200-144GB_aarch64 TensorRT)
+  system: KnownSystem.GH200_144GB_ARMx1
+  tensor_parallelism: 1
+  use_fp8: true
+  use_graphs: false
+  use_token_latencies: true
+  vboost_slider: 0
+  wlname: llama2-70b-99
+- benchmark: Benchmark.LLAMA2
+  coalesced_tensor: true
+  cores: 72
+  enable_sort: false
+  gpu: NVIDIA GH200 Grace Hopper Superchip 144GB
+  gpu_batch_size:
+    llama2-70b: 806
+  gpu_copy_streams: 1
+  gpu_inference_streams: 1
+  id: 4.1-0044
+  input_dtype: int32
+  input_format: linear
+  kvcache_free_gpu_mem_frac: 0.9
+  llm_gen_config_path: code/llama2-70b/tensorrt/generation_config.json
+  max_num_tokens: 4096
+  metric: Tokens/s
+  min_duration: 2400000
+  nodes: 1
+  num gpu: 1
+  org: NVIDIA
+  perf: 3883.67
+  pipeline_parallelism: 1
+  precision: fp16
+  processor: NVIDIA Grace CPU
+  scenario: Scenario.Server
+  server_target_qps: 13.4
+  sys: NVIDIA GH200 NVL2 Platform (1x GH200-144GB_aarch64 TensorRT)
+  system: KnownSystem.GH200_144GB_ARMx1
+  tensor_parallelism: 1
+  use_fp8: true
+  use_graphs: false
+  use_token_latencies: true
+  vboost_slider: 0
+  wlname: llama2-70b-99
+- benchmark: Benchmark.LLAMA2
+  coalesced_tensor: true
+  cores: 56
+  enable_sort: false
+  gpu: NVIDIA H200-SXM-141GB-CTS
+  gpu_batch_size:
+    llama2-70b: 850
+  gpu_copy_streams: 1
+  gpu_inference_streams: 1
+  id: 4.1-0045
+  input_dtype: int32
+  input_format: linear
+  kvcache_free_gpu_mem_frac: 0.9
+  llm_gen_config_path: code/llama2-70b/tensorrt/generation_config.json
+  max_num_tokens: 4096
+  metric: Tokens/s
+  min_duration: 2400000
+  nodes: 1
+  num gpu: 1
+  offline_expected_qps: 15
+  org: NVIDIA
+  perf: 4487.88
+  pipeline_parallelism: 1
+  precision: fp16
+  processor: Intel(R) Xeon(R) Platinum 8480C
+  scenario: Scenario.Offline
+  sys: NVIDIA H200 (1x H200-SXM-141GB-CTS TensorRT)
+  system: KnownSystem.H200_SXM_141GB_CTSx1
+  tensor_parallelism: 1
+  use_fp8: true
+  use_graphs: false
+  use_token_latencies: true
+  vboost_slider: 1
+  wlname: llama2-70b-99
+- benchmark: Benchmark.LLAMA2
+  coalesced_tensor: true
+  cores: 56
+  enable_sort: false
+  gpu: NVIDIA H200-SXM-141GB-CTS
+  gpu_batch_size:
+    llama2-70b: 850
+  gpu_copy_streams: 1
+  gpu_inference_streams: 1
+  id: 4.1-0045
+  input_dtype: int32
+  input_format: linear
+  kvcache_free_gpu_mem_frac: 0.9
+  llm_gen_config_path: code/llama2-70b/tensorrt/generation_config.json
+  max_num_tokens: 4096
+  metric: Tokens/s
+  min_duration: 2400000
+  nodes: 1
+  num gpu: 1
+  org: NVIDIA
+  perf: 4202.3
+  pipeline_parallelism: 1
+  precision: fp16
+  processor: Intel(R) Xeon(R) Platinum 8480C
+  scenario: Scenario.Server
+  server_target_qps: 14.5
+  sys: NVIDIA H200 (1x H200-SXM-141GB-CTS TensorRT)
+  system: KnownSystem.H200_SXM_141GB_CTSx1
+  tensor_parallelism: 1
+  use_fp8: true
+  use_graphs: false
+  use_token_latencies: true
+  vboost_slider: 1
+  wlname: llama2-70b-99
+- benchmark: Benchmark.LLAMA2
+  coalesced_tensor: true
+  cores: 56
+  enable_sort: false
+  gpu: NVIDIA H200-SXM-141GB-CTS
+  gpu_batch_size:
+    llama2-70b: 784
+  gpu_copy_streams: 1
+  gpu_inference_streams: 1
+  id: 4.1-0046
+  input_dtype: int32
+  input_format: linear
+  kvcache_free_gpu_mem_frac: 0.9
+  llm_gen_config_path: code/llama2-70b/tensorrt/generation_config.json
+  max_num_tokens: 4096
+  metric: Tokens/s
+  min_duration: 2400000
+  nodes: 1
+  num gpu: 8
+  offline_expected_qps: 120
+  org: NVIDIA
+  perf: 34864.2
+  pipeline_parallelism: 1
+  precision: fp16
+  processor: Intel(R) Xeon(R) Platinum 8480C
+  scenario: Scenario.Offline
+  sys: NVIDIA H200 (8x H200-SXM-141GB-CTS TensorRT)
+  system: KnownSystem.H200_SXM_141GB_CTSx8
+  tensor_parallelism: 1
+  use_fp8: true
+  use_graphs: false
+  use_token_latencies: true
+  vboost_slider: 1
+  wlname: llama2-70b-99
+- benchmark: Benchmark.LLAMA2
+  coalesced_tensor: true
+  cores: 56
+  enable_sort: false
+  gpu: NVIDIA H200-SXM-141GB-CTS
+  gpu_batch_size:
+    llama2-70b: 1024
+  gpu_copy_streams: 1
+  gpu_inference_streams: 1
+  id: 4.1-0046
+  input_dtype: int32
+  input_format: linear
+  kvcache_free_gpu_mem_frac: 0.9
+  llm_gen_config_path: code/llama2-70b/tensorrt/generation_config.json
+  max_num_tokens: 4096
+  metric: Tokens/s
+  min_duration: 2400000
+  nodes: 1
+  num gpu: 8
+  org: NVIDIA
+  perf: 32789.74
+  pipeline_parallelism: 1
+  precision: fp16
+  processor: Intel(R) Xeon(R) Platinum 8480C
+  scenario: Scenario.Server
+  server_target_qps: 113.5
+  sys: NVIDIA H200 (8x H200-SXM-141GB-CTS TensorRT)
+  system: KnownSystem.H200_SXM_141GB_CTSx8
+  tensor_parallelism: 1
+  use_fp8: true
+  use_graphs: false
+  use_token_latencies: true
+  vboost_slider: 1
+  wlname: llama2-70b-99
+- benchmark: Benchmark.LLAMA2
+  coalesced_tensor: true
+  cores: 56
+  enable_sort: false
+  gpu: NVIDIA H200-SXM-141GB
+  gpu_batch_size: &id001
+    llama2-70b: 806
+  gpu_copy_streams: 1
+  gpu_inference_streams: 1
+  id: 4.1-0048
+  input_dtype: int32
+  input_format: linear
+  kvcache_free_gpu_mem_frac: 0.9
+  llm_gen_config_path: code/llama2-70b/tensorrt/generation_config.json
+  max_num_tokens: 4096
+  metric: Tokens/s
+  min_duration: 2400000
+  nodes: 1
+  num gpu: 8
+  offline_expected_qps: 104
+  org: NVIDIA
+  perf: 31302.7
+  pipeline_parallelism: 1
+  precision: fp16
+  processor: Intel(R) Xeon(R) Platinum 8480C
+  scenario: Scenario.Offline
+  sys: NVIDIA H200 (8x H200-SXM-141GB TensorRT)
+  system: KnownSystem.H200_SXM_141GBx8
+  tensor_parallelism: 1
+  use_fp8: true
+  use_graphs: false
+  use_token_latencies: true
+  vboost_slider: 1
+  wlname: llama2-70b-99
+- benchmark: Benchmark.LLAMA2
+  coalesced_tensor: true
+  cores: 56
+  enable_sort: false
+  gpu: NVIDIA H200-SXM-141GB
+  gpu_batch_size: &id002
+    llama2-70b: 896
+  gpu_copy_streams: 1
+  gpu_inference_streams: 1
+  id: 4.1-0048
+  input_dtype: int32
+  input_format: linear
+  kvcache_free_gpu_mem_frac: 0.9
+  llm_gen_config_path: code/llama2-70b/tensorrt/generation_config.json
+  max_num_tokens: 4096
+  metric: Tokens/s
+  min_duration: 2400000
+  nodes: 1
+  num gpu: 8
+  org: NVIDIA
+  perf: 29228.22
+  pipeline_parallelism: 1
+  precision: fp16
+  processor: Intel(R) Xeon(R) Platinum 8480C
+  scenario: Scenario.Server
+  server_target_qps: 102.5
+  sys: NVIDIA H200 (8x H200-SXM-141GB TensorRT)
+  system: KnownSystem.H200_SXM_141GBx8
+  tensor_parallelism: 1
+  use_fp8: true
+  use_graphs: false
+  use_token_latencies: true
+  vboost_slider: 1
+  wlname: llama2-70b-99
+- benchmark: Benchmark.LLAMA2
+  coalesced_tensor: true
+  cores: 56
+  enable_sort: false
+  gpu: NVIDIA H200-SXM-141GB
+  gpu_batch_size: *id001
+  gpu_copy_streams: 1
+  gpu_inference_streams: 1
+  id: 4.1-0050
+  input_dtype: int32
+  input_format: linear
+  kvcache_free_gpu_mem_frac: 0.9
+  llm_gen_config_path: code/llama2-70b/tensorrt/generation_config.json
+  max_num_tokens: 4096
+  metric: Tokens/s
+  min_duration: 2400000
+  nodes: 1
+  num gpu: 8
+  offline_expected_qps: 104
+  org: NVIDIA
+  perf: 31059.3
+  pipeline_parallelism: 1
+  precision: fp16
+  processor: Intel(R) Xeon(R) Platinum 8480C
+  scenario: Scenario.Offline
+  sys: NVIDIA H200 (8x H200-SXM-141GB TensorRT Triton)
+  system: KnownSystem.H200_SXM_141GBx8
+  tensor_parallelism: 1
+  use_fp8: true
+  use_graphs: false
+  use_token_latencies: true
+  vboost_slider: 1
+  wlname: llama2-70b-99
+- benchmark: Benchmark.LLAMA2
+  coalesced_tensor: true
+  cores: 56
+  enable_sort: false
+  gpu: NVIDIA H200-SXM-141GB
+  gpu_batch_size: *id002
+  gpu_copy_streams: 1
+  gpu_inference_streams: 1
+  id: 4.1-0050
+  input_dtype: int32
+  input_format: linear
+  kvcache_free_gpu_mem_frac: 0.9
+  llm_gen_config_path: code/llama2-70b/tensorrt/generation_config.json
+  max_num_tokens: 4096
+  metric: Tokens/s
+  min_duration: 2400000
+  nodes: 1
+  num gpu: 8
+  org: NVIDIA
+  perf: 30128.44
+  pipeline_parallelism: 1
+  precision: fp16
+  processor: Intel(R) Xeon(R) Platinum 8480C
+  scenario: Scenario.Server
+  server_target_qps: 102.5
+  sys: NVIDIA H200 (8x H200-SXM-141GB TensorRT Triton)
+  system: KnownSystem.H200_SXM_141GBx8
+  tensor_parallelism: 1
+  use_fp8: true
+  use_graphs: false
+  use_token_latencies: true
+  vboost_slider: 1
+  wlname: llama2-70b-99
+- cores: 12
+  gpu: NVIDIA B200-SXM-180GB
+  id: 4.1-0074
+  metric: Tokens/s
+  nodes: 1
+  num gpu: 1
+  org: NVIDIA
+  perf: 11264.4
+  processor: Intel(R) Xeon(R) Silver 4410Y
+  scenario: Offline
+  sys: NVIDIA B200 (1x B200-SXM-180GB TensorRT)
+  wlname: llama2-70b-99
+- cores: 12
+  gpu: NVIDIA B200-SXM-180GB
+  id: 4.1-0074
+  metric: Tokens/s
+  nodes: 1
+  num gpu: 1
+  org: NVIDIA
+  perf: 10755.59
+  processor: Intel(R) Xeon(R) Silver 4410Y
+  scenario: Server
+  sys: NVIDIA B200 (1x B200-SXM-180GB TensorRT)
+  wlname: llama2-70b-99
