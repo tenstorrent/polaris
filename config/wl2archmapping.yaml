@@ -26,4 +26,4 @@ op_rsrc_spec:
     vector: [Gather, Reshape, Transpose, Gelu, Relu, LeakyRelu, Resize, Sigmoid, Slice,
              Flatten, ReduceMax, ArgMax, Cast, NonMaxSuppression, Add, Mul, Dropout, Split,
              Softmax, LayerNormalization, Identity, Constant, Where, Pow, Tanh, MaxPool,
-             BatchNormalization, Concat, Unsqueeze, Trilu]
+             BatchNormalization, Concat, Unsqueeze, Trilu, AveragePool]

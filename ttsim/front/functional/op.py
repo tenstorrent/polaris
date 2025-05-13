@@ -382,6 +382,22 @@ def Conv2d(name, in_channels, out_channels, kernel_size, **kwargs):
                           )
     return op_hndl
 
+def AdaptiveAvgPool2d(name, output_size, **kwargs):
+    # AdaptiveAvgPool2d is a special case of AveragePool2d where the kernel size
+    # is computed based on the input dimensions to achieve the desired output dimensions.
+    # Output shape becomes (Batch Size, Channels, output_size[0], output_size[1])
+
+    # For AdaptiveAvgPool2d, we don't directly set kernel_shape since it's computed dynamically
+    # based on input shape during the operator execution
+
+    # Store the output size in the attributes
+    kwargs['output_size'] = output_size
+    kwargs['adaptive'] = True
+
+    # We'll pass an empty list for params since we have no trainable parameters
+    op_hndl = SimOpHandle(name, 'AveragePool', params=[], ipos=[0], **kwargs)
+    return op_hndl
+
 def MaxPool2d(name, kernel_size, **kwargs):
     arg_defaults = {
         'stride': None,
@@ -457,6 +473,7 @@ def BatchNorm2d(name, channels, /, **kwargs):
     return op_hndl
 
 def AveragePool2d(name: str, kernel_shape: tuple[int, int], /, **kwargs):
+    kwargs['kernel_shape'] = kernel_shape
     op_hndl = SimOpHandle(name, 'AveragePool', params=[], ipos=[0], **kwargs)
     return op_hndl
 
