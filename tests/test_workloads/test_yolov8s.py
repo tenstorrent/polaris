@@ -2,16 +2,16 @@
 # SPDX-FileCopyrightText: (C) 2025 Tenstorrent
 # SPDX-License-Identifier: Apache-2.0
 import os
-import latest_polaris.polaris.workloads.Yolo_v8s as y8
+import workloads.Yolo_v8s as y8
 
 def test_yolov8s(session_temp_directory):
     output_dir = str(session_temp_directory)
     os.makedirs(output_dir, exist_ok=True)
-    cfg_dir  = 'config/yolov8_cfgs/deploy'
+    cfg_dir  = 'config/yolov8_cfgs/'
     cfg_file = 'yolov8s.yaml'
     cfg_path = os.path.join(cfg_dir, cfg_file)
     out_onnx = os.path.join(output_dir, cfg_file.replace('.yaml', '.onnx'))
-    
+
     # Create the YOLOv8s object with the specified configuration
     yolo_obj = y8.YOLO8S('yolov8s', {
         'bs'           : 1,
@@ -19,7 +19,7 @@ def test_yolov8s(session_temp_directory):
         'in_resolution': 640,
         'yaml_cfg_path': cfg_path,
         })
-    
+
     param_count = yolo_obj.analytical_param_count()
     print(f"    #params= {param_count/1e6:.2f}M")
     yolo_obj.create_input_tensors()

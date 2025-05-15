@@ -14,9 +14,9 @@ workloads:
     basedir: workloads
     module : YOLO8S@Yolo_v8s.py
     instances:
-      yolov8s          : {yaml_cfg_path: '/Users/smist/projects/latest_polaris/polaris/config/yolov8_cfgs/yolov8s.yaml', in_channels: 3, in_resolution: 640, bs: 1}
-      yolov8n          : {yaml_cfg_path: '/Users/smist/projects/latest_polaris/polaris/config/yolov8_cfgs/yolov8n.yaml', in_channels: 3, in_resolution: 640, bs: 1}
-      yolov8m          : {yaml_cfg_path: '/Users/smist/projects/latest_polaris/polaris/config/yolov8_cfgs/yolov8m.yaml', in_channels: 3, in_resolution: 640, bs: 1}
+      yolov8s          : {yaml_cfg_path: 'config/yolov8_cfgs/yolov8s.yaml', in_channels: 3, in_resolution: 640, bs: 1}
+      yolov8n          : {yaml_cfg_path: 'config/yolov8_cfgs/yolov8n.yaml', in_channels: 3, in_resolution: 640, bs: 1}
+      yolov8m          : {yaml_cfg_path: 'config/yolov8_cfgs/yolov8m.yaml', in_channels: 3, in_resolution: 640, bs: 1}
       # yolov8l          : {in_channels: 3, in_resolution: 640, bs: 1}
       # yolov8x          : {in_channels: 3, in_resolution: 640, bs: 1}
       # yolov8x6         : {in_channels: 3, in_resolution: 640, bs: 1}
