@@ -30,7 +30,6 @@ LOG   = logging.getLogger(__name__)
 INFO  = LOG.info
 DEBUG = LOG.debug
 
-
 class OutputFormat(Enum):
     FMT_NONE = auto()
     FMT_YAML = auto()
@@ -45,7 +44,6 @@ class OutputFormat(Enum):
     @lru_cache(4)
     def cname(self)->str:
         return self.name.replace('FMT_', '').lower()
-
 
 class ReducedStats:
     # Type hints for instance attributes
@@ -394,7 +392,6 @@ def do_dryrun(_wl, _dl):
 
     return
 
-
 def save_data(model: BaseModel, filename, outputfmt: OutputFormat)->None:
     if outputfmt == OutputFormat.FMT_NONE:
         return
@@ -407,7 +404,6 @@ def save_data(model: BaseModel, filename, outputfmt: OutputFormat)->None:
     elif outputfmt == OutputFormat.FMT_PICKLE:
         with open(filename, 'wb') as foutbin:
             pickle.dump(model, foutbin)
-
 
 def execute_wl_on_dev(_wl, _dl, _wspec, _dspec, _op2dt, _op2rsrc, _null_ops, _op_fusion_list, _WLG,
                       _odir, study, _enable_memalloc, outputfmt, flag_dump_stats_csv):
