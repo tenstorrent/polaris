@@ -317,20 +317,17 @@ class ConstantOp(SimOp):
         if self.perf_stats is not None:
             return self.perf_stats
 
-        if outT[0].check_shape():
-            pass
-        else:
-            attr_val_count = 0
-            attr_val_field = ""
-            for ff in ['sparse_value', 'value', 'value_float', 'value_floats',
-                       'value_int', 'value_ints', 'value_string', 'value_strings']:
-                if ff in self.attrs:
-                    attr_val_count += 1
-                    attr_val_field = ff
-            assert attr_val_count == 1, f"ERROR: More than one val attribute: {self}"
-            tdata  = self.attrs[attr_val_field]
-            tmp_tensor = build_tmp_data_tensor(tdata, '_tmp_constant_tensor_ op=' + self.name)
-            update_output_tensor(self, tmp_tensor, outT[0])
+        attr_val_count = 0
+        attr_val_field = ""
+        for ff in ['sparse_value', 'value', 'value_float', 'value_floats',
+                    'value_int', 'value_ints', 'value_string', 'value_strings']:
+            if ff in self.attrs:
+                attr_val_count += 1
+                attr_val_field = ff
+        assert attr_val_count == 1, f"ERROR: More than one val attribute: {self}"
+        tdata  = self.attrs[attr_val_field]
+        tmp_tensor = build_tmp_data_tensor(tdata, '_tmp_constant_tensor_ op=' + self.name)
+        update_output_tensor(self, tmp_tensor, outT[0])
 
         assert outT[0].check_shape(), f"output shape: outT[0]"
         self.perf_stats =  {
@@ -1022,11 +1019,49 @@ class AveragePoolOp(SimOp):
             return self.perf_stats
 
         assert inT[0].check_shape(), f"Illegal Shape for {inT[0]}"
-        input_shape   = inT[0].shape
-        kernel_shape  = self.attrs.get('kernel_shape') #required attribute
-        output_shape  = pooling_shape_inference(input_shape, kernel_shape, self.attrs)
-        outT[0].shape = output_shape
-        outT[0].dtype = inT[0].dtype
+        input_shape = inT[0].shape
+
+        # Handle adaptive pooling if specified
+        is_adaptive = self.attrs.get('adaptive', False)
+
+        if is_adaptive:
+            # For adaptive pooling, calculate kernel_shape dynamically based on input and desired output size
+            output_size = self.attrs.get('output_size', (1, 1))
+
+            # Ensure output_size is a tuple of 2 elements
+            if isinstance(output_size, int):
+                output_size = (output_size, output_size)
+
+            # Extract spatial dimensions (last 2 dimensions for 2D pooling)
+            input_height, input_width = input_shape[-2], input_shape[-1]
+            output_height, output_width = output_size
+
+            # Calculate kernel size, stride, and padding to achieve the desired output size
+            # For simplicity, we use a kernel that divides the input evenly if possible
+            kernel_height = input_height // output_height if output_height > 0 else 1
+            kernel_width = input_width // output_width if output_width > 0 else 1
+
+            # Set the calculated kernel shape
+            kernel_shape = (kernel_height, kernel_width)
+
+            # Calculate appropriate strides
+            strides = (kernel_height, kernel_width)
+
+            # Set attributes for the pooling_shape_inference function
+            self.attrs['kernel_shape'] = kernel_shape
+            self.attrs['strides'] = strides
+            self.attrs['pads'] = [0, 0, 0, 0]  # No padding for adaptive pooling
+
+            # Use pooling_shape_inference instead of direct shape setting
+            output_shape = pooling_shape_inference(input_shape, kernel_shape, self.attrs)
+            outT[0].shape = output_shape
+            outT[0].dtype = inT[0].dtype
+        else:
+            # Traditional AveragePool with explicit kernel_shape
+            kernel_shape = self.attrs.get('kernel_shape')  # Required attribute
+            output_shape = pooling_shape_inference(input_shape, kernel_shape, self.attrs)
+            outT[0].shape = output_shape
+            outT[0].dtype = inT[0].dtype
 
         instr_count = {'add': inT[0].nelems(), 'div': outT[0].nelems(), 'mov': outT[0].nelems()}
 
