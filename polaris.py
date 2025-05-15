@@ -594,7 +594,7 @@ def main() -> int:
         save_data(TTSimHLRunSummary(**{'summary': summary_stats}), summary_stat_filename, outputformat)
         if args.dump_stats_csv:
             summary_stat_csv_filename = summary_dir / (summary_stat_filename.stem + '.csv')
-            print_csv(summary_stats[0].keys(), summary_stats, summary_stat_filename.replace(outputformat.cname, 'csv'))
+            print_csv(summary_stats[0].keys(), summary_stats, summary_stat_csv_filename)
 
 
         if args.instr_profile:
