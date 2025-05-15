@@ -141,12 +141,10 @@ class C2f(SimNN.Module):
         self.c = int(c2 * e)  # hidden channels
         self.cv1 = Conv(name + '.cv1', c1, 2 * self.c, 1, 1)
         self.cv2 = Conv(name + '.cv2', 2 * self.c + n * self.c, c2, 1, 1)
-
         mlist = []
         for i in range(n):
             mlist.append(Bottleneck(f"{name}.m.{i}", self.c, self.c, shortcut, g, e=1.0))
         self.m = SimNN.ModuleList(mlist)
-
         self.split = F.SplitOpHandle(name + '.split', axis=1, count=2)
         self.concat = Concat(name + '.concat')
 
@@ -162,9 +160,8 @@ class C2f(SimNN.Module):
         y_cv1 = self.cv1(x)
         y1, y2 = self.split(y_cv1)  # y1 has self.c, y2 has self.c
 
-        list_for_concat = [y1] 
+        list_for_concat = [y1]
         list_for_concat.append(y2)
-
         current_bottleneck_input = y2
         for m_module in self.m: # self.m is SimNN.ModuleList of Bottleneck instances
             bottleneck_output = m_module(current_bottleneck_input)
@@ -220,17 +217,14 @@ class DFL(SimNN.Module):
             bias=self.bias,
             groups=self.groups
         )
-
         super().link_op2module()
 
     def analytical_param_count(self, lvl):
         # Calculate weight parameters for the Conv2d layer
         # Formula: out_channels * (in_channels / groups) * kernel_h * kernel_w
         weight_params = self.out_channels * (self.in_channels // self.groups) * self.kernel_size * self.kernel_size
-
         # Bias parameters would be self.out_channels if self.bias were True.
         # Since self.bias is False, bias_params is 0.
-
         return weight_params
 
     def __call__(self, x):
@@ -243,7 +237,6 @@ class DetectV8(SimNN.Module):
         self.nc = nc  # number of classes
         self.nl = len(ch)  # number of detection layers
         self.bs = bs
-
         self.cv2_layer_sets = []
         self.cv3_layer_sets = []
 
@@ -252,7 +245,6 @@ class DetectV8(SimNN.Module):
             cv2_0 = Conv(f"{name}.cv2.{i}.0", c_in, 64, 3, 1)
             cv2_1 = Conv(f"{name}.cv2.{i}.1", 64, 64, 3, 1)
             cv2_2 = F.Conv2d(f"{name}.cv2.{i}.2", 64, 64, kernel_size=1, stride=1, bias=True)  # Default bias=True
-
             setattr(self, f"cv2_{i}_0", cv2_0)
             setattr(self, f"cv2_{i}_1", cv2_1)
             setattr(self, f"cv2_{i}_2", cv2_2)
@@ -268,14 +260,12 @@ class DetectV8(SimNN.Module):
             setattr(self, f"cv3_{i}_1", cv3_1)
             setattr(self, f"cv3_{i}_2", cv3_2)
             self.cv3_layer_sets.append((cv3_0, cv3_1, cv3_2))
-
         self.dfl = DFL(name + '.dfl')
 
         super().link_op2module()
 
     def analytical_param_count(self, lvl):
         total = self.dfl.analytical_param_count(lvl + 1) # DFL was fixed previously
-
         # Parameters for F.Conv2d ops in cv2_layer_sets
         # cv2_2_op is F.Conv2d(name, 64, 64, kernel_size=1, stride=1, bias=True)
         # It's created with in_channels=64, out_channels=64, kernel_size=1, groups=1 (default), bias=True.
@@ -309,7 +299,6 @@ class DetectV8(SimNN.Module):
             total += cv3_0.analytical_param_count(lvl + 1)
             total += cv3_1.analytical_param_count(lvl + 1)
             total += cv3_2_weight_params + cv3_2_bias_params
-
         return total
 
     def __call__(self, x):
@@ -326,14 +315,12 @@ class DetectV8(SimNN.Module):
             out_cv2 = cv2_1(out_cv2)
             out_cv2 = cv2_2_op(out_cv2)
             box_outputs.append(out_cv2)
-
             # Class prediction branch
             cv3_0, cv3_1, cv3_2_op = self.cv3_layer_sets[i]
             out_cv3 = cv3_0(x_head) # Input to cv3 is also x_head (original x[i])
             out_cv3 = cv3_1(out_cv3)
             out_cv3 = cv3_2_op(out_cv3)
             cls_outputs.append(out_cv3)
-
         # Apply DFL in a real implementation would go here
         # For simplicity in simulation, we'll just return the outputs
         return box_outputs, cls_outputs
@@ -373,7 +360,6 @@ def parse_model(d, ch):
             elif mtype == 'SPPF':
                 k = args[1] if len(args) > 1 else 5
                 args = [c1, c2, k]
-
             m = module_dict[mtype](mname, *args)
         elif mtype == 'nn.Upsample':
             args = [mname] + args if args else [mname]
@@ -387,14 +373,12 @@ def parse_model(d, ch):
             m = module_dict[mtype](*args)
         else:
             raise ValueError(f"Unknown module type: {mtype}")
-
         m.i, m.f, m.type, m.np = i, f, mname, m.analytical_param_count(0)
         save.extend(x % i for x in ([f] if isinstance(f, int) else f) if x != -1)  # append to savelist
         layers.append(m)
         if i == 0:
             ch = []
         ch.append(c2)
-
     return layers, sorted(save)
 
 def run_model(model_layers, save_list, model_input):
@@ -414,7 +398,6 @@ class YOLO8S(SimNN.Module):
         self.bs = cfg['bs']
         self.in_channels = cfg.get('in_channels', 3)
         self.in_resolution = cfg.get('in_resolution', 640)  # 2x min stride
-
         # Get config path based on cfg or use default
         model_variant = name.split('-')[0] if '-' in name else name
         if 'yaml_cfg_path' in cfg:
@@ -425,7 +408,6 @@ class YOLO8S(SimNN.Module):
             yaml_cfg_path = os.path.join(default_cfg_dir, f"{model_variant}.yaml")
             if not os.path.exists(yaml_cfg_path):
                 yaml_cfg_path = os.path.join(default_cfg_dir, "yolov8s.yaml")  # Fallback to yolov8s
-
         # Parse the YAML config
         yaml_cfg = parse_yaml(yaml_cfg_path)
         _l, _s = parse_model(yaml_cfg, ch=[self.in_channels])
@@ -488,6 +470,5 @@ if __name__ == '__main__':
         gg = yolo_obj.get_forward_graph()
         out_onnx_file = cfg_file.replace('.yaml', '.onnx')
         print("    exporting to onnx:", out_onnx_file)
-        gg.graph2onnx(out_onnx_file)
+        #gg.graph2onnx(out_onnx_file)
         print()
-        break
