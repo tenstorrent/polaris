@@ -2,7 +2,7 @@
 # SPDX-FileCopyrightText: (C) 2025 Tenstorrent
 # SPDX-License-Identifier: Apache-2.0
 import os
-import workloads.Yolo_v8s as y8
+import workloads.Yolo_v8 as y8
 
 def test_yolov8s(session_temp_directory):
     output_dir = str(session_temp_directory)
@@ -13,7 +13,7 @@ def test_yolov8s(session_temp_directory):
     out_onnx = os.path.join(output_dir, cfg_file.replace('.yaml', '.onnx'))
 
     # Create the YOLOv8s object with the specified configuration
-    yolo_obj = y8.YOLO8S('yolov8s', {
+    yolo_obj = y8.YOLO8('yolov8s', {
         'bs'           : 1,
         'in_channels'  : 3,
         'in_resolution': 640,

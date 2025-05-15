@@ -391,7 +391,7 @@ def run_model(model_layers, save_list, model_input):
         y.append(x if m.i in save_list else None)  # save output
     return x
 
-class YOLO8S(SimNN.Module):
+class YOLO8(SimNN.Module):
     def __init__(self, name, cfg):
         super().__init__()
         self.name = name
@@ -458,7 +458,7 @@ if __name__ == '__main__':
     for cfg_file in cfgs:
         print(f"Processing {cfg_file}....")
         cfg_path = os.path.join(cfg_dir, cfg_file)
-        yolo_obj = YOLO8S(cfg_file.replace('.yaml', ''), {'bs': 1, 'yaml_cfg_path': cfg_path, 'in_channels': ch})
+        yolo_obj = YOLO8(cfg_file.replace('.yaml', ''), {'bs': 1, 'yaml_cfg_path': cfg_path, 'in_channels': ch})
         param_count = yolo_obj.analytical_param_count()
         print(f"    #params= {param_count/1e6:.2f}M")
         yolo_obj.create_input_tensors()
