@@ -1,5 +1,5 @@
 #!/usr/bin/env python
-# SPDX-FileCopyrightText: (C) 2025 Tenstorrent
+# SPDX-FileCopyrightText: (C) 2025 Tenstorrent AI ULC
 # SPDX-License-Identifier: Apache-2.0
 from ttsim.ops.op import SimOpFactory, build_tmp_data_tensor
 from ttsim.graph import CREATE_GRAD_TENSOR, WorkloadGraph, BackwardWorkloadGraph

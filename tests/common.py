@@ -1,5 +1,5 @@
 #!/usr/bin/env python
-# SPDX-FileCopyrightText: (C) 2025 Tenstorrent
+# SPDX-FileCopyrightText: (C) 2025 Tenstorrent AI ULC
 # SPDX-License-Identifier: Apache-2.0
 import ttsim.front.functional.sim_nn as sim_nn
 from   ttsim.ops.tensor import SimTensor

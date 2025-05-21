@@ -1,5 +1,5 @@
 #!/usr/bin/env python
-# SPDX-FileCopyrightText: (C) 2025 Tenstorrent
+# SPDX-FileCopyrightText: (C) 2025 Tenstorrent AI ULC
 # SPDX-License-Identifier: Apache-2.0
 from ttsim.utils.common import parse_csv
 from ttsim.config import get_arspec_from_yaml
