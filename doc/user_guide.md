@@ -25,7 +25,7 @@ Polaris is a high-level simulator for performance analysis of AI architectures. 
 
 2. Create and activate the Polaris environment:
    ```bash
-   conda env create --file environment.yml
+   conda env create --file environment.yaml
    conda activate polaris
    ```
 
@@ -37,14 +37,14 @@ python polaris.py [options] --archspec <arch_config> --wlspec <workload_spec> --
 ```
 
 ### Key Command Line Options
-- `--archspec`: Path to architecture specification YAML file
-- `--wlspec`: Path to workload specification YAML file
-- `--wlmapspec`: Path to workload mapping specification YAML file
-- `--study`: Name for the simulation study (default: "study")
-- `--odir`: Output directory for results (default: ".")
+- `-a, --archspec`: Path to architecture specification YAML file
+- `-w, --wlspec`: Path to workload specification YAML file
+- `-m, --wlmapspec`: Path to workload mapping specification YAML file
+- `-s, --study`: Name for the simulation study (default: "study")
+- `-o, --odir`: Output directory for results (default: ".")
 - `--outputformat`: Output format for results (none/yaml/json/pickle)
 - `--dump_stats_csv`: Enable CSV stats output
-- `--dryrun`: Perform a dry run without actual simulation
+- `-n, --dryrun`: Perform a dry run without actual simulation
 - `--enable_memalloc`: Enable memory allocation simulation
 - `--instr_profile`: Enable instruction profiling
 - `--enable_cprofile`: Enable Python cProfile for performance analysis
