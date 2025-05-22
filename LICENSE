@@ -200,7 +200,7 @@
    limitations under the License.
 
 
-   Copyright (c) 2025 Tenstorrent
+   Copyright (c) 2025 Tenstorrent AI ULC
 
 ---------------------------------------------------------------------------
 Third-Party Dependencies:
@@ -223,4 +223,3 @@ distributed as part of the software:
 - pytest     - https://docs.pytest.org/en/stable/license.html
 - types-PYYAML   - https://pypi.org/project/types-PyYAML/
 - types-networkx - https://pypi.org/project/types-networkx/
-
