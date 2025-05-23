@@ -4,10 +4,10 @@
 Polaris is a high-level simulator for performance analysis of AI architectures. It enables users to analyze and evaluate the performance characteristics of AI workloads on different hardware architectures through simulation.
 
 ## Key Features
-- Workload Analysis: Input AI workloads are converted into DAG (Directed Acyclic Graph) representations
-- Architecture Simulation: Simulate workloads on different hardware configurations
-- Performance Analysis: Get detailed performance metrics and resource utilization data
-- Flexible Output Formats: Support for YAML, JSON, and Pickle output formats
+- **Workload Analysis**: Input AI workloads are converted into DAG (Directed Acyclic Graph) representations
+- **Architecture Simulation**: Simulate workloads on different hardware configurations
+- **Performance Analysis**: Get detailed performance metrics and resource utilization data
+- **Flexible Output Formats**: Support for YAML, JSON, and Pickle output formats
 
 ## Installation
 
@@ -37,14 +37,14 @@ python polaris.py [options] --archspec <arch_config> --wlspec <workload_spec> --
 ```
 
 ### Key Command Line Options
-- `-a, --archspec`: Path to architecture specification YAML file
-- `-w, --wlspec`: Path to workload specification YAML file
-- `-m, --wlmapspec`: Path to workload mapping specification YAML file
-- `-s, --study`: Name for the simulation study (default: "study")
-- `-o, --odir`: Output directory for results (default: ".")
+- `--archspec,    -a`: Path to architecture specification YAML file
+- `--wlspec,      -w`: Path to workload specification YAML file
+- `--wlmapspec,   -m`: Path to workload mapping specification YAML file
+- `--study,       -s`: Name for the simulation study (default: "study")
+- `--odir,        -o`: Output directory for results (default: ".")
 - `--outputformat`: Output format for results (none/yaml/json/pickle)
 - `--dump_stats_csv`: Enable CSV stats output
-- `-n, --dryrun`: Perform a dry run without actual simulation
+- `--dryrun,      -n`: Perform a dry run without actual simulation
 - `--enable_memalloc`: Enable memory allocation simulation
 - `--instr_profile`: Enable instruction profiling
 - `--enable_cprofile`: Enable Python cProfile for performance analysis
