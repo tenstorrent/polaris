@@ -185,10 +185,21 @@ class WorkloadGraph():
                             current_node = successors[0]
                             matched_nodes_list.append(current_node)
                         elif len(successors) == 1 and self._ops[successors[0]].removed_in_optimization:
-                            #TODO: How do we handle removed nodes if they occur in the path of
-                            # fusion pattern --> we can pass for now because for LLMs we don't
-                            # run into this case
-                            assert False, "WARNING: Found a remove_in_optimization node in fusion pattern {pattern}!!"
+                            # Skip nodes that have been marked for removal during optimization
+                            # and continue looking at their successors instead
+                            current_node = successors[0]
+                            next_successors = list(self._graph.successors(current_node))
+                            if next_successors:
+                                current_node = next_successors[0]
+                                if (self._ops[current_node].optype.upper() == pattern[i] and
+                                    current_node not in already_matched_nodes_set):
+                                    matched_nodes_list.append(current_node)
+                                else:
+                                    # Pattern doesn't match after skipping removed node
+                                    break
+                            else:
+                                # No more successors after a removed node
+                                break
                         else:
                             #pattern does not match break
                             break
@@ -229,7 +240,6 @@ class WorkloadGraph():
                     'mem_wr_cycles': fused_mem_wr_cycles,
                     }
         return
-
 
     def map_resources(self, op2rsrc_map):
         for node in nx.topological_sort(self._graph):
