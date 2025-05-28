@@ -25,22 +25,6 @@ from ttsim.front import onnx2graph
 from ttsim.utils.common import get_ttsim_functional_instance, print_csv, str_to_bool
 
 """ Polaris top-level executable. """
-#TODO
-#3) Write documentation for architecture/workload/wl2dev-mapping config specification
-#3.1) Default Tensor Datatypes may be different than override Datatypes, so we need
-#      #elems for input/ouput in op.perf_stats, so that we can correctly calculate
-#      in/out mem-Bytes during op.execute!!
-#4) Tiler - Matmul on QSR
-#5) Perf Correlation: on NVidia
-#      GPT-J performance MLPerf Inference
-#        20,552 tok/sec for 8xH200-SXM-141GB = 2569 tok/sec/GPU
-#        19,878 tok/sec for 8xH100-SXM-80GB  = 2485 tok/sec/GPU
-#         2,804 tok/sec for 1xGH200-96GB     = 2804 tok/sec/GPU
-#      Llama2-70B performance MLPerf Inference
-#        11,264 tok/sec for 1xB200-SXM-180GB    = ???? tok/sec/GPU
-#        34,864 tok/sec for 8xH200-SXM-141GB-CTS= 4358 tok/sec/GPU
-#        24,525 tok/sec for 8xH100-SXM-80GB     = 3066 tok/sec/GPU
-#         4,068 tok/sec for 1xGH200-96GB        = 4068 tok/sec/GPU
 
 LOG   = logging.getLogger(__name__)
 INFO  = LOG.info
@@ -74,7 +58,7 @@ class ReducedStats:
         self.wlinstance   = _wlinstance
         self.device       = _dev
 
-    def summarize(self, _stats):
+    def summarize(self, _stats, _guardband=0.25):
         self.freq_Mhz= _stats[0]['freq_MHz']
         self.bs      = _stats[0]['batch']
 
@@ -85,7 +69,17 @@ class ReducedStats:
 
         L1 = [tuple([s[f] for f in F1]) for s in _stats]
         L2 = [tuple([s[f] for f in F2]) for s in _stats if not (s['removed'] or s['fused'])]
-        BPE_TBL = {'INT8': 1, 'INT32': 4}
+        BPE_TBL = {
+                'FP64'  : 8,
+                'FP32'  : 4,
+                'TF32'  : 4,
+                'FP16'  : 2,
+                'BF16'  : 2,
+                'FP8'   : 1,
+                'INT32' : 4,
+                'INT8'  : 1,
+                }
+
 
         self.tot_cycles   = sum([r*c for r,c,m,p,b,rb in L1])
         self.tot_msecs    = sum([r*m for r,c,m,p,b,rb in L1])
@@ -129,11 +123,14 @@ class ReducedStats:
                 'maxActBytes'  : self.maxActBytes,
                 'tot_cycles'   : self.tot_cycles,
                 'tot_msecs'    : self.tot_msecs,
-                'throughput'   : self.bs * 1000 / self.tot_msecs,
+                'ideal_throughput'   : self.bs * 1000 / self.tot_msecs,
                 'mem_size_GB'  : self.mem_size_GB,
-                'device_mem_GB': self.device_mem_GB,
-                'fits_device'  : self.fits_device
+                'device_memsize_GB': self.device_mem_GB,
+                'fits_device'  : self.fits_device,
+                'device_peak_bw_GBps': self.device.peak_bandwidth(),
+                'device_peak_fp8_tflops': self.device.peak_flops('matrix', 'mac', 'fp8', mul_factor=2),
                 }
+        sxrec['perf_projection'] = (1 - _guardband) * sxrec['ideal_throughput'] #25% guardband for SW/Host overhead
         sxrec.update(self.rsrc_bound)
 
         return sxrec
