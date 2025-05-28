@@ -295,9 +295,12 @@ class TTSimHLRunSummaryRow(BaseModel, extra='forbid'):
     maxActBytes  : int
     tot_cycles   : int
     tot_msecs    : TypeTimeMS
-    throughput   : float
+    ideal_throughput   : float
+    perf_projection   : float
     mem_size_GB  : TypeMemsizeGB
-    device_mem_GB: int
+    device_memsize_GB: int
+    device_peak_bw_GBps: float
+    device_peak_fp8_tflops: float
     fits_device  : bool
     rsrc_mem     : float
     rsrc_comp    : float
