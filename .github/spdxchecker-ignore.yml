@@ -1,0 +1,13 @@
+ignore:
+  - '*.xlsx'
+  - '*.csv'
+  - '*.md'
+  - '*.onnx'
+  - .gitignore
+  - condarc
+  - '*.txt'
+  - '*.toml'
+warning:
+  - '*.html'
+  - '*.yaml'
+  - '*.yml'

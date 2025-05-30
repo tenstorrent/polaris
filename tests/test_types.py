@@ -5,7 +5,7 @@ import pytest
 from itertools import product
 import ttsim.utils.types as types
 
-
+@pytest.mark.unit
 def test_types():
     assert types.socnodetype2str(types.SOCNodeType.CORE) == 'C'
     assert types.str2df('float16') == types.DataFormat.FP16A
