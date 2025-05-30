@@ -2,9 +2,11 @@
 # SPDX-FileCopyrightText: (C) 2025 Tenstorrent AI ULC
 # SPDX-License-Identifier: Apache-2.0
 import numpy as np
+import pytest
 from workloads.BasicLLM import BasicLLM
 import ttsim.front.functional.op as F
 
+@pytest.mark.unit
 def test_simnn():
     llm_cfg = {
         'vocab_sz'    : 100,

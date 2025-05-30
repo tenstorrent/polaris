@@ -3,6 +3,7 @@ markers = [
     "unit: unit tests",
     "opunit: unit tests for operators",
 ]
+pythonpath = "."
 
 [tool.mypy]
 check_untyped_defs = true

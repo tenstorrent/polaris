@@ -7,6 +7,7 @@ from itertools import product
 import ttsim.utils.common as common
 
 
+@pytest.mark.unit
 def test_util_convert_units():
     dump_golden: bool = False
     V0 = ['T', 'G', 'M', 'K', ' ']
@@ -56,6 +57,7 @@ def test_util_convert_units():
     if dump_golden:
         print(golden)
 
+@pytest.mark.unit
 def test_dict2obj():
     input_dict = {'a': 1, 'b': 2, 'c': 3, 'd': {'a_1': 100, 'b_1': 200}}
     output_obj = common.dict2obj(input_dict)
@@ -66,6 +68,7 @@ def test_dict2obj():
     assert output_obj.d.b_1 == 200
 
 
+@pytest.mark.unit
 def test_str_to_bool():
     assert common.str_to_bool(True)
     assert not common.str_to_bool(False)
@@ -80,11 +83,13 @@ def test_str_to_bool():
     with pytest.raises(ValueError, match='expecting boolean value'):
         common.str_to_bool('invalid-str')
 
+@pytest.mark.unit
 def test_ttsim_functional_instance():
     common.get_ttsim_functional_instance('workloads/ResNet@basicresnet.py', '',
                                          {'bs': 1, 'layers': [3,4,6,3],  'num_classes': 1000, 'num_channels': 3})
 
 
+@pytest.mark.unit
 def test_parsers():
     common.parse_worksheet('config/nvidia_ref_metrics.csv')
     common.parse_worksheet('GPU@config/Nvidia.xlsx')
@@ -95,6 +100,7 @@ def test_parsers():
     with pytest.raises(RuntimeError, match='not supported'):
         common.parse_worksheet('file.err')
 
+@pytest.mark.unit
 def test_writers(tmp_path_factory):
     odir = tmp_path_factory.mktemp('test-writers')
     os.makedirs(odir, exist_ok=True)

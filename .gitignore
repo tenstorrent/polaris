@@ -8,6 +8,7 @@ __pycache__/
 
 # Backup files
 *~
+*.bak
 
 # Temporary / transient directories
 __*/
@@ -46,6 +47,9 @@ MANIFEST
 *.manifest
 *.spec
 
+# IDEs
+.idea/
+.vscode/
 # Installer logs
 pip-log.txt
 pip-delete-this-directory.txt

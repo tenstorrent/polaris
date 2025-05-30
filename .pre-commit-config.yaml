@@ -1,0 +1,30 @@
+# See https://pre-commit.com for more information
+# See https://pre-commit.com/hooks.html for more hooks
+
+fail_fast: true
+
+repos:
+-   repo: local
+    hooks:
+        -   id: spdx-checker
+            name: Check SPDX License and Copyright
+            description: Check SPDX License and Copyright
+            language: python
+            entry: tools/spdxchecker.py
+            args: [--loglevel, debug]
+            additional_dependencies: [pyyaml, loguru, pydantic]
+            pass_filenames: false
+        -   id: static checker
+            name: Run static checks on the repository
+            description: Check static checks
+            language: python
+            entry: mypy .
+#            args:  [.]
+            # additional_dependencies: [pyyaml, loguru, pydantic]
+            pass_filenames: false
+        -   id: unit tests
+            name: Run unit tests
+            description: Run unit tests
+            language: python
+            entry: pytest -m unit
+            pass_filenames: false
