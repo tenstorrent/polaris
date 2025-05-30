@@ -8,6 +8,7 @@ from ttsim.config import parse_xlsx_config, \
 from ttsim.front.onnx.onnx2nx import onnx2graph
 from math import exp
 
+@pytest.mark.unit
 def test_xlsx_config():
     result = parse_xlsx_config('GPU@config/Nvidia.xlsx')
     a100 = result['A100']
@@ -20,6 +21,7 @@ def test_xlsx_config():
     with pytest.raises(RuntimeError, match='already defined'):
         a100.set_value('dummy', 200)
 
+@pytest.mark.unit
 def test_arspec_config():
     result = get_arspec_from_yaml('config/all_archs.yaml')
     ipgroups, packages = result
@@ -48,11 +50,12 @@ def test_arspec_config():
     assert a100.peak_bandwidth() == 1555.2
     assert a100.mem_frequency() == 1215
 
+@pytest.mark.unit
 def test_wlspec_config():
     result = get_wlspec_from_yaml('config/all_workloads.yaml')
     ttsim = next((wl for wlname, wl in result.items() if wl.api == 'TTSIM'))
     instances = ttsim.get_instances()
 
-
+@pytest.mark.unit
 def test_wlmapspec_config():
     result = get_wlmapspec_from_yaml('config/wl2archmapping.yaml')

@@ -15,9 +15,12 @@ dependencies:
   - yaml=0.2.5
   - pydantic=2.10.6
   - gitpython
+  - loguru
+  - pytest-mock
   - deepdiff
   - mypy=1.15.0
   - coverage=7.6.12
+  - pre-commit
   - pip=25.0.1
   - pip:
     - pytest==8.3.4

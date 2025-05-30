@@ -35,11 +35,22 @@ As described in https://www.anaconda.com/blog/is-conda-free,
 Miniforge installer pre-configures conda-forge channel as the default and only channel, and hence we use the miniforge
 installer
 
-1. Install miniforge as described in https://github.com/conda-forge/miniforge. 
-   * **Instructions as of 17-Feb-2025**
-   * Run `curl -L -O "https://github.com/conda-forge/miniforge/releases/latest/download/Miniforge3-$(uname)-$(uname -m).sh"`
-   * Download and execute as a (ba)sh script
-   * Update conda by running: `conda update -n base -c conda-forge conda`
-2. Once miniforge is installed, run the command `conda env create --file environment.yml`. The conda environment will
-be created with the name 'polaris'. If you wish to provide a different name to the environment, run the command `conda env create --file environment.yml --name <name-of-your-choice>` instead.
-3. Run `conda activate polaris`.
+### Installing Miniforge 
+Install miniforge as described in https://github.com/conda-forge/miniforge. 
+ * **Instructions as of 17-Feb-2025**
+ * Run `curl -L -O "https://github.com/conda-forge/miniforge/releases/latest/download/Miniforge3-$(uname)-$(uname -m).sh"`
+ * Download and execute as a (ba)sh script
+ * Update conda by running: `conda update -n base -c conda-forge conda`
+
+### User Setup
+1. Once miniforge is installed, run the command `conda env create --file environment.yml`. The conda environment will
+   be created with the name 'polaris'. If you wish to provide a different name to the environment, run the command
+   `conda env create --file environment.yml --name <name-of-your-choice>` instead.
+2. Activate the environment by `conda activate polaris`.
+
+### Developer Setup
+1. Once miniforge is installed, run the command `conda env create --file envdev.yml`. The conda environment will
+   be created with the name 'polarisdev'. If you wish to provide a different name to the environment, run the command
+   `conda env create --file envdev.yml --name <name-of-your-choice>` instead.
+2. Activate the environment by `conda activate polarisdev`.
+3. Run `pre-commit install` to install pre-commit hooks.
