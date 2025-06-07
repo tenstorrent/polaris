@@ -115,7 +115,8 @@ class SimOpHandle:
 
         #return result
         if self.link_module is not None:
-            if self.otensor not in self.link_module._tensors:
+            self.otensor.link_module = self.link_module
+            if self.otensor.name not in self.link_module._tensors:
                 self.link_module._tensors[self.otensor.name] = self.otensor
         return self.otensor
 
@@ -474,6 +475,9 @@ def UniversalOperator(name, /, optype, params, ipos, **kwargs):
 UnaryOperator = partial(UniversalOperator, params=[], ipos=[0])
 Identity      = partial(UnaryOperator, optype='Identity')
 Tanh          = partial(UnaryOperator, optype='Tanh')
+Neg           = partial(UnaryOperator, optype='Neg')
+Cos           = partial(UnaryOperator, optype='Cos')
+Sin           = partial(UnaryOperator, optype='Sin')
 Softmax       = partial(UnaryOperator, optype='Softmax')
 Cast          = partial(UnaryOperator, optype='Cast')
 Shape         = partial(UnaryOperator, optype='Shape')
@@ -486,7 +490,9 @@ Sigmoid       = partial(UnaryOperator, optype='Sigmoid')
 #Binary Operators
 BinaryOperator = partial(UniversalOperator, params=[], ipos=[0,1])
 Add            = partial(BinaryOperator, optype='Add')
+Sub            = partial(BinaryOperator, optype='Sub')
 Mul            = partial(BinaryOperator, optype='Mul')
+Div            = partial(BinaryOperator, optype='Div')
 Gather         = partial(BinaryOperator, optype='Gather')
 MatMul         = partial(BinaryOperator, optype='MatMul')
 Reshape        = partial(BinaryOperator, optype='Reshape')

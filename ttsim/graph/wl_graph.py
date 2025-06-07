@@ -55,7 +55,7 @@ class WorkloadGraph():
                     f"Input SimTensor {tensor_name} for SimOp {op.name} not found in WorkloadGraph"
         for tensor_name in op.outList:
             assert tensor_name in self._tensors, \
-                    f"Output SimTensor {tensor_name} for SimOp {op.name()} not found in WorkloadGraph"
+                    f"Output SimTensor {tensor_name} for SimOp {op.name} not found in WorkloadGraph"
         assert op.name not in self._ops, f"SimOp({op.name}) is not unique!!!"
         self._ops[op.name] = op
 
