@@ -12,27 +12,3 @@ workloads:
       gpt2_m    : { nL: 24, nH: 16, dE:  768, nW:  768}
       gpt2_l    : { nL: 36, nH: 20, dE: 1280, nW: 1024}
       gpt_j     : { nL: 28, nH: 16, dE: 4096, nW: 2048}
-  - api: TTSIM
-    name: BERT
-    basedir: workloads
-    module : BERT.py
-    params : {
-      vocab_size: 30522,               # Standard BERT vocabulary size
-      hidden_size: 768,                # Hidden dimension
-      num_hidden_layers: 12,           # Number of transformer layers
-      num_attention_heads: 12,         # Number of attention heads
-      intermediate_size: 3072,         # Size of the intermediate (feed-forward) layer
-      max_position_embeddings: 512,    # Maximum sequence length supported
-      type_vocab_size: 2,              # Size of the token type vocabulary
-      layer_norm_eps: 1e-12,           # Layer normalization epsilon
-      pad_token_id: 0,                 # Padding token ID
-      hidden_dropout_prob: 0.1,        # Dropout probability for hidden layers
-      attention_probs_dropout_prob: 0.1, # Dropout probability for attention probabilities
-      bs: 1                            # Batch size
-    }
-    instances:
-      bert_nano  : { num_hidden_layers: 3, num_attention_heads: 3, hidden_size: 48, intermediate_size: 192}
-      bert_micro : { num_hidden_layers: 4, num_attention_heads: 4, hidden_size: 128, intermediate_size: 512}
-      bert_mini  : { num_hidden_layers: 6, num_attention_heads: 6, hidden_size: 192, intermediate_size: 768}
-      bert_base  : { num_hidden_layers: 12, num_attention_heads: 12, hidden_size: 768, intermediate_size: 3072}
-      bert_large : { num_hidden_layers: 24, num_attention_heads: 16, hidden_size: 1024, intermediate_size: 4096}
