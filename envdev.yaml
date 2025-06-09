@@ -26,3 +26,5 @@ dependencies:
     - pytest==8.3.4
     - types-PYYAML==6.0.12.20241230
     - types-networkx==3.4.2.20241227
+    - types-requests
+    - lxml-stubs
