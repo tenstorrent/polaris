@@ -9,7 +9,9 @@ op_removal_spec:
   - Constant
 
 op_fusion_spec:
+  - [Reshape, Transpose, Transpose]
   - [Reshape, Transpose]
+  - [Transpose, Transpose]
   - [Matmul, Mul]
   - [Matmul, Add]
   - [Matmul, Gelu, Add]

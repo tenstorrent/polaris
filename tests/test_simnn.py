@@ -9,16 +9,17 @@ import ttsim.front.functional.op as F
 @pytest.mark.unit
 def test_simnn():
     llm_cfg = {
-        'vocab_sz'    : 100,
-        'bs'          : 7,
-        'nW'          : 11,
-        'nH'          : 3,
-        'dE'          : 15,
-        'nL'          : 4,
-        'embd_pdrop'  : 0.1,
-        'attn_pdrop'  : 0.1,
-        'resid_pdrop' : 0.1,
-        'mlp_pdrop'   : 0.1,
+        'vocab_sz'             : 100,
+        'drop_prob'            : 0.1,
+        'bs'                   : 7,
+        'nL'                   : 4,
+        'nH'                   : 3,
+        'dE'                   : 15,
+        'nW'                   : 11,
+        'attn_type'            : 'bidir',
+        'norm_type'            : 'layer',
+        'positional_encoding'  : 'learned',
+        'use_segment_embedding': True,
         }
 
     basic_llm = BasicLLM('basic_llm', llm_cfg)
@@ -26,9 +27,9 @@ def test_simnn():
     llm_out = basic_llm() #all intermediate tensor shape/data fixed after __call__ call
 
     llm_graph = basic_llm.get_forward_graph()
-    assert len(llm_graph._ops) == 31
-    assert len(llm_graph._tensors) == 62
-    assert len(llm_graph._input_tensors) == 29
-    assert len(llm_graph._input_nodes) == 21
-    assert len(llm_graph._output_nodes) == 1
+    assert len(llm_graph._ops)            == 33
+    assert len(llm_graph._tensors)        == 65
+    assert len(llm_graph._input_tensors)  == 30
+    assert len(llm_graph._input_nodes)    == 22
+    assert len(llm_graph._output_nodes)   == 1
     assert len(llm_graph._output_tensors) == 1

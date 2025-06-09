@@ -1542,15 +1542,11 @@ class PowOp(SimOp):
     def get_perf_counts(self, inT, outT, **kwargs):
         if self.perf_stats is not None:
             return self.perf_stats
-        '''
-        ASSUME ONNX SHAPE INFERENCE
-        X = clone_tensor_by_shape(inT[0])
-        Y = clone_tensor_by_shape(inT[1])
-        np_out = pow(X.data, Y.data)
-        tmp_outT = build_tmp_data_tensor(np_out, self.name + '__tmp_out__')
-        update_output_tensor(self, tmp_outT, outT[0])
-        '''
+
+        outT[0].shape = get_tensor_broadcast_shape(inT[0].shape, inT[1].shape)
+        outT[0].dtype = inT[0].dtype
         assert outT[0].check_shape(), f"SHAPE INFERENCE ERROR!!"
+
         self.perf_stats = {
                 'inBytes' : inT[0].nbytes() + inT[1].nbytes(),
                 'inElems' : inT[0].nelems() + inT[1].nelems(),
@@ -1574,19 +1570,25 @@ class UnsqueezeOp(SimOp):
         if self.perf_stats is not None:
             return self.perf_stats
 
-        X = clone_tensor_by_shape(inT[0], data_maybe_missing=False) #X.data must be present
+        assert inT[0].check_shape(), f"Illegal Shape for {inT[0]}"
         Y = clone_tensor_by_shape(inT[1], data_maybe_missing=False) #Y.data must be present
-        np_out = X.data
+        newshape = list(inT[0].shape)
         for d in Y.data:
-            np_out = np.expand_dims(np_out, axis=d)
+            newrank = len(newshape)
+            if d < 0: d = newrank + d + 1
+            if d < 0 or d > newrank:
+                raise ValueError(f"Axis {d} out of bounds: [-{newrank+1}, {newrank}]")
+            newshape.insert(d, 1)
 
-        tmp_outT = build_tmp_data_tensor(np_out, self.name + '__tmp_out__')
-        update_output_tensor(self, tmp_outT, outT[0])
+        #tmp_outT = build_tmp_data_tensor(np_out, self.name + '__tmp_out__')
+        #update_output_tensor(self, tmp_outT, outT[0])
+        outT[0].shape = newshape
+        outT[0].dtype = inT[0].dtype
 
         self.perf_stats = {
-                'inBytes' : X.nbytes() + Y.nbytes(),
+                'inBytes' : inT[0].nbytes() + inT[1].nbytes(),
                 'outBytes': outT[0].nbytes(),
-                'inElems' : X.nelems() + Y.nelems(),
+                'inElems' : inT[0].nelems() + inT[1].nelems(),
                 'outElems': outT[0].nelems(),
                 'instrs'  : {'mov': outT[0].nelems()}
                 }
@@ -1604,22 +1606,34 @@ class ConcatOp(SimOp):
             return self.perf_stats
 
         axis = self.attrs['axis']
-        Xs   = [clone_tensor_by_shape(x) for x in inT]
-        #some sanity checks...
-        chk_in_ranks = all([x.rank() == Xs[0].rank() for x in Xs])
-        assert chk_in_ranks, f"Input Rank Mismatch: {[x.shape for x in Xs]}"
-        np_x = [x.data for x in Xs]
-        np_out = np.concatenate(np_x, axis)
-        tmp_outT = build_tmp_data_tensor(np_out, self.name + '__tmp_out__')
-        update_output_tensor(self, tmp_outT, outT[0])
-        inBytes = sum((x.nbytes() for x in Xs))
-        inElems = sum((x.nelems() for x in Xs))
+        assert len(inT) > 0, f"empty input list in Concat!!"
+        base_rank = inT[0].rank()
+        assert all(x.rank() == base_rank for x in inT), "input tensors rank mismatch"
+        if axis < 0: axis = base_rank + axis
+        if axis < 0 or axis >= base_rank:
+            raise ValueError(f"Axis {axis} is out of bounds for tensors with rank {base_rank}. "
+                        f"Valid range is [-{base_rank}, {base_rank-1}].")
+
+        for i, x in enumerate(inT[1:], 1):
+            for dim in range(x.rank()):
+                if dim != axis and x.shape[dim] != inT[0].shape[dim]:
+                        raise ValueError(f"Incompatible shapes at dim {i}: {x.shape} vs {inT[0].shape}. "
+                                         f"All dimensions except the concat axis ({axis}) must match.")
+
+        oshape        = list(inT[0].shape)
+        oshape[axis]  = sum(x.shape[axis] for x in inT)
+        outT[0].shape = oshape
+        outT[0].dtype = inT[0].dtype
+
         # Placeholder: For Training, it may be required to output per-input tensor shape
         # Assumption: per-input tensor shape is a 1D-Tensor where each element
         # represents the length of the corresponding input along the axis
         #
         #out2_shape = [len(inT)]
         #out2_data  = [x.shape for x in Xs]
+
+        inBytes = sum((x.nbytes() for x in inT))
+        inElems = sum((x.nelems() for x in inT))
         self.perf_stats = {
                 'inBytes' : inBytes,
                 'inElems' : inElems,
@@ -1640,9 +1654,7 @@ class SliceOp(SimOp):
         if self.perf_stats is not None:
             return self.perf_stats
 
-        '''
-        ASSUME ONNX SHAPE INFERENCE
-        dataT   = clone_tensor_by_shape(inT[0], data_maybe_missing=False) #dataT.data must be present
+        dataT   = inT[0]
         startsT = clone_tensor_by_shape(inT[1], data_maybe_missing=False) #startsT.data must be present
         endsT   = clone_tensor_by_shape(inT[2], data_maybe_missing=False) #endsT.data must be present
 
@@ -1670,21 +1682,26 @@ class SliceOp(SimOp):
         assert startsT.shape == axesT.shape,  f"Slice Error 2, {startsT.shape} != {axesT.shape}"
         assert startsT.shape == stepsT.shape, f"Slice Error 3, {startsT.shape} != {stepsT.shape}"
 
-        slices = [slice(None)] *  dataT.rank()
-        for s in range(startsT.rank()):
-            s_axis  = axesT.data[s]
-            s_start = startsT.data[s]
-            s_end   = endsT.data[s]
-            s_step  = stepsT.data[s]
-            slices[s_axis] = slice(s_start, s_end, s_step)
-        np_out = dataT.data[tuple(slices)]
-        tmp_outT = build_tmp_data_tensor(np_out, self.name + '__tmp_out__')
-        update_output_tensor(self, tmp_outT, outT[0])
+        #slices = [slice(None)] *  dataT.rank()
+        #for s in range(startsT.rank()):
+        #    s_axis  = axesT.data[s]
+        #    s_start = startsT.data[s]
+        #    s_end   = endsT.data[s]
+        #    s_step  = stepsT.data[s]
+        #    slices[s_axis] = slice(s_start, s_end, s_step)
+        #np_out = dataT.data[tuple(slices)]
+        #tmp_outT = build_tmp_data_tensor(np_out, self.name + '__tmp_out__')
+        #update_output_tensor(self, tmp_outT, outT[0])
+
+        assert 'out_shape' in self.attrs, "No out_shape specified in Slice!! " + \
+                             "Look at tensor_getitem implementation in ttsim/.../tensor_op.py"
+        outT[0].shape = self.attrs['out_shape']
+        outT[0].dtype = dataT.dtype
 
         inBytes = dataT.nbytes() + startsT.nbytes() + endsT.nbytes()
         inBytes += axesT.nbytes()  if len(inT) >= 4 else 0 #assume 4 bytes per axis spec
         inBytes += stepsT.nbytes() if len(inT) == 5 else 0 #assume 4 bytes per steps spec
-        '''
+
         assert outT[0].check_shape(), f"SHAPE INFERENCE ERROR!!"
         self.perf_stats = {
                 'inBytes' : sum([x.nbytes() for x in inT]),
@@ -2407,8 +2424,8 @@ class FlattenOp(SimOp):
 @lru_cache(maxsize=128)
 def SimOpFactory(optype: str) -> type[SimOp]:
     cls2optype: Dict[type[SimOp], list[str]] = {
-            EltwiseBinaryOp      : ['Add', 'Mul'],
-            EltwiseUnaryOp       : ['Identity', 'Tanh'],
+            EltwiseBinaryOp      : ['Add', 'Sub', 'Mul', 'Div'],
+            EltwiseUnaryOp       : ['Identity', 'Tanh', 'Sin', 'Cos', 'Neg'],
             ConstantOp           : ['Constant'],
             GatherOp             : ['Gather'],
             LayerNormalizationOp : ['LayerNormalization'],
