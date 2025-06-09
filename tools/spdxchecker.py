@@ -58,9 +58,10 @@ LANG_2_SYNTAX = {
 
 type IgnorePattern = Union[None, re.Pattern[str]]
 
-
-SPDX_LICENSE = re.compile('SPDX-License-Identifier:\\s+(?P<license_text>.*)')
-SPDX_COPYRIGHT = re.compile('SPDX-FileCopyrightText:\\s+(?P<copyright_text>.*)')
+SPDX_LICENSE_PREFIX = 'SPDX-License-Identifier:'
+SPDX_COPYRIGHT_PREFIX = 'SPDX-FileCopyrightText:'
+SPDX_LICENSE = re.compile(SPDX_LICENSE_PREFIX + '\\s+(?P<license_text>.*)')
+SPDX_COPYRIGHT = re.compile(SPDX_COPYRIGHT_PREFIX + '\\s+(?P<copyright_text>.*)')
 COPYRIGHT_REGEX = re.compile('(?P<cprt_string>©|[(][cC][)])\\s+(?P<cprt_years>\\d{4}(-\\d{4})?)\\s+(?P<cprt_holder>.*)')
 TEXT_COPYRIGHT_REGEX = re.compile('Copyright ' + COPYRIGHT_REGEX.pattern)
 
@@ -317,20 +318,19 @@ def main() -> int:
     for fname in active_files:
         license_status, copyright_status = analyze_file(fname, args.allowed_licenses, args.allowed_copyright)
         warn_flag = warn_re is not None and warn_re.search(fname)
-        if license_status == SPDXHeaderStatus.ST_OK:
-            logger.info(f'{fname}: License {license_status.value}')
+        status_message = f'License: {license_status.value}, Copyright: {copyright_status.value}'
+        if license_status == SPDXHeaderStatus.ST_OK and copyright_status == SPDXHeaderStatus.ST_OK:
+            logger.info(f'{fname}: {status_message}')
         elif warn_flag:
-            logger.warning(f'{fname}: License {license_status.value}')
+            logger.warning(f'{fname}: {status_message}')
         else:
             num_errors += 1
-            logger.error(f'{fname}: License {license_status.value}')
-        if copyright_status == SPDXHeaderStatus.ST_OK:
-            logger.info(f'{fname}: Copyright {copyright_status.value}')
-        elif warn_flag:
-            logger.warning(f'{fname}: Copyright {copyright_status.value}')
-        else:
-            num_errors += 1
-            logger.error(f'{fname}: Copyright {copyright_status.value}')
+            logger.error(f'{fname}: {status_message}')
+    if num_errors:
+        logger.error('Valid license lines : "<comment> {prefix} <license>", where license is one of {licenses}',
+                     prefix=SPDX_LICENSE_PREFIX, licenses=args.allowed_licenses)
+        logger.error('Valid copyright line: "<comment> {prefix} {copyright}"', prefix=SPDX_COPYRIGHT_PREFIX,
+                     copyright=args.allowed_copyright)
     return 0 if num_errors == 0 else 1
 
 
