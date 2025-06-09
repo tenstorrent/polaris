@@ -185,9 +185,11 @@ class WorkloadTTSIM(WorkloadCfgBlk):
     def get_instances(self):
         result = {}
         for iname, icfg in self.instances.items():
-            xcfg = {xx: icfg[xx] for xx in icfg}
+            xcfg = {}
             if self.params:
                 xcfg.update(self.params)
+            for xx,xv in icfg.items():
+                xcfg[xx] = xv
             result[iname] = {'group': self.name, 'module': self.module, 'cfg': xcfg}
             result[iname]['path'] = os.path.join(self.basedir, self.module)
         return result

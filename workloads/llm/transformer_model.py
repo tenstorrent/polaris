@@ -10,6 +10,8 @@ import ttsim.front.functional.sim_nn as SimNN
 import ttsim.front.functional.tensor_op as T
 from workloads.llm.attention import ConfigurableAttention
 
+from typing import Any
+
 class MLP(SimNN.Module):
     def __init__(self, name, cfg):
         super().__init__()
@@ -110,7 +112,7 @@ class TransformerModel(SimNN.Module):
 
     def __call__(self, x, segment_ids=None):
         assert x.rank() == 2, f"{self.name} input {x.name}.shape= {x.shape} not is [bs, seqlen] form"
-        batch, qlen = input_ids.shape
+        batch, qlen = x.shape
 
         x = self.embeddings(x)
 
@@ -142,6 +144,7 @@ class TransformerModel(SimNN.Module):
 def preset_cfg(name):
     cfg_tbl = {
             "bert_base_uncased": {
+                "name"                  : "bert_base_uncased",
                 "vocab_sz"              : 30522,
                 "dE"                    : 768,
                 "idE"                   : 3072,
@@ -157,6 +160,7 @@ def preset_cfg(name):
                 },
 
             "bert_large_uncased": {
+                "name"                  : "bert_large_uncased",
                 "vocab_sz"              : 30522,
                 "dE"                    : 1024,
                 "idE"                   : 4096,
@@ -172,6 +176,7 @@ def preset_cfg(name):
                 },
 
             "gpt2": {
+                "name"                  : "gpt2",
                 "vocab_sz"              : 50257,
                 "dE"                    : 768,
                 "idE"                   : 3072,
@@ -187,6 +192,7 @@ def preset_cfg(name):
                 },
 
             "gpt2_large": {
+                "name"                  : "gpt2_large",
                 "vocab_sz"              : 50257,
                 "dE"                    : 1280,
                 "idE"                   : 5120,
@@ -202,6 +208,7 @@ def preset_cfg(name):
                 },
 
             "llama2_7b": {
+                    "name"                  : "llama2_7b",
                     "vocab_sz"              : 32000,
                     "dE"                    : 4096,
                     "idE"                   : 11008,
@@ -217,6 +224,7 @@ def preset_cfg(name):
                     },
 
             "llama3_8b": {
+                    "name"                  : "llama3_8b",
                     "vocab_sz"              : 128256,
                     "dE"                    : 4096,
                     "idE"                   : 14336,
@@ -242,7 +250,7 @@ if __name__ == '__main__':
 
     if test_name == 'bert':
         # BERT Large
-        bert_cfg_name = "bert-large-uncased"
+        bert_cfg_name = "bert_large_uncased"
         bert_cfg      = preset_cfg(bert_cfg_name)
         bert_cfg['bs']= 1
         bert_large    = TransformerModel(bert_cfg_name,bert_cfg)
@@ -254,7 +262,7 @@ if __name__ == '__main__':
         print(bert_out)
         print('='*40)
         gg = bert_large._get_forward_graph({'i': input_ids, 's': segment_ids})
-        gg.graph2onnx('bert_large_uncased.onnx', do_model_check=True)
+        gg.graph2onnx(bert_cfg_name + '.onnx', do_model_check=True)
     elif test_name == 'gpt2':
         # GPT2
         gpt2_cfg_name = "gpt2"
@@ -268,7 +276,7 @@ if __name__ == '__main__':
         print(gpt2_out)
         print('='*40)
         gg = gpt2._get_forward_graph({'i': input_ids})
-        gg.graph2onnx('gpt2.onnx', do_model_check=False)
+        gg.graph2onnx(gpt2_cfg_name + '.onnx', do_model_check=False)
     elif test_name == 'llama2':
         pass
     else:

@@ -12,21 +12,22 @@ import ttsim.front.functional.sim_nn as SimNN
 from ttsim.ops import SimTensor
 
 class ATTN(SimNN.Module):
-    def __init__(self, name, dE, nH, drop_prob=0.01):
+    def __init__(self, name, cfg):
         super().__init__()
         self.name         = name
-        self.dE           = dE
-        self.nH           = nH
-        self.drop_prob    = drop_prob
+        self.dE           = cfg['dE']
+        self.nH           = cfg['nH']
+        self.idE          = cfg.get('idE', 4*self.dE)
+        self.drop_prob    = cfg.get('drop_prob', 0.01)
         self.dH           = self.dE // self.nH
         self.attn_sqrt_dH = F._from_data('sqrt_dH', data=np.float32(math.sqrt(self.dH)))
 
         #ops
-        self.wqkv_proj     = Linear         (self.name +'.wqkv_proj', self.dE, 3*self.dE)
+        self.wqkv_proj     = SimNN.Linear   (self.name +'.wqkv_proj', self.dE, 3*self.dE)
         self.wqkv_split    = F.SplitOpHandle(self.name +'.wqkv_split', count=3, axis=2)
         self.qk_softmax    = F.Softmax      (self.name +'.qk_softmax')
         self.drop_attn     = F.Dropout      (self.name +'.drop_attn', self.drop_prob)
-        self.w0_proj       = Linear         (self.name +'.w0_proj', self.dE, self.dE)
+        self.w0_proj       = SimNN.Linear   (self.name +'.w0_proj', self.dE, self.dE)
         self.resid_dropout = F.Dropout      (self.name +'.drop_resid', self.drop_prob)
 
         super().link_op2module()
@@ -51,19 +52,22 @@ class ATTN(SimNN.Module):
         return param_count
 
 class TransformerBlock(SimNN.Module):
-    def __init__(self, name, dE, nH, drop_prob):
+    def __init__(self, name, cfg):
         super().__init__()
-        self.name         = name
-        self.dE           = dE
+        self.name        = name
+        self.dE          = cfg['dE']
+        self.nH          = cfg['nH']
+        self.idE         = cfg.get('idE', 4*self.dE)
+        self.drop_prob   = cfg.get('drop_prob', 0.01)
 
         #ops
         self.ln_attn_in  = F.LayerNorm (self.name + '.ln_attn_in', self.dE)
-        self.attn        = ATTN(self.name + '.attn', dE, nH, drop_prob)
-        self.lnorm       = F.LayerNorm(self.name + '.ln_mlp_in', self.dE)
-        self.ff1         = Linear(self.name + '.ff1', self.dE, 4*self.dE)
-        self.ff2         = Linear(self.name + '.ff2', 4*self.dE, self.dE)
-        self.gelu        = F.Gelu(self.name + '.gelu')
-        self.mlp_dropout = F.Dropout(self.name + '.drop_mlp', drop_prob)
+        self.attn        = ATTN        (self.name + '.attn', cfg)
+        self.lnorm       = F.LayerNorm (self.name + '.ln_mlp_in', self.dE)
+        self.ff1         = SimNN.Linear(self.name + '.ff1', self.dE, self.idE)
+        self.ff2         = SimNN.Linear(self.name + '.ff2', self.idE, self.dE)
+        self.gelu        = F.Gelu      (self.name + '.gelu')
+        self.mlp_dropout = F.Dropout   (self.name + '.drop_mlp', self.drop_prob)
 
         super().link_op2module()
 
@@ -107,10 +111,7 @@ class BasicLLM(SimNN.Module):
         self.wpe       = F.Embedding ('wpe', self.nW, self.dE)
         self.add_emb   = F.Add       ('add_emb')
         self.drop_emb  = F.Dropout   ('drop_emb', self.drop_prob)
-        self.tblocks   = SimNN.ModuleList([
-            TransformerBlock('t' + str(i), self.dE, self.nH, self.drop_prob)
-            for i in range(self.nL_proxy)
-            ])
+        self.tblocks   = SimNN.ModuleList([TransformerBlock('t' + str(i), cfg) for i in range(self.nL_proxy)])
 
         super().link_op2module()
 
@@ -161,7 +162,7 @@ class BasicLLM(SimNN.Module):
         #  Therefore Total Params = nL * ( 12 * dE^2 + 10 * dE ) + vocab_sz * dE + nW * dE
         #                         = nL * ( 12 * dE^2 + 10 * dE ) + dE (vocab_sz + nW )
         param_count  = 0
-        param_count += sum(x.analytical_param_count(lvl+1) for x in self.tblocks)
+        param_count += sum(x.analytical_param_count(lvl+1) for x in self.tblocks) #type: ignore
         param_count += 4*self.dE #2 LayerNorms @ 2*dE each (bias, variance)
         param_count *= self.nL
         param_count += self.vocab_sz * self.dE

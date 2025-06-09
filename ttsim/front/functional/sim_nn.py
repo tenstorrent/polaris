@@ -222,7 +222,7 @@ class Linear(Module):
         self.param        = F._from_shape(name + '.param', [in_features, out_features], is_param=True)
         self.bias         = F._from_shape(name + '.bias', [out_features], is_param=True) if bias else None
         self.param.set_module(self)
-        if bias: self.bias.set_module(self)
+        if bias: self.bias.set_module(self) #type: ignore
         super().link_op2module()
 
     def __call__(self, x):
