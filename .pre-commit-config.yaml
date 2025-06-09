@@ -11,7 +11,7 @@ repos:
             description: Check SPDX License and Copyright
             language: python
             entry: tools/spdxchecker.py
-            args: [--loglevel, debug]
+            args: [--loglevel, debug, --ignore, .github/spdxchecker-ignore.yml, --allowed-licenses, Apache-2.0, --allowed-copyright, "Tenstorrent AI ULC", --loglevel, error]
             additional_dependencies: [pyyaml, loguru, pydantic]
             pass_filenames: false
         -   id: static checker
