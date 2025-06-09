@@ -211,3 +211,29 @@ class ModuleList:
     def __call__(self, *x):
         raise RuntimeError("ModuleList is not Callable")
 
+############## Specific Modules ################
+class Linear(Module):
+    def __init__(self, name, in_features, out_features, bias=True):
+        super().__init__()
+        self.name         = name
+        self.in_features  = in_features
+        self.out_features = out_features
+        self.matmul       = F.MatMul(name +'.matmul')
+        self.param        = F._from_shape(name + '.param', [in_features, out_features], is_param=True)
+        self.bias         = F._from_shape(name + '.bias', [out_features], is_param=True) if bias else None
+        self.param.set_module(self)
+        if bias: self.bias.set_module(self)
+        super().link_op2module()
+
+    def __call__(self, x):
+        Y = self.matmul(x, self.param)
+        if self.bias is not None:
+            Y += self.bias
+        return Y
+
+    def analytical_param_count(self, lvl):
+        param_count = self.in_features * self.out_features
+        if self.bias:
+            param_count += self.out_features
+        return param_count
+

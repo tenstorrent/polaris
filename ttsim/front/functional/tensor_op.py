@@ -313,6 +313,17 @@ def tensor_repeat(self, *sizes):
         'has_grad' : self.has_grad,
         })
 
+    #assert self.link_module is not None, f"link_module for {self.name} not specified!!"
+    #op_name = f"{self.link_module.name}.repeat.impl_{next(counter)}"
+    #op = F.Tile(op_name)
+    #op.set_module(self.link_module)
+    #self.link_module._op_hndls[op.name] = op
+    #for x in [self]:
+    #    if x.name not in self.link_module._tensors:
+    #        self.link_module._tensors[x.name] = x
+    #return op(self, *sizes)
+
+
 def tensor_flatten(self, start_dim=0, end_dim=-1):
     shape = self.shape
     ndim  = self.rank()
@@ -329,18 +340,29 @@ def tensor_flatten(self, start_dim=0, end_dim=-1):
 
     # New shape: axes before start_dim, flat_size, axes after end_dim
     new_shape = shape[:start_dim] + [flat_size] + shape[end_dim+1:]
-    return SimTensor({
-        'name'     : self.name + '.flatten.' + f"{start_dim}_{end_dim}",
-        'shape'    : new_shape,
-        'dtype'    : self.dtype,
-        'data'     : self.data,
-        'resolve'  : self.resolve,
-        'op_in'    : self.op_in,
-        'op_out'   : self.op_out,
-        'is_param' : self.is_param,
-        'is_const' : self.is_const,
-        'has_grad' : self.has_grad,
-        })
+
+    #return SimTensor({
+    #    'name'     : self.name + '.flatten.' + f"{start_dim}_{end_dim}",
+    #    'shape'    : new_shape,
+    #    'dtype'    : self.dtype,
+    #    'data'     : self.data,
+    #    'resolve'  : self.resolve,
+    #    'op_in'    : self.op_in,
+    #    'op_out'   : self.op_out,
+    #    'is_param' : self.is_param,
+    #    'is_const' : self.is_const,
+    #    'has_grad' : self.has_grad,
+    #    })
+    assert self.link_module is not None, f"link_module for {self.name} not specified!!"
+    op_name = f"{self.link_module.name}.flatten.impl_{next(counter)}"
+    shapeTensor = F._from_data(op_name + '.shape', is_const=True, data=np.array(new_shape, dtype=np.int64))
+    op = F.Reshape(op_name)
+    op.set_module(self.link_module)
+    self.link_module._op_hndls[op.name] = op
+    for x in [self, shapeTensor]:
+        if x.name not in self.link_module._tensors:
+            self.link_module._tensors[x.name] = x
+    return op(self, shapeTensor)
 
 ######## unary-tensor operations ##################
 def unary_op(optype, ophndl_cls, self):
@@ -429,7 +451,6 @@ def cat(simtensor_list, dim=0):
     result.set_module(link_module)
     return result
 
-"""
 def stack(simtensor_list, dim=0):
     if not simtensor_list:
         raise ValueError("simtensor_list must not be empty")
@@ -454,7 +475,29 @@ def stack(simtensor_list, dim=0):
         'shape'    : out_shape,
         'dtype'    : base_dtype,
         })
-"""
+
+    link_module = None
+    for tt in simtensor_list:
+        if tt.link_module is not None:
+            link_module = tt.link_module
+    assert link_module is not None, f"link_module not specified for any input tensors!!"
+    op_num = next(counter)
+    op_sub_num = 0
+    oplist = []
+    for tt in simtensor_list:
+        op_name = f"{link_module.name}.stack.unsqueeze.impl_{op_num}.{op_sub_num}"
+        op_sub_num += 1
+        op = F.Unsqueeze(op_name, axis=[dim])
+        op.set_module(link_module)
+        link_module._op_hndls[op.name] = op
+        if tt.name not in link_module._tensors:
+            link_module._tensors[tt.name] = tt
+
+    outTensors = [o(tt) for tt,o in zip(simtensor_list, oplist)]
+
+    op_name = f"{link_module.name}.stack.concat.impl_{op_num}.{op_sub_num}"
+    op = F.ConcatX(op_name, axis=dim)
+    return op(outTensors)
 
 # torch.matmul, triu, full, masked_fill_, zeros
 SimTensor.__add__     = tensor_add        #type: ignore
@@ -469,8 +512,16 @@ SimTensor.cos         = tensor_cos        #type: ignore
 SimTensor.sin         = tensor_sin        #type: ignore
 
 SimTensor.view        = tensor_view       #type: ignore
+SimTensor.reshape     = tensor_view       #type: ignore
 SimTensor.transpose   = tensor_transpose  #type: ignore
 SimTensor.unsqueeze   = tensor_unsqueeze  #type: ignore
 SimTensor.contiguous  = tensor_contiguous #type: ignore
-#SimTensor.repeat      = tensor_repeat     #type: ignore
-#SimTensor.flatten     = tensor_flatten    #type: ignore
+SimTensor.flatten     = tensor_flatten    #type: ignore
+SimTensor.repeat      = tensor_repeat     #type: ignore
+
+#TODO:
+# 0. Cleanup op-naming/link-module/tensor etc... (refactor)
+# 1. implement repeat, flatten, stack
+# 2. handle Gather ops in Slice
+#     a. Fix outshape in Slice (Onnx-like) implementation in ttsim/ops/op.py
+# 3. Add tensor op tests (pytest)

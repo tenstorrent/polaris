@@ -9,71 +9,34 @@ import ttsim.front.functional.sim_nn as SimNN
 import ttsim.front.functional.tensor_op as T
 from ttsim.ops import SimTensor
 
+from workloads.llm.rope import RotaryEmbedding
+
 import math
 import numpy as np
 from typing import Optional, Callable, Tuple
 
-# Optional: Rotary Embeddings implementation (minimal)
-class RotaryEmbedding(SimNN.Module):
-    def __init__(self, name, dim):
-        super().__init__()
-        self.name = name
-        self.dim  = dim
-        #no operators in __init__, added for SimNN convention
-        super().link_op2module()
-
-    def __call__(self, x, seq_dim=-2):
-        seq_len  = x.shape[seq_dim] # x: [B, num_heads, seq_len, head_dim]
-        half_dim = self.dim // 2
-
-        positions       = F._from_shape('positions', [seq_len])
-        freqs           = F._from_shape('freq',      [half_dim])
-        half_dim_tensor = F._from_data ('half_dim', data=np.array([half_dim], dtype=np.int64), is_const=True)
-        ten_thousand    = F._from_data ('10000',    data=np.array([10000],    dtype=np.int64), is_const=True)
-
-        for t in [positions, freqs, half_dim_tensor, ten_thousand]:
-            self._tensors[t.name] = t
-            t.set_module(self)
-
-        positions = positions.unsqueeze(0).transpose(0,1) #type: ignore
-        freqs     = (ten_thousand ** (-freqs / half_dim_tensor)).unsqueeze(0) #type: ignore
-        angles    = T.matmul(positions, freqs)
-        cos       = angles.cos()[None, None, :, :]
-        sin       = angles.sin()[None, None, :, :]
-        x1, x2    = x[..., :half_dim], x[..., half_dim:]
-        x_rotated = T.cat([x1 * cos - x2 * sin, x2 * cos + x1 * sin], dim=-1)
-        return x_rotated
-
-# The main module
 class ConfigurableAttention(SimNN.Module):
-    def __init__(self,
-                 name: str,
-                 cfg: dict,
-                 rotary_emb: Optional[SimNN.Module] = None,
-                 pos_enc_fn: Optional[Callable] = None):
+    def __init__(self, name: str, cfg: dict, pos_enc_fn: Optional[Callable] = None):
         super().__init__()
         self.name       = name
         self.nH         = cfg['nH']
         self.dE         = cfg['dE']
-        self.attn_type  = cfg.get('attention_type', 'bidirectional')
-        self.use_bias   = cfg.get('use_bias', True)
-        self.attn_pdrop = cfg.get('attn_pdrop', 0.0)
-        self.mask_fn    = cfg.get('mask_fn', None)
+        self.attn_type  = cfg.get('attn_type', 'bidir')
+        self.use_bias   = cfg.get('use_bias',  True)
+        self.drop_prob  = cfg.get('drop_prob', 0.0)
+        self.mask_fn    = cfg.get('mask_fn',   None)
+        self.use_rope   = cfg.get('use_rope',  False)
         self.use_cache  = cfg.get('use_cache', False)
-        self.rotary_emb = rotary_emb
+        self.dH         = self.dE // self.nH
         self.pos_enc_fn = pos_enc_fn
 
-        self.dH         = self.dE // self.nH
-
-        #self.attn_pdrop = nn.Dropout(config.get('dropout', 0.0))
-
-        # Operations
-        self.q_proj   = F.Linear(self.name + '.q_proj',   self.dE, self.dE)#, bias=self.use_bias)
-        self.k_proj   = F.Linear(self.name + '.k_proj',   self.dE, self.dE)#, bias=self.use_bias)
-        self.v_proj   = F.Linear(self.name + '.v_proj',   self.dE, self.dE)#, bias=self.use_bias)
-        self.qk_softmax = F.Softmax(self.name +'.qk_softmax')
-        self.drop_attn= F.Dropout(self.name +'.drop_attn', self.attn_pdrop)
-        self.out_proj = F.Linear(self.name + '.out_proj', self.dE, self.dE)#, bias=self.use_bias)
+        #ops
+        self.rotary_emb = RotaryEmbedding(name + '.rope') if self.use_rope else None
+        self.wqkv_proj  = SimNN.Linear(name + '.wqkv_proj', self.dE, 3*self.dE, bias=self.use_bias)
+        self.wqkv_split = F.SplitOpHandle(name +'.wqkv_split', count=3, axis=2)
+        self.qk_softmax = F.Softmax(name +'.qk_softmax')
+        self.drop_attn  = F.Dropout(name +'.drop_attn', self.drop_prob)
+        self.out_proj   = SimNN.Linear(name + '.out_proj', self.dE, self.dE, bias=self.use_bias)
 
         super().link_op2module()
 
@@ -89,7 +52,7 @@ class ConfigurableAttention(SimNN.Module):
             attn_mask = F._from_shape('causal_attn_mask', [qlen, klen], is_const=True)
             attn_mask.set_module(self)
             self._tensors[attn_mask.name] = attn_mask
-        elif attention_type == 'bidirectional':
+        elif attention_type == 'bidir':
             attn_mask = None
         elif attention_type == 'custom_mask' and custom_mask is not None:
             attn_mask = custom_mask  # [batch, num_heads, qlen, klen] or [qlen, klen]
@@ -109,11 +72,11 @@ class ConfigurableAttention(SimNN.Module):
         return attn_mask
 
     def __call__(self,
-                x: SimTensor,
-                kv: Optional[SimTensor] = None,
-                mask: Optional[SimTensor] = None,
-                key_padding_mask: Optional[SimTensor] = None,
-                past_kv: Optional[Tuple[SimTensor, SimTensor]] = None,
+                 x: SimTensor,
+                 kv: Optional[SimTensor] = None,
+                 mask: Optional[SimTensor] = None,
+                 key_padding_mask: Optional[SimTensor] = None,
+                 past_kv: Optional[Tuple[SimTensor, SimTensor]] = None,
     ) -> Tuple[SimTensor, SimTensor, Optional[Tuple[SimTensor, SimTensor]]]:
         """
         Args:
@@ -131,14 +94,19 @@ class ConfigurableAttention(SimNN.Module):
             attn_weights: [B, num_heads, qlen, klen]
             present_kv: (K, V) for caching
         """
-        B, qlen, _ = x.shape
+        assert x.rank() == 3, f"{self.name} input {x.name}.shape= {x.shape} not in [bs, nW, dE] shape"
+        batch, qlen, hidden_dim = x.shape
+        assert hidden_dim == self.dE, f"Input {x.name}.hidden_dim= {hidden_dim} != {self.name}.dE= {self.dE}"
+
         kv         = x if kv is None else kv
         _, klen, _ = kv.shape
 
         # Project Q, K, V
-        Q = self.q_proj(x).view(B, qlen, self.nH, self.dH).transpose(1,2)
-        K = self.k_proj(kv).view(B, klen, self.nH, self.dH).transpose(1,2)
-        V = self.v_proj(kv).view(B, klen, self.nH, self.dH).transpose(1,2)
+        WQKV  = self.wqkv_proj(x)
+        Q,K,V = self.wqkv_split(WQKV)
+        Q     = Q.reshape(batch, qlen, self.nH, self.dH).transpose(1,2)
+        K     = K.reshape(batch, qlen, self.nH, self.dH).transpose(1,2)
+        V     = V.reshape(batch, qlen, self.nH, self.dH).transpose(1,2)
 
         # Rotary embeddings (LLama/NeoX, etc.)
         if self.rotary_emb is not None:
@@ -163,10 +131,10 @@ class ConfigurableAttention(SimNN.Module):
         # Generate mask if needed
         if self.attn_type == 'causal':
             attn_mask = self._make_attention_mask(qlen, klen, 'causal', key_padding_mask=key_padding_mask)
-        elif self.attn_type == 'bidirectional':
-            attn_mask = self._make_attention_mask(qlen, klen, 'bidirectional', key_padding_mask=key_padding_mask)
-        elif self.attn_type == 'custom_mask':
-            attn_mask = self._make_attention_mask(qlen, klen, 'custom_mask', custom_mask=mask, key_padding_mask=key_padding_mask)
+        elif self.attn_type == 'bidir':
+            attn_mask = self._make_attention_mask(qlen, klen, 'bidir', key_padding_mask=key_padding_mask)
+        elif self.attn_type == 'custom':
+            attn_mask = self._make_attention_mask(qlen, klen, 'custom', custom_mask=mask, key_padding_mask=key_padding_mask)
         else:
             raise NotImplementedError(f"Unknown attention_type {self.attn_type}")
 
@@ -187,7 +155,7 @@ class ConfigurableAttention(SimNN.Module):
 
         # Output: [B, num_heads, qlen, head_dim]
         attn_output = T.matmul(attn_weights, V)
-        attn_output = attn_output.transpose(1, 2).contiguous().view(B, qlen, self.dE)
+        attn_output = attn_output.transpose(1, 2).contiguous().reshape(batch, qlen, hidden_dim)
 
         output = self.out_proj(attn_output)
 
@@ -196,74 +164,46 @@ class ConfigurableAttention(SimNN.Module):
 
         return output, attn_weights, present_kv
 
-# Example: Rotary (LLama-style)
-def make_rotary_attention(name, config):
-    return ConfigurableAttention(name + '.attn', config, rotary_emb=rotary_emb)
-
-# Example: Cross-Attention (Encoder-Decoder)
-#def make_cross_attention(config):
-#    return ConfigurableAttention({**config, 'attention_type': 'bidirectional'})  # Use kv != x in forward
-
-# Example: Longformer-style custom mask
-#def make_longformer_attention(config, mask_fn):
-#    return ConfigurableAttention({**config, 'attention_type': 'custom_mask', 'mask_fn': mask_fn})
-
-class TestAttn(SimNN.Module):
-    def __init__(self, name, cfg, inps, re=None, pfn=None):
-        super().__init__()
-        self.name = name
-        self.attn = ConfigurableAttention(name + '.attn', cfg, re, pfn)
-        self.input_tensors = inps
-        super().link_op2module()
-        return
-
-    def create_input_tensors(self):
-        return
-
-    def __call__(self):
-        x = self.input_tensors['x']
-        return self.attn(x)
-
-    def get_forward_graph(self):
-        GG = super()._get_forward_graph(self.input_tensors)
-        return GG
-
-
-# Example usage:
 if __name__ == '__main__':
+    #modelname = 'bert'
     modelname = 'gpt'
     if modelname == 'bert':
-        bert_config = {'nH': 12, 'dE': 768, 'attention_type': 'bidirectional', 'attn_pdrop': 0.1, 'use_bias': True}
-        bert_inputs = { 'x': F._from_shape('bert_in', [2, 16, 768]) }
-        bert_attn = TestAttn('bert_attn', bert_config, bert_inputs)
-        out = bert_attn()
+        bert_config = {'nH': 12, 'dE': 768, 'attn_type': 'bidir', 'drop_prob': 0.1, 'use_bias': True}
+        bert_inputs = {'x': F._from_shape('bert_in', [2, 16, 768]) }
+        bert_attn   = ConfigurableAttention('bert_attn', bert_config)
+        out         = bert_attn(bert_inputs['x'])
         print("BERT INPUTS:")
-        for k,v in bert_attn.input_tensors.items(): print('    ',k,v)
+        for k,v in bert_inputs.items(): print('    ',k,v)
         print("BERT OUTPUTS:")
         for x in out: print('    ',x)
-        gg = bert_attn.get_forward_graph()
+
+        gg = bert_attn._get_forward_graph(bert_inputs)
         gg.graph2onnx(bert_attn.name + '.onnx', do_model_check=True)
     elif modelname == 'gpt':
-        gpt_config  = {'nH': 12, 'dE': 768, 'attention_type': 'causal', 'attn_pdrop': 0.1,
-                       'use_bias': True, 'use_cache': True}
-        rotary_emb_dim  = gpt_config['dE'] // gpt_config['nH'] #type: ignore
-        gpt_inputs  = {'x': F._from_shape('gpt_in', [2, 20, 768])}
-        rotary_emb  = RotaryEmbedding('gpt_attn.rot_emb', rotary_emb_dim)
-        gpt_attn   = TestAttn('gpt_attn', gpt_config, gpt_inputs, rotary_emb)
-        out        = gpt_attn()
+        gpt_config = {'nH': 12, 'dE': 768, 'attn_type': 'causal', 'drop_prob': 0.1, 'use_bias': True,
+                       'use_rope': True, 'use_cache': True}
+        gpt_inputs = {'x': F._from_shape('gpt_in', [2, 20, 768])}
+        gpt_attn   = ConfigurableAttention('gpt_attn', gpt_config)
+        out        = gpt_attn(gpt_inputs['x'])
         print("GPT INPUTS:")
-        for k,v in gpt_attn.input_tensors.items(): print('    ',k,v)
+        for k,v in gpt_inputs.items(): print('    ',k,v)
         print("GPT OUTPUTS:")
         for x in out: print('    ',x)
-        gg = gpt_attn.get_forward_graph()
+
+        gg = gpt_attn._get_forward_graph(gpt_inputs)
         gg.graph2onnx(gpt_attn.name + '.onnx', do_model_check=False) #Because of Slice attr in ttsim/ops/op.py
     else:
         pass
+        # Example: Cross-Attention (Encoder-Decoder)
+        #
         # Cross-attention (for decoders)
-        #cross_attn = make_cross_attention(bert_config)
-        #out, attn_weights, _ = cross_attn(x, kv=enc)
-        #mask = torch.zeros(batch, 1, qlen, klen, device=device)
-        #mask[..., :, klen//2:] = float('-inf')  # Only attend to first half of k
-        #mask = my_custom_mask(2, 16, 16, x.device)
-        #longformer_attn = make_longformer_attention(bert_config, mask_fn=my_custom_mask)
-        #out, attn_weights, _ = longformer_attn(x, mask=mask)
+        # cross_attn =  ConfigurableAttention({**bert_config, 'attn_type': 'bidir'})  # Use kv != x in forward
+        # out, attn_weights, _ = cross_attn(x, kv=enc)
+        #
+        # Example: Longformer-style custom mask
+        #
+        # mask = torch.zeros(batch, 1, qlen, klen, device=device)
+        # mask[..., :, klen//2:] = float('-inf')  # Only attend to first half of k
+        # mask = my_custom_mask(2, 16, 16, x.device)
+        # longformer_attn =  ConfigurableAttention({**bert_config, 'attn_type': 'custom', 'mask_fn': mask_fn})
+        # out, attn_weights, _ = longformer_attn(x, mask=mask)

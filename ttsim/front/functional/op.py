@@ -193,6 +193,7 @@ class SplitOpHandle:
         #return result
         if self.link_module is not None:
             for x in self.otensors:
+                x.link_module = self.link_module
                 if x not in self.link_module._tensors:
                     self.link_module._tensors[x.name] = x
         return tuple(self.otensors)
