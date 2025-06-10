@@ -1,14 +1,13 @@
-[![Python 3.13](https://img.shields.io/badge/python-3.13-blue.svg)](https://www.python.org/downloads/release/python-3132/)
-![Checkin Tests](https://github.com/tenstorrent/polaris/actions/workflows/checkin_tests.yml/badge.svg?branch=main)
-<!-- 
-  ![Unit Tests](./__ci/badge/pytest.svg?dummy=8484744)
-  [![Coverage](./__ci/badge/coverage.svg?dummy=8484744)](./__ci/html/index.html)
--->
-# Polaris
-Yet Another High Level AI Simulator
+# Polaris User Guide
 
-## Introduction
-*polaris* is a high level simulator for performance analysis of AI architectures. It takes as input an *AI Workload* and an *Architecture Configuration*. It represents the input workload into an in-memory directed acyclic graph (DAG) data structure, where each node represents a *computation* or a *communication* operator, and each edge represents a *dataflow*. The graph data structure represents an *intermediate representation* (IR) for the Simulator virtual machine (VM). We can execute various graph transformations, and eventually schedule the DAG on a *backend* for performance analysis.
+## Overview
+Polaris is a high-level simulator for performance analysis of AI architectures. It enables users to analyze and evaluate the performance characteristics of AI workloads on different hardware architectures through simulation.
+
+## Key Features
+- **Workload Analysis**: Input AI workloads are converted into DAG (Directed Acyclic Graph) representations
+- **Architecture Simulation**: Simulate workloads on different hardware configurations
+- **Performance Analysis**: Get detailed performance metrics and resource utilization data
+- **Flexible Output Formats**: Support for YAML, JSON, and Pickle output formats
 
 ## Installation
 
@@ -16,12 +15,8 @@ Yet Another High Level AI Simulator
 - Python 3.13 or higher
 - Miniforge package manager
 
-### Environment Setup
-The recommended setup uses python with the miniforge installation manager. It is expected that the reader is familiar 
-with conda environment, creating and switching between environments. One can familiarize oneself with these concepts at
-https://docs.conda.io/projects/conda/en/latest/user-guide/getting-started.html. 
-
-1. Install Miniforge as described in https://github.com/conda-forge/miniforge:
+### Setup Steps
+1. Install Miniforge:
    ```bash
    curl -L -O "https://github.com/conda-forge/miniforge/releases/latest/download/Miniforge3-$(uname)-$(uname -m).sh"
    bash Miniforge3-$(uname)-$(uname -m).sh
@@ -30,29 +25,9 @@ https://docs.conda.io/projects/conda/en/latest/user-guide/getting-started.html.
 
 2. Create and activate the Polaris environment:
    ```bash
-   conda env create --file environment.yaml 
-
-   # If you wish to provide a different name to the environment, run the command `conda env create --file environment.yml --name <name-of-your-choice>` instead.
-
-### Installing Miniforge 
-Install miniforge as described in https://github.com/conda-forge/miniforge. 
- * **Instructions as of 17-Feb-2025**
- * Run `curl -L -O "https://github.com/conda-forge/miniforge/releases/latest/download/Miniforge3-$(uname)-$(uname -m).sh"`
- * Download and execute as a (ba)sh script
- * Update conda by running: `conda update -n base -c conda-forge conda`
-
-### User Setup
-1. Once miniforge is installed, run the command `conda env create --file environment.yml`. The conda environment will
-   be created with the name 'polaris'. If you wish to provide a different name to the environment, run the command
-   `conda env create --file environment.yml --name <name-of-your-choice>` instead.
-2. Activate the environment by `conda activate polaris`.
-
-### Developer Setup
-1. Once miniforge is installed, run the command `conda env create --file envdev.yml`. The conda environment will
-   be created with the name 'polarisdev'. If you wish to provide a different name to the environment, run the command
-   `conda env create --file envdev.yml --name <name-of-your-choice>` instead.
-2. Activate the environment by `conda activate polarisdev`.
-3. Run `pre-commit install` to install pre-commit hooks.
+   conda env create --file environment.yaml
+   conda activate polaris
+   ```
 
 ## Usage
 
