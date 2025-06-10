@@ -4,10 +4,16 @@
 import os, sys
 sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
 import ttsim.front.functional.op as F
+import ttsim.front.functional.tensor_op as T
 import ttsim.front.functional.sim_nn as SimNN
 from ttsim.ops import SimTensor
 import numpy as np
 import logging
+
+def align_img_dim(img_dim):
+    Q = img_dim // Bottleneck.expansion
+    R = img_dim % Bottleneck.expansion
+    return img_dim + R if R != 0 else img_dim
 
 class Bottleneck(SimNN.Module):
     expansion = 4
@@ -19,7 +25,8 @@ class Bottleneck(SimNN.Module):
         self.stride       = cfg.get('stride', 1)
         self.downsample   = cfg.get('downsample', None)
 
-        conv_dims = [ #IC, OC, K, P, S
+        conv_dims = [
+                #IC, OC, K, P, S
                 (self.in_channels,  self.out_channels, 1, 0, 1),
                 (self.out_channels, self.out_channels, 3, 1, self.stride),
                 (self.out_channels, self.out_channels*Bottleneck.expansion, 1, 0, 1),
@@ -29,14 +36,9 @@ class Bottleneck(SimNN.Module):
             conv = F.Conv2d(self.name + f'.conv{i}', ic, oc, kernel_size=k, padding=p, stride=s)
             bn   = F.BatchNorm2d(self.name + f'.bn{i}', oc)
             oplist += [conv, bn]
-            # oplist += [conv]
 
         self.op_blk  = F.SimOpHandleList(oplist)
-        self.add     = F.Add(self.name + f'.add')
         self.relu    = F.Relu(self.name + f'.relu')
-
-        #self.conv_ds = None
-        #self.bn_ds   = None
 
         if self.downsample is not None:
             xi = self.downsample['in_channels']
@@ -50,29 +52,25 @@ class Bottleneck(SimNN.Module):
     def __call__(self, x):
         y = self.op_blk(x)
         if self.downsample is None:
-            z = self.add(y, x)
+            z = y + x
         else:
-            x1 = self.conv_ds(x)
-            #logging.debug('DBG conv-ds %s = %s', x, x1)
-            z  = self.add(y, x1)
-            x2 = self.bn_ds(x1)
-            #z  = self.add(y, x2)
+            x = self.conv_ds(x)
+            x = self.bn_ds(x)
+            z = y + x
         w = self.relu(z)
         return w
-
 
 class ResNet(SimNN.Module):
     def __init__(self, name, cfg):
         super().__init__()
-        self.name               = name
-        self.in_channels        = 64
-        self.bs                 = cfg.get('bs',             1)
-        self.img_height         = cfg.get('img_height',   224)
-        self.img_width          = cfg.get('img_width',    224)
-        self.num_channels       = cfg.get('num_channels',   3)
-        self.num_classes        = cfg.get('num_classes', 1000)
-        self.layers             = cfg.get('layers', [3,4,6,3])
-        self.use_adaptive_pool  = cfg.get('use_adaptive_pool', False)
+        self.name           = name
+        self.in_channels    = 64
+        self.bs             = cfg.get('bs',             1)
+        self.num_channels   = cfg.get('num_channels',   3)
+        self.num_classes    = cfg.get('num_classes', 1000)
+        self.layers         = cfg.get('layers', [3,4,6,3])
+        self.img_height     = align_img_dim(cfg.get('img_height',224))
+        self.img_width      = align_img_dim(cfg.get('img_width', 224))
 
         layers_msg = f"ResNet.layers should be [int, int, int, int] with each member > 0: {self.layers}"
         assert isinstance(self.layers, list) and \
@@ -80,31 +78,17 @@ class ResNet(SimNN.Module):
                all([isinstance(x, int) and x > 0 for x in self.layers]), layers_msg
 
         #ops
-        init_stride = 4 if max(self.img_height, self.img_width) > 1000 else 2
-        self.conv0    = F.Conv2d(self.name +'.conv0', self.num_channels, self.in_channels, kernel_size=7, stride=init_stride, padding=3)
+        self.conv0    = F.Conv2d(self.name +'.conv0', self.num_channels, self.in_channels, kernel_size=7, stride=2, padding=3)
         self.bn0      = F.BatchNorm2d(self.name + '.bn0', self.in_channels)
         self.relu0    = F.Relu(self.name + '.relu0')
-        self.maxpool0 = F.MaxPool2d(self.name + '.maxpool0', kernel_size=3, stride=2, padding=1)
+        self.maxpool0 = F.MaxPool2d(self.name + '.maxpool0', kernel_size=3, stride=2) #, padding=1)
 
         self.layer1   = SimNN.ModuleList(self._make_layer(0, self.layers[0], planes= 64, stride=1))
         self.layer2   = SimNN.ModuleList(self._make_layer(1, self.layers[1], planes=128, stride=2))
         self.layer3   = SimNN.ModuleList(self._make_layer(2, self.layers[2], planes=256, stride=2))
         self.layer4   = SimNN.ModuleList(self._make_layer(3, self.layers[3], planes=512, stride=2))
 
-        # For high-resolution images, use adaptive pooling to ensure correct output dimensions
-        if self.use_adaptive_pool:
-            self.avgpool = F.AdaptiveAvgPool2d(self.name + '.avgpool', (1, 1))
-        else:
-            # Use fixed kernel size pooling (standard ResNet)
-            self.avgpool = F.AveragePool2d(self.name + '.avgpool', (7, 7))
-        
-         # Create reshape operation
-        self.reshape = F.ReshapeFixed(self.name + '.reshape', [self.bs, -1])
-        # Register avgpool output tensor that will be reshape input
-        self._tensors[self.name + '.avgpool.out'] = F._from_shape(self.name + '.avgpool.out',[self.bs, 512*Bottleneck.expansion, 1, 1])
-        # Register reshape output tensor
-        self._tensors[self.name + '.reshape.out'] = F._from_shape(self.name + '.reshape.out',[self.bs, 512*Bottleneck.expansion])
-        self.fc = F.Linear(self.name + '.fc0', 512*Bottleneck.expansion, self.num_classes)
+        self.avgpool  = F.MaxPool2d(self.name + '.avgpool0', kernel_size=7, stride=1, padding=0)
 
         super().link_op2module()
 
@@ -126,52 +110,26 @@ class ResNet(SimNN.Module):
         return 0
 
     def __call__(self):
-        assert len(self.input_tensors) == 1, f"input_tensors missing!! Need create_input_tensors() before __call__: {self.input_tensors}"
         x = self.input_tensors['x_in']
-        assert len(x.shape) == 4, f"Input to ResNet should be a tensor: [N,C,H,W] : {x.shape}!!"
+        batch, img_chnl, img_width, img_height = x.shape
 
-        #logging.info('x=%s', x)
         x = self.conv0(x)
-        #logging.info('x=%s', x)
         x = self.bn0(x)
-        #logging.info('x=%s', x)
         x = self.relu0(x)
-        #logging.info('x=%s', x)
-        ##logging.debug("RESNET RELU DBG>> %s", x)
-
         x = self.maxpool0(x)
-        #logging.info('x=%s', x)
-        ##logging.debug("RESNET MAXPOOL DBG>> %s", x)
-
-        for blk in self.layer1:
-            x = blk(x)
-            #logging.info('x=%s', x)
-            ##logging.debug("RESNET LAYER-1 DBG>> %s", x)
-
-        for blk in self.layer2:
-            x = blk(x)
-            #logging.info('x=%s', x)
-        ##logging.debug("RESNET LAYER-2 DBG>> %s", x)
-
-        for blk in self.layer3:
-            x = blk(x)
-            #logging.info('x=%s', x)
-        ##logging.debug("RESNET LAYER-3 DBG>> %s", x)
-
-        for blk in self.layer4:
-            x = blk(x)
-            #logging.info('x=%s', x)
-        ##logging.debug("RESNET LAYER-4 DBG>> %s", x)
-
+        for blk in self.layer1: x = blk(x)
+        for blk in self.layer2: x = blk(x)
+        for blk in self.layer3: x = blk(x)
+        for blk in self.layer4: x = blk(x)
         x = self.avgpool(x)
-        ##logging.debug("RESNET AVGPOOL DBG>> %s", x)
 
-        x = self.reshape(x)
-        ##logging.debug("RESNET RESHAPE DBG>> %s", x)
+        q_factor = np.prod(x.shape) // Bottleneck.expansion
+        r_factor = np.prod(x.shape) % Bottleneck.expansion
+        assert r_factor == 0, f"Input Image Size did not result into a neat multiple of Bottleneck.expansion = {Bottleneck.expansion}"
+        reshape_dim = q_factor * Bottleneck.expansion
 
-        x = self.fc(x)
-        #logging.debug("RESNET FC DBG>> %s", x)
-
+        x = x.reshape(batch, reshape_dim)
+        x = T.matmul(x, F._from_shape(self.name + '.fc0.param', [reshape_dim, self.num_classes], is_param=True))
         return x
 
     def _make_layer(self, lyr_num, blocks, planes, stride=1):
@@ -200,34 +158,24 @@ class ResNet(SimNN.Module):
         return block_list
 
 def run_standalone(outdir: str ='.')->None:
-    import numpy as np
-    shape    = [1, 3, 224, 224] #N, C, H, W
-    dtype = np.float32
-    _data = np.random.randn(*shape).astype(dtype)
-    x = SimTensor({'name': 'x', 'shape': shape, 'data': _data, 'dtype': np.dtype(dtype)})
-    #logging.debug(x)
-
-    #bn_model = Bottleneck('bneck', {'in_channels': 64, 'out_channels': 64})
-    #y = bn_model(x)
-    ##logging.debug(y)
-
-    #gg = bn_model.get_forward_graph(x)
-    #gg.graph2onnx('xyxy.onnx')
-
-
     resnet_cfgs = {
-            'resnet_50' : {'layers': [3,4,6,3],  'num_classes': 1000, 'num_channels': 3},
-            # 'resnet_101': {'layers': [3,4,23,3], 'num_classes': 1000, 'num_channels': 3},
-            # 'resnet_152': {'layers': [3,8,36,3], 'num_classes': 1000, 'num_channels': 3},
+            'resnet_50_256x224' : {'layers': [3,4,6,3],  'num_classes': 1000, 'num_channels': 3,
+                                   'img_height': 256, 'img_width': 224},
+            #'resnet_101_224x224': {'layers': [3,4,23,3], 'num_classes': 10, 'num_channels': 1},
+            #'resnet_152_224x224': {'layers': [3,8,36,3], 'num_classes': 10, 'num_channels': 2},
             }
 
     for k,v in resnet_cfgs.items():
+        print(f'Creating ResNet({k})....')
         rn_model = ResNet(k,v)
         rn_model.create_input_tensors()
         y = rn_model()
-        #logging.debug(y)
+        print('Input:    ', rn_model.input_tensors['x_in'].shape)
+        print('Output:   ', y.shape)
         gg = rn_model.get_forward_graph()
+        print('Dumping ONNX...')
         gg.graph2onnx(f'{outdir}/{k}.onnx', do_model_check=True)
+        print('-'*40,'\n')
 
 
 if __name__ == '__main__':
