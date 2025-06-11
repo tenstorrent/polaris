@@ -382,22 +382,6 @@ def Conv2d(name, in_channels, out_channels, kernel_size, **kwargs):
                           )
     return op_hndl
 
-def AdaptiveAvgPool2d(name, output_size, **kwargs):
-    # AdaptiveAvgPool2d is a special case of AveragePool2d where the kernel size
-    # is computed based on the input dimensions to achieve the desired output dimensions.
-    # Output shape becomes (Batch Size, Channels, output_size[0], output_size[1])
-
-    # For AdaptiveAvgPool2d, we don't directly set kernel_shape since it's computed dynamically
-    # based on input shape during the operator execution
-
-    # Store the output size in the attributes
-    kwargs['output_size'] = output_size
-    kwargs['adaptive'] = True
-
-    # We'll pass an empty list for params since we have no trainable parameters
-    op_hndl = SimOpHandle(name, 'AveragePool', params=[], ipos=[0], **kwargs)
-    return op_hndl
-
 def MaxPool2d(name, kernel_size, **kwargs):
     arg_defaults = {
         'stride': None,
@@ -472,11 +456,6 @@ def BatchNorm2d(name, channels, /, **kwargs):
     op_hndl = SimOpHandle(name, 'BatchNormalization', params=[(1,scale), (2,bias),(3,input_mean), (4,input_var)], ipos=[0], **kwargs)
     return op_hndl
 
-def AveragePool2d(name: str, kernel_shape: tuple[int, int], /, **kwargs):
-    kwargs['kernel_shape'] = kernel_shape
-    op_hndl = SimOpHandle(name, 'AveragePool', params=[], ipos=[0], **kwargs)
-    return op_hndl
-
 def Resize(name: str, /, scale_factor, **kwargs):
     roi     = _from_data(name + '.roi',    np.array([], dtype=np.float32), is_param=False, is_const=True)
     scales  = _from_data(name + '.scales', np.array([scale_factor, scale_factor], dtype=np.float32), is_param=False, is_const=True)
@@ -504,6 +483,7 @@ Gelu          = partial(UnaryOperator, optype='Gelu')
 Relu          = partial(UnaryOperator, optype='Relu')
 LeakyReLU     = partial(UnaryOperator, optype='LeakyRelu')
 Sigmoid       = partial(UnaryOperator, optype='Sigmoid')
+AveragePool2d = partial(UnaryOperator, optype='AveragePool')
 
 #Binary Operators
 BinaryOperator = partial(UniversalOperator, params=[], ipos=[0,1])

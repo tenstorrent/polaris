@@ -67,10 +67,12 @@ class ResNet(SimNN.Module):
         self.in_channels    = 64
         self.bs             = cfg.get('bs',             1)
         self.num_channels   = cfg.get('num_channels',   3)
+        self.init_stride    = cfg.get('init_stride',    2)
         self.num_classes    = cfg.get('num_classes', 1000)
         self.layers         = cfg.get('layers', [3,4,6,3])
         self.img_height     = align_img_dim(cfg.get('img_height',224))
         self.img_width      = align_img_dim(cfg.get('img_width', 224))
+        self.use_adaptive_pool  = cfg.get('use_adaptive_pool', False)
 
         layers_msg = f"ResNet.layers should be [int, int, int, int] with each member > 0: {self.layers}"
         assert isinstance(self.layers, list) and \
@@ -78,7 +80,7 @@ class ResNet(SimNN.Module):
                all([isinstance(x, int) and x > 0 for x in self.layers]), layers_msg
 
         #ops
-        self.conv0    = F.Conv2d(self.name +'.conv0', self.num_channels, self.in_channels, kernel_size=7, stride=2, padding=3)
+        self.conv0    = F.Conv2d(self.name +'.conv0', self.num_channels, self.in_channels, kernel_size=7, stride=self.init_stride, padding=3)
         self.bn0      = F.BatchNorm2d(self.name + '.bn0', self.in_channels)
         self.relu0    = F.Relu(self.name + '.relu0')
         self.maxpool0 = F.MaxPool2d(self.name + '.maxpool0', kernel_size=3, stride=2) #, padding=1)
@@ -88,7 +90,11 @@ class ResNet(SimNN.Module):
         self.layer3   = SimNN.ModuleList(self._make_layer(2, self.layers[2], planes=256, stride=2))
         self.layer4   = SimNN.ModuleList(self._make_layer(3, self.layers[3], planes=512, stride=2))
 
-        self.avgpool  = F.MaxPool2d(self.name + '.avgpool0', kernel_size=7, stride=1, padding=0)
+        # For high-resolution images, use adaptive pooling to ensure correct output dimensions
+        if self.use_adaptive_pool:
+            self.avgpool = F.AveragePool2d(self.name + '.avgpool', output_size=(1, 1), adaptive=True)
+        else:
+            self.avgpool = F.AveragePool2d(self.name + '.avgpool', kernel_shape=(7, 7))
 
         super().link_op2module()
 
@@ -123,13 +129,15 @@ class ResNet(SimNN.Module):
         for blk in self.layer4: x = blk(x)
         x = self.avgpool(x)
 
-        q_factor = np.prod(x.shape) // Bottleneck.expansion
-        r_factor = np.prod(x.shape) % Bottleneck.expansion
+        x_size   = np.prod(x.shape[1:]) # don't use batchsize in finding reshape dim
+        q_factor = x_size // Bottleneck.expansion
+        r_factor = x_size % Bottleneck.expansion
         assert r_factor == 0, f"Input Image Size did not result into a neat multiple of Bottleneck.expansion = {Bottleneck.expansion}"
         reshape_dim = q_factor * Bottleneck.expansion
+        x = x.reshape(batch, reshape_dim) #type: ignore
 
-        x = x.reshape(batch, reshape_dim)
         x = T.matmul(x, F._from_shape(self.name + '.fc0.param', [reshape_dim, self.num_classes], is_param=True))
+
         return x
 
     def _make_layer(self, lyr_num, blocks, planes, stride=1):

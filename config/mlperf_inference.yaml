@@ -3,41 +3,40 @@ workloads:
     name: BERT_SQUAD_v1p1
     basedir: workloads
     module : BasicLLM@BasicLLM.py
-    params : {vocab_sz: 30522, embd_pdrop: 0.1, attn_pdrop: 0.1, resid_pdrop: 0.1, mlp_pdrop: 0.1}
+    params : {vocab_sz: 30522, drop_prob: 0.1, nL: 24, nH: 16, dE: 1024, nW: 384}
     instances:
-      b1   : {nL: 24, nH: 16, dE: 1024, nW:  384, bs: 1   }
-      b2   : {nL: 24, nH: 16, dE: 1024, nW:  384, bs: 2   }
-      b4   : {nL: 24, nH: 16, dE: 1024, nW:  384, bs: 4   }
-      b8   : {nL: 24, nH: 16, dE: 1024, nW:  384, bs: 8   }
-      b16  : {nL: 24, nH: 16, dE: 1024, nW:  384, bs: 16  }
-      b32  : {nL: 24, nH: 16, dE: 1024, nW:  384, bs: 32  }
-      b64  : {nL: 24, nH: 16, dE: 1024, nW:  384, bs: 64  }
-      b128 : {nL: 24, nH: 16, dE: 1024, nW:  384, bs: 128 }
-      b256 : {nL: 24, nH: 16, dE: 1024, nW:  384, bs: 256 }
-      b512 : {nL: 24, nH: 16, dE: 1024, nW:  384, bs: 512 }
-      b1024: {nL: 24, nH: 16, dE: 1024, nW:  384, bs: 1024}
-      b2048: {nL: 24, nH: 16, dE: 1024, nW:  384, bs: 2048}
-      b4096: {nL: 24, nH: 16, dE: 1024, nW:  384, bs: 4096}
-      b8192: {nL: 24, nH: 16, dE: 1024, nW:  384, bs: 8192}
-      b16384: {nL: 24, nH: 16, dE: 1024, nW:  384, bs: 16384}
-      b32768: {nL: 24, nH: 16, dE: 1024, nW:  384, bs: 32768}
-      b65536: {nL: 24, nH: 16, dE: 1024, nW:  384, bs: 65536}
-      b131072: {nL: 24, nH: 16, dE: 1024, nW:  384, bs: 131072}
+      bert_large_b1     : {bs:      1}
+      bert_large_b2     : {bs:      2}
+      bert_large_b4     : {bs:      4}
+      bert_large_b8     : {bs:      8}
+      bert_large_b16    : {bs:     16}
+      bert_large_b32    : {bs:     32}
+      bert_large_b64    : {bs:     64}
+      bert_large_b128   : {bs:    128}
+      bert_large_b256   : {bs:    256}
+      bert_large_b512   : {bs:    512}
+      bert_large_b1024  : {bs:   1024}
+      bert_large_b2048  : {bs:   2048}
+      bert_large_b4096  : {bs:   4096}
+      bert_large_b8192  : {bs:   8192}
+      bert_large_b16384 : {bs:  16384}
+      bert_large_b32768 : {bs:  32768}
+      bert_large_b65536 : {bs:  65536}
+      bert_large_b131072: {bs: 131072}
   - api: TTSIM
     name: RESNET50
     basedir: workloads
     module : ResNet@basicresnet.py
+    params : {layers: [3,4,6,3], num_classes: 1000, num_channels: 3, use_adaptive_pool: false}
     instances:
-      b1    : { layers: [3, 4, 6, 3], num_classes: 1000, num_channels: 3, bs: 1, use_adaptive_pool: true }
-      b1_hd : { layers: [3, 4, 6, 3], num_classes: 1000, num_channels: 3, bs: 1, img_height: 1024, img_width: 1024, use_adaptive_pool: true }
-      b1_uhd: { layers: [3, 4, 6, 3], num_classes: 1000, num_channels: 3, bs: 1, img_height: 2828, img_width: 2828, use_adaptive_pool: true }
-      b2    : { layers: [3, 4, 6, 3], num_classes: 1000, num_channels: 3, bs: 2, use_adaptive_pool: true }
-      b4    : { layers: [3, 4, 6, 3], num_classes: 1000, num_channels: 3, bs: 4, use_adaptive_pool: true }
-      b8    : { layers: [3, 4, 6, 3], num_classes: 1000, num_channels: 3, bs: 8, use_adaptive_pool: true }
-      b16   : { layers: [3, 4, 6, 3], num_classes: 1000, num_channels: 3, bs: 16, use_adaptive_pool: true }
-      b32   : { layers: [3, 4, 6, 3], num_classes: 1000, num_channels: 3, bs: 32, use_adaptive_pool: true }
-      b64   : { layers: [3, 4, 6, 3], num_classes: 1000, num_channels: 3, bs: 64, use_adaptive_pool: true }
-      b128  : { layers: [3, 4, 6, 3], num_classes: 1000, num_channels: 3, bs: 128, use_adaptive_pool: true }
-      b256  : { layers: [3, 4, 6, 3], num_classes: 1000, num_channels: 3, bs: 256, use_adaptive_pool: true }
-      b512  : { layers: [3, 4, 6, 3], num_classes: 1000, num_channels: 3, bs: 512, use_adaptive_pool: true }
-      b1024 : { layers: [3, 4, 6, 3], num_classes: 1000, num_channels: 3, bs: 1024, use_adaptive_pool: true }
+      rn50_b1    : { bs:    1}
+      rn50_b2    : { bs:    2}
+      rn50_b4    : { bs:    4}
+      rn50_b8    : { bs:    8}
+      rn50_b16   : { bs:   16}
+      rn50_b32   : { bs:   32}
+      rn50_b64   : { bs:   64}
+      rn50_b128  : { bs:  128}
+      rn50_b256  : { bs:  256}
+      rn50_b512  : { bs:  512}
+      rn50_b1024 : { bs: 1024}

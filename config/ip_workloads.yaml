@@ -20,3 +20,12 @@ workloads:
       # yolov8l          : {in_channels: 3, in_resolution: 640, bs: 1}
       # yolov8x          : {in_channels: 3, in_resolution: 640, bs: 1}
       # yolov8x6         : {in_channels: 3, in_resolution: 640, bs: 1}
+
+  - api: TTSIM
+    name: RESNET50
+    basedir: workloads
+    module : ResNet@basicresnet.py
+    params : {layers: [3,4,6,3], num_classes: 1000, num_channels: 3, use_adaptive_pool: true, init_stride: 4, bs: 1}
+    instances:
+      rn50_b1_hd : { img_height: 1024, img_width: 1024, }
+      rn50_b1_uhd: { img_height: 2828, img_width: 2828, }
