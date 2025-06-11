@@ -456,10 +456,6 @@ def BatchNorm2d(name, channels, /, **kwargs):
     op_hndl = SimOpHandle(name, 'BatchNormalization', params=[(1,scale), (2,bias),(3,input_mean), (4,input_var)], ipos=[0], **kwargs)
     return op_hndl
 
-def AveragePool2d(name: str, kernel_shape: tuple[int, int], /, **kwargs):
-    op_hndl = SimOpHandle(name, 'AveragePool', params=[], ipos=[0], **kwargs)
-    return op_hndl
-
 def Resize(name: str, /, scale_factor, **kwargs):
     roi     = _from_data(name + '.roi',    np.array([], dtype=np.float32), is_param=False, is_const=True)
     scales  = _from_data(name + '.scales', np.array([scale_factor, scale_factor], dtype=np.float32), is_param=False, is_const=True)
@@ -487,6 +483,7 @@ Gelu          = partial(UnaryOperator, optype='Gelu')
 Relu          = partial(UnaryOperator, optype='Relu')
 LeakyReLU     = partial(UnaryOperator, optype='LeakyRelu')
 Sigmoid       = partial(UnaryOperator, optype='Sigmoid')
+AveragePool2d = partial(UnaryOperator, optype='AveragePool')
 
 #Binary Operators
 BinaryOperator = partial(UniversalOperator, params=[], ipos=[0,1])

@@ -60,7 +60,7 @@ def test_compare_proj(tmp_path_factory):
         'archspec': arch_cfg,
         'wlmapspec': wlmap_cfg,
         'filterarch': ",".join(archs),
-        'filterwli': 'b1024',
+        'filterwli': 'bert_large_b1024',
         'filterarch': 'A100'
     }
     run_polproj(runcfg1_dict, tmpdir['temp'] / 'runcfg1.yaml')
