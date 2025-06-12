@@ -1594,6 +1594,71 @@ class UnsqueezeOp(SimOp):
                 }
         return self.perf_stats
 
+class SqueezeOp(SimOp):
+    def __init__(self, opinfo):
+        super().__init__(opinfo)
+        self.opclass_str: str = 'Squeeze'
+        check_io_counts( self, in_counts=[2,2], out_counts=[1,1] )
+
+    def get_perf_counts(self, inT, outT, **kwargs):
+        if self.perf_stats is not None:
+            return self.perf_stats
+
+        assert inT[0].check_shape(), f"Illegal Shape for {inT[0]}"
+        dataT = inT[0]
+        axesT = clone_tensor_by_shape(inT[1], data_maybe_missing=False) #Y.data must be present
+
+        data_rank  = dataT.rank()
+        data_idx   = [ d + data_rank if d < 0 else d for d in axesT.data]
+        checkshape = [d >= 0 and d < data_rank for d in data_idx]
+        assert all(checkshape), f"axes={axesT.data} out of bounds: [-{data_rank}, {data_rank-1}]"
+        outshape   = [dim for i,dim in enumerate(dataT.shape) if i not in data_idx]
+
+        outT[0].shape = outshape
+        outT[0].dtype = dataT.dtype
+
+        self.perf_stats = {
+                'inBytes' : inT[0].nbytes() + inT[1].nbytes(),
+                'outBytes': outT[0].nbytes(),
+                'inElems' : inT[0].nelems() + inT[1].nelems(),
+                'outElems': outT[0].nelems(),
+                'instrs'  : {'mov': outT[0].nelems()}
+                }
+        return self.perf_stats
+
+class TileOp(SimOp):
+    def __init__(self, opinfo):
+        super().__init__(opinfo)
+        self.opclass_str: str = 'Tile'
+        check_io_counts( self, in_counts=[2,2], out_counts=[1,1] )
+
+    def get_perf_counts(self, inT, outT, **kwargs):
+        if self.perf_stats is not None:
+            return self.perf_stats
+
+        assert inT[0].check_shape(), f"Illegal Shape for {inT[0]}"
+        dataT    = inT[0]
+        repeatsT = clone_tensor_by_shape(inT[1], data_maybe_missing=False)
+        assert len(repeatsT.data) == dataT.rank(), \
+                f"repeats={repeatsT.data} should have same length as input shape={dataT.shape}"
+
+        checkshape = [d > 0 for d in repeatsT.data]
+        assert all(checkshape), f"repeats={repeatsT.data} should be > 0"
+
+        outshape   = [dim * repeatsT.data[i] for i,dim in enumerate(dataT.shape)]
+
+        outT[0].shape = outshape
+        outT[0].dtype = dataT.dtype
+
+        self.perf_stats = {
+                'inBytes' : inT[0].nbytes() + inT[1].nbytes(),
+                'outBytes': outT[0].nbytes(),
+                'inElems' : inT[0].nelems() + inT[1].nelems(),
+                'outElems': outT[0].nelems(),
+                'instrs'  : {'mov': outT[0].nelems()}
+                }
+        return self.perf_stats
+
 class ConcatOp(SimOp):
     def __init__(self, opinfo):
         super().__init__(opinfo)
@@ -2153,7 +2218,7 @@ class ResizeOp(SimOp):
         check_io_counts( self, in_counts=[1,4], out_counts=[1,1] )
         self._kw_args_defaults = {
                 'antialias'                     : 0,
-                'axes'                          : None, #[0, 1, …, r-1], where r = rank(data)
+                'axes'                          : None, #Accepted range [-r,r-1], where r = rank(data)
                 'coordinate_transformation_mode': 'half_pixel',
                 'cubic_coeff_a'                 : -0.75,
                 'exclude_outside'               : 0,
@@ -2165,8 +2230,7 @@ class ResizeOp(SimOp):
         if 'attrs' in opinfo:
             self.check_known_args(opinfo['attrs'])
 
-
-    def get_perf_counts(self, inT, outT, **kwargs):
+    def get_perf_counts(self, inT, outT):
         if self.perf_stats is not None:
             return self.perf_stats
         if outT[0].check_shape():
@@ -2437,6 +2501,8 @@ def SimOpFactory(optype: str) -> type[SimOp]:
             SoftmaxOp            : ['Softmax'],
             PowOp                : ['Pow'],
             UnsqueezeOp          : ['Unsqueeze'],
+            SqueezeOp            : ['Squeeze'],
+            TileOp               : ['Tile'],
             ConcatOp             : ['Concat'],
             SliceOp              : ['Slice'],
             TriluOp              : ['Trilu'],

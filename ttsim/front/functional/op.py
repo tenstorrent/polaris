@@ -190,7 +190,6 @@ class SplitOpHandle:
         self.perf_stats = self.sim_op.get_perf_counts([x, y], self.otensors)
         self.sim_op.update_tensor_counts([x,y],self.otensors)
 
-        #return result
         if self.link_module is not None:
             for x in self.otensors:
                 x.link_module = self.link_module
@@ -243,8 +242,8 @@ class VariadicInputOpHandle:
         self.perf_stats = self.sim_op.get_perf_counts(xinput,[self.otensor])
         self.sim_op.update_tensor_counts(xinput,[self.otensor])
 
-        #return result
         if self.link_module is not None:
+            self.otensor.link_module = self.link_module
             if self.otensor not in self.link_module._tensors:
                 self.link_module._tensors[self.otensor.name] = self.otensor
         return self.otensor
@@ -458,7 +457,13 @@ def BatchNorm2d(name, channels, /, **kwargs):
 
 def Resize(name: str, /, scale_factor, **kwargs):
     roi     = _from_data(name + '.roi',    np.array([], dtype=np.float32), is_param=False, is_const=True)
-    scales  = _from_data(name + '.scales', np.array([scale_factor, scale_factor], dtype=np.float32), is_param=False, is_const=True)
+    if isinstance(scale_factor, (float, int)):
+        scales  = _from_data(name + '.scales', np.array([scale_factor, scale_factor], dtype=np.float32), is_param=False, is_const=True)
+    elif isinstance(scale_factor, (list, tuple)):
+        assert len(scale_factor) == 2, f"Need to pass scale_factor list with 2 elems: {scale_factor}"
+        assert isinstance(scale_factor[0], (float, int)) and isinstance(scale_factor[1], (float, int)), \
+                f"scale_factor list should be of type: int/float"
+        scales  = _from_data(name + '.scales', np.array(scale_factor, dtype=np.float32), is_param=False, is_const=True)
     op_hndl = SimOpHandle(name, 'Resize', params=[(1, roi), (2, scales)], ipos=[0], **kwargs)
     return op_hndl
 
@@ -496,6 +501,8 @@ MatMul         = partial(BinaryOperator, optype='MatMul')
 Reshape        = partial(BinaryOperator, optype='Reshape')
 Pow            = partial(BinaryOperator, optype='Pow')
 Unsqueeze      = partial(BinaryOperator, optype='Unsqueeze')
+Squeeze        = partial(BinaryOperator, optype='Squeeze')
+Tile           = partial(BinaryOperator, optype='Tile')
 Equal          = partial(BinaryOperator, optype='Equal')
 
 #Ternary Operators

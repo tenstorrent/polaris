@@ -33,6 +33,8 @@ class SimTensor:
             s += "data=(...)"
         else:
             s += f"data={self.data.tolist()}"
+        if self.link_module is not None:
+            s += f", link_module={self.link_module.name}"
         return s
 
     def rank(self): return len(self.shape)
