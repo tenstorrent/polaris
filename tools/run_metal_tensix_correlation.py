@@ -67,7 +67,7 @@ def main() -> int:
     tensix_runcfg_file: str = 'tensix_runcfg.yaml'
     odir: Path = OUTPUT_DIR
     sname: str = 'SIMPLE'
-    tensix_perf_data_dir: Path = Path('data/metal/inf/closed')  # Tensix metal results
+    tensix_perf_data_dir: Path = Path('data/metal/inf')  # Tensix metal results
     gpu_dev_tbl = {
         'n150': 'n150',
         'n300': 'n300',
@@ -115,7 +115,7 @@ def main() -> int:
                 'nodes': nodes,
                 'num_gpu': num_gpu,
                 'perf': perf,
-                'sys': sys,
+                'system': system,
                 'prec': prec,
                 'metric': metric,
                 'ref_perf': ref_perf,
@@ -184,7 +184,7 @@ def main() -> int:
         'archspec': 'config/tt_wh.yaml',
         'wlmapspec': 'config/wl2archmapping.yaml',
         'filterarch': ','.join(uniq_devs),
-        'dumpstatscsv': True,
+        'dump_stats_csv': True,
     }
     print_yaml(runcfg_dict, opath / tensix_runcfg_file)
 

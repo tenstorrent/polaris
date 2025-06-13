@@ -23,6 +23,7 @@ from pydantic import BaseModel
 from ttsim.config import TTSimHLWlDevRunPerfStats, TTSimHLRunSummary, get_arspec_from_yaml, get_wlmapspec_from_yaml, get_wlspec_from_yaml, TypeWorkload
 from ttsim.front import onnx2graph
 from ttsim.utils.common import get_ttsim_functional_instance, print_csv, str_to_bool
+import ttsim.config.runcfgmodel as runcfgmodel
 
 """ Polaris top-level executable. """
 
@@ -255,7 +256,7 @@ def do_instr_profile(_WLG, _ODIR):
     instr_profile_file = _ODIR / 'workload_instruction_profile.csv'
     print_csv(profile_data[0].keys(), profile_data, instr_profile_file)
 
-def setup_cmdline_args():
+def setup_cmdline_args(argv: list[str] | None = None) -> argparse.Namespace:
     logging_levels = [ 'debug', 'info', 'warning', 'error', 'critical' ]
     data_types     = [ 'fp64', 'fp32', 'tf32', 'fp16', 'bf16', 'fp8', 'int32', 'int8' ]  # noqa: F841
     parser = argparse.ArgumentParser('polaris')
@@ -290,7 +291,7 @@ def setup_cmdline_args():
                         default=False, help='Dump stats in CSV format')
 
     #cmdline args processing
-    args = parser.parse_args()
+    args = parser.parse_args(argv)
     check_args(args)
 
     #set logging level...
@@ -302,16 +303,8 @@ def setup_cmdline_args():
     #print cmdline for easy debug
     DEBUG("CMD=  python " + " ".join(sys.argv))
 
-    #frequency/batchsize sweep...
-    fsweep = RangeArgument('frequency', args.frequency)
-    bsweep = RangeArgument('batchsize', args.batchsize, range_type='mul')
+    return args
 
-    #data types
-    #dt = [['*', args.data_type.upper()]]
-    #if args.override_data_type:
-    #    dt += [[y.upper() for y in x.split(',')] for x in args.override_data_type.split('/')]
-
-    return args, fsweep, bsweep
 
 def dump_ttsim_onnx(TBL, _odir):
     onnx_dir = _odir / 'ONNX'
@@ -419,6 +412,7 @@ def execute_wl_on_dev(_wl, _dl, _wspec, _dspec, _op2dt, _op2rsrc, _null_ops, _op
     os.makedirs(config_dir, exist_ok=True)
     saved_devices = set()
     _summary_stats = []
+    num_failures = 0
     job_summaries: list[Any] = []
     ALL_EXPS = product(_wl, _dl)
     for exp_no, (exp_wl, exp_dev) in enumerate(ALL_EXPS):
@@ -438,14 +432,19 @@ def execute_wl_on_dev(_wl, _dl, _wspec, _dspec, _op2dt, _op2rsrc, _null_ops, _op
             wlobj, wlgraph = get_wlgraph(_WLG, wlgroup, wlname, wlins_name, wlcfg, wlpath,
                                          _enable_memalloc)
         except Exception as e:
+            num_failures += 1
             logging.error('workload %s failed with %s', exp_wl, e)
             raise
 
-        wlgraph.set_precision (_op2dt)
-        wlgraph.map_resources (_op2rsrc)
-        wlgraph.execute       (dev_obj)
-        wlgraph.remove_nodes  (_null_ops)
-        wlgraph.fuse_nodes    (_op_fusion_list)
+        try:
+            wlgraph.set_precision (_op2dt)
+            wlgraph.map_resources (_op2rsrc)
+            wlgraph.execute       (dev_obj)
+            wlgraph.remove_nodes  (_null_ops)
+            wlgraph.fuse_nodes    (_op_fusion_list)
+        except Exception as e:
+            num_failures += 1
+            logging.error('workload %s failed with %s', exp_wl, e)
 
         #publish stats
         rows   = []
@@ -554,11 +553,13 @@ def execute_wl_on_dev(_wl, _dl, _wspec, _dspec, _op2dt, _op2rsrc, _null_ops, _op
         _summary_stats.append(summary_dict)
         logging.info('ran job #%d %s %s %s', exp_no, wlins_name, devname, devfreq)
 
-    return _summary_stats
+    return num_failures, _summary_stats
 
-def main() -> int:
-    args, freqsweep, batchsweep = setup_cmdline_args()
 
+def polaris(args: argparse.Namespace | runcfgmodel.PolarisRunConfig) -> int:
+    """Main entry point for the Polaris simulation."""
+    freqsweep = RangeArgument('frequency', args.frequency)
+    batchsweep = RangeArgument('batchsize', args.batchsize, range_type='mul')
     if args.enable_cprofile:
         profiler   = cProfile.Profile()
         profiler.enable()
@@ -575,6 +576,7 @@ def main() -> int:
     workload_list, wlspec = get_workloads(args.wlspec, batchsweep, args.filterwlg, args.filterwl, args.filterwli)
     OP2DT, OP2RSRC, NULL_OPS, OP_FUSION_LIST = get_wlmapspec_from_yaml(args.wlmapspec)
 
+    num_failures = 0
     if args.dryrun:
         do_dryrun(workload_list, device_list)
         tot_exp_run = 0
@@ -582,7 +584,7 @@ def main() -> int:
         workload_graphs = create_uniq_workloads_tbl(workload_list)
 
         INFO('simulation: workload+ --> device+')
-        summary_stats = execute_wl_on_dev(workload_list, device_list, wlspec, devspec,
+        num_failures, summary_stats = execute_wl_on_dev(workload_list, device_list, wlspec, devspec,
                                           OP2DT, OP2RSRC, NULL_OPS, OP_FUSION_LIST,
                                           workload_graphs, odir, args.study, args.enable_memalloc,
                                           outputformat, args.dump_stats_csv)
@@ -605,8 +607,16 @@ def main() -> int:
     if args.enable_cprofile:
         profiler.disable()
         profiler.dump_stats("polaris_cprofile_stats.prof")
+    logging.info(f"Polaris run completed with {tot_exp_run} experiments.")
+    return 0 if num_failures == 0 else 1
 
-    return tot_exp_run
+
+def main(argv: list[str] | None = None) -> int:
+    # args, freqsweep, batchsweep = setup_cmdline_args()
+    args = setup_cmdline_args(argv)
+    return polaris(args)
+
+
 
 if __name__ == '__main__':
     start_time = time.perf_counter()

@@ -5,4 +5,4 @@ odir: __runall
 wlspec: config/all_workloads.yaml
 archspec: config/all_archs.yaml
 wlmapspec: config/wl2archmapping.yaml
-filterapi: TTSIM
+filterwlg: TTSIM

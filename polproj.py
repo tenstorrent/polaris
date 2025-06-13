@@ -9,20 +9,19 @@ import datetime
 import json
 import logging
 import shutil
-import subprocess
 from typing import Any, Tuple, Union
 
 import jinja2
 import yaml
 from git import GitCommandError, Repo
-from jinja2 import Template
 
+import polaris
 import ttsim.config.runcfgmodel as runcfgmodel
 
 SCRIPT_ROOT_DIR = os.path.abspath(os.path.dirname(__file__))
 
 # Type Annotations
-type JDICT_TYPE = dict[str, Template]
+type JDICT_TYPE = dict[str, jinja2.Template]
 type RUNCFG_TYPE = runcfgmodel.PolarisRunConfig
 
 
@@ -52,7 +51,7 @@ class JTemplate:
         try:
             template = self.templates[s]
         except KeyError:
-            self.templates[s] = Template(s, undefined=self.jlogger)
+            self.templates[s] = jinja2.Template(s, undefined=self.jlogger)
             template = self.templates[s]
         return template.render(obj)
 
@@ -64,63 +63,20 @@ def timestamp(tm: datetime.datetime) -> str:
 # TODO: P0 Use polaris directly, instead of through separate process
 def execute(runcfg: RUNCFG_TYPE, jtemplate: JTemplate, jdict: JDICT_TYPE,
             args: argparse.Namespace, passdown_args: list[str], diagnostic: bool = True) -> int:
-    command_words = ['python', 'polaris.py',
-                     '--odir', jtemplate.expand(runcfg.odir, jdict),
-                     '--study', jtemplate.expand(runcfg.study, jdict),
-                     ]
-    if runcfg.filterrun == 'inference':
-        rt_inference, rt_training = (True, False)
-    else:
-        rt_inference, rt_training = (False, True)
-    command_words.extend(['--inference', str(rt_inference).lower(), '--training', str(rt_training).lower()])
-    if args.dryrun:
-        command_words.extend(['--dryrun'])
-    if runcfg.dump_ttsim_onnx:
-        command_words.extend(['--dump_ttsim_onnx'])
-    if runcfg.instr_profile:
-        command_words.extend(['--instr_profile'])
+    runcfg.odir = jtemplate.expand(runcfg.odir, jdict)      # TODO: test this
+    runcfg.study = jtemplate.expand(runcfg.study, jdict)    # TODO: test this
 
-    if runcfg.filterapi is not None:
-        command_words.extend(['--filterwlg', runcfg.filterapi])
-    if runcfg.filterarch is not None:
-        command_words.extend(['--filterarch', runcfg.filterarch])
-    if runcfg.filterwl is not None:
-        command_words.extend(['--filterwl', runcfg.filterwl])
-    if runcfg.filterwli is not None:
-        command_words.extend(['--filterwli', runcfg.filterwli])
-
-    command_words.extend(['--log_level', str(runcfg.log_level)])
-
-    command_words.extend(['--wlspec', runcfg.wlspec])
-    command_words.extend(['--archspec', runcfg.archspec])
-    command_words.extend(['--wlmapspec', runcfg.wlmapspec])
-    if runcfg.frequency is not None:
-        command_words.extend(['--frequency'] + [str(_tmp) for _tmp in runcfg.frequency])
-    if runcfg.batchsize is not None:
-        command_words.extend(['--batchsize'] + [str(_tmp) for _tmp in runcfg.batchsize])
-    if runcfg.knobs:
-        command_words.extend(runcfg.knobs)
-    if runcfg.enable_memalloc:
-        command_words.extend(['--enable_memalloc'])
-    if runcfg.enable_cprofile:
-        command_words.extend(['--enable_cprofile'])
-    command_words.extend(['--outputformat', runcfg.outputformat])
-    if runcfg.dumpstatscsv:
-        command_words.extend(['--dumpstatscsv'])
-    command_words.extend(passdown_args)
+    # TODO: how to handle     command_words.extend(passdown_args)
+    if passdown_args != []:
+        raise NotImplementedError('passdown_args is not implemented yet')
 
     infopath = os.path.join(runcfg.odir, 'inputs', 'runinfo.json')
     os.makedirs(os.path.dirname(infopath), exist_ok=True)
     with open(infopath, 'w') as fout:
         json.dump(jdict, fout, indent=4)
 
-    logging.info('executing %s', command_words)
-    logging.info('executing %s', ' '.join(command_words))
-    ret = subprocess.run(command_words)
-    if ret.returncode != 0 and diagnostic:
-        logging.error('command "%s" failed with exit code %d' % (command_words, ret.returncode))
-    return ret.returncode
-
+    res = polaris.polaris(runcfg)
+    return res
 
 def jinja_variables(rootrepo: Repo) -> dict[str, Any]:
     head = rootrepo.head.commit
@@ -225,7 +181,7 @@ def override_runconfig(runconfig: RUNCFG_TYPE, passdown_args: list[str]) -> None
 
 
 def main() -> int:
-    logging.basicConfig(level=logging.INFO, format='%(levelname)s:%(filename)s:%(lineno)d:%(message)s')
+    logging.basicConfig(level=logging.WARNING, format='%(levelname)s:%(filename)s:%(lineno)d:%(message)s')
     args: argparse.Namespace
     passdown_args: list[str]
     args, passdown_args = get_args()

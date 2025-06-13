@@ -174,7 +174,7 @@ def main() -> int:
         'archspec': 'config/all_archs.yaml',
         'wlmapspec': 'config/wl2archmapping.yaml',
         'filterarch': ','.join(uniq_devs),
-        'dumpstatscsv': True,
+        'dump_stats_csv': True,
     }
     print_yaml(runcfg_dict, opath / nv_runcfg_file)
 
