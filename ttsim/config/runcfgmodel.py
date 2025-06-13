@@ -29,7 +29,7 @@ class PolarisRunConfig(BaseModel, extra='forbid'):
     archspec: str = Field(description='Architecture Specification yaml file')
     wlmapspec: str = Field(description='Workload To Architecture Mapping Specification yaml file')
 
-    filterapi: Optional[str] = Field(default=None, description='APIs to be considered for the run')
+    filterwlg: Optional[str] = Field(default=None, description='APIs to be considered for the run')
 
     filterwl: Optional[str] = Field(
         default=None, description='use only workloads specified in filterwl (comma sep list)'
@@ -89,7 +89,7 @@ class PolarisRunConfig(BaseModel, extra='forbid'):
     )
 
     log_level: Optional[TYPE_LOGLEVEL] = Field(
-        default='info', description='Logging level (error,warning,info,debug) for the run'
+        default='warning', description='Logging level (error,warning,info,debug) for the run'
     )
 
     # githash attribute does not correspond to a polaris command line option
@@ -102,7 +102,11 @@ class PolarisRunConfig(BaseModel, extra='forbid'):
 
     outputformat: str = Field(default='json', description='Output format (json, yaml, pickle, none) for the run')
 
-    dumpstatscsv: Optional[bool] = Field(default=False, description='Dump stats in csv format')
+    dump_stats_csv: Optional[bool] = Field(default=False, description='Dump stats in csv format')
+
+    dryrun: Optional[bool] = Field(
+        default=False, description='If true, run will not execute any commands, but will only print them'
+    )
 
     # Attributes for use by Polaris system only
 

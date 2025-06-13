@@ -17,7 +17,7 @@ from pydantic import BaseModel, TypeAdapter
 
 from ttsim.utils.readfromurl import read_from_url
 
-DEFAULT_OUTPUTDIR = Path('data/metal/inf/closed')
+DEFAULT_OUTPUTDIR = Path('data/metal/inf')
 
 
 class TensixNwPerfMetricModel(BaseModel):
