@@ -135,7 +135,7 @@ class Module:
         s += f"{indent0}OPS:\n"
         for k,v in self._op_hndls.items():
             s += f"{indent1}{k}:{v.sim_op}\n"
-            if len(v.params) > 0:
+            if hasattr(v, 'params') and len(v.params) > 0:
                 s += f"{indent2}PARAMS:\n"
                 for _,ptensor in v.params:
                     s += f"{indent2}{ptensor}\n"

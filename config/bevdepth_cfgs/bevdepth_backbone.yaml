@@ -1,0 +1,19 @@
+depth_net_conf   : {in_channels: 128, mid_channels: 512}
+d_bound          : [2.0, 58.0, 0.5]
+downsample_factor: 16
+final_dim        : [256, 704]
+img_backbone_conf:
+  depth        : 50
+  frozen_stages: 0
+  norm_eval    : false
+  out_indices  : [0, 1, 2, 3]
+  type         : ResNet
+img_neck_conf:
+  in_channels     : [256, 512, 1024, 2048]
+  upsample_strides: [0.25, 0.5, 1, 2]
+  out_channels    : [128, 128, 128, 128]
+  type            : SECONDFPN
+output_channels: 80
+x_bound: [-51.2, 51.2, 0.8]
+y_bound: [-51.2, 51.2, 0.8]
+z_bound: [-5, 3, 8]

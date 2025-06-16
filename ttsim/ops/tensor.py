@@ -33,6 +33,8 @@ class SimTensor:
             s += "data=(...)"
         else:
             s += f"data={self.data.tolist()}"
+        if self.link_module is not None:
+            s += f", link_module={self.link_module.name}"
         return s
 
     def rank(self): return len(self.shape)
@@ -66,6 +68,20 @@ class SimTensor:
             return True
         else:
             return False
+
+    def clone(self, clone_num:int):
+        cloned_tensor = make_tensor(self.name + '.clone_{clone_num}')
+        cloned_tensor.shape       = self.shape
+        cloned_tensor.dtype       = self.dtype
+        cloned_tensor.data        = self.data
+        cloned_tensor.resolve     = self.resolve
+        cloned_tensor.op_in       = self.op_in
+        cloned_tensor.op_out      = self.op_out
+        cloned_tensor.is_param    = self.is_param
+        cloned_tensor.is_const    = self.is_const
+        cloned_tensor.has_grad    = self.has_grad
+        cloned_tensor.link_module = self.link_module
+        return cloned_tensor
 
 def make_tensor(name: str) -> SimTensor:
     return SimTensor({'name': name, 'shape': [], 'dtype': None})
