@@ -98,7 +98,7 @@ def test_voxel_pooling():
         high=[num_voxel_x + 1, num_voxel_y + 1, 1],
         size=(total_samples, 3),
     )
-    geom_xyz = torch.tensor(geom_xyz, dtype=torch.long)
+    geom_xyz = torch.tensor(geom_xyz, dtype=torch.long) #type: ignore
 
     # depth_features: random positive floats, shape (total_samples,)
     depth_features = torch.rand(total_samples, dtype=torch.float32)

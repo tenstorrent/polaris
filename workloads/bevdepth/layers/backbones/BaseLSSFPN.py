@@ -341,19 +341,19 @@ class BaseLSSFPN(SimNN.Module):
             img_feat_with_depth = img_feat_with_depth.permute(0, 3, 1, 4, 2).contiguous()  # [n, c, d, h, w] -> [n, h, c, w, d]
             n, h, c, w, d       = img_feat_with_depth.shape
             img_feat_with_depth = img_feat_with_depth.view(-1, c, w, d)
-            img_feat_with_depth = (self.depth_aggregation(img_feat_with_depth).view(n, h, c, w, d).permute(0, 2, 4, 1, 3).contiguous())
+            img_feat_with_depth = (self.depth_aggregation(img_feat_with_depth).view(n, h, c, w, d).permute(0, 2, 4, 1, 3).contiguous()) #type: ignore
         return img_feat_with_depth
 
     def create_frustum(self):
         ogfH, ogfW = self.final_dim
         fH, fW     = ogfH // self.downsample_factor, ogfW // self.downsample_factor
         d_coords   = np.arange(*self.d_bound, dtype=np.float32).reshape(-1, 1, 1)
-        d_coords   = np.broadcast_to(d_coords, d_coords.shape[:1] + (fH, fW))
+        d_coords   = np.broadcast_to(d_coords, d_coords.shape[:1] + (fH, fW)) #type: ignore
         D, _, _    = d_coords.shape
         x_coords   = np.linspace(0, ogfW - 1, fW, dtype=np.float32).reshape(1, 1, fW)
-        x_coords   = np.broadcast_to(x_coords, (D, fH, fW))
+        x_coords   = np.broadcast_to(x_coords, (D, fH, fW)) #type: ignore
         y_coords   = np.linspace(0, ogfH - 1, fH, dtype=np.float32).reshape(1, fH, 1)
-        y_coords   = np.broadcast_to(y_coords, (D, fH, fW))
+        y_coords   = np.broadcast_to(y_coords, (D, fH, fW)) #type: ignore
         paddings   = np.ones_like(d_coords)
         frustum    = np.stack((x_coords, y_coords, d_coords, paddings), -1) # D x H x W x 3
         return frustum
@@ -431,6 +431,7 @@ class BaseLSSFPN(SimNN.Module):
         geom_xyz = (geom_xyz - (self.voxel_coord - self.voxel_size / _2p0)) / self.voxel_size
         if self.training or self.use_da:
             assert False, "\nREACHED voxel_pooling_train -- not implemented yet\n"
+            """
             img_feat_with_depth = depth.unsqueeze(1) * \
                     depth_feature[:, self.depth_channels:(self.depth_channels + self.output_channels)].unsqueeze(2)
 
@@ -448,6 +449,7 @@ class BaseLSSFPN(SimNN.Module):
             img_feat_with_depth = img_feat_with_depth.permute(0, 1, 3, 4, 5, 2)
 
             feature_map = voxel_pooling_train(geom_xyz, img_feat_with_depth.contiguous(), self.voxel_num.cuda())
+            """
         else:
             feature_map = self.voxel_pooling_inf(geom_xyz,
                                                   depth,
@@ -500,7 +502,7 @@ class BaseLSSFPN(SimNN.Module):
 
         # Since all sim_ops in the graph have been set, 
         # we can update the repeat counts
-        repeated_ops: dict[str, Any] = {}
+        repeated_ops = {} #type: ignore
         self.get_ops(repeated_ops)
         for op_num, (op_name,op_obj) in enumerate(repeated_ops.items()):
             op_obj.repeat_count = num_sweeps

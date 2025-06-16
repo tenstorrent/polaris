@@ -1,6 +1,8 @@
 #!/usr/bin/env python
 # SPDX-FileCopyrightText: (C) 2025 Tenstorrent AI ULC
 # SPDX-License-Identifier: Apache-2.0
+
+#WIP: This is not working right now!! SK: Jun 16, 2025
 import os, sys
 sys.path.append(os.path.join(os.path.dirname(__file__), '../..'))
 
@@ -65,6 +67,7 @@ class DCN(SimNN.Module):  # DeformableConv2d
 #       nn.init.constant_(self.modulator_conv.weight, 0.0)
 #       nn.init.constant_(self.modulator_conv.bias, 0.0)
 
+    """
     def _get_offset_grid(self, height, width, device):
         y, x = torch.meshgrid(
             torch.arange(self.kernel_size, device=device),
@@ -76,8 +79,10 @@ class DCN(SimNN.Module):  # DeformableConv2d
         grid = torch.stack([x, y], dim=-1).view(1, -1, 2)  # [1, K*K, 2]
         grid = grid.expand(height, width, -1, -1)  # [H, W, K*K, 2]
         return grid
+    """
 
     def __call__(self, x):
+        """
         batch, channels, height, width = x.size()
         k2 = self.kernel_size * self.kernel_size  # K*K, e.g., 9 for 3x3 kernel
 
@@ -122,8 +127,11 @@ class DCN(SimNN.Module):  # DeformableConv2d
         # Apply grouped convolution
         out = self.conv(sampled_features)  # [B, C_out, H, W]
         return out
+        """
+        return x
 
 # Example usage and ONNX export
+"""
 if __name__ == "__main__":
     # Model parameters
     mid_channels = 256
@@ -175,3 +183,4 @@ if __name__ == "__main__":
     onnx_model = onnx.load(onnx_path)
     onnx.checker.check_model(onnx_model)
     print("ONNX model is valid")
+"""

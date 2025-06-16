@@ -2234,7 +2234,7 @@ class ResizeOp(SimOp):
         if 'attrs' in opinfo:
             self.check_known_args(opinfo['attrs'])
 
-    def get_perf_counts(self, inT, outT):
+    def get_perf_counts(self, inT, outT, **kwargs):
         if self.perf_stats is not None:
             return self.perf_stats
         if outT[0].check_shape():
