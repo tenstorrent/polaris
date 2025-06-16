@@ -7,6 +7,21 @@
 # Polaris
 Yet Another High Level AI Simulator
 
+## Table of Contents
+- [Introduction](#introduction)
+- [Installation](#installation)
+  - [Prerequisites](#prerequisites)
+  - [Environment Setup](#environment-setup)
+    - [User Environment](#user-environment)
+    - [Developer Environment](#developer-environment)
+- [Usage](#usage)
+  - [Basic Command Structure](#basic-command-structure)
+  - [Configuration Files](#configuration-files)
+  - [Output and Analysis](#output-and-analysis)
+  - [Best Practices](#best-practices)
+  - [Troubleshooting](#troubleshooting)
+- [Support](#support)
+
 ## Introduction
 *polaris* is a high level simulator for performance analysis of AI architectures. It takes as input an *AI Workload* and an *Architecture Configuration*. It represents the input workload into an in-memory directed acyclic graph (DAG) data structure, where each node represents a *computation* or a *communication* operator, and each edge represents a *dataflow*. The graph data structure represents an *intermediate representation* (IR) for the Simulator virtual machine (VM). We can execute various graph transformations, and eventually schedule the DAG on a *backend* for performance analysis.
 
@@ -17,42 +32,40 @@ Yet Another High Level AI Simulator
 - Miniforge package manager
 
 ### Environment Setup
-The recommended setup uses python with the miniforge installation manager. It is expected that the reader is familiar 
-with conda environment, creating and switching between environments. One can familiarize oneself with these concepts at
-https://docs.conda.io/projects/conda/en/latest/user-guide/getting-started.html. 
+The recommended setup uses Python with the Miniforge installation manager. It is expected that the reader is familiar with conda environments, creating and switching between environments. One can familiarize oneself with these concepts at [Conda Getting Started](https://docs.conda.io/projects/conda/en/latest/user-guide/getting-started.html).
 
-1. Install Miniforge as described in https://github.com/conda-forge/miniforge:
+#### Installing Miniforge
+1. Download and install Miniforge as described in the [Miniforge Installation Instructions](https://github.com/conda-forge/miniforge):
    ```bash
    curl -L -O "https://github.com/conda-forge/miniforge/releases/latest/download/Miniforge3-$(uname)-$(uname -m).sh"
    bash Miniforge3-$(uname)-$(uname -m).sh
+   ```
+2. Update conda:
+   ```bash
    conda update -n base -c conda-forge conda
    ```
 
-2. Create and activate the Polaris environment:
-   ```bash
-   conda env create --file environment.yaml 
-
-   # If you wish to provide a different name to the environment, run the command `conda env create --file environment.yml --name <name-of-your-choice>` instead.
-
-### Installing Miniforge 
-Install miniforge as described in https://github.com/conda-forge/miniforge. 
- * **Instructions as of 17-Feb-2025**
- * Run `curl -L -O "https://github.com/conda-forge/miniforge/releases/latest/download/Miniforge3-$(uname)-$(uname -m).sh"`
- * Download and execute as a (ba)sh script
- * Update conda by running: `conda update -n base -c conda-forge conda`
-
-### User Setup
-1. Once miniforge is installed, run the command `conda env create --file environment.yml`. The conda environment will
+#### User Environment Setup
+1. Create and activate the Polaris environment. The conda environment will
    be created with the name 'polaris'. If you wish to provide a different name to the environment, run the command
-   `conda env create --file environment.yml --name <name-of-your-choice>` instead.
-2. Activate the environment by `conda activate polaris`.
+   `conda env create --file environment.yaml --name <name-of-your-choice>` instead.
+   ```bash
+   conda env create --file environment.yaml
+   conda activate polaris
+   ```
 
-### Developer Setup
-1. Once miniforge is installed, run the command `conda env create --file envdev.yml`. The conda environment will
+#### Developer Environment Setup
+1. Create and activate the development environment. The conda environment will
    be created with the name 'polarisdev'. If you wish to provide a different name to the environment, run the command
-   `conda env create --file envdev.yml --name <name-of-your-choice>` instead.
-2. Activate the environment by `conda activate polarisdev`.
-3. Run `pre-commit install` to install pre-commit hooks.
+   `conda env create --file envdev.yaml --name <name-of-your-choice>` instead.
+   ```bash
+   conda env create --file envdev.yaml
+   conda activate polarisdev
+   ```
+2. Install pre-commit hooks:
+   ```bash
+   pre-commit install
+   ```
 
 ## Usage
 
@@ -80,39 +93,39 @@ python polaris.py [options] --archspec <arch_config> --wlspec <workload_spec> --
 - `--filterwl`: Filter specific workloads
 - `--filterwli`: Filter workload instances
 
-## Configuration Files
+### Configuration Files
 
-### Architecture Specification
+#### Architecture Specification
 The architecture specification file (`archspec`) defines the hardware configuration including:
 - Device specifications
 - Memory hierarchy
 - Compute resources
 - Clock frequencies
 
-### Workload Specification
+#### Workload Specification
 The workload specification file (`wlspec`) defines:
 - AI model configurations
 - Batch sizes
 - Input/output specifications
 - Operator configurations
 
-### Workload Mapping Specification
+#### Workload Mapping Specification
 The workload mapping specification file (`wlmapspec`) defines:
 - Operator to datatype mappings
 - Resource requirements
 - Operator fusion rules
 - Null operations
 
-## Output and Analysis
+### Output and Analysis
 
-### Output Formats
+#### Output Formats
 Polaris supports multiple output formats:
 - YAML: Human-readable structured format
 - JSON: Web-friendly format
 - Pickle: Binary format for Python objects
 - CSV: Tabular format for statistics
 
-### Key Metrics
+#### Key Metrics
 The simulation provides various performance metrics including:
 - Execution cycles and time
 - Memory usage and requirements
@@ -120,7 +133,7 @@ The simulation provides various performance metrics including:
 - Input/output parameter counts
 - Resource utilization
 
-### Output Directory Structure
+#### Output Directory Structure
 ```
 output_dir/
 ├── study_name/
@@ -131,7 +144,7 @@ output_dir/
 │       └── device-workload-opstats.[yaml|json|pickle]
 ```
 
-## Best Practices
+### Best Practices
 1. Start with a dry run using `--dryrun` to validate configurations
 2. Use filtering options to focus on specific architectures or workloads
 3. Enable CSV output for easy data analysis
@@ -141,9 +154,9 @@ output_dir/
    - Pickle for Python processing
 5. Monitor memory requirements using `--enable_memalloc`
 
-## Troubleshooting
+### Troubleshooting
 
-### Common Issues
+#### Common Issues
 1. Memory Constraints
    - Use `--enable_memalloc` to check memory requirements
    - Verify device memory specifications
@@ -162,3 +175,4 @@ For issues and questions:
 - Check the project repository: https://github.com/tenstorrent/polaris
 - Review existing issues or create new ones
 - Consult the development team for advanced support
+
