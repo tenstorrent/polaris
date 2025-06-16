@@ -511,6 +511,7 @@ def stack(simtensor_list, dim=0):
     op_name = f"{link_module.name}.stack.concat.impl_{op_num}.{op_sub_num}"
     op = F.ConcatX(op_name, axis=dim)
     op.set_module(link_module)
+    link_module._op_hndls[op.name] = op
     final_res = op(*outTensors)
     return final_res
 
@@ -536,6 +537,12 @@ def interpolate(self, **kwargs):
     op_name = f"{self.link_module.name}.interpolate.impl_{next(counter)}"
     op = F.Resize(op_name, scale_factor=resize_scale_factor)
     op.set_module(self.link_module)
+    self.link_module._op_hndls[op.name] = op
+    #now Resize will create two tensors dynamically that are not registered in SimNN.Module._tensors
+    # need to fix this better:
+    for i,p in op.params:
+        if p.name not in self.link_module._tensors:
+            self.link_module._tensors[p.name] = p
     return op(self)
 
 # torch.matmul, triu, full, masked_fill_, zeros

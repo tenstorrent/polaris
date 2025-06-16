@@ -1,0 +1,69 @@
+gaussian_overlap: 0.1
+in_channels     : 256
+min_radius      : 2
+bbox_coder:
+  type             : CenterPointBBoxCoder
+  code_size        : 9
+  max_num          : 500
+  out_size_factor  : 4
+  score_threshold  : 0.1
+  voxel_size       : [0.2, 0.2, 8]
+  pc_range         : [-51.2, -51.2, -5, 51.2, 51.2, 3]
+  post_center_range: [61.2, -61.2, -10.0, 61.2, 61.2, 10.0]
+bev_backbone_conf:
+  type         : ResNet
+  in_channels  : 80
+  depth        : 18
+  num_stages   : 3
+  strides      : [1, 2, 2]
+  dilations    : [1, 1, 1]
+  out_indices  : [0, 1, 2]
+  norm_eval    : false
+  num_channels : 160
+bev_neck_conf:
+  type             : SECONDFPN
+  in_channels      : [256, 512, 1024, 2048]
+  upsample_strides : [1, 2, 4, 8]
+  out_channels     : [64, 64, 64, 64]
+common_heads:
+  reg    : [2,2]
+  height : [1,2]
+  dim    : [3,2]
+  rot    : [2,2]
+  vel    : [2,2]
+loss_bbox:
+  loss_weight: 0.25
+  reduction  : mean
+  type       : L1Loss
+loss_cls:
+  reduction: mean
+  type     : GaussianFocalLoss
+tasks:
+  - {num_class: 1, class_names: [car]}
+  - {num_class: 2, class_names: [truck, construction_vehicle]}
+  - {num_class: 2, class_names: [bus, trailer]}
+  - {num_class: 1, class_names: [barrier]}
+  - {num_class: 2, class_names: [motorcycle, bicycle]}
+  - {num_class: 2, class_names: [pedestrian, traffic_cone]}
+test_cfg:
+  post_center_limit_range: [-61.2, -61.2, -10.0, 61.2, 61.2, 10.0]
+  max_per_img            : 500
+  max_pool_nms           : false
+  min_radius             : [4, 12, 10, 1, 0.85, 0.175]
+  score_threshold        : 0.1
+  out_size_factor        : 4
+  voxel_size             : [0.2, 0.2, 8]
+  nms_type               : circle
+  pre_max_size           : 1000
+  post_max_size          : 83
+  nms_thr                : 0.2
+train_cfg:
+  point_cloud_range:  [-51.2, -51.2, -5, 51.2, 51.2, 3]
+  grid_size        :  [512, 512, 1]
+  voxel_size       :  [0.2, 0.2, 8]
+  out_size_factor  :  4
+  dense_reg        :  1
+  gaussian_overlap :  0.1
+  max_objs         :  500
+  min_radius       :  2
+  code_weights     :  [1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 0.5, 0.5]

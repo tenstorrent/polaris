@@ -269,9 +269,9 @@ class SimOp:
         if TYPE_CHECKING:
             assert self.perf_stats is not None
         self.perf_stats.update({
-            'inParamCount': in_param_count,
-            'inActCount'  : in_act_count,
-            'outActCount' : out_act_count,
+            'inParamCount': int(in_param_count),
+            'inActCount'  : int(in_act_count),
+            'outActCount' : int(out_act_count),
             })
         return
 
@@ -484,11 +484,11 @@ class GatherOp(SimOp):
         outT[0].dtype = dataT.dtype
 
         self.perf_stats = {
-                'inElems' : outT[0].nelems(), #read just what we need, not the whole embed. tbl
-                'outElems': outT[0].nelems(),
-                'inBytes' : outT[0].nbytes(),
-                'outBytes': outT[0].nbytes(),
-                'instrs'  : {'mov': outT[0].nelems()}
+                'inElems' : int(outT[0].nelems()), #read just what we need, not the whole embed. tbl
+                'outElems': int(outT[0].nelems()),
+                'inBytes' : int(outT[0].nbytes()),
+                'outBytes': int(outT[0].nbytes()),
+                'instrs'  : {'mov': int(outT[0].nelems())}
                 }
         return self.perf_stats
 
@@ -950,7 +950,7 @@ class ConvOp(SimOp):
         macs_per_output = (C_in // group) * np.prod(kernel_dims)
         output_elements = N * C_out * np.prod(spatial_dims)
         total_macs      = output_elements * macs_per_output
-        instr_count     = { 'mac': total_macs }
+        instr_count     = { 'mac': int(total_macs) }
         if len(inT) == 3:
             instr_count['add'] = output_elements
 
@@ -1288,11 +1288,11 @@ class ReshapeOp(SimOp):
         outT[0].dtype = inT[0].dtype
 
         self.perf_stats = {
-                'inElems' : inT[0].nelems() + B.nelems(),
-                'outElems': outT[0].nelems(),
-                'inBytes' : inT[0].nbytes() + B.nbytes(),
-                'outBytes': outT[0].nbytes(),
-                'instrs'  : {'mov': outT[0].nelems()}
+                'inElems' : int(inT[0].nelems() + B.nelems()),
+                'outElems': int(outT[0].nelems()),
+                'inBytes' : int(inT[0].nbytes() + B.nbytes()),
+                'outBytes': int(outT[0].nbytes()),
+                'instrs'  : {'mov': int(outT[0].nelems())}
                 }
         return self.perf_stats
 
@@ -1582,7 +1582,7 @@ class UnsqueezeOp(SimOp):
 
         #tmp_outT = build_tmp_data_tensor(np_out, self.name + '__tmp_out__')
         #update_output_tensor(self, tmp_outT, outT[0])
-        outT[0].shape = newshape
+        outT[0].shape = [int(i) for i in newshape]
         outT[0].dtype = inT[0].dtype
 
         self.perf_stats = {
@@ -1618,11 +1618,11 @@ class SqueezeOp(SimOp):
         outT[0].dtype = dataT.dtype
 
         self.perf_stats = {
-                'inBytes' : inT[0].nbytes() + inT[1].nbytes(),
-                'outBytes': outT[0].nbytes(),
-                'inElems' : inT[0].nelems() + inT[1].nelems(),
-                'outElems': outT[0].nelems(),
-                'instrs'  : {'mov': outT[0].nelems()}
+                'inBytes' : int(inT[0].nbytes() + inT[1].nbytes()),
+                'outBytes': int(outT[0].nbytes()),
+                'inElems' : int(inT[0].nelems() + inT[1].nelems()),
+                'outElems': int(outT[0].nelems()),
+                'instrs'  : {'mov': int(outT[0].nelems())}
                 }
         return self.perf_stats
 
@@ -1651,11 +1651,11 @@ class TileOp(SimOp):
         outT[0].dtype = dataT.dtype
 
         self.perf_stats = {
-                'inBytes' : inT[0].nbytes() + inT[1].nbytes(),
-                'outBytes': outT[0].nbytes(),
-                'inElems' : inT[0].nelems() + inT[1].nelems(),
-                'outElems': outT[0].nelems(),
-                'instrs'  : {'mov': outT[0].nelems()}
+                'inBytes' : int(inT[0].nbytes()) + int(inT[1].nbytes()),
+                'inElems' : int(inT[0].nelems()) + int(inT[1].nelems()),
+                'outBytes': int(outT[0].nbytes()),
+                'outElems': int(outT[0].nelems()),
+                'instrs'  : {'mov': int(outT[0].nelems())}
                 }
         return self.perf_stats
 
@@ -1760,6 +1760,7 @@ class SliceOp(SimOp):
 
         assert 'out_shape' in self.attrs, "No out_shape specified in Slice!! " + \
                              "Look at tensor_getitem implementation in ttsim/.../tensor_op.py"
+        self.attrs['out_shape'] = [int(i) for i in self.attrs['out_shape']]
         outT[0].shape = self.attrs['out_shape']
         outT[0].dtype = dataT.dtype
 
@@ -1769,11 +1770,11 @@ class SliceOp(SimOp):
 
         assert outT[0].check_shape(), f"SHAPE INFERENCE ERROR!!"
         self.perf_stats = {
-                'inBytes' : sum([x.nbytes() for x in inT]),
-                'inElems' : sum([x.nelems() for x in inT]),
-                'outBytes': outT[0].nbytes(),
-                'outElems': outT[0].nelems(),
-                'instrs'  : {'mov': outT[0].nelems()}
+                'inBytes' : int(sum([x.nbytes() for x in inT])),
+                'inElems' : int(sum([x.nelems() for x in inT])),
+                'outBytes': int(outT[0].nbytes()),
+                'outElems': int(outT[0].nelems()),
+                'instrs'  : {'mov': int(outT[0].nelems())}
                 }
         return self.perf_stats
 
@@ -1858,7 +1859,10 @@ class DropoutOp(SimOp):
         if ratio == 0 or training_mode == False:
             #np_out      = X.data
             #np_mask_out = np.ones(X.shape, dtype=bool)
-            instr_count = {'nop': X.nelems()}
+            instr_count = {
+                    #'nop': X.nelems() nop is not mapped to any pipe at present
+                    'mov': 0
+                    }
         else:
             #np.random.seed(seed)
             # mask   = np.random.uniform(0, 1.0, X.shape) >= ratio  # Avoid allocation of dead data
@@ -2458,6 +2462,61 @@ class FlattenOp(SimOp):
 
         return self.perf_stats
 
+class VoxelPoolingOp(SimOp):
+    """
+      Needed for BEVDepth, where it is implemented as a custom CUDA Operator
+    """
+    def __init__(self, opinfo):
+        super().__init__(opinfo)
+        self.opclass_str: str = 'VoxelPooling'
+        check_io_counts(self, in_counts=[4,4], out_counts=[1,1])
+
+    def get_perf_counts(self, inT, outT, **kwargs):
+        if self.perf_stats is not None:
+            return self.perf_stats
+
+        for i in range(4): assert inT[0].check_shape(), f"input[{i}] shape error: {inT[i]}"
+        assert inT[3].data is not None, f"Missing voxel_num.data!!"
+
+        geom_xyz         = inT[0]
+        depth_features   = inT[1]
+        context_features = inT[2]
+        voxel_num        = inT[3]
+
+        batch_size      = geom_xyz.shape[0]
+        num_cams        = geom_xyz.shape[1]
+        num_depth       = geom_xyz.shape[2]
+        num_height      = geom_xyz.shape[3]
+        num_width       = geom_xyz.shape[4]
+        num_channels    = context_features.shape[1]
+        #output_shape    = [batch_size, int(voxel_num.data[1]), int(voxel_num.data[0]), num_channels]
+        #output = output.permute(0, 3, 1, 2)
+        output_shape    = [batch_size, num_channels, int(voxel_num.data[1]), int(voxel_num.data[0])]
+
+        outT[0].shape = output_shape
+        outT[0].dtype = geom_xyz.dtype
+
+        # Total number of samples ("points" to pool)
+        total_samples = batch_size * num_cams * num_depth * num_height * num_width
+        total_ops     = total_samples * num_channels
+        instr_count = {
+                'cmp': total_samples * 4, #4 bound checks per sample
+                'mac': total_ops          #1 MAC per-sample, per-channel
+                }
+        loads = total_ops * 5 #5 loads per-sample, per-channel
+        stores= total_ops     #1 store per-sample, per-channel
+
+        bpe = 2 #assume fp16
+        self.perf_stats = {
+                'inElems' : loads,
+                'inBytes' : loads * bpe,
+                'outElems': stores,
+                'outBytes': stores * bpe,
+                'instrs'  : instr_count
+                }
+
+        return self.perf_stats
+
 
 ######################  CONCRETE OP IMPLEMENTATION END ##################
 
@@ -2519,6 +2578,7 @@ def SimOpFactory(optype: str) -> type[SimOp]:
             ReduceMaxOp          : ['ReduceMax', 'ArgMax'], #Yolo-v7
             NonMaxSuppressionOp  : ['NonMaxSuppression'], #Yolo-v7
             FlattenOp            : ['Flatten'], #Yolo-v7
+            VoxelPoolingOp       : ['VoxelPooling'], #BEVDepth
 
             ConvOp               : ['Conv'],   # TBD: step in adding new operator / layer typez
             MaxPoolOp            : ['MaxPool'],

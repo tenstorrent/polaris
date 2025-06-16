@@ -24,6 +24,8 @@ op_rsrc_spec:
   compute:
     matrix: [Matmul, Conv]
     vector: [Gather, Reshape, Transpose, Gelu, Relu, LeakyRelu, Resize, Sigmoid, Slice,
-             Flatten, ReduceMax, ArgMax, Cast, NonMaxSuppression, Add, Mul, Dropout, Split,
-             Softmax, LayerNormalization, Identity, Constant, Where, Pow, Tanh, MaxPool,
-             BatchNormalization, Concat, Unsqueeze, Trilu, AveragePool]
+             Flatten, ReduceMax, ArgMax, Cast, NonMaxSuppression, Add, Sub, Mul, Div,
+             Dropout, Split, Softmax, LayerNormalization, Identity, Constant, Where,
+             Pow, Tanh, MaxPool, BatchNormalization, Concat, Unsqueeze, Squeeze, Trilu,
+             AveragePool, Tile, VoxelPooling
+            ]

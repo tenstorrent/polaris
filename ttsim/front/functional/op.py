@@ -97,6 +97,12 @@ class SimOpHandle:
         xinput = [x for _,x in sorted_all_itensors]
 
         #input tensor setup
+        #TODO: some ops are shared, i.e. they can be used multiple times for different
+        # input tensors, and as such, their op_in gets appended several times...
+        # how do we deal with this? Maybe in shared cases, op_in/op_out could be a list of
+        # lists, with the last entry being the latest use???
+        # At present, we need to create ops that CANNOT BE SHARED, because the assert on
+        #  number or inputs/outputs being in range inside SimOp is set and the program crashes!!!
         for x in xinput:
             x.op_in.append(self.name)
             self.opinfo['inList'].append(x.name)
@@ -118,6 +124,7 @@ class SimOpHandle:
             self.otensor.link_module = self.link_module
             if self.otensor.name not in self.link_module._tensors:
                 self.link_module._tensors[self.otensor.name] = self.otensor
+
         return self.otensor
 
 # SimOpHandle assumes only N inputs/params & 1 output
@@ -458,12 +465,16 @@ def BatchNorm2d(name, channels, /, **kwargs):
 def Resize(name: str, /, scale_factor, **kwargs):
     roi     = _from_data(name + '.roi',    np.array([], dtype=np.float32), is_param=False, is_const=True)
     if isinstance(scale_factor, (float, int)):
-        scales  = _from_data(name + '.scales', np.array([scale_factor, scale_factor], dtype=np.float32), is_param=False, is_const=True)
+        scales  = _from_data(name + '.scales', np.array([scale_factor, scale_factor],
+                                                        dtype=np.float32), is_param=False, is_const=True)
     elif isinstance(scale_factor, (list, tuple)):
         assert len(scale_factor) == 2, f"Need to pass scale_factor list with 2 elems: {scale_factor}"
         assert isinstance(scale_factor[0], (float, int)) and isinstance(scale_factor[1], (float, int)), \
                 f"scale_factor list should be of type: int/float"
-        scales  = _from_data(name + '.scales', np.array(scale_factor, dtype=np.float32), is_param=False, is_const=True)
+        scales  = _from_data(name + '.scales', np.array(scale_factor, dtype=np.float32),
+                             is_param=False, is_const=True)
+    else:
+        assert False, f"Illegal scale_factor={scale_factor} input into F.Resize"
     op_hndl = SimOpHandle(name, 'Resize', params=[(1, roi), (2, scales)], ipos=[0], **kwargs)
     return op_hndl
 
@@ -509,6 +520,10 @@ Equal          = partial(BinaryOperator, optype='Equal')
 TernaryOperator = partial(UniversalOperator, params=[], ipos=[0,1,2])
 Where   = partial(TernaryOperator, optype='Where')
 Range   = partial(TernaryOperator, optype='Range')
+
+#4-ary Operators
+FourAryOperator = partial(UniversalOperator, params=[], ipos=[0,1,2,3])
+VoxelPooling    = partial(FourAryOperator, optype='VoxelPooling')
 
 #Variadic Input Operator
 #class VariadicInputOpHandle:
