@@ -1,3 +1,5 @@
+# SPDX-FileCopyrightText: (C) 2025 Tenstorrent AI ULC
+# SPDX-License-Identifier: Apache-2.0
 # See https://pre-commit.com for more information
 # See https://pre-commit.com/hooks.html for more hooks
 
@@ -19,8 +21,6 @@ repos:
             description: Check static checks
             language: python
             entry: mypy .
-#            args:  [.]
-            # additional_dependencies: [pyyaml, loguru, pydantic]
             pass_filenames: false
         -   id: unit tests
             name: Run unit tests

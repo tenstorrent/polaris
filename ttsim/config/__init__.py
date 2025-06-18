@@ -143,12 +143,3 @@ def parse_xlsx_config(xlsx_worksheet):
             cfgTbl[col].set_value(param, row[col])
 
     return cfgTbl
-
-
-# TODO: Move to tools which generate YAML from XLSX
-# def get_arspec_from_xlsx(xlsx_worksheet):
-#     devices = {}
-#     xlsx_cfg = parse_xlsx_config(xlsx_worksheet)
-#     for archname, archcfg in xlsx_cfg.items():
-#         devices[archname] = NvidiaGPU(archname, archcfg.values)
-#     return devices

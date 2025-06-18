@@ -7,7 +7,7 @@ import workloads.Yolo_v8 as y8
 def test_yolov8s(session_temp_directory):
     output_dir = str(session_temp_directory)
     os.makedirs(output_dir, exist_ok=True)
-    cfg_dir  = 'config/yolov8_cfgs/'
+    cfg_dir  = 'https://raw.githubusercontent.com/autogyro/yolo-V8/refs/heads/main/ultralytics/models/v8/'
     cfg_file = 'yolov8s.yaml'
     cfg_path = os.path.join(cfg_dir, cfg_file)
     out_onnx = os.path.join(output_dir, cfg_file.replace('.yaml', '.onnx'))

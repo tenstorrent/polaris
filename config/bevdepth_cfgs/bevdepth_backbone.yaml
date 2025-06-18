@@ -1,3 +1,5 @@
+# SPDX-FileCopyrightText: (C) 2025 Tenstorrent AI ULC
+# SPDX-License-Identifier: Apache-2.0
 depth_net_conf   : {in_channels: 128, mid_channels: 512}
 d_bound          : [2.0, 58.0, 0.5]
 downsample_factor: 16

@@ -1,3 +1,5 @@
+# SPDX-FileCopyrightText: (C) 2025 Tenstorrent AI ULC
+# SPDX-License-Identifier: Apache-2.0
 workloads:
   - api: TTSIM
     name: BERT_SQUAD_v1p1

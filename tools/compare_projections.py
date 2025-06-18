@@ -531,10 +531,10 @@ class StudyComparison:
         job_status.update({jobkey_2_str(k): {'rollup_status': ComparisonStatus.Only_in_2} for k in keys_only_in_2})
         for k in sorted(keys_common):
             kstr: str = jobkey_2_str(k)
-            logging.info('Comparing %s', kstr)
             csv_table: list[dict[str, Any]] = []
             statdict1, statdict2 = self.run1.load_stat(k), self.run2.load_stat(k)
             jstat = compare_operator_stats(statdict1['operatorstats'], statdict2['operatorstats'], self.epsilon)
+            logging.info('Compared %s, result %s', kstr, jstat['rollup_status'].value)
             output_filename = self.output_path / self.study / 'json' / os.path.basename(self.run1.statfilename(k))
             job_status[kstr] = {
                 'filename': output_filename.as_posix(),
@@ -600,7 +600,7 @@ class StudyComparison:
         self.generate_jobsummaries_datatable(job_result, workload_compare_html_dtable)
 
         stat_result = self.compare_stat_dir()
-        topsummary_html = self.output_path / self.study / 'summary.html'
+        topsummary_html = self.output_path / self.study / 'index.html'
         self.generate_topsummary(job_result, config_compare_html, workload_compare_html_gchart, topsummary_html)
 
         logging.info('status=%s', stat_result['rollup_status'])

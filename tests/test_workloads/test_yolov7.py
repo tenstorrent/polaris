@@ -7,7 +7,7 @@ import workloads.Yolo_v7 as y7
 def test_yolov7(session_temp_directory):
     output_dir = str(session_temp_directory)
     os.makedirs(output_dir, exist_ok=True)
-    cfg_dir  = 'config/yolov7_cfgs/deploy'
+    cfg_dir  = 'https://raw.githubusercontent.com/WongKinYiu/yolov7/refs/heads/main/cfg/deploy/'
     cfg_file = 'yolov7-tiny.yaml'
     cfg_path = os.path.join(cfg_dir, cfg_file)
     out_onnx = os.path.join(output_dir, cfg_file.replace('.yaml', '.onnx'))

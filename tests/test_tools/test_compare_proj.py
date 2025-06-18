@@ -50,7 +50,7 @@ def test_compare_proj(tmp_path_factory):
     arch_cfg = 'config/all_archs.yaml'
     wl_cfg = 'config/mlperf_inference.yaml'
     wlmap_cfg = 'config/wl2archmapping.yaml'
-    archs = ['A100']
+    archs = ['Q1_A1']
 
     tmpdirnames = ['run1', 'run2', 'run3', 'comparison1', 'comparison2', 'comparison3', 'temp']
     tmpdir = {x: tmp_path_factory.mktemp(x) for x in tmpdirnames}
@@ -73,15 +73,19 @@ def test_compare_proj(tmp_path_factory):
     with open(arch_cfg) as fin:
         arch_dict = yaml.safe_load(fin)
 
-    nvidia_entry = next((entry for ndx, entry in enumerate(arch_dict['packages']) if 'nvidia' in entry['name'].lower()), None)
-    assert nvidia_entry is not None, 'NVIDIA entry not found in architecture configuration'
-    a100_entry = next((entry for ndx, entry in enumerate(nvidia_entry['instances']) if 'a100' in entry['name'].lower()), None)
-    assert a100_entry is not None, 'A100 entry not found in NVIDIA architecture configuration'
-    compute_entry = next((entry for ndx, entry in enumerate(a100_entry['ipgroups']) if entry['iptype'].lower() == 'compute'), None)
+    srch_pkg = 'grendel'
+    srch_inst = 'q1_a1'
+
+    tensix_entry = next((entry for ndx, entry in enumerate(arch_dict['packages']) if srch_pkg in entry['name'].lower()), None)
+    assert tensix_entry is not None, f'{srch_pkg} entry not found in architecture configuration'
+    q1_a1 = next((entry for ndx, entry in enumerate(tensix_entry['instances']) if srch_inst in entry['name'].lower()), None)
+    assert q1_a1 is not None, f'{srch_inst} entry not found in {srch_pkg} architecture configuration'
+    compute_entry = next((entry for ndx, entry in enumerate(q1_a1['ipgroups']) if entry['iptype'].lower() == 'compute'), None)
     assert compute_entry is not None, 'Compute entry not found in A100 architecture configuration'
-    for override_name in compute_entry['ip_overrides']:
-        if override_name.lower().endswith('freq_mhz'):
-            compute_entry['ip_overrides'][override_name] -= 100  # Decrease frequency by 100 MHz for testing
+    if 'ip_overrides' not in compute_entry:
+        compute_entry['ip_overrides'] = {}
+    compute_entry['ip_overrides']['pipes.matrix.freq_MHz'] = int(compute_entry['freq_MHz'] * 1.2)
+    compute_entry['ip_overrides']['pipes.vector.freq_MHz'] = int(compute_entry['freq_MHz'] * 1.2)
     arch_cfg2_path = tmpdir['temp'] / 'all_archs_2.yaml'
     with open(arch_cfg2_path, 'w') as fout:
         yaml.dump(arch_dict, fout)
