@@ -95,6 +95,7 @@ def create_args() -> argparse.ArgumentParser:
                         default='WARNING', help='set log level')
     parser.add_argument('--dryrun', '-n', action=argparse.BooleanOptionalAction,
                         default=False, help='dryrun')
+    parser.add_argument('--verbose', '-v', action=argparse.BooleanOptionalAction, help='enable verbose diagnostics')
     return parser
 
 
@@ -161,7 +162,8 @@ def classify_file(filename: str) -> tuple[str, str]:
     return ext, lang
 
 
-def analyze_file(filename: str, allowed_licenses: list[str], allowed_copyright: str) -> tuple[SPDXHeaderStatus, SPDXHeaderStatus]:
+def analyze_file(filename: str, allowed_licenses: list[str], allowed_copyright: str, verbose: bool = False,
+                 warn_flag: bool = False) -> tuple[SPDXHeaderStatus, SPDXHeaderStatus]:
     """
     Analyze a file to determine its extension and language.
     """
@@ -178,7 +180,7 @@ def analyze_file(filename: str, allowed_licenses: list[str], allowed_copyright: 
     elif lang == 'unknown':
         logger.error(f'File {filename} has unknown extension {ext}. Skipping.')
     else:
-        parser = LanguageParser(lang, allowed_licenses, allowed_copyright)
+        parser = LanguageParser(lang, allowed_licenses, allowed_copyright, verbose, warn_flag)
         parser_result = parser.parse(filename)
         license_status = parser_result['license']
         copyright_status = parser_result['copyright']
@@ -190,26 +192,32 @@ class LanguageParser:
     Class to parse files based on their language.
     """
 
-    def __init__(self, lang: str, allowed_licenses: list[str], allowed_copyright: str):
+    def __init__(self, lang: str, allowed_licenses: list[str], allowed_copyright: str,
+                 verbose: bool = False, warn_flag: bool = False):
         self.lang = lang
         self.allowed_licenses = allowed_licenses
         self.allowed_copyright = allowed_copyright
         self.syntax = LANG_2_SYNTAX.get(lang, {})
         self.comment_syntax = self.syntax.get('comment', '')
-        self.license_re = re.compile(self.comment_syntax + r'(?P<optional_space>\s*)' + SPDX_LICENSE.pattern)
         end_comment = self.syntax.get('end_comment', '')
-        self.copyright_re = re.compile(self.comment_syntax + r'(?P<optional_space>\s*)' + SPDX_COPYRIGHT.pattern + r'(?P<suffix>' + end_comment + r')?')
+        self.license_re = re.compile(self.comment_syntax + r'(?P<optional_space>\s*)' + SPDX_LICENSE.pattern + r'(?P<optional_space2>\s*)(?P<suffix>' + end_comment + r')')
+        self.copyright_re = re.compile(self.comment_syntax + r'(?P<optional_space>\s*)' + SPDX_COPYRIGHT.pattern + r'(?P<optional_space2>\s*)(?P<suffix>' + end_comment + r')')
         self.license_status: SPDXHeaderStatus = SPDXHeaderStatus.ST_MISSING
+        self.verbose = verbose
+        self.warn_flag = warn_flag
+        self.parsing : str | None = None
 
     def parse(self, filename: str) -> dict[str, SPDXHeaderStatus]:
         """
         Parse a file for SPDX headers.
         """
+        self.parsing = filename
         result: dict[str, SPDXHeaderStatus] = {x: SPDXHeaderStatus.ST_MISSING for x in ['license', 'copyright']}
         with open(filename) as f:
             if len(contents := f.read()) == 0:
                 for x in result:
                     result[x] = SPDXHeaderStatus.ST_OK
+                self.parsing = None
                 return result
             for line in contents.splitlines():
                 if (line := line.rstrip()).startswith(self.comment_syntax):
@@ -223,16 +231,21 @@ class LanguageParser:
                 if all ([entry != SPDXHeaderStatus.ST_MISSING for entry in result.values()]): # ['license']['status'] != FileSPDXStatus.ST_MISSING and result['copyright']['status'] != FileSPDXStatus.ST_MISSING:
                     # If both license and copyright are found, we can stop parsing
                     break
+        self.parsing = None
         return result
 
     def parse_license(self, license_match) -> SPDXHeaderStatus:
         """
         Parse a license line for license information.
         """
-        # license_text = license_match.group('license_text')
-        if license_match.group('license_text') in self.allowed_licenses:
+        if (license_text := license_match.group('license_text').strip()) in self.allowed_licenses:
             return SPDXHeaderStatus.ST_OK
         else:
+            if self.verbose:
+                if self.warn_flag:
+                    logger.warning(f'{self.parsing}: wrong license text: "{license_text}", allowed licenses: {self.allowed_licenses}')
+                else:
+                    logger.error(f'{self.parsing}: wrong license text: "{license_text}", allowed licenses: {self.allowed_licenses}')
             return SPDXHeaderStatus.ST_INCORRECT
 
     def parse_copyright(self, copyright_match) -> SPDXHeaderStatus:
@@ -242,9 +255,14 @@ class LanguageParser:
         copyright_text = copyright_match.group('copyright_text')
         if not (copyright_parts_match := COPYRIGHT_REGEX.search(copyright_text)):
             return SPDXHeaderStatus.ST_ILLFORMED
-        if copyright_parts_match.group('cprt_holder') == self.allowed_copyright:
+        if (cprt_holder := copyright_parts_match.group('cprt_holder').strip()) == self.allowed_copyright:
             return SPDXHeaderStatus.ST_OK
         else:
+            if self.verbose:
+                if self.warn_flag:
+                    logger.warning(f'wrong copyright holder: "{cprt_holder}", allowed copyright: {self.allowed_copyright}')
+                else:
+                    logger.error(f'wrong copyright holder: "{cprt_holder}", allowed copyright: {self.allowed_copyright}')
             return SPDXHeaderStatus.ST_INCORRECT
 
     def parse_comment(self, line) -> tuple[str, SPDXHeaderStatus] | None:
@@ -263,8 +281,11 @@ def get_ignore_patterns(ignore_pattern_list: list[str]) -> Union[None, re.Patter
     Read ignore patterns from a file.
     """
     ignore_patterns = [fnmatch.translate(pat) for pat in ignore_pattern_list]
-    ignore_re = re.compile('|'.join(ignore_patterns))
-    logger.debug(f'Ignoring files matching patterns: {ignore_patterns}')
+    if ignore_patterns == []:
+        ignore_re = None
+    else:
+        ignore_re = re.compile('|'.join(ignore_patterns))
+    logger.debug(f'Ignoring files matching patterns: {ignore_patterns=} {ignore_re=}')
     return ignore_re
 
 
@@ -313,11 +334,10 @@ def main() -> int:
 
     active_files = get_active_files(args.gitignore, ignore_spec)
     warn_re: IgnorePattern = get_ignore_patterns(ignore_spec.warning) if args.ignorelist else None
-
     num_errors = 0
     for fname in active_files:
-        license_status, copyright_status = analyze_file(fname, args.allowed_licenses, args.allowed_copyright)
-        warn_flag = warn_re is not None and warn_re.search(fname)
+        warn_flag: bool = warn_re is not None and warn_re.search(fname) is not None
+        license_status, copyright_status = analyze_file(fname, args.allowed_licenses, args.allowed_copyright, args.verbose, warn_flag)
         status_message = f'License: {license_status.value}, Copyright: {copyright_status.value}'
         if license_status == SPDXHeaderStatus.ST_OK and copyright_status == SPDXHeaderStatus.ST_OK:
             logger.info(f'{fname}: {status_message}')
@@ -331,6 +351,8 @@ def main() -> int:
                      prefix=SPDX_LICENSE_PREFIX, licenses=args.allowed_licenses)
         logger.error('Valid copyright line: "<comment> {prefix} {copyright}"', prefix=SPDX_COPYRIGHT_PREFIX,
                      copyright=args.allowed_copyright)
+    else:
+        logger.info('All files have valid SPDX headers.')
     return 0 if num_errors == 0 else 1
 
 

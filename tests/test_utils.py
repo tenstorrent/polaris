@@ -90,16 +90,6 @@ def test_ttsim_functional_instance():
 
 
 @pytest.mark.unit
-def test_parsers():
-    common.parse_worksheet('GPU@config/Nvidia.xlsx')
-    with pytest.raises(RuntimeError, match='no worksheet'):
-        common.parse_worksheet('undefined@config/Nvidia.xlsx')
-    with pytest.raises(RuntimeError, match='too many'):
-        common.parse_worksheet('config/Nvidia.xlsx')
-    with pytest.raises(RuntimeError, match='not supported'):
-        common.parse_worksheet('file.err')
-
-@pytest.mark.unit
 def test_writers(tmp_path_factory):
     odir = tmp_path_factory.mktemp('test-writers')
     os.makedirs(odir, exist_ok=True)

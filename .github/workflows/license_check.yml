@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: (C) 2025 Tenstorrent AI ULC
+# SPDX-License-Identifier: Apache-2.0
+
 name: Check licenses in source files
 
 on:
@@ -37,7 +40,3 @@ jobs:
     - name: Check license and copyright
       run: |
           python tools/spdxchecker.py --ignore .github/spdxchecker-ignore.yml --allowed-licenses Apache-2.0 --allowed-copyright "Tenstorrent AI ULC"
-    - uses: enarx/spdx@master
-      with:
-        licenses: |-
-          Apache-2.0

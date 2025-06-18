@@ -1,3 +1,5 @@
+# SPDX-FileCopyrightText: (C) 2025 Tenstorrent AI ULC
+# SPDX-License-Identifier: Apache-2.0
 ignore:
   - '*.xlsx'
   - '*.csv'
@@ -7,7 +9,7 @@ ignore:
   - condarc
   - '*.txt'
   - '*.toml'
-warning:
-  - '*.html'
-  - '*.yaml'
-  - '*.yml'
+#warning:
+#  - '*.html'
+#  - '*.yaml'
+#  - '*.yml'
