@@ -8,7 +8,12 @@ pythonpath = "."
 [tool.mypy]
 check_untyped_defs = true
 explicit_package_bases = true
+# exclude_gitignore = true    # Does not work with mypy 1.15; enable after 1.16
 exclude = "^__.*/"
+# disallow_untyped_calls = true
+# disallow_untyped_defs = true
+# warn_unreachable = true      # TODO: enable after merging BEVDepth changes
+allow_untyped_globals = true
 
 [tool.coverage.run]
 branch = true

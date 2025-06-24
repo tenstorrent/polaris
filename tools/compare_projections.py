@@ -54,9 +54,9 @@ def flatten_dict_as_str(d: dict[str, Any], param_sep: str = '_') -> dict[str, An
     :return: A flattened dictionary
     """
 
-    def _flatten(d: dict[str, Any], parent_key: str, param_sep: str) -> dict[str, Any]:
+    def _flatten(inputdict: dict[str, Any], parent_key: str, param_sep: str) -> dict[str, Any]:
         items: list[Tuple[str, Any]] = []
-        for k, v in d.items():
+        for k, v in inputdict.items():
             new_key = f'{parent_key}{param_sep}{k}' if parent_key else k
             if isinstance(v, (dict, list)):
                 items.append((k, json.dumps(v)))
@@ -211,7 +211,6 @@ def compare_operator_stats(opstatlist_1: list, opstatlist_2: list, epsilon: floa
 
 
 def compare_dicts(dict1: dict, dict2: dict, epsilon: float) -> dict[str, Any]:
-    result = {}
     keys1, keys2 = set(dict1.keys()), set(dict2.keys())
     elem_status: dict[str, Any] = {k: {'status': ComparisonStatus.Mismatch} for k in keys1 | keys2}
     elem_status.update({k: {'status': ComparisonStatus.Only_in_2} for k in keys2 - keys1})

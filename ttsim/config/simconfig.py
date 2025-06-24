@@ -411,7 +411,7 @@ class PackageInstanceModel(BaseModel, extra='forbid'):
         compute_group = self.get_ipgroup(iptype='compute')
         if TYPE_CHECKING:
             assert compute_group.ipobj is not None
-            assert isinstance(compute_group, ComputeBlockModel)
+            assert isinstance(compute_group.ipobj, ComputeBlockModel)
         compute_group.ipobj.set_frequency(newfreq, units)
 
 
@@ -419,7 +419,7 @@ class PackageInstanceModel(BaseModel, extra='forbid'):
         compute_group = self.get_ipgroup(iptype='compute')
         if TYPE_CHECKING:
             assert compute_group.ipobj is not None
-            assert isinstance(compute_group, ComputeBlockModel)
+            assert isinstance(compute_group.ipobj, ComputeBlockModel)
         N        = compute_group.num_units
         pipe_obj = compute_group.ipobj.get_pipe(pipe)
         ipc      = pipe_obj.peak_ipc(instr, precision)
@@ -429,7 +429,7 @@ class PackageInstanceModel(BaseModel, extra='forbid'):
         compute_group = self.get_ipgroup(iptype='compute')
         if TYPE_CHECKING:
             assert compute_group.ipobj is not None
-            assert isinstance(compute_group, ComputeBlockModel)
+            assert isinstance(compute_group.ipobj, ComputeBlockModel)
         pipe_obj = compute_group.ipobj.get_pipe(pipe)
         flops    = pipe_obj.peak_flops(instr, precision, mul_factor=mul_factor, units=units)
         N        = compute_group.num_units
@@ -439,7 +439,7 @@ class PackageInstanceModel(BaseModel, extra='forbid'):
         compute_group = self.get_ipgroup(iptype='compute')
         if TYPE_CHECKING:
             assert compute_group.ipobj is not None
-            assert isinstance(compute_group, ComputeBlockModel)
+            assert isinstance(compute_group.ipobj, ComputeBlockModel)
         pipe_obj = compute_group.ipobj.get_pipe(pipe)
         freq     = pipe_obj.frequency(units)
         return freq
@@ -448,7 +448,7 @@ class PackageInstanceModel(BaseModel, extra='forbid'):
         compute_group = self.get_ipgroup(iptype='compute')
         if TYPE_CHECKING:
             assert compute_group.ipobj is not None
-            assert isinstance(compute_group, ComputeBlockModel)
+            assert isinstance(compute_group.ipobj, ComputeBlockModel)
         return compute_group.ramp_penalty
 
     # Memory group interfaces
@@ -456,7 +456,7 @@ class PackageInstanceModel(BaseModel, extra='forbid'):
         memory_group =  self.get_ipgroup('memory')
         if TYPE_CHECKING:
             assert memory_group.ipobj is not None
-            assert isinstance(memory_group, MemoryBlockModel)
+            assert isinstance(memory_group.ipobj, MemoryBlockModel)
         N = memory_group.num_units
         S = memory_group.ipobj.size(units)
         return N * S
@@ -465,7 +465,7 @@ class PackageInstanceModel(BaseModel, extra='forbid'):
         memory_group =  self.get_ipgroup('memory')
         if TYPE_CHECKING:
             assert memory_group.ipobj is not None
-            assert isinstance(memory_group, MemoryBlockModel)
+            assert isinstance(memory_group.ipobj, MemoryBlockModel)
         N = memory_group.num_units
         B = memory_group.ipobj.peak_bandwidth(freq_units=freq_units)
         return N * B
@@ -474,7 +474,7 @@ class PackageInstanceModel(BaseModel, extra='forbid'):
         memory_group =  self.get_ipgroup('memory')
         if TYPE_CHECKING:
             assert memory_group.ipobj is not None
-            assert isinstance(memory_group, MemoryBlockModel)
+            assert isinstance(memory_group.ipobj, MemoryBlockModel)
         pipe_obj = memory_group.ipobj
         freq     = pipe_obj.frequency(units)
         return freq
@@ -503,4 +503,3 @@ class IPBlocksModel(BaseModel, extra='forbid'): # type: ignore[no-redef]
             if _tmp.name == blockname:
                 return _tmp
         raise AssertionError(f'IPBlock {blockname} not defined')
-

@@ -400,7 +400,7 @@ class PerfData
             'options'    : { 'filterColumnLabel': 'Colname', 'ui': this.uioptions }
         });
         document.getElementById('colpagesize-dropdown').addEventListener('change', function() {
-            thius.tblcolSummaryOptions.setOption('pageSize', parseInt(this.value));
+            this.tblcolSummaryOptions.setOption('pageSize', parseInt(this.value));
             this.sTableChart.draw();
         });
 

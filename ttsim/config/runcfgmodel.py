@@ -54,8 +54,9 @@ class PolarisRunConfig(BaseModel, extra='forbid'):
 
     @field_validator('frequency')
     def validate_frequency(cls, v: TYPE_frequency, info: ValidationInfo) -> TYPE_frequency:
-        if v is None:
-            return v
+        assert v is not None, 'frequency must be specified'
+        # if v is None:
+        #     return v
         if any([v[0] <= 0, v[1] <= 0, v[2] <= 0]):
             raise AssertionError(f'frequency values should be positive in {v}')
         if v[0] >= v[1]:
@@ -64,8 +65,9 @@ class PolarisRunConfig(BaseModel, extra='forbid'):
 
     @field_validator('batchsize')
     def validate_batchsize(cls, v: TYPE_batchsize, info: ValidationInfo) -> TYPE_batchsize:
-        if v is None:
-            return v
+        assert v is not None, 'batchsize must be specified'
+        # if v is None:
+        #     return v
         if any([v[0] <= 0, v[1] <= 0, v[2] <= 0]):
             raise AssertionError(f'batchsize values should be positive in {v}')
         if v[2] == 1:

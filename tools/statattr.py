@@ -25,13 +25,13 @@ class StatAttributeDescriptor(BaseModel, extra='forbid'):
 
     @property
     def is_nonnumeric(self):
-        return not self.is_numeric()
+        return not self.is_numeric
 
 
 type StatAttributeDescriptorList = list[StatAttributeDescriptor]
 
 
-class StatAttributeDescriptors():
+class StatAttributeDescriptors:
     job_attribute_list: StatAttributeDescriptorList
     op_attribute_list: StatAttributeDescriptorList
 
