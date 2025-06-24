@@ -9,16 +9,31 @@ op_removal_spec:
   - Constant
 
 op_fusion_spec:
+  - [Add, LayerNormalization, Matmul, Add, Matmul, Add, Gelu]
+  - [Add, LayerNormalization, Matmul, Add, Split]
+  - [Add, LayerNormalization, Matmul]
+  - [Add, LayerNormalization]
   - [Reshape, Transpose, Transpose]
   - [Reshape, Transpose]
   - [Transpose, Transpose]
+  - [Matmul, Add, Matmul, Add, Gelu]
+  - [Matmul, Matmul]
+  - [Matmul, Mul, Softmax]
   - [Matmul, Mul]
+  - [Matmul, Add, Split]
+  - [Matmul, Add, Gelu]
   - [Matmul, Add]
   - [Matmul, Gelu, Add]
+  - [Matmul, Transpose, Reshape]
   - [Conv, Relu]
+  - [Conv, BatchNormalization, Add, Relu, AveragePool, Reshape]
+  - [Conv, BatchNormalization, Add, Relu]
+  - [Conv, BatchNormalization, Relu, MaxPool]
+  - [Conv, BatchNormalization, Relu]
   - [Conv, BatchNormalization, LeakyRelu]
   - [Conv, BatchNormalization, Sigmoid, Mul]
   - [Conv, BatchNormalization, Mul]
+  - [Conv, BatchNormalization]
 
 op_rsrc_spec:
   compute:

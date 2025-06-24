@@ -338,7 +338,8 @@ def generate_big_resultfile(csv_files: Dict, filemetadata: List, output_file: st
     Combine all CSV files in input_dir into a single CSV, adding path components as columns.
 
     Args:
-        input_dir (str): Directory to search for CSV files.
+        csv_files (Dict): CSV files.
+        filemetadata (List): File Meta Data
         output_file (str): Path to the output combined CSV file.
     """
     all_rows = []

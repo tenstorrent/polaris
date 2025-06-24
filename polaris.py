@@ -20,7 +20,7 @@ from typing import Any
 import yaml
 from pydantic import BaseModel
 
-from ttsim.config import TTSimHLWlDevRunPerfStats, TTSimHLRunSummary, get_arspec_from_yaml, get_wlmapspec_from_yaml, get_wlspec_from_yaml
+from ttsim.config import TTSimHLWlDevRunPerfStats, TTSimHLRunSummary, get_arspec_from_yaml, get_wlmapspec_from_yaml, get_wlspec_from_yaml, TypeWorkload
 from ttsim.front import onnx2graph
 from ttsim.utils.common import get_ttsim_functional_instance, print_csv, str_to_bool
 
@@ -345,20 +345,24 @@ def get_workloads(wlspec, bsweep, filterwlg, filterwl, filterwli):
     # Collect Workload Specifications
     workload_specs = get_wlspec_from_yaml(wlspec)
     wl_list = []
-    for wlname, wl in workload_specs.items():
-        wlapi = wl.api
-        for wli_name, wli_cfg in wl.get_instances().items():
-            if bsweep.check():
-                wl_list += [(wlapi, wl.name, wli_name, wli_cfg, b) for b in bsweep.getvals()]
-            else:
-                wl_list += [(wlapi, wl.name, wli_name, wli_cfg, None)]
+    for wlname, wlist in workload_specs.items():
+        for wl in wlist:
+            wlapi = wl.api
+            for wli_name, wli_cfg in wl.get_instances().items():
+                if bsweep.check():
+                    wl_list += [(wlapi, wl.name, wli_name, wli_cfg, b) for b in bsweep.getvals()]
+                else:
+                    wl_list += [(wlapi, wl.name, wli_name, wli_cfg, None)]
+    INFO(f'reading workload specification {wlspec}: found {len(wl_list):4d} #workloads')
+    for ndx, tmp in enumerate(wl_list):
+        INFO(f'{ndx}: {tmp}')
     wl_list = apply_filter(wl_list, filterwlg, lambda x: x[0])
     wl_list = apply_filter(wl_list, filterwl,  lambda x: x[1])
     wl_list = apply_filter(wl_list, filterwli, lambda x: x[2])
 
     num_batches   = len(bsweep.getvals()) if bsweep.check() else 1
     num_workloads = len(wl_list) // num_batches
-    INFO(f'reading workloads specification {wlspec}: found {num_workloads:4d} #devices')
+    INFO(f'reading workloads specification {wlspec}: found {num_workloads:4d} #workloads')
     if bsweep.check():
         INFO(f'reading batch sweep                   : found {num_batches} #batch-sizes')
     return wl_list, workload_specs

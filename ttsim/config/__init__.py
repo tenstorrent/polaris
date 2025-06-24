@@ -5,12 +5,12 @@ from collections import Counter
 import logging
 import copy
 from ..utils.common import parse_yaml, parse_worksheet
-from .simconfig import SimConfig, XlsxConfig, WorkloadGroup, AWorkload
+from .simconfig import SimConfig as SimConfig, XlsxConfig as XlsxConfig, WorkloadGroup as WorkloadGroup, AWorkload as AWorkload
 from pydantic import ValidationError
 from .validators import PYDWlMapDataSpecValidator, PYDWlMapResourceSpecValidator, PYDWlMapSpecValidator, PYDPkgMemoryValidator, PYDPkgComputeValidator, PYDComputePipeValidator, \
      PYDL2CacheValidator, PYDMemoryBlockValidator, PYDComputeBlockValidator, PYDWorkloadListValidator, TTSimHLWlDevRunOpCSVPerfStats, \
     TTSimHLWlDevRunPerfStats, TTSimHLRunSummary, TTSimHLRunSummaryRow
-from .simconfig import IPBlocksModel, PackageInstanceModel
+from .simconfig import IPBlocksModel, PackageInstanceModel, TypeWorkload as TypeWorkload
 
 
 def get_child(base, key, idattr='name'):
@@ -79,13 +79,15 @@ def get_arspec_from_yaml(cfg_yaml_file):
     return ipblocks_db, pkg_instance_db
 
 
-def get_wlspec_from_yaml(cfg_yaml_file):
+def get_wlspec_from_yaml(cfg_yaml_file: str) -> dict[str, list[TypeWorkload]]:
     cfg_dict = parse_yaml(cfg_yaml_file)
     validated_workloads = PYDWorkloadListValidator(**cfg_dict)
     assert 'workloads' in cfg_dict, f"Attribute(workloads) missing in {cfg_yaml_file}"
-    wldb = {}
+    workload_names: set[str] = {wlg_cfg['name'] for wlg_cfg in cfg_dict['workloads']}
+    wldb: dict[str, list[TypeWorkload]] = {name: [] for name in workload_names}
     for wlg_cfg in cfg_dict['workloads']:
-        wldb[wlg_cfg['name']] = AWorkload.create_workload(wlg_cfg['api'], **wlg_cfg)
+        # assert wlg_cfg['name'] not in wldb, f"Duplicate workload name {wlg_cfg['name']} in {cfg_yaml_file}"
+        wldb[wlg_cfg['name']].append(AWorkload.create_workload(wlg_cfg['api'], **wlg_cfg))
     return wldb
 
 
