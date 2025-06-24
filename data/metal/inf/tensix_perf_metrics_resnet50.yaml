@@ -1,0 +1,24 @@
+# SPDX-FileCopyrightText: (C) 2025 Tenstorrent AI ULC
+# SPDX-License-Identifier: Apache-2.0
+-   benchmark: Benchmark.ResNet50
+    gpu: Tensix
+    gpu_batch_size: 16
+    id: metal
+    input_dtype: bf8
+    metric: Samples/s
+    perf: 4700.0
+    precision: bf8
+    system: n150
+    target_perf: 7000.0
+    wlname: ResNet-50 (224x224)
+-   benchmark: Benchmark.ResNet50
+    gpu: Tensix
+    gpu_batch_size: 32
+    id: metal
+    input_dtype: bf8
+    metric: Samples/s
+    perf: 9200.0
+    precision: bf8
+    system: n300
+    target_perf: 14000.0
+    wlname: ResNet-50 (224x224) (DP=2)

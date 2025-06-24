@@ -21,6 +21,7 @@ dependencies:
   - mypy=1.15.0
   - coverage=7.6.12
   - pre-commit
+  - lxml
   - pip=25.0.1
   - pip:
     - pytest==8.3.4

@@ -1,0 +1,13 @@
+# SPDX-FileCopyrightText: (C) 2025 Tenstorrent AI ULC
+# SPDX-License-Identifier: Apache-2.0
+-   benchmark: Benchmark.BERT
+    gpu: Tensix
+    gpu_batch_size: 8
+    id: metal
+    input_dtype: bf8
+    metric: Samples/s
+    perf: 270.0
+    precision: bf8
+    system: n150
+    target_perf: 400.0
+    wlname: BERT-Large

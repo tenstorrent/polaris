@@ -18,7 +18,7 @@ type ScoreTuple = tuple[str, str, str, str]
 type ScoreDict = dict[ScoreTuple, float]
 
 
-OUTPUT_DIR: Path = Path('__TMP_NV_MLPERF_CORR_OUT')
+OUTPUT_DIR: Path = Path('__TMP_TENSIX_METAL_CORR_OUT')
 
 
 def read_scores(filepath: Path) -> ScoreDict:
@@ -36,8 +36,15 @@ def read_scores(filepath: Path) -> ScoreDict:
 def compare_scores(ref_scores: ScoreDict, actual_scores: ScoreDict) -> list[dict[str, Any]]:
     result = []
     logger.info('===============================================')
-    logger.info('MLPerf NV Correlation Results')
-    for key in ref_scores:
+    logger.info('Tensix Correlation Results')
+    common_keys = set(ref_scores.keys()).intersection(set(actual_scores.keys()))
+    only_ref_keys = set(ref_scores.keys()).difference(set(actual_scores.keys()))
+    only_actual_keys = set(actual_scores.keys()).difference(set(ref_scores.keys()))
+    if only_ref_keys:
+        logger.warning('Keys present in reference scores but not in actual scores: {}', only_ref_keys)
+    if only_actual_keys:
+        logger.warning('Keys present in actual scores but not in reference scores: {}', only_actual_keys)
+    for key in common_keys:
         ref_score = ref_scores[key]
         actual = actual_scores[key]
         ratio = ref_score / actual
@@ -47,7 +54,7 @@ def compare_scores(ref_scores: ScoreDict, actual_scores: ScoreDict) -> list[dict
                 'Workload': key[2],
                 'Instance': key[3],
                 'Api': key[1],
-                'MLPerf-Score': ref_score,
+                'Tensix-Score': ref_score,
                 'Actual-Score': actual,
                 'Diff': ref_score - actual,
                 'Ratio': ratio,
@@ -56,72 +63,75 @@ def compare_scores(ref_scores: ScoreDict, actual_scores: ScoreDict) -> list[dict
     return result
 
 def main() -> int:
-    nv_workloads_yaml_file: str = 'nv_workloads.yaml'
-    nv_runcfg_file: str         = 'nv_runcfg.yaml'
+    tensix_workloads_yaml_file: str = 'tensix_workloads.yaml'
+    tensix_runcfg_file: str = 'tensix_runcfg.yaml'
     odir: Path = OUTPUT_DIR
     sname: str = 'SIMPLE'
-    nv_perf_data_dir: Path       =  Path('data/mlperf/inf/closed') #MLPerf v4.1 results
+    tensix_perf_data_dir: Path = Path('data/metal/inf/closed')  # Tensix metal results
     gpu_dev_tbl = {
-            'NVIDIA H200-SXM-141GB': 'H200-SXM5',
-            }
+        'n150': 'n150',
+        'n300': 'n300',
+    }
 
-    uniq_devs    = set()
+    uniq_devs = set()
     ttsim_wlspec = []
 
-    mlperf_ref_scores: ScoreDict = dict()
+    metal_ref_scores: ScoreDict = dict()
 
-    opath                  = Path(odir)
+    opath = Path(odir)
     os.makedirs(opath, exist_ok=True)
 
     wls = ['bert', 'resnet50']
     for wl in wls:
-        data_file = nv_perf_data_dir / ('nv_perf_metrics_' + wl + '.yaml')
-        data_obj  = parse_yaml(data_file)
-        for nv_cfg in data_obj:
-            if nv_cfg['scenario'] != 'Scenario.Offline':
-                continue
-            scenario    = nv_cfg['scenario']
-            benchmark   = nv_cfg['benchmark']
-            gpu         = nv_cfg['gpu']
-            bs          = nv_cfg['gpu_batch_size'][wl]
-            nodes       = nv_cfg['nodes']
-            num_gpu     = nv_cfg['num gpu']
-            perf        = nv_cfg['perf']
-            system      = nv_cfg['sys']
-            prec        = nv_cfg['precision']
-            metric      = nv_cfg['metric']
-            cp_streams  = nv_cfg['gpu_copy_streams']
-            inf_streams = nv_cfg['gpu_inference_streams']
-            ref_perf    = perf/num_gpu/nodes
-            gpu_dev     = gpu_dev_tbl[gpu]
+        data_file = tensix_perf_data_dir / ('tensix_perf_metrics_' + wl + '.yaml')
+        data_obj = parse_yaml(data_file)
+        for tensix_cfg in data_obj:
+            # if tensix_cfg['scenario'] != 'Scenario.Offline':
+            #     continue
+            missing = [f for f in ['benchmark', 'gpu', 'gpu_batch_size', 'perf', 'system', 'precision', 'metric'] if f not in tensix_cfg]
+            if missing:
+                raise ValueError(f'Missing fields {missing} in {data_file} for workload {wl} in {tensix_cfg.keys()}')
+            scenario = 'offline'  # Hardcoded for simplicity    # TODO: confirm if this is always 'offline' for Tensix
+            benchmark = tensix_cfg['benchmark']
+            gpu = tensix_cfg['gpu']
+            bs = tensix_cfg['gpu_batch_size']  # [wl]
+            nodes = 1
+            num_gpu = 1
+            perf = tensix_cfg['perf']
+            system = tensix_cfg['system']
+            prec = tensix_cfg['precision']
+            metric = tensix_cfg['metric']
+            ref_perf = perf / num_gpu / nodes
+            gpu_dev = gpu_dev_tbl[system]
 
             instance_name = f'b{bs}'
             xrec = {
-                'api'         : 'TTSIM',
-                'basedir'     : 'workloads',
-                'scenario'    : scenario,
-                'benchmark'   : benchmark,
-                'name'        : wl,
-                'gpu'         : gpu,
-                'nodes'       : nodes,
-                'num_gpu'     : num_gpu,
-                'perf'        : perf,
-                'sys'         : system,
-                'prec'        : prec,
-                'metric'      : metric,
-                'cp_streams'  : cp_streams,
-                'inf_streams' : inf_streams,
-                'ref_perf'    : ref_perf,
-                'gpu_dev'     : gpu_dev,
-                'instances'   : { instance_name: { 'bs': bs } },
+                'api': 'TTSIM',
+                'basedir': 'workloads',
+                'scenario': scenario,
+                'benchmark': benchmark,
+                'name': wl,
+                'gpu': gpu,
+                'nodes': nodes,
+                'num_gpu': num_gpu,
+                'perf': perf,
+                'sys': sys,
+                'prec': prec,
+                'metric': metric,
+                'ref_perf': ref_perf,
+                'gpu_dev': gpu_dev,
+                'instances': {instance_name: {'bs': bs}},
+                # 'cp_streams'  : cp_streams,
+                # 'inf_streams' : inf_streams,
             }
             instance_key = tuple([xrec['gpu_dev'], xrec['api'], xrec['name'], instance_name])
-            if instance_key in mlperf_ref_scores:
-                raise AssertionError(f"Duplicate MLPerf key {instance_key} in {data_file}")
-            mlperf_ref_scores[instance_key] = ref_perf
+            if instance_key in metal_ref_scores:
+                raise ValueError(f'Duplicate Instance key {instance_key} in {data_file}')
+            metal_ref_scores[instance_key] = ref_perf
 
             if wl == 'bert':
-                seqlen = nv_cfg['bert_opt_seqlen']
+                # seqlen = tensix_cfg['bert_opt_seqlen']
+                seqlen = 384  # Hardcoded for simplicity    # TODO: confirm; picked up from metal repo code (following the landing page URL)
                 xrec['module'] = 'BasicLLM@BasicLLM.py'
                 xrec['instances'][instance_name].update(
                     {'nL': 24, 'nH': 16, 'dE': 1024, 'nW': seqlen, 'vocab_sz': 30522}
@@ -136,11 +146,11 @@ def main() -> int:
                     }
                 )
             else:
-                raise NotImplementedError(f'Unknown workload {wl} in {data_file}')
+                pass
             uniq_devs.add(gpu_dev)
             ttsim_wlspec.append(xrec)
 
-            '''
+            """
             ostr = ""
             if wl == 'bert':
                 ostr += f'seqlen      = {seqlen}\n'
@@ -160,33 +170,33 @@ def main() -> int:
             print()
             print(ostr)
             print()
-            '''
+            """
 
     devstr = '--filterarch ' + ','.join(uniq_devs)
     print(devstr)
-    print_yaml({'workloads': ttsim_wlspec}, opath / nv_workloads_yaml_file)
+    print_yaml({'workloads': ttsim_wlspec}, opath / tensix_workloads_yaml_file)
 
     runcfg_dict = {
-        'title': 'MLPerf NV Correlation',
+        'title': 'Metal Tensix Correlation',
         'study': sname,
         'odir': odir.as_posix(),
-        'wlspec': (opath / nv_workloads_yaml_file).as_posix(),
-        'archspec': 'config/all_archs.yaml',
+        'wlspec': (opath / tensix_workloads_yaml_file).as_posix(),
+        'archspec': 'config/tt_wh.yaml',
         'wlmapspec': 'config/wl2archmapping.yaml',
         'filterarch': ','.join(uniq_devs),
         'dumpstatscsv': True,
     }
-    print_yaml(runcfg_dict, opath / nv_runcfg_file)
+    print_yaml(runcfg_dict, opath / tensix_runcfg_file)
 
-    cmd = ['python', 'polproj.py', '--config', (opath / nv_runcfg_file).as_posix()]
+    cmd = ['python', 'polproj.py', '--config', (opath / tensix_runcfg_file).as_posix()]
     cmdstr = ' '.join(cmd)
     print(cmdstr)
     ret = subprocess.run(cmdstr, shell=True, stderr=subprocess.STDOUT)
-    if ret.returncode != 0:  # pragma: no cover
+    if ret.returncode != 0:
         logger.error('command "{}" failed with exit code {}', cmd, ret.returncode)
         return ret.returncode
     actual_scores = read_scores(opath / sname / 'SUMMARY' / 'study-summary.json')
-    comparison =  compare_scores(mlperf_ref_scores, actual_scores)
+    comparison = compare_scores(metal_ref_scores, actual_scores)
     with open(opath / 'correlation_result.csv', 'w', newline='') as fout:
         writer = csv.DictWriter(fout, fieldnames=comparison[0].keys())
         writer.writeheader()

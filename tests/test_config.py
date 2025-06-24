@@ -53,7 +53,7 @@ def test_arspec_config():
 @pytest.mark.unit
 def test_wlspec_config():
     result = get_wlspec_from_yaml('config/all_workloads.yaml')
-    ttsim = next((wl for wlname, wl in result.items() if wl.api == 'TTSIM'))
+    ttsim = next((wl[0] for wlname, wl in result.items() if wl[0].api == 'TTSIM'))
     instances = ttsim.get_instances()
 
 @pytest.mark.unit
