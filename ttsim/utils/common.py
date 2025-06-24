@@ -11,6 +11,7 @@ import logging
 from copy import deepcopy
 from functools import lru_cache
 from collections.abc import KeysView
+from ttsim.utils.readfromurl import locator_handle
 
 openpyxl = None
 
@@ -22,7 +23,7 @@ class dict2obj:
         raise AttributeError(f"Attribute '{item}' not found!!")
 
 def parse_csv(csvfilename):
-    with open(csvfilename) as fcsv:
+    with open(locator_handle(csvfilename)) as fcsv:
         rowlines = [row.strip() for row in fcsv]
 
     # Skip rows beginning with '#', and blank rows
@@ -96,16 +97,17 @@ def parse_worksheet(filename):
     else:
         raise RuntimeError(f'reading worksheet file "{filename} not supported')
 
+
 def parse_yaml(yamlfile):
     res = None
-    with open(yamlfile) as yamlf:
+    with open(locator_handle(yamlfile)) as yamlf:
         res = yaml.safe_load(yamlf)
     return res
 
 #TODO: Check if this sucks for large YAMLs: convert to streaming generator instead...
 def parse_multidoc_yaml(yamlfile):
     res = None
-    with open(yamlfile) as yamlf:
+    with open(locator_handle(yamlfile)) as yamlf:
         res = []
         for rec in yaml.safe_load_all(yamlf):
             res.append(rec)
