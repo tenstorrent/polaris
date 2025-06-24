@@ -258,7 +258,7 @@ class SimOp:
 
     def get_perf_counts(self, inT, outT, **kwargs):
         assert False, f"{self.optype}::get_perf_counts not implemented yet"
-        return
+        # return
 
     def update_tensor_counts(self, inT, outT, **kwargs):
         in_param_count  = sum([x.nelems() for x in inT if x.is_param == True])

@@ -321,4 +321,3 @@ class WorkloadGraph():
             check_model(model_def)
         onnx.save(model_def, onnx_filename)
         return
-
