@@ -430,7 +430,8 @@ class BaseLSSFPN(SimNN.Module):
         _2p0 = F._from_data('_2p0', data=np.array([2.0]))
         geom_xyz = (geom_xyz - (self.voxel_coord - self.voxel_size / _2p0)) / self.voxel_size
         if self.training or self.use_da:
-            assert False, "\nREACHED voxel_pooling_train -- not implemented yet\n"
+            raise NotImplementedError("voxel_pooling_train -- not implemented yet")
+            # # Placeholder for voxel_pooling_train functionality.
             # img_feat_with_depth = depth.unsqueeze(1) * \
             #         depth_feature[:, self.depth_channels:(self.depth_channels + self.output_channels)].unsqueeze(2)
             #
