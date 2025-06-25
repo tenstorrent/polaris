@@ -431,25 +431,23 @@ class BaseLSSFPN(SimNN.Module):
         geom_xyz = (geom_xyz - (self.voxel_coord - self.voxel_size / _2p0)) / self.voxel_size
         if self.training or self.use_da:
             assert False, "\nREACHED voxel_pooling_train -- not implemented yet\n"
-            """
-            img_feat_with_depth = depth.unsqueeze(1) * \
-                    depth_feature[:, self.depth_channels:(self.depth_channels + self.output_channels)].unsqueeze(2)
-
-            img_feat_with_depth = self._forward_voxel_net(img_feat_with_depth)
-
-            img_feat_with_depth = img_feat_with_depth.reshape(
-                batch_size,
-                num_cams,
-                img_feat_with_depth.shape[1],
-                img_feat_with_depth.shape[2],
-                img_feat_with_depth.shape[3],
-                img_feat_with_depth.shape[4],
-            )
-
-            img_feat_with_depth = img_feat_with_depth.permute(0, 1, 3, 4, 5, 2)
-
-            feature_map = voxel_pooling_train(geom_xyz, img_feat_with_depth.contiguous(), self.voxel_num.cuda())
-            """
+            # img_feat_with_depth = depth.unsqueeze(1) * \
+            #         depth_feature[:, self.depth_channels:(self.depth_channels + self.output_channels)].unsqueeze(2)
+            #
+            # img_feat_with_depth = self._forward_voxel_net(img_feat_with_depth)
+            #
+            # img_feat_with_depth = img_feat_with_depth.reshape(
+            #     batch_size,
+            #     num_cams,
+            #     img_feat_with_depth.shape[1],
+            #     img_feat_with_depth.shape[2],
+            #     img_feat_with_depth.shape[3],
+            #     img_feat_with_depth.shape[4],
+            # )
+            #
+            # img_feat_with_depth = img_feat_with_depth.permute(0, 1, 3, 4, 5, 2)
+            #
+            # feature_map = voxel_pooling_train(geom_xyz, img_feat_with_depth.contiguous(), self.voxel_num.cuda())
         else:
             feature_map = self.voxel_pooling_inf(geom_xyz,
                                                   depth,
