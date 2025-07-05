@@ -25,10 +25,11 @@ def url_2_key(url: str) -> str:
 
 class FileLocator:
     SUPPORTED_SCHEMES = ['http', 'https']
-    def __init__(self, filename: Path | str):
+    def __init__(self, filename: Path | str, use_cache: bool = True):
         """
             Initialize the FileLocator with a base path.
-            :param base_path: Base path to resolve relative paths against.
+            :param filename: Filename.
+            :param use_cache: Whether to use cache for fetching content.
         """
         if isinstance(filename, Path):
             self._filename = filename
@@ -40,6 +41,7 @@ class FileLocator:
             return
         if res.scheme not in FileLocator.SUPPORTED_SCHEMES:
             raise NotImplementedError(f'Unsupported URL scheme {res.scheme} for {filename}')
+        self._use_cache = use_cache
         self._filename = self.__fetch_url(filename)
 
 
@@ -57,14 +59,16 @@ class FileLocator:
         Caches the content for future use.
         """
         cache_key = url_2_key(url)
-        filepath = CacheManager.get_cached_filepath(cache_key)
-        if filepath is None:
-            logging.warning(f'No cached content for {url}, fetching from the URL')
+        if (not self._use_cache) or (filepath := CacheManager.get_cached_filepath(cache_key)) is None:
+            if not self._use_cache:
+                logging.debug(f'cache force-skipped for reading {url}')
+            else:
+                logging.debug(f'no cached content for {url}, fetching from the URL')
             (response := requests.get(url)).raise_for_status() # Raise an error for bad responses
             filepath = CacheManager.set_content(cache_key, response.text)
             assert filepath is not None, f'Failed to cache content for {url}'
         else:
-            logging.warning(f'Cached content for {url} being reused')
+            logging.debug(f'Cached content for {url} being reused')
         return filepath
 
 
@@ -77,15 +81,16 @@ def locator_handle(filename: Path | str) -> Path:
     locator: FileLocator = FileLocator(filename)
     return locator.path
 
-def read_from_url(url: str) -> str:
+def read_from_url(url: str, use_cache: bool = True) -> str:
     """
     Reads content from a URL and caches it.
 
     Args:
         url (str): The URL to read from.
-
+        use_cache (bool): Whether to use cache for fetching content. Defaults to True.
+        When set to False, it will always fetch the content from the URL.
     Returns:
         str: The content read from the URL.
     """
-    with open(FileLocator(url).path) as fin:
+    with open(FileLocator(url, use_cache=use_cache).path) as fin:
         return fin.read()
