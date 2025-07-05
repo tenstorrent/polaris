@@ -68,7 +68,9 @@ COLNAME_MAP: dict[str, str] = {
     't/s/u': 'tokens_per_second_per_user',
     't/s': 'tokens_per_second',
     'sen/sec': 'perf',
+    'sentence/sec': 'perf',
     'target_sen/sec': 'target_perf',
+    'target_sentence/sec': 'target_perf',
     'model': 'benchmark',
     'batch': 'gpu_batch_size',
     'tt-metalium_release': 'tt_metallium_release',
@@ -158,10 +160,10 @@ def extract_table_from_html_link(link: str) -> list[TensixNwPerfMetricModel]:
         link (str): The URL of the HTML page containing the table.
 
     Returns:
-        str: The extracted table in a string format.
+        list[TensixNwPerfMetricModel]: The extracted table as a list of TensixNWPerfMetricModel entries, one per row.
     """
     # Placeholder for actual implementation
-    html_content: str = read_from_url(link)
+    html_content: str = read_from_url(link, use_cache=False)
     doc: html.HtmlElement = html.fromstring(html_content)
 
     all_tables = doc.findall('.//table')
