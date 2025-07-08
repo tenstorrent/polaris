@@ -2,6 +2,7 @@
 markers = [
     "unit: unit tests",
     "opunit: unit tests for operators",
+    "tools_secondary: Tests for secondary tools",
 ]
 pythonpath = "."
 

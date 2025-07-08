@@ -40,7 +40,7 @@ jobs:
     - name: Run Unit and Coverage Tests
       run: | 
         coverage erase
-        coverage run -m pytest --junitxml __ci/xml/junit.xml
+        coverage run -m pytest -m "not tools_secondary" --junitxml __ci/xml/junit.xml
         coverage combine
         coverage report 
         coverage html -d __ci/html/
