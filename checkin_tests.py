@@ -16,11 +16,13 @@ OptionalString = str | None
 
 CommandHandler = Callable[[OptionalString], list[str]]
 
+PYTEST_KNOBS = '--durations=0 -m "not tools_secondary"'
+
 def prepare_commands_coverage(condaenvprefix: OptionalString) -> list[str]:
     # Knobs for coverage, pytest (as part of coverage run), mypy are picked up from
     # pyproject.toml. These knobs are NOT replicated here, to avoid inconsistency
     commands = [
-        f'{condaenvprefix} coverage erase && coverage run -m pytest && coverage combine &&  coverage report && coverage html',
+        f'{condaenvprefix} coverage erase && coverage run -m pytest {PYTEST_KNOBS} && coverage combine &&  coverage report && coverage html',
     ]
     return commands
 
