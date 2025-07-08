@@ -152,18 +152,20 @@ def process_resnet_row(row: ValueDict) -> ValueDict:
     return row
 
 
-def extract_table_from_html_link(link: str) -> list[TensixNwPerfMetricModel]:
+def extract_table_from_html_link(link: str, use_cache: bool = True) -> list[TensixNwPerfMetricModel]:
     """
     Extracts a table from an HTML link.
 
     Args:
         link (str): The URL of the HTML page containing the table.
+        use_cache (bool): Whether to use cache for fetching content. Defaults to True.
+        When set to False, it will always fetch the content from the URL.
 
     Returns:
         list[TensixNwPerfMetricModel]: The extracted table as a list of TensixNWPerfMetricModel entries, one per row.
     """
     # Placeholder for actual implementation
-    html_content: str = read_from_url(link, use_cache=False)
+    html_content: str = read_from_url(link, use_cache=use_cache)
     doc: html.HtmlElement = html.fromstring(html_content)
 
     all_tables = doc.findall('.//table')
@@ -280,17 +282,31 @@ def create_args(argv: list[str] | None = None) -> argparse.Namespace:
     return parser.parse_args(argv)
 
 
+def parse_metal_tensix_results(argv: list[str] | None = None, use_cache: bool = True) -> int:
+    """
+    Main function to parse and extract metrics from TT-Metal Tensix results.
 
-def main(argv: list[str] | None = None) -> int:
+    Args:
+        argv (list[str] | None): List of command line arguments. If None, uses sys.argv.
+        use_cache (bool): Whether to use cache for fetching content. Defaults to True.
+        When set to False, it will always fetch the content from the URL.
+
+    Returns:
+        int: Exit code of the script.
+    """
     args = create_args(argv)
     setup_logger()
     link = 'https://github.com/tenstorrent/tt-metal/tree/main'
     os.makedirs(args.output_dir, exist_ok=True)
-    metrics = extract_table_from_html_link(link)
+    metrics = extract_table_from_html_link(link, use_cache=use_cache)
     report_systems_of_interest(metrics)
     save_metrics(metrics, args.output_dir)
     logger.info('Extracted {} metrics from {}', len(metrics), link)
     return 0
+
+
+def main(argv: list[str] | None = None) -> int:
+    return parse_metal_tensix_results(argv, use_cache=True)
 
 
 if __name__ == '__main__':
