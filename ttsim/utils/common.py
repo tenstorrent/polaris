@@ -4,12 +4,13 @@
 import yaml
 import csv
 import json
-from typing import Any
+from typing import Any, Iterable
 from importlib import import_module, util as importlib_util
 from pathlib import Path
 import logging
 from copy import deepcopy
-from functools import lru_cache
+from functools import lru_cache, reduce
+import operator as op
 from collections.abc import KeysView
 from ttsim.utils.readfromurl import locator_handle
 
@@ -96,7 +97,6 @@ def parse_worksheet(filename):
         return parse_xlsx(input_file, sheet_name)
     else:
         raise RuntimeError(f'reading worksheet file "{filename} not supported')
-
 
 def parse_yaml(yamlfile):
     res = None
@@ -236,3 +236,6 @@ def get_kwargs_with_defaults(opname: str, /,
 @lru_cache(128)
 def warnonce(msg, *args, **kwargs):
     logging.warning(msg, *args, **kwargs)
+
+def prod_ints(L: Iterable[int]) -> int:
+    return reduce(op.mul, L, 1)
