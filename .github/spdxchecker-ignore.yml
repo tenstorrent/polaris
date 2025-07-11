@@ -5,6 +5,7 @@ ignore:
   - '*.csv'
   - '*.md'
   - '*.onnx'
+  - '*.png'
   - .gitignore
   - condarc
   - '*.txt'
