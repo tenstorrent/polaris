@@ -18,8 +18,15 @@ openpyxl = None
 
 class dict2obj:
     def __init__(self, d):
-        for k,v in d.items():
-            setattr(self, k, dict2obj(v) if isinstance(v, dict) else v)
+        for key, value in d.items():
+            key = key if isinstance(key, str) else str(key)
+            if isinstance(value, dict):
+                setattr(self, key, dict2obj(value))
+            elif isinstance(value, (list, tuple)):
+                setattr(self, key, [dict2obj(item) if isinstance(item, dict) else item for item in value])
+            else:
+                setattr(self, key, value)
+
     def __getattr__(self, item):
         raise AttributeError(f"Attribute '{item}' not found!!")
 

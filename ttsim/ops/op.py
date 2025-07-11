@@ -504,6 +504,59 @@ class GatherOp(SimOp):
                 }
         return self.perf_stats
 
+class TorchGatherOp(SimOp):
+    """
+    Implements torch.gather operation.
+    Reason for having this separate from ONNX Gather:
+
+    GatherOp (ONNX-style Gather): Implements ONNX-style gather operation
+    Output shape calculation: data_shape[:axis] + indices_shape + data_shape[axis + 1:]
+    The indices tensor shape is inserted into the output shape at the gather axis
+    # data: [3, 4], indices: [2], axis=0
+    # Output shape: [] + [2] + [4] = [2, 4]
+
+    TorchGatherOp (PyTorch-style Gather): Implements PyTorch's torch.gather() operation
+    Output shape calculation: Same as index_shape (shape of index tensor).
+    Requires index tensor to have compatible dimensions with input tensor
+    # data: [3, 4], indices: [2, 4], axis=0
+    # Output shape: [2, 4] (same as indices shape)
+
+    Inputs:
+    - data: input tensor
+    - index: indices tensor
+    - axis: axis along which to gather (from attrs)
+    Output:
+    - gathered tensor
+    """
+    def __init__(self, opinfo):
+        super().__init__(opinfo)
+        self.opclass_str: str = 'TorchGather'
+        check_io_counts(self, in_counts=[2,2], out_counts=[1,1])
+
+    def get_perf_counts(self, inT, outT, **kwargs):
+        if self.perf_stats is not None:
+            return self.perf_stats
+
+        axis     = self.attrs.get('axis', 0)
+        dataT    = inT[0]
+        indexT   = inT[1]
+        assert dataT.check_shape(), f"Illegal input dataT shape: {dataT}!!"
+        assert indexT.check_shape(), f"Illegal input indexT shape: {indexT}!!"
+
+        # Output shape is same as index shape
+        outT[0].shape = indexT.shape
+        outT[0].dtype = dataT.dtype
+
+        # Perf: each output element is a gather from input
+        self.perf_stats = {
+            'inElems' : dataT.nelems() + indexT.nelems(),
+            'outElems': outT[0].nelems(),
+            'inBytes' : dataT.nbytes() + indexT.nbytes(),
+            'outBytes': outT[0].nbytes(),
+            'instrs'  : {'mov': outT[0].nelems()}
+        }
+        return self.perf_stats
+
 class LayerNormalizationOp(SimOp):
     def __init__(self, opinfo):
         super().__init__(opinfo)
@@ -1439,7 +1492,9 @@ class WhereOp(SimOp):
         tmp_outT = build_tmp_data_tensor(np_out, self.name + '__tmp_out__')
         update_output_tensor(self, tmp_outT, outT[0])
         '''
-        assert outT[0].check_shape(), f"SHAPE INFERENCE ERROR!!"
+        # assert outT[0].check_shape(), f"SHAPE INFERENCE ERROR!!"
+        outT[0].shape = inT[1].shape
+        outT[0].dtype = inT[1].dtype
         self.perf_stats = {
                 'inElems' : inT[0].nelems() + inT[1].nelems() + inT[2].nelems(),
                 'outElems': outT[0].nelems(),
@@ -2481,25 +2536,105 @@ class ReduceSumOp(SimOp):
 
         return self.perf_stats
 
-class ReduceMaxOp(SimOp):
+class ReduceOp(SimOp):
     def __init__(self, opinfo):
         super().__init__(opinfo)
-        self.opclass_str: str = 'ReduceMax'
+        self.opclass_str: str = 'Reduce'
         check_io_counts(self, in_counts=[1,2], out_counts=[1,1])
-        #self._kw_args_defaults = { 'keepdims': 1, 'noop_with_empty_axes': 0 }
-        #if 'attrs' in opinfo:
-        #    self.check_known_args(opinfo['attrs'])
 
     def get_perf_counts(self, inT, outT, **kwargs):
         if self.perf_stats is not None:
             return self.perf_stats
 
+        keepdims = self.attrs.get('keepdims', 1)
+        noop     = self.attrs.get('noop_with_empty_axes', 0)
+        dataT    = clone_tensor_by_shape(inT[0])
+        axesT    = clone_tensor_by_shape(inT[1], data_maybe_missing=False) if len(inT) == 2 else None
+        rank     = dataT.rank()
+        if axesT is None:
+            if noop:
+                outShape = dataT.shape
+                reduce_axes = None
+            else:
+                reduce_axes = [i for i in range(rank)]
+        else:
+            reduce_axes = [i for i in axesT.data]
+
+        if reduce_axes:
+            normalized_axes = []
+            for a in reduce_axes:
+                if a < 0: a += rank
+                assert (0 <= a < rank), f"reduce axis {a} out of range for rank {rank}"
+                normalized_axes.append(a)
+            axes_set = sorted(set(normalized_axes))
+
+            if keepdims:
+                outShape = [1 if i in axes_set else d for i,d in enumerate(dataT.shape)]
+            else:
+                outShape = [d for i,d in enumerate(dataT.shape) if i not in axes_set]
+
+
+        inelems = dataT.nelems()
+        instr_profile = {
+                'ReduceL1'        : {'abs': inelems, 'sum': inelems},
+                'ReduceL2'        : {'mul': inelems, 'sum': inelems, 'sqrt': 1},
+                'ReduceLogSum'    : {'log': inelems, 'sum': inelems},
+                'ReduceLogSumExp' : {'log': inelems, 'sum': inelems, 'exp': 1},
+                'ReduceMax'       : {'cmp': inelems},
+                'ReduceMean'      : {'sum': inelems, 'div': 1},
+                'ReduceMin'       : {'cmp': inelems},
+                'ReduceProd'      : {'mul': inelems},
+                'ReduceSum'       : {'sum': inelems},
+                'ReduceSumSquare' : {'mul': inelems, 'sum': inelems},
+                }
+
+        outT[0].shape = outShape
+        outT[0].dtype = dataT.dtype
         self.perf_stats = {
                 'inElems' : sum([x.nelems() for x in inT]),
                 'inBytes' : sum([x.nbytes(self.precision) for x in inT]),
                 'outElems': outT[0].nelems(),
                 'outBytes': outT[0].nbytes(self.precision),
-                'instrs'  : {'max': outT[0].nelems()}
+                'instrs'  : instr_profile[self.optype]
+                }
+
+        return self.perf_stats
+
+class ArgMaxMinOp(SimOp):
+    def __init__(self, opinfo):
+        super().__init__(opinfo)
+        self.opclass_str: str = 'ArgMaxMin'
+        check_io_counts(self, in_counts=[1,1], out_counts=[1,1])
+
+    def get_perf_counts(self, inT, outT, **kwargs):
+        if self.perf_stats is not None:
+            return self.perf_stats
+
+        #select_last_index = self.attrs.get('select_last_index', 0) -- has no effect on outshape!!
+        keepdims = self.attrs.get('keepdims', 1)
+        axis     = self.attrs.get('axis',     0)
+        dataT    = clone_tensor_by_shape(inT[0])
+        rank     = dataT.rank()
+        if axis < 0: axis += rank
+        assert (0 <= axis < rank), f"Arg axis {axis} out of range for rank {rank}"
+
+        if keepdims:
+            outShape = [i for i in dataT.shape]
+            outShape[axis] = 1
+        else:
+            outShape = [d for i,d in enumerate(dataT.shape) if i != axis]
+
+        outT[0].shape = outShape
+        #outT[0].dtype = np.dtype(np.int64)
+        #create dummy index data so that it can work downstream...
+        outT[0].data  = np.array([0 for i in range(outT[0].rank())], dtype=np.int64)
+        outT[0].dtype = outT[0].data.dtype
+        self.perf_stats = {
+                'inElems' : dataT.nelems(),
+                'inBytes' : dataT.nbytes(),
+                'outElems': outT[0].nelems(),
+                'outBytes': outT[0].nbytes(self.precision),
+                'instrs'  : {'cmp': dataT.nelems()}
                 }
 
         return self.perf_stats
@@ -3005,6 +3140,7 @@ def SimOpFactory(optype: str) -> type[SimOp]:
             EltwiseUnaryOp       : ['Identity', 'Tanh', 'Sin', 'Cos', 'Neg', 'Sqrt', 'Exp', 'Log'],
             ConstantOp           : ['Constant'],
             GatherOp             : ['Gather'],
+            TorchGatherOp        : ['TorchGather'],
             LayerNormalizationOp : ['LayerNormalization'],
             SumOp                : ['Sum'], #Mamba2
             AssignOp             : ['Assign'], #Mamba2
@@ -3031,10 +3167,13 @@ def SimOpFactory(optype: str) -> type[SimOp]:
             GeluOp               : ['Gelu'],
             ReluOp               : ['Relu'],
             ClipOp               : ['Clip'], #Mamba2
+            ReduceOp             : ['ReduceL1', 'ReduceL2', 'ReduceLogSum', 'ReduceLogSumExp',
+                                    'ReduceMax', 'ReduceMean', 'ReduceMin', 'ReduceProd',
+                                    'ReduceSum', 'ReduceSumSquare'],
+            ArgMaxMinOp          : ['ArgMax', 'ArgMin'],
             LeakyReluOp          : ['LeakyRelu'], #Yolo-v7
             SigmoidOp            : ['Sigmoid'], #Yolo-v7
             ResizeOp             : ['Resize'], #Yolo-v7
-            ReduceMaxOp          : ['ReduceMax', 'ArgMax'], #Yolo-v7
             NonMaxSuppressionOp  : ['NonMaxSuppression'], #Yolo-v7
             FlattenOp            : ['Flatten'], #Yolo-v7
             UpsampleOp           : ['Upsample'], #UNet

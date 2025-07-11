@@ -222,10 +222,15 @@ class WorkloadGraph():
                 raise RuntimeError(f'node={opname} operator={optype} rsrc={rsrc} error!')
         return
 
-    def graph2onnx(self, onnx_filename, /, producer_name="ttsim.functional.export", do_model_check=True):
+    def graph2onnx(self, onnx_filename, /, producer_name="ttsim.functional.export",
+                   do_model_check=True, filter_op_attrs=None):
         nptype_map = {
                 np.float32: TensorProto.FLOAT,
                 np.float64: TensorProto.FLOAT,
+                np.uint8:   TensorProto.UINT8,
+                np.uint16:  TensorProto.UINT16,
+                np.uint32:  TensorProto.UINT32,
+                np.int32:   TensorProto.INT32,
                 np.int64:   TensorProto.INT64,
                 np.bool_:   TensorProto.BOOL,
                 }
@@ -274,7 +279,11 @@ class WorkloadGraph():
 
         onnx_nodes = {}
         for oname, op in self._ops.items():
-            onnx_nodes[oname] = make_node(op.optype, op.inList, op.outList, name=oname, **op.attrs)
+            if filter_op_attrs is not None:
+                onnx_attrs = filter_op_attrs(op.attrs)
+            else:
+                onnx_attrs = op.attrs
+            onnx_nodes[oname] = make_node(op.optype, op.inList, op.outList, name=oname, **onnx_attrs)
 
         input_list        = [onnx_tensors[x] for x in self.get_input_tensors() if x in onnx_tensors]
         output_list       = [onnx_tensors[x] for x in self.get_output_tensors() if x in onnx_tensors]

@@ -345,8 +345,7 @@ def get_workloads(wlspec, bsweep, filterwlg, filterwl, filterwli):
                 else:
                     wl_list += [(wlapi, wl.name, wli_name, wli_cfg, None)]
     INFO('reading workload specification {}: found {:4d} #workloads', wlspec, len(wl_list))
-    for ndx, tmp in enumerate(wl_list):
-        INFO('{}: {}', ndx, tmp)
+    #for ndx, tmp in enumerate(wl_list): INFO('{}: {}', ndx, tmp)
     wl_list = apply_filter(wl_list, filterwlg, lambda x: x[0])
     wl_list = apply_filter(wl_list, filterwl,  lambda x: x[1])
     wl_list = apply_filter(wl_list, filterwli, lambda x: x[2])
