@@ -8,7 +8,7 @@
 <div align="center">
 
 <picture>
-<img alt="Logo" src="doc/polaris_logo.png" height="200">
+<img alt="Polaris logo" src="doc/polaris_logo.png" height="200">
 </picture>
 
 <p>
