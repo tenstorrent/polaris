@@ -4,8 +4,20 @@
   ![Unit Tests](./__ci/badge/pytest.svg?dummy=8484744)
   [![Coverage](./__ci/badge/coverage.svg?dummy=8484744)](./__ci/html/index.html)
 -->
-# Polaris
+
+<div align="center">
+
+<picture>
+<img alt="Polaris logo" src="doc/polaris_logo.png" height="200">
+</picture>
+
+<p>
 Yet Another High Level AI Simulator
+</p>
+
+</div>
+
+----
 
 ## Table of Contents
 - [Introduction](#introduction)
