@@ -285,6 +285,28 @@ class SimOp:
         self.fused_in_optimization = True
         self.fused_with_op         = fused_with_op
 
+    def execute_fn_on_dev(self, device):
+        #find compute cycles
+        self.compute_cycles = 0
+        if TYPE_CHECKING:
+            assert self.perf_stats is not None
+        for instr,instr_count in self.perf_stats['instrs'].items():
+            peak_ipc = 1 #device.peak_ipc(self.uses_compute_pipe, instr, self.precision)
+            real_ipc = peak_ipc * G_COMPUTE_UTIL_CONSTANT
+            self.compute_cycles += math.ceil(instr_count / real_ipc)
+        #find memory cycles
+        mem_rd_GB     = self.perf_stats['inBytes'] / 1024 / 1024 / 1024
+        mem_wr_GB     = self.perf_stats['outBytes'] / 1024 / 1024 / 1024
+        freq_MHz      = 1000 #device.frequency(self.uses_compute_pipe, units='MHz')
+        peak_bw_GBps  = 100 #device.peak_bandwidth(freq_units="GHz")
+        bw_GBps       = peak_bw_GBps * G_MEMORY_UTIL_CONSTANT
+        #convert to device clk cycles
+        self.mem_rd_cycles = math.ceil((mem_rd_GB / bw_GBps) * freq_MHz * 1e6)
+        self.mem_wr_cycles = math.ceil((mem_wr_GB / bw_GBps) * freq_MHz * 1e6)
+
+        return
+
+
     def execute(self, device):
         #find compute cycles
         self.compute_cycles = 0
@@ -1127,8 +1149,8 @@ class MatMulOp(SimOp):
         self.perf_stats = {
             'inElems' : inT[0].nelems() + inT[1].nelems(),
             'outElems': outT[0].nelems(),
-            'inBytes' : inT[0].nelems() * inT[0].dtype.itemsize + inT[1].nelems() * inT[1].dtype.itemsize,
-            'outBytes': outT[0].nelems() * outT[0].dtype.itemsize,
+            'inBytes' : inT[0].nelems() * np.dtype(inT[0].dtype).itemsize + inT[1].nelems() * np.dtype(inT[1].dtype).itemsize,
+            'outBytes': outT[0].nelems() * np.dtype(outT[0].dtype).itemsize,
             'instrs'  : {'mac': outT[0].nelems() * reduced_dim}
             }
         return self.perf_stats

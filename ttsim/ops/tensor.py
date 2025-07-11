@@ -59,7 +59,7 @@ class SimTensor:
     #   how is the tensor stored in memory? channel first, batch later or something else. may have
     #   to represent tiling formats here.
     def nbytes(self):
-        return self.nelems() * self.dtype.itemsize #assumes np.dtype
+        return self.nelems() * np.dtype(self.dtype).itemsize
 
     def check_shape(self):
         if self.shape is None:

@@ -88,6 +88,19 @@ class SimOpHandle:
         if self.link_module == None:
             self.link_module = m
 
+    def print_perf_stats(self):
+        if self.perf_stats is not None:
+            print(f"SimOpHandle({self.name}) perf stats: {self.perf_stats}")
+        else:
+            print(f"SimOpHandle({self.name}) perf stats not available yet")
+        return
+
+    def get_simulator_op(self):
+        return get_sim_op(self.opinfo)
+
+    def get_otensor(self):
+        return get_output(self.name)
+
     def __call__(self, *xargs):
         assert len(xargs) == len(self.ipos), \
                 f"Length for inputs {len(xargs)} & ipos {len(self.ipos)} don't match"
@@ -117,6 +130,8 @@ class SimOpHandle:
         #get perf stats for the SimOp -- this also ensures that the output tensor shape/data
         #is well formed
         self.perf_stats = self.sim_op.get_perf_counts(xinput,[self.otensor])
+        self.print_perf_stats()
+
         self.sim_op.update_tensor_counts(xinput,[self.otensor])
 
         #return result

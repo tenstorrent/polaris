@@ -617,7 +617,6 @@ def main(argv: list[str] | None = None) -> int:
     return polaris(args)
 
 
-
 if __name__ == '__main__':
     start_time = time.perf_counter()
     num_exps   = main()
@@ -628,3 +627,79 @@ if __name__ == '__main__':
         print(f"Completed {num_exps} jobs in {del_time:0.2f} seconds @ {num_exps/del_time:.0f} jobs per sec")
     else:
         print()
+
+def execute_simophandle(op_handle, input_tensors, device_obj=None, op_attrs=None):
+    """
+    Execute simulation operation handle to get simulation clocks for operations.
+
+    Args:
+        op_handle: SimOpHandle instance from functional/op.py
+        input_tensors: List of input tensor specifications
+        device_obj: Device object with architecture specifications
+        op_attrs: Optional operation attributes dictionary
+
+    Returns:
+        dict: Simulation results containing cycles, performance stats, and resource usage
+    """
+    import logging
+    from ttsim.front.functional.op import SimOpHandle
+
+    LOG = logging.getLogger(__name__)
+
+    # Validate op_handle type
+    if not isinstance(op_handle, SimOpHandle):
+        raise TypeError(f"op_handle must be of type SimOpHandle, got {type(op_handle)}")
+
+    if op_attrs is None:
+        op_attrs = {}
+
+    # Initialize performance statistics following polaris.py pattern
+    perf_stats = {
+        'compute_cycles': 0,
+        'mem_rd_cycles': 0,
+        'mem_wr_cycles': 0,
+        'total_cycles': 0,
+        'msecs': 0.0,
+        'rsrc_bnck': 'NA',
+        'instrs': {},
+        'inParamCount': 0,
+        'inActCount': 0,
+        'outActCount': 0,
+        'precision': op_handle.precision if hasattr(op_handle, 'precision') else 'FP16'
+    }
+
+    # Get device frequency for the operation
+    uses_compute_pipe = getattr(op_handle, 'uses_compute_pipe', 'matrix')
+    dev_freq_MHz = 2000; #device_obj.frequency(uses_compute_pipe, units='MHz')
+
+    # Use SimOpHandle's get_perf_counts method if available
+    all_itensors = op_handle.params + list(zip(op_handle.ipos, input_tensors))
+    sorted_all_itensors = sorted(all_itensors, key=lambda v: v[0])
+    xinput = [x for _,x in sorted_all_itensors]
+
+    for x in xinput:
+        x.op_in.append(op_handle.name)
+        op_handle.opinfo['inList'].append(x)
+
+    op_handle.otensor = op_handle.get_otensor()
+    op_handle.opinfo['outList'] = [op_handle.otensor]
+    op_handle.opinfo['outList'][0].shape = xinput[0].shape
+
+    sim_op = op_handle.get_simulator_op()
+
+    op_handle.perf_stats = sim_op.get_perf_counts(xinput,op_handle.opinfo['outList'])
+    op_handle.print_perf_stats()
+    sim_op.update_tensor_counts(xinput,[op_handle.otensor])
+    sim_op.execute_fn_on_dev(device_obj)
+    compute_cycles = getattr(op_handle, 'compute_cycles', sim_op.compute_cycles)
+    mem_rd_cycles = getattr(op_handle, 'mem_rd_cycles', sim_op.mem_rd_cycles)
+    mem_wr_cycles = getattr(op_handle, 'mem_wr_cycles', sim_op.mem_wr_cycles)
+
+    print(f"Executed {op_handle.optype} simulation: {compute_cycles} compute cycles, "
+         f"{mem_rd_cycles} mem read cycles, {mem_wr_cycles} mem write cycles")
+    # Add ramp penalty following polaris.py pattern
+    ramp_penalty = 5 #device_obj.ramp_penalty() if hasattr(device_obj, 'ramp_penalty') else 0
+
+    mem_cycles = mem_rd_cycles + mem_wr_cycles
+    print(f"compute_cycles: {compute_cycles}, mem_cycles: {mem_cycles}, ramp_penalty: {ramp_penalty}")
+    return op_handle.otensor
