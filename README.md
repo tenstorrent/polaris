@@ -5,13 +5,17 @@
   [![Coverage](./__ci/badge/coverage.svg?dummy=8484744)](./__ci/html/index.html)
 -->
 
-<center>
+<div align="center">
+
 <picture>
-<img alt="Logo" src="doc/polaris_logo.png" height="100">
+<img alt="Logo" src="doc/polaris_logo.png" height="200">
 </picture>
 
+<p>
 Yet Another High Level AI Simulator
-</center>
+</p>
+
+</div>
 
 ----
 
