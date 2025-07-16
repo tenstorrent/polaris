@@ -954,8 +954,10 @@ class ConvOp(SimOp):
         if len(inT) == 3:
             instr_count['add'] = output_elements
 
-        inElems = X.nelems() + W.nelems() + (B.nelems() if len(inT) == 3 else 0)
-        inBytes = X.nbytes() + W.nbytes() + (B.nbytes() if len(inT) == 3 else 0)
+        bias_elems = B.nelems() if len(inT) == 3 else 0
+        bias_bytes = B.nbytes() if len(inT) == 3 else 0
+        inElems = X.nelems() + W.nelems() + bias_elems
+        inBytes = X.nbytes() + W.nbytes() + bias_bytes
 
         self.perf_stats = {
             'inElems' : inElems,
