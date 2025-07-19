@@ -1,8 +1,10 @@
 #!/usr/bin/env python
 # SPDX-FileCopyrightText: (C) 2025 Tenstorrent AI ULC
 # SPDX-License-Identifier: Apache-2.0
+import pytest
 import ttsim.front.functional.sim_nn as sim_nn
 from   ttsim.ops.tensor import SimTensor
+from ttsim.config.wl2archmap import WL2ArchTypeSpec as WL2ArchTypeSpec
 from typing import Union
 
 class SimOpTester(sim_nn.Module):
@@ -46,4 +48,21 @@ class SimOpTester(sim_nn.Module):
 
     def analytical_param_count(self) -> int:
         return 10 + 1 if self.bs is None else 0  # Use self.bs to avoid "method may be static" warnings
+
+
+class TypeSpecResetter:
+    """
+        Class to reset the type spec for a SimOp.
+        Used in tests to reset the type spec after each test.
+    """
+    def __init__(self):
+        WL2ArchTypeSpec.instance = None
+
+@pytest.fixture
+def reset_typespec():
+    """
+        Fixture to reset the type spec before each test.
+    """
+    resetter = TypeSpecResetter()
+    yield resetter
 

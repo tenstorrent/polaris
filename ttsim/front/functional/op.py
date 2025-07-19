@@ -9,6 +9,7 @@ import logging
 from ttsim.graph import WorkloadGraph
 from ttsim.ops import SimOpFactory, SimTensor
 import ttsim.utils.common as common
+from ttsim.config.wl2archmap import WL2ArchTypeSpec
 
 #creates a tensor from shape/dtype specification
 def _from_shape(name: str, shape: list[int], is_param: bool = False, is_const=False, np_dtype=np.float32) -> SimTensor:
@@ -55,8 +56,10 @@ def get_opinfo(name, optype, **kwargs):
     return {'name': name, 'optype': optype, 'attrs': kwargs, 'domain': 'ttsim.common', 'inList': []}
 
 def get_sim_op(opinfo):
-    opcls = SimOpFactory(opinfo['optype'])
+    optype: str = opinfo['optype']
+    opcls = SimOpFactory(optype)
     opobj = opcls(opinfo)
+    opobj.set_precision(WL2ArchTypeSpec.layer_2_datatype(optype.upper()))
     return opobj
 
 #####################################################################################################

@@ -1,35 +1,40 @@
 #!/usr/bin/env python
 # SPDX-FileCopyrightText: (C) 2025 Tenstorrent AI ULC
 # SPDX-License-Identifier: Apache-2.0
-import csv
 import os
 import sys
+import csv
 
 sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
+import argparse
 import json
-from loguru import logger
 import subprocess
 from pathlib import Path
 from typing import Any
 
+from loguru import logger
+
 from ttsim.utils.common import parse_yaml, print_yaml
 
 type ScoreTuple = tuple[str, str, str, str]
-type ScoreDict = dict[ScoreTuple, float]
+type ScoreDict = dict[ScoreTuple, dict[str, float]]
 
 
 OUTPUT_DIR: Path = Path('__TMP_TENSIX_METAL_CORR_OUT')
 
 
-def read_scores(filepath: Path) -> ScoreDict:
+def read_scores(filepath: Path, default_precision) -> ScoreDict:
     actual_scores: ScoreDict = dict()
     logger.info('===============================================')
     logger.info('Actual scores from {}', filepath)
     with open(filepath) as fin:
         actual_results = json.load(fin)['summary']
         for actual_res in actual_results:
-            actual_key = tuple([actual_res['devname'], actual_res['wlcls'], actual_res['wlname'], actual_res['wlinstance']])
-            actual_scores[actual_key] = actual_res['ideal_throughput']
+            actual_key = tuple([actual_res['wlname'], actual_res['devname'], actual_res['wlcls'], actual_res['wlinstance']])
+            actual_scores[actual_key] = {'ideal projection': actual_res['ideal_throughput'],
+                                         'projection': actual_res['perf_projection'],
+                                         'precision': default_precision
+            }
     return actual_scores
 
 
@@ -44,28 +49,56 @@ def compare_scores(ref_scores: ScoreDict, actual_scores: ScoreDict) -> list[dict
         logger.warning('Keys present in reference scores but not in actual scores: {}', only_ref_keys)
     if only_actual_keys:
         logger.warning('Keys present in actual scores but not in reference scores: {}', only_actual_keys)
-    for key in common_keys:
-        ref_score = ref_scores[key]
-        actual = actual_scores[key]
-        ratio = ref_score / actual
+    for key in sorted(common_keys):
+        ref_score = ref_scores[key]['perf']
+        ref_target_score = ref_scores[key]['target_perf']
+        ref_precision = ref_scores[key]['precision']
+        projection_precision = actual_scores[key]['precision'] if actual_scores[key]['precision'] is not None else ref_precision
+        projected_score = actual_scores[key]['projection']
+        projected_ideal_score = actual_scores[key].get('ideal projection', projected_score)
+        ratio_ideal_to_score = projected_ideal_score / ref_score if ref_score != 0 else None
+        ratio_ideal_to_target = projected_ideal_score / ref_target_score if ref_target_score != 0 else None
+        ratio_score_to_score = projected_score / ref_score if ref_score != 0 else None
+        ratio_score_to_target = projected_score / ref_target_score if ref_target_score != 0 else None
         result.append(
             {
-                'Arch': key[0],
-                'Workload': key[2],
+                'Workload': key[0],
+                'Arch': key[2],
                 'Instance': key[3],
                 'Api': key[1],
-                'Tensix-Score': ref_score,
-                'Actual-Score': actual,
-                'Diff': ref_score - actual,
-                'Ratio': ratio,
+                'Tensix-Precision': ref_precision,
+                'Tensix-Ref-Score': ref_score,
+                'Tensix-Target-Score': ref_target_score,
+                'Projection-Precision': projection_precision,
+                'Projected-Score': projected_score,
+                'Projected-Ideal-Score': projected_ideal_score,
+                'Ratio-Ideal-Score-to-Ref': ratio_ideal_to_score,
+                'Ratio-Ideal-Score-to-Target': ratio_ideal_to_target,
+                'Ratio-Score-to-Ref': ratio_score_to_score,
+                'Ratio-Score-to-Target': ratio_score_to_target,
+                'Diff-Ideal-Score-to-Ref': projected_ideal_score - ref_score,
+                'Diff-Ideal-Score-to-Target': projected_ideal_score - ref_target_score,
+                'Diff-Score-to-Ref': projected_score - ref_score,
+                'Diff-Score-to-Target': projected_score - ref_target_score,
             }
         )
     return result
 
-def main() -> int:
+def parse_args(argv: list[str]) -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description='Run Tensix Metal correlation')
+    parser.add_argument('--output-dir', type=str, default=OUTPUT_DIR.as_posix(),
+                        help='Output directory for the results')
+    parser.add_argument('--precision', type=str,
+                        help='Precision to use for the correlation')
+    return parser.parse_args(argv)
+
+
+def main(argv: list[str]) -> int:
+    args = parse_args(argv[1:])
     tensix_workloads_yaml_file: str = 'tensix_workloads.yaml'
     tensix_runcfg_file: str = 'tensix_runcfg.yaml'
-    odir: Path = OUTPUT_DIR
+    odir: Path = Path(args.output_dir)
+    default_precision: str = args.precision
     sname: str = 'SIMPLE'
     tensix_perf_data_dir: Path = Path('data/metal/inf')  # Tensix metal results
     gpu_dev_tbl = {
@@ -98,10 +131,12 @@ def main() -> int:
             nodes = 1
             num_gpu = 1
             perf = tensix_cfg['perf']
+            target_perf = tensix_cfg.get('target_perf', perf)  # Optional, use perf if not present
             system = tensix_cfg['system']
-            prec = tensix_cfg['precision']
+            prec = tensix_cfg['precision'] if default_precision is None else default_precision
             metric = tensix_cfg['metric']
             ref_perf = perf / num_gpu / nodes
+            ref_target_perf = target_perf / num_gpu / nodes
             gpu_dev = gpu_dev_tbl[system]
 
             instance_name = f'b{bs}'
@@ -115,6 +150,7 @@ def main() -> int:
                 'nodes': nodes,
                 'num_gpu': num_gpu,
                 'perf': perf,
+                'target_perf': target_perf,
                 'system': system,
                 'prec': prec,
                 'metric': metric,
@@ -124,10 +160,10 @@ def main() -> int:
                 # 'cp_streams'  : cp_streams,
                 # 'inf_streams' : inf_streams,
             }
-            instance_key = tuple([xrec['gpu_dev'], xrec['api'], xrec['name'], instance_name])
+            instance_key = tuple([xrec['name'], xrec['gpu_dev'], xrec['api'], instance_name])
             if instance_key in metal_ref_scores:
                 raise ValueError(f'Duplicate Instance key {instance_key} in {data_file}')
-            metal_ref_scores[instance_key] = ref_perf
+            metal_ref_scores[instance_key] = {'perf': ref_perf, 'target_perf': ref_target_perf, 'precision': tensix_cfg['precision']}
 
             if wl == 'bert':
                 # seqlen = tensix_cfg['bert_opt_seqlen']
@@ -172,17 +208,19 @@ def main() -> int:
             print()
             """
 
-    devstr = '--filterarch ' + ','.join(uniq_devs)
-    print(devstr)
     print_yaml({'workloads': ttsim_wlspec}, opath / tensix_workloads_yaml_file)
 
+    # TODO: Implement a way to pass default precision from CLI to polproj / polaris
+    #       And then remove choosing wlmapspec based on default precision
+
+    wlmapspec = 'config/' + ('wl2archmapping.yaml' if default_precision is None else f'wl2archmapping_{default_precision}.yaml')
     runcfg_dict = {
         'title': 'Metal Tensix Correlation',
         'study': sname,
         'odir': odir.as_posix(),
         'wlspec': (opath / tensix_workloads_yaml_file).as_posix(),
         'archspec': 'config/tt_wh.yaml',
-        'wlmapspec': 'config/wl2archmapping.yaml',
+        'wlmapspec': wlmapspec,
         'filterarch': ','.join(uniq_devs),
         'dump_stats_csv': True,
     }
@@ -190,12 +228,12 @@ def main() -> int:
 
     cmd = ['python', 'polproj.py', '--config', (opath / tensix_runcfg_file).as_posix()]
     cmdstr = ' '.join(cmd)
-    print(cmdstr)
+    logger.info('executing {}', cmdstr)
     ret = subprocess.run(cmdstr, shell=True, stderr=subprocess.STDOUT)
     if ret.returncode != 0:
         logger.error('command "{}" failed with exit code {}', cmd, ret.returncode)
         return ret.returncode
-    actual_scores = read_scores(opath / sname / 'SUMMARY' / 'study-summary.json')
+    actual_scores = read_scores(opath / sname / 'SUMMARY' / 'study-summary.json', default_precision)
     comparison = compare_scores(metal_ref_scores, actual_scores)
     with open(opath / 'correlation_result.csv', 'w', newline='') as fout:
         writer = csv.DictWriter(fout, fieldnames=comparison[0].keys())
@@ -207,4 +245,4 @@ def main() -> int:
 
 
 if __name__ == '__main__':
-    exit(main())
+    exit(main(sys.argv))

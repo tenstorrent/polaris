@@ -29,6 +29,11 @@ class PolarisRunConfig(BaseModel, extra='forbid'):
     archspec: str = Field(description='Architecture Specification yaml file')
     wlmapspec: str = Field(description='Workload To Architecture Mapping Specification yaml file')
 
+    datatype: Optional[str] = Field(
+        default=None,
+        description='Activation Data Type to use for the projection (e.g., bf16, fp32, etc.)'
+    )
+
     filterwlg: Optional[str] = Field(default=None, description='APIs to be considered for the run')
 
     filterwl: Optional[str] = Field(

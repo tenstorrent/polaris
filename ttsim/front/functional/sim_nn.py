@@ -236,4 +236,3 @@ class Linear(Module):
         if self.bias:
             param_count += self.out_features
         return param_count
-

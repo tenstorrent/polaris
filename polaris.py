@@ -23,6 +23,7 @@ from pydantic import BaseModel
 from ttsim.config import TTSimHLWlDevRunPerfStats, TTSimHLRunSummary, get_arspec_from_yaml, get_wlmapspec_from_yaml, get_wlspec_from_yaml, TypeWorkload
 from ttsim.front import onnx2graph
 from ttsim.utils.common import get_ttsim_functional_instance, print_csv, str_to_bool
+from ttsim.utils.types import get_sim_dtype, get_bpe
 import ttsim.config.runcfgmodel as runcfgmodel
 
 """ Polaris top-level executable. """
@@ -276,7 +277,7 @@ def setup_cmdline_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument('--wlspec',    '-w', required=True, help="Workloads Specification")
     parser.add_argument('--archspec',  '-a', required=True, help="Architecture Specification")
     parser.add_argument('--wlmapspec', '-m', required=True, help="Workload To Architecture Mapping Specification")
-
+    parser.add_argument('--datatype', '-d', type=str, default=None, choices=data_types, help="Activation Data Type to use for the projection")
 
     parser.add_argument('--filterwlg',  default=None, help="use only workload-groups specified in filterwlg (comma sep list)")
     parser.add_argument('--filterwl',   default=None, help="use only workloads specified in filterwl (comma sep list)")
@@ -326,7 +327,7 @@ def get_devices(devspec, fsweep, filterarch):
         device_list = [(d,f) for d in devs for f in fsweep.getvals()]
     else:
         device_list = [(d,None) for d in devs]
-    devlist = apply_filter(device_list, filterarch, lambda x: x[0])
+    devlist = sorted(apply_filter(device_list, filterarch, lambda x: x[0]))
 
     INFO(f'reading device specification {devspec}: found {len(devs):4d} #devices')
     if fsweep.check():
@@ -352,7 +353,7 @@ def get_workloads(wlspec, bsweep, filterwlg, filterwl, filterwli):
     wl_list = apply_filter(wl_list, filterwlg, lambda x: x[0])
     wl_list = apply_filter(wl_list, filterwl,  lambda x: x[1])
     wl_list = apply_filter(wl_list, filterwli, lambda x: x[2])
-
+    wl_list = sorted(wl_list)
     num_batches   = len(bsweep.getvals()) if bsweep.check() else 1
     num_workloads = len(wl_list) // num_batches
     INFO(f'reading workloads specification {wlspec}: found {num_workloads:4d} #workloads')
@@ -402,7 +403,7 @@ def save_data(model: BaseModel, filename, outputfmt: OutputFormat)->None:
         with open(filename, 'wb') as foutbin:
             pickle.dump(model, foutbin)
 
-def execute_wl_on_dev(_wl, _dl, _wspec, _dspec, _op2dt, _op2rsrc, _null_ops, _op_fusion_list, _WLG,
+def execute_wl_on_dev(_wl, _dl, _wspec, _dspec, wlmapspec, _WLG,
                       _odir, study, _enable_memalloc, outputfmt, flag_dump_stats_csv):
     # TODO: Reduce number of arguments to this function
     study_dir = _odir / study
@@ -437,14 +438,15 @@ def execute_wl_on_dev(_wl, _dl, _wspec, _dspec, _op2dt, _op2rsrc, _null_ops, _op
             raise
 
         try:
-            wlgraph.set_precision (_op2dt)
-            wlgraph.map_resources (_op2rsrc)
+            wlgraph.set_precision (wlmapspec.data_type_spec)
+            wlgraph.map_resources (wlmapspec.rsrc_spec)
             wlgraph.execute       (dev_obj)
-            wlgraph.remove_nodes  (_null_ops)
-            wlgraph.fuse_nodes    (_op_fusion_list)
+            wlgraph.remove_nodes  (wlmapspec.removal_spec)
+            wlgraph.fuse_nodes    (wlmapspec.fusion_spec)
         except Exception as e:
             num_failures += 1
             logging.error('workload %s failed with %s', exp_wl, e)
+            continue
 
         #publish stats
         rows   = []
@@ -479,6 +481,14 @@ def execute_wl_on_dev(_wl, _dl, _wspec, _dspec, _op2dt, _op2rsrc, _null_ops, _op
                     'fused_with_op' : 'NA' if fwd_op.fused_with_op is None else fwd_op.fused_with_op
                     }
             val.update(fwd_op.perf_stats)
+            val_in_bpe = val['inBytes'] // val['inElems']
+            if (not fwd_op.removed_in_optimization) and val_in_bpe != get_bpe(get_sim_dtype(fwd_op.precision)):
+                logging.warning("device=%s workload=%s instance=%s op=%s opclass=%s input bpe mismatch: bytes/elems %s  != operator precision %s bpe %s",
+                                devname, wlname, wlins_name, fwd_op.name, fwd_op.opclass_str, val_in_bpe, fwd_op.precision, get_bpe(get_sim_dtype(fwd_op.precision)))
+            val_out_bpe = val['outBytes'] // val['outElems']
+            if (not fwd_op.removed_in_optimization) and val_out_bpe != get_bpe(get_sim_dtype(fwd_op.precision)):
+                logging.warning("device=%s workload=%s instance=%s op=%s opclass=%s output bpe mismatch: bytes/elems %s  != operator precision %s bpe %s",
+                                devname, wlname, wlins_name, fwd_op.name, fwd_op.opclass_str, val_out_bpe, fwd_op.precision, get_bpe(get_sim_dtype(fwd_op.precision)))
             TOT_INSTR_COUNT = sum([v for k,v in fwd_op.perf_stats['instrs'].items()])
             val.update({
                 'instr_count'   : TOT_INSTR_COUNT,
@@ -574,8 +584,12 @@ def polaris(args: argparse.Namespace | runcfgmodel.PolarisRunConfig) -> int:
 
     device_list, devspec  = get_devices(args.archspec, freqsweep, args.filterarch)
     workload_list, wlspec = get_workloads(args.wlspec, batchsweep, args.filterwlg, args.filterwl, args.filterwli)
-    OP2DT, OP2RSRC, NULL_OPS, OP_FUSION_LIST = get_wlmapspec_from_yaml(args.wlmapspec)
+    wlmapspec = get_wlmapspec_from_yaml(args.wlmapspec)
 
+    if args.datatype is not None:
+        # set the data type for the simulation
+        wlmapspec.data_type_spec.update_global_type(args.datatype)
+        INFO(f"Using data type: {wlmapspec.data_type_spec}")
     num_failures = 0
     if args.dryrun:
         do_dryrun(workload_list, device_list)
@@ -585,9 +599,9 @@ def polaris(args: argparse.Namespace | runcfgmodel.PolarisRunConfig) -> int:
 
         INFO('simulation: workload+ --> device+')
         num_failures, summary_stats = execute_wl_on_dev(workload_list, device_list, wlspec, devspec,
-                                          OP2DT, OP2RSRC, NULL_OPS, OP_FUSION_LIST,
-                                          workload_graphs, odir, args.study, args.enable_memalloc,
-                                          outputformat, args.dump_stats_csv)
+                                                        wlmapspec,  workload_graphs, odir, args.study,
+                                                        args.enable_memalloc, outputformat, args.dump_stats_csv)
+        summary_stats = sorted(summary_stats, key=lambda x: (x['wlname'], x['devname'], x['freq_Mhz'], x['wlinstance'], x['bs']))
 
         summary_stat_filename = summary_dir / f'study-summary.{outputformat.cname}'
         save_data(TTSimHLRunSummary(**{'summary': summary_stats}), summary_stat_filename, outputformat)

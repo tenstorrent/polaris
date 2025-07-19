@@ -3,6 +3,7 @@
 # SPDX-License-Identifier: Apache-2.0
 import functools, operator
 import numpy as np
+from ttsim.utils.types import get_bpe, get_sim_dtype
 
 class SimTensor:
     def __init__(self, cfg):
@@ -58,8 +59,22 @@ class SimTensor:
     #   data size may not be just data-count * precision, because you may have compression/sparsity
     #   how is the tensor stored in memory? channel first, batch later or something else. may have
     #   to represent tiling formats here.
-    def nbytes(self):
-        return self.nelems() * self.dtype.itemsize #assumes np.dtype
+    # Note: Caching nbytes for instance methods can cause memory leaks due to references held by lru_cache.
+    # If caching is needed, consider using a static cache or external memoization.
+    def nbytes(self, itemprec=None):
+        def typesize(dtype):
+            if isinstance(dtype, np.dtype):
+                return dtype.itemsize
+            elif isinstance(dtype, str):
+                return get_bpe(get_sim_dtype(dtype))
+            else:
+                raise TypeError(f"Unsupported dtype type: {type(dtype)}")
+        if itemprec is None:
+            assert self.dtype is not None, f"SimTensor({self.name}) has no dtype to calculate nbytes"
+            itemsize = typesize(self.dtype)
+        else:
+            itemsize = typesize(itemprec)
+        return self.nelems() * itemsize #assumes np.dtype
 
     def check_shape(self):
         if self.shape is None:
@@ -85,4 +100,3 @@ class SimTensor:
 
 def make_tensor(name: str) -> SimTensor:
     return SimTensor({'name': name, 'shape': [], 'dtype': None})
-

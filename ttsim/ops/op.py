@@ -286,10 +286,10 @@ class SimOp:
         self.fused_with_op         = fused_with_op
 
     def execute(self, device):
+        if TYPE_CHECKING:
+            assert self.perf_stats is not None, f"SimOp {self.name} has no perf_stats set, cannot execute"
         #find compute cycles
         self.compute_cycles = 0
-        if TYPE_CHECKING:
-            assert self.perf_stats is not None
         for instr,instr_count in self.perf_stats['instrs'].items():
             peak_ipc = device.peak_ipc(self.uses_compute_pipe, instr, self.precision)
             real_ipc = peak_ipc * G_COMPUTE_UTIL_CONSTANT
@@ -305,6 +305,16 @@ class SimOp:
         self.mem_wr_cycles = math.ceil((mem_wr_GB / bw_GBps) * freq_MHz * 1e6)
 
         return
+
+    def get_effective_precision(self, tensor: SimTensor) -> np.dtype:
+        """
+        Get the effective precision for a tensor based on the op's precision.
+        If the op's precision is not set, return the tensor's dtype.
+        """
+        if self.precision is not None:
+            return self.precision
+        assert tensor.dtype is not None, f"Tensor {tensor.name} has no dtype set"
+        return tensor.dtype
 
 ######################  CONCRETE OP IMPLEMENTATION BEGIN ##################
 class ConstantOp(SimOp):
@@ -334,7 +344,7 @@ class ConstantOp(SimOp):
                 'inElems' : 0,
                 'outElems': outT[0].nelems(),
                 'inBytes' : 0,
-                'outBytes': outT[0].nbytes(),
+                'outBytes': outT[0].nbytes(self.precision),
                 'instrs'  : {'mov': outT[0].nelems()}
                 }
         return self.perf_stats
@@ -381,8 +391,8 @@ class EltwiseUnaryOp(SimOp):
         self.perf_stats =  {
                 'inElems' : inT[0].nelems(),
                 'outElems': outT[0].nelems(),
-                'inBytes' : inT[0].nbytes(),
-                'outBytes': outT[0].nbytes(),
+                'inBytes' : inT[0].nbytes(self.precision),
+                'outBytes': outT[0].nbytes(self.precision),
                 'instrs'  : {instr_name: outT[0].nelems()}
                 }
         return self.perf_stats
@@ -403,8 +413,8 @@ class EltwiseBinaryOp(SimOp):
         self.perf_stats =  {
                 'inElems' : inT[0].nelems() + inT[1].nelems(),
                 'outElems': outT[0].nelems(),
-                'inBytes' : inT[0].nbytes() + inT[1].nbytes(),
-                'outBytes': outT[0].nbytes(),
+                'inBytes' : inT[0].nbytes(self.precision) + inT[1].nbytes(self.precision),
+                'outBytes': outT[0].nbytes(self.precision),
                 'instrs'  : {self.optype.lower(): outT[0].nelems()}
                 }
         return self.perf_stats
@@ -486,8 +496,8 @@ class GatherOp(SimOp):
         self.perf_stats = {
                 'inElems' : int(outT[0].nelems()), #read just what we need, not the whole embed. tbl
                 'outElems': int(outT[0].nelems()),
-                'inBytes' : int(outT[0].nbytes()),
-                'outBytes': int(outT[0].nbytes()),
+                'inBytes' : int(outT[0].nbytes(self.precision)),
+                'outBytes': int(outT[0].nbytes(self.precision)),
                 'instrs'  : {'mov': int(outT[0].nelems())}
                 }
         return self.perf_stats
@@ -607,14 +617,14 @@ class LayerNormalizationOp(SimOp):
         biasElems   = 0 if biasT is None else biasT.nelems()
         meanElems   = 0 if len(outT) < 2 else outT[1].nelems()
         invSDTElems = 0 if len(outT) < 3 else outT[2].nelems()
-        biasBytes   = 0 if biasT is None else biasT.nbytes()
-        meanBytes   = 0 if len(outT) < 2 else outT[1].nbytes()
-        invSDTBytes = 0 if len(outT) < 3 else outT[2].nbytes()
+        biasBytes   = 0 if biasT is None else biasT.nbytes(self.precision)
+        meanBytes   = 0 if len(outT) < 2 else outT[1].nbytes(self.precision)
+        invSDTBytes = 0 if len(outT) < 3 else outT[2].nbytes(self.precision)
         self.perf_stats ={
                 'inElems' : inT[0].nelems() + inT[1].nelems() + biasElems,
                 'outElems': outT[0].nelems() + meanElems + invSDTElems,
-                'inBytes' : inT[0].nbytes() + inT[1].nbytes() + biasBytes,
-                'outBytes': outT[0].nbytes() + meanBytes + invSDTBytes,
+                'inBytes' : inT[0].nbytes(self.precision) + inT[1].nbytes(self.precision) + biasBytes,
+                'outBytes': outT[0].nbytes(self.precision) + meanBytes + invSDTBytes,
                 'instrs'  : instr_count
                 }
         return self.perf_stats
@@ -657,8 +667,8 @@ class BatchNormalizationOp(SimOp):
         self.perf_stats = {
             'inElems' : sum([i.nelems() for i in inT]),
             'outElems': sum([o.nelems() for o in outT]),
-            'inBytes' : sum([i.nbytes() for i in inT]),
-            'outBytes': sum([o.nbytes() for o in outT]),
+            'inBytes' : sum([i.nbytes(self.precision) for i in inT]),
+            'outBytes': sum([o.nbytes(self.precision) for o in outT]),
             'instrs'  : instr_count
         }
         return self.perf_stats
@@ -955,15 +965,15 @@ class ConvOp(SimOp):
             instr_count['add'] = output_elements
 
         bias_elems = B.nelems() if len(inT) == 3 else 0
-        bias_bytes = B.nbytes() if len(inT) == 3 else 0
+        bias_bytes = B.nbytes(self.precision) if len(inT) == 3 else 0
         inElems = X.nelems() + W.nelems() + bias_elems
-        inBytes = X.nbytes() + W.nbytes() + bias_bytes
+        inBytes = X.nbytes(self.precision) + W.nbytes(self.precision) + bias_bytes
 
         self.perf_stats = {
             'inElems' : inElems,
             'outElems': outT[0].nelems(),
             'inBytes' : inBytes,
-            'outBytes': outT[0].nbytes(),
+            'outBytes': outT[0].nbytes(self.precision),
             'instrs'  : instr_count
         }
         return self.perf_stats
@@ -1004,8 +1014,8 @@ class MaxPoolOp(SimOp):
         self.perf_stats = {
             'inElems' : inT[0].nelems(),
             'outElems': outT[0].nelems(),
-            'inBytes' : inT[0].nbytes(),
-            'outBytes': outT[0].nbytes(),
+            'inBytes' : inT[0].nbytes(self.precision),
+            'outBytes': outT[0].nbytes(self.precision),
             'instrs'  : instr_count
         }
         return self.perf_stats
@@ -1070,8 +1080,8 @@ class AveragePoolOp(SimOp):
         self.perf_stats = {
             'inElems' : inT[0].nelems(),
             'outElems': outT[0].nelems(),
-            'inBytes' : inT[0].nbytes(),
-            'outBytes': outT[0].nbytes(),
+            'inBytes' : inT[0].nbytes(self.precision),
+            'outBytes': outT[0].nbytes(self.precision),
             'instrs'  : instr_count
         }
         return self.perf_stats
@@ -1126,13 +1136,15 @@ class MatMulOp(SimOp):
         outT[0].shape = CShape
         outT[0].dtype = inT[0].dtype
 
+        # TODO: BEGIN Quick Fix
         self.perf_stats = {
             'inElems' : inT[0].nelems() + inT[1].nelems(),
             'outElems': outT[0].nelems(),
-            'inBytes' : inT[0].nelems() * inT[0].dtype.itemsize + inT[1].nelems() * inT[1].dtype.itemsize,
-            'outBytes': outT[0].nelems() * outT[0].dtype.itemsize,
+            'inBytes' : inT[0].nbytes(self.precision) + inT[1].nbytes(self.precision),
+            'outBytes': outT[0].nbytes(self.precision),
             'instrs'  : {'mac': outT[0].nelems() * reduced_dim}
             }
+        # TODO: END Quick Fix
         return self.perf_stats
 
     def backward(self, inT, outT, inGT, outGT):
@@ -1213,13 +1225,13 @@ class SplitOp(SimOp):
             tshape0 = outShapes[tidx]
             tout.shape = tshape0
             tout.dtype = A.dtype
-            outBytes += tout.nbytes()
+            outBytes += tout.nbytes(self.precision)
             outElems += tout.nelems()
 
         self.perf_stats = {
                 'inElems' : A.nelems() + 0 if splitT is None else splitT.nelems(),
                 'outElems': outElems,
-                'inBytes' : A.nbytes() + 0 if splitT is None else splitT.nbytes(),
+                'inBytes' : A.nbytes(self.precision) + 0 if splitT is None else splitT.nbytes(self.precision),
                 'outBytes': outBytes,
                 'instrs'  : {'mov': outElems}
                 }
@@ -1292,8 +1304,8 @@ class ReshapeOp(SimOp):
         self.perf_stats = {
                 'inElems' : int(inT[0].nelems() + B.nelems()),
                 'outElems': int(outT[0].nelems()),
-                'inBytes' : int(inT[0].nbytes() + B.nbytes()),
-                'outBytes': int(outT[0].nbytes()),
+                'inBytes' : int(inT[0].nbytes(self.precision) + B.nbytes(self.precision)),
+                'outBytes': int(outT[0].nbytes(self.precision)),
                 'instrs'  : {'mov': int(outT[0].nelems())}
                 }
         return self.perf_stats
@@ -1354,8 +1366,8 @@ class TransposeOp(SimOp):
         self.perf_stats = {
                 'inElems' : inT[0].nelems(),
                 'outElems': outT[0].nelems(),
-                'inBytes' : inT[0].nbytes(),
-                'outBytes': outT[0].nbytes(),
+                'inBytes' : inT[0].nbytes(self.precision),
+                'outBytes': outT[0].nbytes(self.precision),
                 'instrs'  : {'mov': outT[0].nelems()}
                 }
         return self.perf_stats
@@ -1415,8 +1427,8 @@ class WhereOp(SimOp):
         self.perf_stats = {
                 'inElems' : inT[0].nelems() + inT[1].nelems() + inT[2].nelems(),
                 'outElems': outT[0].nelems(),
-                'inBytes' : inT[0].nbytes() + inT[1].nbytes() + inT[2].nbytes(),
-                'outBytes': outT[0].nbytes(),
+                'inBytes' : inT[0].nbytes(self.precision) + inT[1].nbytes(self.precision) + inT[2].nbytes(self.precision),
+                'outBytes': outT[0].nbytes(self.precision),
                 'instrs'  : {'mov': outT[0].nelems(), 'cmp': outT[0].nelems()}
                 }
         return self.perf_stats
@@ -1445,9 +1457,9 @@ class SoftmaxOp(SimOp):
         outT[0].dtype = inT[0].dtype
         outElems = outT[0].nelems()
         self.perf_stats = {
-                'inBytes' : inT[0].nbytes(),
+                'inBytes' : inT[0].nbytes(self.precision),
                 'inElems' : inT[0].nelems(),
-                'outBytes': outT[0].nbytes(),
+                'outBytes': outT[0].nbytes(self.precision),
                 'outElems': outElems,
                 'instrs'  : {
                     'cmp': outElems, # max_x = max(x)
@@ -1550,9 +1562,9 @@ class PowOp(SimOp):
         assert outT[0].check_shape(), f"SHAPE INFERENCE ERROR!!"
 
         self.perf_stats = {
-                'inBytes' : inT[0].nbytes() + inT[1].nbytes(),
+                'inBytes' : inT[0].nbytes(self.precision) + inT[1].nbytes(self.precision),
                 'inElems' : inT[0].nelems() + inT[1].nelems(),
-                'outBytes': outT[0].nbytes(),
+                'outBytes': outT[0].nbytes(self.precision),
                 'outElems': outT[0].nelems(),
                 'instrs'  : {
                     'mul': outT[0].nelems(),
@@ -1588,8 +1600,8 @@ class UnsqueezeOp(SimOp):
         outT[0].dtype = inT[0].dtype
 
         self.perf_stats = {
-                'inBytes' : inT[0].nbytes() + inT[1].nbytes(),
-                'outBytes': outT[0].nbytes(),
+                'inBytes' : inT[0].nbytes(self.precision) + inT[1].nbytes(self.precision),
+                'outBytes': outT[0].nbytes(self.precision),
                 'inElems' : inT[0].nelems() + inT[1].nelems(),
                 'outElems': outT[0].nelems(),
                 'instrs'  : {'mov': outT[0].nelems()}
@@ -1620,8 +1632,8 @@ class SqueezeOp(SimOp):
         outT[0].dtype = dataT.dtype
 
         self.perf_stats = {
-                'inBytes' : int(inT[0].nbytes() + inT[1].nbytes()),
-                'outBytes': int(outT[0].nbytes()),
+                'inBytes' : int(inT[0].nbytes(self.precision) + inT[1].nbytes(self.precision)),
+                'outBytes': int(outT[0].nbytes(self.precision)),
                 'inElems' : int(inT[0].nelems() + inT[1].nelems()),
                 'outElems': int(outT[0].nelems()),
                 'instrs'  : {'mov': int(outT[0].nelems())}
@@ -1653,9 +1665,9 @@ class TileOp(SimOp):
         outT[0].dtype = dataT.dtype
 
         self.perf_stats = {
-                'inBytes' : int(inT[0].nbytes()) + int(inT[1].nbytes()),
+                'inBytes' : int(inT[0].nbytes(self.precision)) + int(inT[1].nbytes(self.precision)),
                 'inElems' : int(inT[0].nelems()) + int(inT[1].nelems()),
-                'outBytes': int(outT[0].nbytes()),
+                'outBytes': int(outT[0].nbytes(self.precision)),
                 'outElems': int(outT[0].nelems()),
                 'instrs'  : {'mov': int(outT[0].nelems())}
                 }
@@ -1699,12 +1711,12 @@ class ConcatOp(SimOp):
         #out2_shape = [len(inT)]
         #out2_data  = [x.shape for x in Xs]
 
-        inBytes = sum((x.nbytes() for x in inT))
+        inBytes = sum((x.nbytes(self.precision) for x in inT))
         inElems = sum((x.nelems() for x in inT))
         self.perf_stats = {
                 'inBytes' : inBytes,
                 'inElems' : inElems,
-                'outBytes': outT[0].nbytes(),
+                'outBytes': outT[0].nbytes(self.precision),
                 'outElems': outT[0].nelems(),
                 'instrs'  : {'mov': outT[0].nelems()}
                 }
@@ -1766,15 +1778,15 @@ class SliceOp(SimOp):
         outT[0].shape = self.attrs['out_shape']
         outT[0].dtype = dataT.dtype
 
-        inBytes = dataT.nbytes() + startsT.nbytes() + endsT.nbytes()
-        inBytes += axesT.nbytes()  if len(inT) >= 4 else 0 #assume 4 bytes per axis spec
-        inBytes += stepsT.nbytes() if len(inT) == 5 else 0 #assume 4 bytes per steps spec
+        inBytes = dataT.nbytes(self.precision) + startsT.nbytes(self.precision) + endsT.nbytes(self.precision)
+        inBytes += axesT.nbytes(self.precision)  if len(inT) >= 4 else 0 #assume 4 bytes per axis spec
+        inBytes += stepsT.nbytes(self.precision) if len(inT) == 5 else 0 #assume 4 bytes per steps spec
 
         assert outT[0].check_shape(), f"SHAPE INFERENCE ERROR!!"
         self.perf_stats = {
-                'inBytes' : int(sum([x.nbytes() for x in inT])),
+                'inBytes' : int(sum([x.nbytes(self.precision) for x in inT])),
                 'inElems' : int(sum([x.nelems() for x in inT])),
-                'outBytes': int(outT[0].nbytes()),
+                'outBytes': int(outT[0].nbytes(self.precision)),
                 'outElems': int(outT[0].nelems()),
                 'instrs'  : {'mov': int(outT[0].nelems())}
                 }
@@ -1813,9 +1825,9 @@ class TriluOp(SimOp):
 
         self.perf_stats = {
                 'inElems' : X.nelems(),
-                'inBytes' : X.nbytes(),
+                'inBytes' : X.nbytes(self.precision),
                 'outElems': outT[0].nelems(),
-                'outBytes': outT[0].nbytes(),
+                'outBytes': outT[0].nbytes(self.precision),
                 'instrs'  : {'mov': 100} #dummy - TODO get the real cost involved!!
                 }
         return self.perf_stats
@@ -1840,7 +1852,7 @@ class DropoutOp(SimOp):
         seed = self.attrs.get('seed', 1.0)
         X = inT[0]
 
-        inBytes = X.nbytes()
+        inBytes = X.nbytes(self.precision)
         inElems = X.nelems()
         ratio, training_mode = 0.5, False
         if len(inT) == 2:
@@ -1886,9 +1898,9 @@ class DropoutOp(SimOp):
             outT[1].dtype = np.dtype(np.bool_)
             outT[1].has_grad = False
 
-        outBytes = outT[0].nbytes()
-        outBytes += outT[1].nbytes() if return_mask else 0
-        outElems = outT[0].nbytes()
+        outBytes = outT[0].nbytes(self.precision)
+        outBytes += outT[1].nbytes(self.precision) if return_mask else 0
+        outElems = outT[0].nelems()
         outElems += outT[1].nelems() if return_mask else 0
 
         self.perf_stats = {
@@ -1949,8 +1961,8 @@ class EqualOp(SimOp):
         tmp_outT = build_tmp_data_tensor(np_out, self.name + '__tmp_out__')
         update_output_tensor(self, tmp_outT, outT[0])
         self.perf_stats = {
-                'inBytes' : A.nbytes() + B.nbytes(),
-                'outBytes': outT[0].nbytes(),
+                'inBytes' : A.nbytes(self.precision) + B.nbytes(self.precision),
+                'outBytes': outT[0].nbytes(self.precision),
                 'instrs'  : {'cmp': outT[0].nelems()}
                 }
         return self.perf_stats
@@ -1975,8 +1987,8 @@ class CastOp(SimOp):
         update_output_tensor(self, tmp_outT, outT[0])
         '''
         self.perf_stats = {
-                'inBytes' : inT[0].nbytes(),
-                'outBytes': outT[0].nbytes(),
+                'inBytes' : inT[0].nbytes(self.precision),
+                'outBytes': outT[0].nbytes(self.precision),
                 'inElems' : inT[0].nelems(),
                 'outElems': outT[0].nelems(),
                 'instrs'  : {'mov': outT[0].nelems()}
@@ -2071,9 +2083,9 @@ class GeluOp(SimOp):
 
         self.perf_stats = {
                 'inElems' : inT[0].nelems(),
-                'inBytes' : inT[0].nbytes(),
+                'inBytes' : inT[0].nbytes(self.precision),
                 'outElems': outT[0].nelems(),
-                'outBytes': outT[0].nbytes(),
+                'outBytes': outT[0].nbytes(self.precision),
                 'instrs'  : instr
                 }
         return self.perf_stats
@@ -2129,9 +2141,9 @@ class ReluOp(SimOp):
         outT[0].dtype = inT[0].dtype
         self.perf_stats = {
                 'inElems' : inT[0].nelems(),
-                'inBytes' : inT[0].nbytes(),
+                'inBytes' : inT[0].nbytes(self.precision),
                 'outElems': outT[0].nelems(),
-                'outBytes': outT[0].nbytes(),
+                'outBytes': outT[0].nbytes(self.precision),
                 'instrs'  : {'cmp': nElem, 'mov': nElem}
                 }
         return self.perf_stats
@@ -2186,9 +2198,9 @@ class LeakyReluOp(SimOp):
         outT[0].dtype = inT[0].dtype
         self.perf_stats = {
                 'inElems' : inT[0].nelems(),
-                'inBytes' : inT[0].nbytes(),
+                'inBytes' : inT[0].nbytes(self.precision),
                 'outElems': outT[0].nelems(),
-                'outBytes': outT[0].nbytes(),
+                'outBytes': outT[0].nbytes(self.precision),
                 'instrs'  : {'cmp': nElem, 'mov': nElem}
                 }
         return self.perf_stats
@@ -2210,9 +2222,9 @@ class SigmoidOp(SimOp):
         outT[0].dtype = inT[0].dtype
         self.perf_stats = {
                 'inElems' : inT[0].nelems(),
-                'inBytes' : inT[0].nbytes(),
+                'inBytes' : inT[0].nbytes(self.precision),
                 'outElems': outT[0].nelems(),
-                'outBytes': outT[0].nbytes(),
+                'outBytes': outT[0].nbytes(self.precision),
                 'instrs'  : {'cmp': nElem, 'mov': nElem}
                 }
         return self.perf_stats
@@ -2257,9 +2269,9 @@ class ResizeOp(SimOp):
         nElem = inT[0].nelems()
         self.perf_stats = {
                 'inElems' : inT[0].nelems(),
-                'inBytes' : inT[0].nbytes(),
+                'inBytes' : inT[0].nbytes(self.precision),
                 'outElems': outT[0].nelems(),
-                'outBytes': outT[0].nbytes(),
+                'outBytes': outT[0].nbytes(self.precision),
                 'instrs'  : {'cmp': nElem, 'mov': nElem}
                 }
         return self.perf_stats
@@ -2286,9 +2298,9 @@ class ReluGradOp(SimOp):
         nElem = dY.nelems()
         self.perf_stats = {
                 'inElems' : nElem,
-                'inBytes' : Y.nbytes(),
+                'inBytes' : Y.nbytes(self.precision),
                 'outElems': nElem,
-                'outBytes': Y.nbytes(),
+                'outBytes': Y.nbytes(self.precision),
                 'instrs'  : {'cmp': nElem, 'mov': nElem}
                 }
         return self.perf_stats
@@ -2340,7 +2352,7 @@ class GeluGradOp(SimOp):
 
         instr = {'mul': mul_count, 'add': add_count, 'sub': sub_count, 'tanh': tanh_count}
 
-        nBytes = X.nbytes()
+        nBytes = X.nbytes(self.precision)
         self.perf_stats = {
                 'inElems' : nElem,
                 'inBytes' : nBytes,
@@ -2370,11 +2382,11 @@ class ReduceSumOp(SimOp):
 
         T = clone_tensor_by_shape(inT[0])
         inElems = T.nelems()
-        inBytes = T.nbytes()
+        inBytes = T.nbytes(self.precision)
         if len(inT) == 2:
             axes = clone_tensor_by_shape(inT[1])
             inElems += axes.nelems()
-            inBytes += axes.nbytes()
+            inBytes += axes.nbytes(self.precision)
             np_out = np.sum(T.data, axis=tuple(axes.data.tolist()), keepdims=keepdims==1)
         else:
             np_out = np.sum(T.data, axis=None, keepdims=keepdims==1)
@@ -2384,7 +2396,7 @@ class ReduceSumOp(SimOp):
         tmp_outT = build_tmp_data_tensor(np_out, self.name + '__tmp_out__')
         update_output_tensor(self, tmp_outT, outT[0])
         outElems = outT[0].nelems()
-        outBytes = outT[0].nbytes()
+        outBytes = outT[0].nbytes(self.precision)
 
         self.perf_stats = {
                 'inElems' : inElems,
@@ -2411,9 +2423,9 @@ class ReduceMaxOp(SimOp):
 
         self.perf_stats = {
                 'inElems' : sum([x.nelems() for x in inT]),
-                'inBytes' : sum([x.nbytes() for x in inT]),
+                'inBytes' : sum([x.nbytes(self.precision) for x in inT]),
                 'outElems': outT[0].nelems(),
-                'outBytes': outT[0].nbytes(),
+                'outBytes': outT[0].nbytes(self.precision),
                 'instrs'  : {'max': outT[0].nelems()}
                 }
 
@@ -2434,10 +2446,10 @@ class NonMaxSuppressionOp(SimOp):
 
         self.perf_stats = {
                 'inElems' : sum([x.nelems() for x in inT]),
-                'inBytes' : sum([x.nbytes() for x in inT]),
+                'inBytes' : sum([x.nbytes(self.precision) for x in inT]),
                 'outElems': sum([y.nelems() for y in outT]),
-                'outBytes': sum([y.nbytes() for y in outT]),
-                'instrs'  : {'mov': sum([y.nbytes() for y in outT])},
+                'outBytes': sum([y.nbytes(self.precision) for y in outT]),
+                'instrs'  : {'mov': sum([y.nbytes(self.precision) for y in outT])},
                 }
         return self.perf_stats
 
@@ -2456,10 +2468,10 @@ class FlattenOp(SimOp):
 
         self.perf_stats = {
                 'inElems' : sum([x.nelems() for x in inT]),
-                'inBytes' : sum([x.nbytes() for x in inT]),
+                'inBytes' : sum([x.nbytes(self.precision) for x in inT]),
                 'outElems': sum([y.nelems() for y in outT]),
-                'outBytes': sum([y.nbytes() for y in outT]),
-                'instrs'  : {'mov': sum([y.nbytes() for y in outT])},
+                'outBytes': sum([y.nbytes(self.precision) for y in outT]),
+                'instrs'  : {'mov': sum([y.nbytes(self.precision) for y in outT])},
                 }
 
         return self.perf_stats

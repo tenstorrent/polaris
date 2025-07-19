@@ -132,28 +132,19 @@ class WorkloadGraph():
     def backward(self): pass
 
     def set_precision(self, o2dt):
-        for op_type_x, data_type_x in o2dt:
-            for opnum, opname in enumerate(nx.topological_sort(self._graph)):
-                op_type = self._ops[opname].optype.upper()
-                if op_type_x == '*':
-                    #print("\t--->matched op_type:", op_type, 'optype_x:', op_type_x, data_type_x)
-                    self._ops[opname].set_precision(data_type_x)
-                elif op_type == op_type_x:
-                    #print("\t--->matched op_type:", op_type, 'optype_x:', op_type_x, data_type_x)
-                    self._ops[opname].set_precision(data_type_x)
-                else:
-                    #print("\t--->NOT matched op_type:", op_type, 'optype_x:', op_type_x, data_type_x)
-                    pass
+        for opnum, opname in enumerate(nx.topological_sort(self._graph)):
+            op_type = self._ops[opname].optype.upper()
+            dt = o2dt.layer_2_datatype(op_type)
+            self._ops[opname].set_precision(dt)
         for opname, op in self._ops.items():
             assert op.precision is not None, f'Precision for {opname} is unset'
         return
 
-    def remove_nodes(self, op_type_list):
-        for op_type_x in op_type_list:
-            for opname in nx.topological_sort(self._graph):
-                op_type = self._ops[opname].optype.upper()
-                if op_type == op_type_x:
-                    self._ops[opname].remove_in_optimization()
+    def remove_nodes(self, removal_types):
+        for opname in nx.topological_sort(self._graph):
+            op_type = self._ops[opname].optype.upper()
+            if removal_types.is_included(op_type):
+                self._ops[opname].remove_in_optimization()
         return
 
     def fuse_nodes(self, op_type_fusion_patterns):
@@ -166,7 +157,7 @@ class WorkloadGraph():
         fusion_candidates = []
         #track nodes that have already been matched
         already_matched_nodes_set = set()
-        for pattern in op_type_fusion_patterns:
+        for pattern in op_type_fusion_patterns.get_fused_layer_sequences():
             pattern_len = len(pattern)
             assert pattern_len > 1, f"Illegal fusion pattern specification {pattern}!!"
             for node in nx.topological_sort(self._graph):
@@ -245,7 +236,7 @@ class WorkloadGraph():
         for node in nx.topological_sort(self._graph):
             optype    = self._ops[node].optype.upper()
             try:
-                self._ops[node].uses_compute_pipe = op2rsrc_map[optype]
+                self._ops[node].uses_compute_pipe = op2rsrc_map.layer_2_pipe(optype)
             except KeyError as e:
                 raise RuntimeError(f'operator {self._ops[node].optype} not mapped on the device')
         return

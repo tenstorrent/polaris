@@ -11,7 +11,7 @@ from .validators import PYDWlMapDataSpecValidator, PYDWlMapResourceSpecValidator
      PYDL2CacheValidator, PYDMemoryBlockValidator, PYDComputeBlockValidator, PYDWorkloadListValidator, TTSimHLWlDevRunOpCSVPerfStats, \
     TTSimHLWlDevRunPerfStats, TTSimHLRunSummary, TTSimHLRunSummaryRow
 from .simconfig import IPBlocksModel, PackageInstanceModel, TypeWorkload as TypeWorkload
-
+from .wl2archmap import get_wlmapspec_from_yaml as get_wlmapspec_from_yaml
 
 def get_child(base, key, idattr='name'):
     if isinstance(base, dict):
@@ -89,35 +89,6 @@ def get_wlspec_from_yaml(cfg_yaml_file: str) -> dict[str, list[TypeWorkload]]:
         # assert wlg_cfg['name'] not in wldb, f"Duplicate workload name {wlg_cfg['name']} in {cfg_yaml_file}"
         wldb[wlg_cfg['name']].append(AWorkload.create_workload(wlg_cfg['api'], **wlg_cfg))
     return wldb
-
-
-def get_wlmapspec_from_yaml(cfg_yaml_file):
-    cfg_dict   = parse_yaml(cfg_yaml_file)
-    cfg_object = PYDWlMapSpecValidator(**cfg_dict)
-
-    required_fields = ['op_data_type_spec', 'op_removal_spec', 'op_fusion_spec', 'op_rsrc_spec']
-    for ff in required_fields:
-        assert ff in cfg_dict, f"required attribute: {ff} missing in workload map file: {cfg_yaml_file}"
-
-    op2dt = []
-    for k,v in cfg_dict['op_data_type_spec'].items():
-        if k == 'global_type':
-            op2dt.append(['*', v.lower()])
-        elif k == 'override':
-            for kk, vv in v.items():
-                op2dt.append([kk.upper(), vv.lower()])
-        else: # pragma: no cover
-            pass
-
-    op2rsrc = {}
-    assert 'compute' in cfg_dict['op_rsrc_spec'], "Attribute(compute) missing in op_rsrc_spec"
-    for op_pipe, op_list in cfg_dict['op_rsrc_spec']['compute'].items():
-        op2rsrc.update({o.upper(): op_pipe.lower() for o in op_list})
-
-    null_ops       = [x.upper() for x in cfg_dict['op_removal_spec']]
-    op_fusion_list = [[y.upper() for y in x] for x in cfg_dict['op_fusion_spec']]
-
-    return op2dt, op2rsrc, null_ops, op_fusion_list
 
 
 def parse_xlsx_config(xlsx_worksheet):
