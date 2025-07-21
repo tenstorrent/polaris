@@ -145,8 +145,7 @@ class PerfData
         {
             this.secondary_column_sets[secondary_categories[sndx]] = new Set();
         }
-
-        this.table_column_names = ['Sr'];
+        this.table_column_names = [{'label': 'Sr#', 'name': 'Sr#', 'type': 'number'}];
         this.column_sets['key'].add(0);
         this.column_sets['all'].add(0);
 
@@ -239,7 +238,22 @@ class PerfData
     populate_comparison_table()
     {
         this.table_rows = [];
-        this.table_rows.push(this.table_column_names);
+        // tmp_column_names is updated, but not reassigned
+        const tmp_column_names = [];
+        for (let i = 0; i < this.table_column_names.length; i++)
+        {
+            let col = this.table_column_names[i];
+            // ==, the loose equality operator would do type coercion,
+            // which is not desirable in a type-check.
+            // Hence ===, the strict equality operator which prevents
+            // type coercion.
+            if (col && typeof col === 'object') {
+                tmp_column_names.push(col.label);
+            } else {
+                tmp_column_names.push(col);
+            }
+        }
+        this.table_rows.push(tmp_column_names);
         let sr = 0;
         for (const [jobname, jobstatus] of Object.entries(this.comparison_data.elem_status))
         {
