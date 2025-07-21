@@ -17,7 +17,7 @@ from pydantic import BaseModel, TypeAdapter
 
 from ttsim.utils.readfromurl import read_from_url
 
-DEFAULT_OUTPUTDIR = Path('data/metal/inf')
+DEFAULT_OUTPUTDIR = 'data/metal/inf'
 
 
 class TensixNwPerfMetricModel(BaseModel):
@@ -95,13 +95,13 @@ type ColNames = list[str]
 
 def parse_html_table(table: html.HtmlElement) -> tuple[ColNames, RowList]:
     """
-    Parses an HTML table and returns it as a DataFrame.
+    Parses an HTML table and returns a tuple of column names and rows.
 
     Args:
         table (lxml.html.HtmlElement): The HTML table element to parse.
 
     Returns:
-        pd.DataFrame: The parsed table as a DataFrame.
+        tuple[list[str], list[list[str]]]: A tuple containing the column names and the rows of the table.
     """
     rows: RowList = []
     column_names: ColNames = []
@@ -186,7 +186,7 @@ def extract_table_from_html_link(link: str, use_cache: bool = True) -> list[Tens
 
         for row in rows:
             assert isinstance(row['benchmark'], str), f'Expected "benchmark" to be a string, got {type(row["benchmark"])}'
-            if 'bert' not in row['benchmark'].lower() and 'resnet' not in row['benchmark'].lower():
+            if 'bert-large' not in row['benchmark'].lower() and 'resnet' not in row['benchmark'].lower():
                 continue
             assert isinstance(row['system'], str), f"Expected 'system' to be a string, got {type(row['system'])}"
             if not re.search('[a-z][0-9][0-9][0-9]', row['system'].lower()):
@@ -198,7 +198,7 @@ def extract_table_from_html_link(link: str, use_cache: bool = True) -> list[Tens
                 if isinstance(attr_value, str) and ',' in attr_value:
                     trimmed_row[attr] = trimmed_row[attr].replace(',', '')
 
-            if 'bert' in trimmed_row['benchmark'].lower():
+            if 'bert-large' in trimmed_row['benchmark'].lower():
                 trimmed_row = process_bert_row(trimmed_row)
             else:
                 trimmed_row = process_resnet_row(trimmed_row)
@@ -279,17 +279,18 @@ def create_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description='Parse and extract metrics from TT-Metal Tensix results.')
     parser.add_argument('--output-dir', '-o', dest='output_dir', type=str, default=DEFAULT_OUTPUTDIR,
                         help='Directory to save the extracted metrics')
+    parser.add_argument('--use-cache', '-c', dest='use_cache', action=argparse.BooleanOptionalAction, default=True,
+                        help='Use cache for fetching content. Defaults to True. When set to False, it will always fetch the content from the URL.')
     return parser.parse_args(argv)
 
 
-def parse_metal_tensix_results(argv: list[str] | None = None, use_cache: bool = True) -> int:
+def parse_metal_tensix_results(argv: list[str] | None = None) -> int:
     """
     Main function to parse and extract metrics from TT-Metal Tensix results.
 
     Args:
         argv (list[str] | None): List of command line arguments. If None, uses sys.argv.
-        use_cache (bool): Whether to use cache for fetching content. Defaults to True.
-        When set to False, it will always fetch the content from the URL.
+        The arguments include options for output directory and caching behavior.
 
     Returns:
         int: Exit code of the script.
@@ -297,16 +298,17 @@ def parse_metal_tensix_results(argv: list[str] | None = None, use_cache: bool = 
     args = create_args(argv)
     setup_logger()
     link = 'https://github.com/tenstorrent/tt-metal/tree/main'
-    os.makedirs(args.output_dir, exist_ok=True)
-    metrics = extract_table_from_html_link(link, use_cache=use_cache)
+    output_dir: Path = Path(args.output_dir)
+    os.makedirs(output_dir, exist_ok=True)
+    metrics = extract_table_from_html_link(link, use_cache=args.use_cache)
     report_systems_of_interest(metrics)
-    save_metrics(metrics, args.output_dir)
+    save_metrics(metrics, output_dir)
     logger.info('Extracted {} metrics from {}', len(metrics), link)
     return 0
 
 
 def main(argv: list[str] | None = None) -> int:
-    return parse_metal_tensix_results(argv, use_cache=True)
+    return parse_metal_tensix_results(argv)
 
 
 if __name__ == '__main__':
