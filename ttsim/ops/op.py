@@ -2418,6 +2418,11 @@ class ReduceMaxOp(SimOp):
                 }
 
         return self.perf_stats
+    
+class ReduceMeanOp(ReduceMaxOp):
+    def __init__(self, opinfo):
+        super().__init__(opinfo)
+        self.opclass_str: str = 'ReduceMean'
 
 class NonMaxSuppressionOp(SimOp):
     def __init__(self, opinfo):
@@ -2578,6 +2583,7 @@ def SimOpFactory(optype: str) -> type[SimOp]:
             SigmoidOp            : ['Sigmoid'], #Yolo-v7
             ResizeOp             : ['Resize'], #Yolo-v7
             ReduceMaxOp          : ['ReduceMax', 'ArgMax'], #Yolo-v7
+            ReduceMeanOp         : ['ReduceMean'],
             NonMaxSuppressionOp  : ['NonMaxSuppression'], #Yolo-v7
             FlattenOp            : ['Flatten'], #Yolo-v7
             VoxelPoolingOp       : ['VoxelPooling'], #BEVDepth
