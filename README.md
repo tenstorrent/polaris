@@ -20,18 +20,29 @@ Yet Another High Level AI Simulator
 ----
 
 ## Table of Contents
+- [Table of Contents](#table-of-contents)
 - [Introduction](#introduction)
 - [Installation](#installation)
   - [Prerequisites](#prerequisites)
   - [Environment Setup](#environment-setup)
-    - [User Environment](#user-environment)
-    - [Developer Environment](#developer-environment)
+    - [Installing Miniforge](#installing-miniforge)
+    - [User Environment Setup](#user-environment-setup)
+    - [Developer Environment Setup](#developer-environment-setup)
 - [Usage](#usage)
   - [Basic Command Structure](#basic-command-structure)
+  - [Key Command Line Options](#key-command-line-options)
+  - [Filtering Options](#filtering-options)
   - [Configuration Files](#configuration-files)
+    - [Architecture Specification](#architecture-specification)
+    - [Workload Specification](#workload-specification)
+    - [Workload Mapping Specification](#workload-mapping-specification)
   - [Output and Analysis](#output-and-analysis)
+    - [Output Formats](#output-formats)
+    - [Key Metrics](#key-metrics)
+    - [Output Directory Structure](#output-directory-structure)
   - [Best Practices](#best-practices)
   - [Troubleshooting](#troubleshooting)
+    - [Common Issues](#common-issues)
 - [Support](#support)
 
 ## Introduction
@@ -93,7 +104,7 @@ python polaris.py [options] --archspec <arch_config> --wlspec <workload_spec> --
 - `--study,       -s`: Name for the simulation study (default: "study")
 - `--odir,        -o`: Output directory for results (default: ".")
 - `--outputformat`: Output format for results (none/yaml/json/pickle)
-- `--dump_stats_csv`: Enable CSV stats output
+- `--dumpstatscsv`: Enable CSV stats output
 - `--dryrun,      -n`: Perform a dry run without actual simulation
 - `--enable_memalloc`: Enable memory allocation simulation
 - `--instr_profile`: Enable instruction profiling
