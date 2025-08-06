@@ -7,7 +7,7 @@ import json
 from typing import Any
 from importlib import import_module, util as importlib_util
 from pathlib import Path
-import logging
+from loguru import logger
 from copy import deepcopy
 from functools import lru_cache
 from collections.abc import KeysView
@@ -51,7 +51,7 @@ def parse_xlsx(filename, sheetname=None):
         if len(sheetnames) == 1:
             sheetname = sheetnames[0]
             wsheet = wb[sheetname]
-            logging.info('using sheet %s', sheetname)
+            logger.info('using sheet {}', sheetname)
         else:
             raise RuntimeError(f'too many sheets in {filename}, choose one of {sheetnames}')
 
@@ -235,4 +235,4 @@ def get_kwargs_with_defaults(opname: str, /,
 
 @lru_cache(128)
 def warnonce(msg, *args, **kwargs):
-    logging.warning(msg, *args, **kwargs)
+    logger.warning(msg, *args, **kwargs)

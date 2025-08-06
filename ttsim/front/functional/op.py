@@ -5,7 +5,7 @@ import numpy as np
 from functools import lru_cache, partial
 from typing import Union, Iterator
 
-import logging
+from loguru import logger
 from ttsim.graph import WorkloadGraph
 from ttsim.ops import SimOpFactory, SimTensor
 import ttsim.utils.common as common

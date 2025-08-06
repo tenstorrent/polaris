@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # SPDX-FileCopyrightText: (C) 2025 Tenstorrent AI ULC
 # SPDX-License-Identifier: Apache-2.0
-import logging
+from loguru import logger
 import re
 import os
 from copy import deepcopy
@@ -14,7 +14,7 @@ from collections import Counter
 import deepdiff
 from ttsim.utils.common import convert_units, warnonce
 
-LOG   = logging.getLogger(__name__)
+LOG   = logger
 INFO  = LOG.info
 DEBUG = LOG.debug
 
@@ -80,7 +80,7 @@ class SimCfgBlk: #Generic Sim Configuration Block
 
     def set_param(self, pname, pvalue):
         if len(pname) == 0:
-            INFO(f"??? CHECK THIS in {self.kind()}.{self.name}.set_param()")
+            INFO("??? CHECK THIS in {}.{}.set_param()", self.kind(), self.name)
             return False
 
         parts = pname.split('.')
@@ -112,7 +112,7 @@ class SimCfgBlk: #Generic Sim Configuration Block
                         cur_child_obj[next_pname] = pvalue
                         return True
                     else:
-                        INFO(f"WARNING: Type Mismatch: old({old_val}) != new({pvalue}), IGNORED!!")
+                        INFO("WARNING: Type Mismatch: old({}) != new({}), IGNORED!!", old_val, pvalue)
                         return False
                 else:
                     return False
@@ -147,7 +147,7 @@ class SimCfgBlk: #Generic Sim Configuration Block
                     else:
                         lines.append(f"{prefix} {ikey}: {ival}")
             else:
-                DEBUG('... %s', obj)
+                DEBUG('... {}', obj)
 
 
             return '\n'.join(lines)

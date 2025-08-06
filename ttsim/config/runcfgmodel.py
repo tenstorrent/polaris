@@ -12,7 +12,6 @@ type TYPE_OUTPUTFORMAT = Literal['json', 'yaml', 'pickle', 'none']
 type TYPE_frequency = Tuple[int, int, int]
 type TYPE_batchsize = Tuple[int, int, int]
 
-
 class PolarisRunConfig(BaseModel, extra='forbid'):
     # Title is used only in the run config, it is not a command line attribute of polaris
     title: str = Field(description='Human readable itle for the run')
@@ -93,7 +92,7 @@ class PolarisRunConfig(BaseModel, extra='forbid'):
         default=False, description='If true, run will continue even if some command(s) fails'
     )
 
-    log_level: Optional[TYPE_LOGLEVEL] = Field(
+    log_level: TYPE_LOGLEVEL = Field(
         default='warning', description='Logging level (error,warning,info,debug) for the run'
     )
 
@@ -119,6 +118,8 @@ class PolarisRunConfig(BaseModel, extra='forbid'):
         default=False,
         description='Only for internal use. This attribute should be true for yaml copies saved by polaris system only',
     )
+
+
 
 
 type TYPE_GITHASH = Union[str, None]

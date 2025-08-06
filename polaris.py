@@ -6,7 +6,7 @@ import sys
 import argparse
 import copy
 import cProfile
-import logging
+from loguru import logger
 import pickle
 import time
 import tracemalloc
@@ -28,9 +28,11 @@ import ttsim.config.runcfgmodel as runcfgmodel
 
 """ Polaris top-level executable. """
 
-LOG   = logging.getLogger(__name__)
+LOG   = logger
 INFO  = LOG.info
 DEBUG = LOG.debug
+ERROR = LOG.error
+WARNING = LOG.warning
 
 class OutputFormat(Enum):
     FMT_NONE = auto()
@@ -213,7 +215,8 @@ def get_wlgraph(TBL, wlg, wln, wli, gcfg, wpath, enable_memalloc):
 
             ttsim_wl_graph = ttsim_wl.get_forward_graph() # we should have a valid workload graph at this point
             TBL[(wlg,wln,wli,wlb)] = (ttsim_wl, ttsim_wl_graph)
-            DEBUG(f">>ttsim-wl analytical parameter count {wlg}.{wln}.{wli}.b{wlb}= {ttsim_wl.analytical_param_count():,d}")
+            DEBUG(">>ttsim-wl analytical parameter count {}.{}.{}.b{}= {:,d}", wlg, wln, wli, wlb,
+                    ttsim_wl.analytical_param_count())
         elif wlg == 'ONNX':
             print(f">>onnx-wl = {wlg}.{wln}.{wli}.b{wlb} = {wpath}")
             onnx_graph = onnx2graph(wli, wpath)
@@ -295,12 +298,6 @@ def setup_cmdline_args(argv: list[str] | None = None) -> argparse.Namespace:
     args = parser.parse_args(argv)
     check_args(args)
 
-    #set logging level...
-    numeric_level = getattr(logging, args.log_level.upper(), None)
-    assert isinstance(numeric_level, int), f'Invalid log level: {args.log}'
-    logging_format = "%(levelname)s:%(name)s:%(filename)s:%(lineno)d:%(message)s"
-    logging.basicConfig(level=numeric_level, format=logging_format)
-
     #print cmdline for easy debug
     DEBUG("CMD=  python " + " ".join(sys.argv))
 
@@ -329,10 +326,9 @@ def get_devices(devspec, fsweep, filterarch):
         device_list = [(d,None) for d in devs]
     devlist = sorted(apply_filter(device_list, filterarch, lambda x: x[0]))
 
-    INFO(f'reading device specification {devspec}: found {len(devs):4d} #devices')
+    INFO('reading device specification {}: found {:4d} #devices', devspec, len(devs))
     if fsweep.check():
-        INFO(f'reading frequency sweep {" "*26}: found {len(fsweep.getvals()):4d} #frequencies')
-
+        INFO('reading frequency sweep {}: found {:4d} #frequencies', " "*26, len(fsweep.getvals()))
     return devlist, devs
 
 def get_workloads(wlspec, bsweep, filterwlg, filterwl, filterwli):
@@ -347,18 +343,18 @@ def get_workloads(wlspec, bsweep, filterwlg, filterwl, filterwli):
                     wl_list += [(wlapi, wl.name, wli_name, wli_cfg, b) for b in bsweep.getvals()]
                 else:
                     wl_list += [(wlapi, wl.name, wli_name, wli_cfg, None)]
-    INFO(f'reading workload specification {wlspec}: found {len(wl_list):4d} #workloads')
+    INFO('reading workload specification {}: found {:4d} #workloads', wlspec, len(wl_list))
     for ndx, tmp in enumerate(wl_list):
-        INFO(f'{ndx}: {tmp}')
+        INFO('{}: {}', ndx, tmp)
     wl_list = apply_filter(wl_list, filterwlg, lambda x: x[0])
     wl_list = apply_filter(wl_list, filterwl,  lambda x: x[1])
     wl_list = apply_filter(wl_list, filterwli, lambda x: x[2])
     wl_list = sorted(wl_list)
     num_batches   = len(bsweep.getvals()) if bsweep.check() else 1
     num_workloads = len(wl_list) // num_batches
-    INFO(f'reading workloads specification {wlspec}: found {num_workloads:4d} #workloads')
+    INFO('reading workloads specification {}: found {:4d} #workloads', wlspec, num_workloads)
     if bsweep.check():
-        INFO(f'reading batch sweep                   : found {num_batches} #batch-sizes')
+        INFO('reading batch sweep                   : found {} #batch-sizes', num_batches)
     return wl_list, workload_specs
 
 def create_uniq_workloads_tbl(WL_LIST):
@@ -434,7 +430,7 @@ def execute_wl_on_dev(_wl, _dl, _wspec, _dspec, wlmapspec, _WLG,
                                          _enable_memalloc)
         except Exception as e:
             num_failures += 1
-            logging.error('workload %s failed with %s', exp_wl, e)
+            ERROR('workload {} failed with {}', exp_wl, e)
             raise
 
         try:
@@ -445,7 +441,7 @@ def execute_wl_on_dev(_wl, _dl, _wspec, _dspec, wlmapspec, _WLG,
             wlgraph.fuse_nodes    (wlmapspec.fusion_spec)
         except Exception as e:
             num_failures += 1
-            logging.error('workload %s failed with %s', exp_wl, e)
+            ERROR('workload {} failed with {}', exp_wl, e)
             continue
 
         #publish stats
@@ -483,11 +479,11 @@ def execute_wl_on_dev(_wl, _dl, _wspec, _dspec, wlmapspec, _WLG,
             val.update(fwd_op.perf_stats)
             val_in_bpe = val['inBytes'] // val['inElems']
             if (not fwd_op.removed_in_optimization) and val_in_bpe != get_bpe(get_sim_dtype(fwd_op.precision)):
-                logging.warning("device=%s workload=%s instance=%s op=%s opclass=%s input bpe mismatch: bytes/elems %s  != operator precision %s bpe %s",
+                WARNING("device={} workload={} instance={} op={} opclass={} input bpe mismatch: bytes/elems {}  != operator precision {} bpe {}",
                                 devname, wlname, wlins_name, fwd_op.name, fwd_op.opclass_str, val_in_bpe, fwd_op.precision, get_bpe(get_sim_dtype(fwd_op.precision)))
             val_out_bpe = val['outBytes'] // val['outElems']
             if (not fwd_op.removed_in_optimization) and val_out_bpe != get_bpe(get_sim_dtype(fwd_op.precision)):
-                logging.warning("device=%s workload=%s instance=%s op=%s opclass=%s output bpe mismatch: bytes/elems %s  != operator precision %s bpe %s",
+                WARNING("device={} workload={} instance={} op={} opclass={} output bpe mismatch: bytes/elems {}  != operator precision {} bpe {}",
                                 devname, wlname, wlins_name, fwd_op.name, fwd_op.opclass_str, val_out_bpe, fwd_op.precision, get_bpe(get_sim_dtype(fwd_op.precision)))
             TOT_INSTR_COUNT = sum([v for k,v in fwd_op.perf_stats['instrs'].items()])
             val.update({
@@ -561,13 +557,16 @@ def execute_wl_on_dev(_wl, _dl, _wspec, _dspec, wlmapspec, _WLG,
         else:
             summary_dict['stat_filename'] = ''
         _summary_stats.append(summary_dict)
-        logging.info('ran job #%d %s %s %s', exp_no, wlins_name, devname, devfreq)
+        INFO('ran job #{} instance={} device={} frequency={}', exp_no, wlins_name, devname, devfreq)
 
     return num_failures, _summary_stats
 
 
 def polaris(args: argparse.Namespace | runcfgmodel.PolarisRunConfig) -> int:
     """Main entry point for the Polaris simulation."""
+    logger.remove()
+    logger.add(sys.stderr, level=args.log_level.upper())
+
     freqsweep = RangeArgument('frequency', args.frequency)
     batchsweep = RangeArgument('batchsize', args.batchsize, range_type='mul')
     if args.enable_cprofile:
@@ -621,7 +620,7 @@ def polaris(args: argparse.Namespace | runcfgmodel.PolarisRunConfig) -> int:
     if args.enable_cprofile:
         profiler.disable()
         profiler.dump_stats("polaris_cprofile_stats.prof")
-    logging.info(f"Polaris run completed with {tot_exp_run} experiments.")
+    INFO("Polaris run completed with {} experiments.", tot_exp_run)
     return 0 if num_failures == 0 else 1
 
 

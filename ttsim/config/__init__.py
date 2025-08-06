@@ -2,7 +2,7 @@
 # SPDX-FileCopyrightText: (C) 2025 Tenstorrent AI ULC
 # SPDX-License-Identifier: Apache-2.0
 from collections import Counter
-import logging
+from loguru import logger
 import copy
 from ..utils.common import parse_yaml, parse_worksheet
 from .simconfig import SimConfig as SimConfig, XlsxConfig as XlsxConfig, WorkloadGroup as WorkloadGroup, AWorkload as AWorkload
@@ -56,25 +56,26 @@ def get_arspec_from_yaml(cfg_yaml_file):
                             raise ValueError(f'child for {ovkey_part} not found in {base}')
                         base = newbase
                         continue
-                    logging.debug(f'{override_key=} {override_value=} {base=} {override_key_parts[-1]=}')
+                    logger.debug('override_key={} override_value={} base={} override_key_parts[-1]={}',
+                                 override_key, override_value, base, override_key_parts[-1])
                     last_key = override_key_parts[-1]
                     old_value = base.get(last_key, None)
                     if old_value is None:
                         raise ValueError(f'attribute {last_key} not defined in {base}')
                     if old_value == override_value:
-                        logging.warning('device %s ipgroup %s overrode value of %s from %s to %s (NO DIFFERENCE)',
+                        logger.warning('device {} ipgroup {} overrode value of {} from {} to {} (NO DIFFERENCE)',
                                         pkgentry['name'], ipgroup_base['ipname'], override_key, old_value, override_value)
                     else:
-                        logging.info('device %s ipgroup %s overrode value of %s from %s to %s',
+                        logger.info('device {} ipgroup {} overrode value of {} from {} to {}',
                                         pkgentry['name'], ipgroup_base['ipname'], override_key, old_value, override_value)
                     base[last_key] = override_value
             pkginstance['ipgroups'] = ipgroups
             try:
                 _tmp = PackageInstanceModel(**pkginstance)
             except ValidationError as e:
-                logging.error('validation error when creating %s', pkginstance['name'])
+                logger.error('validation error when creating {}', pkginstance['name'])
                 raise
-            logging.info('created instance %s', _tmp.name)
+            logger.info('created instance {}', _tmp.name)
             pkg_instance_db[_tmp.name] = _tmp
     return ipblocks_db, pkg_instance_db
 
@@ -103,7 +104,7 @@ def parse_xlsx_config(xlsx_worksheet):
     duplicate_archcfgs = [tmp for tmp, count in archcfg_counts.items() if count > 1]
     if duplicate_archcfgs:  # pragma: no cover
         for tmp in duplicate_archcfgs:
-            logging.error(f'Architecture Config {tmp} defined {archcfg_counts[tmp]} times in {xlsx_worksheet}')
+            logger.error(f'Architecture Config {tmp} defined {archcfg_counts[tmp]} times in {xlsx_worksheet}')
         raise Exception('some arch config names are defined multiple times')
 
     cfgTbl = {col: XlsxConfig(xlsx_worksheet + ':' + col) for col in cols}

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # SPDX-FileCopyrightText: (C) 2025 Tenstorrent AI ULC
 # SPDX-License-Identifier: Apache-2.0
-import logging
+from loguru import logger
 from pathlib import Path
 from urllib.parse import urlparse
 
@@ -61,14 +61,14 @@ class FileLocator:
         cache_key = url_2_key(url)
         if (not self._use_cache) or (filepath := CacheManager.get_cached_filepath(cache_key)) is None:
             if not self._use_cache:
-                logging.debug(f'cache force-skipped for reading {url}')
+                logger.debug(f'cache force-skipped for reading {url}')
             else:
-                logging.debug(f'no cached content for {url}, fetching from the URL')
+                logger.debug(f'no cached content for {url}, fetching from the URL')
             (response := requests.get(url)).raise_for_status() # Raise an error for bad responses
             filepath = CacheManager.set_content(cache_key, response.text)
             assert filepath is not None, f'Failed to cache content for {url}'
         else:
-            logging.debug(f'Cached content for {url} being reused')
+            logger.debug(f'Cached content for {url} being reused')
         return filepath
 
 

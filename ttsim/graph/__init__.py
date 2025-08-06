@@ -3,7 +3,7 @@
 # SPDX-License-Identifier: Apache-2.0
 # Construct Backward Graph From a Forward Graph
 import numpy as np
-import logging
+from loguru import logger
 
 from .wl_graph import WorkloadGraph
 from ttsim.ops.tensor import SimTensor
@@ -60,8 +60,8 @@ class BackwardWorkloadGraph:
                 g_ot        = CREATE_GRAD_TENSOR(ot, set_data=True)
                 bwd_tensors[g_ot.name] = g_ot
 
-        logging.info("BWD INIT GRADS")
-        for _,x in bwd_tensors.items(): logging.info('\t%s', x)
+        logger.info("BWD INIT GRADS")
+        for _,x in bwd_tensors.items(): logger.info('\t{}', x)
 
         ordered_nodes = self._fwd_graph.get_ordered_nodes()
         sorted_nodes  = reversed(ordered_nodes)

@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # SPDX-FileCopyrightText: (C) 2025 Tenstorrent AI ULC
 # SPDX-License-Identifier: Apache-2.0
-import logging
+from loguru import logger
 import math
 import networkx as nx
 from collections import defaultdict
@@ -15,7 +15,7 @@ import numpy as np
 
 from ttsim.ops import SimOp, SimTensor
 
-LOG   = logging.getLogger(__name__)
+LOG   = logger
 INFO  = LOG.info
 DEBUG = LOG.debug
 

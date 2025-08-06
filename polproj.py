@@ -7,7 +7,7 @@ import argparse
 import copy
 import datetime
 import json
-import logging
+from loguru import logger
 import shutil
 from typing import Any, Tuple, Union
 
@@ -37,24 +37,21 @@ def choose_file(fname: str) -> str:
 
 def load_runconfig(cfgfile: str) -> RUNCFG_TYPE:
     rundict = yaml.load(open(choose_file(cfgfile)), Loader=yaml.CLoader)
-    logging.info('validating %s', cfgfile)
+    logger.info('validating {}', cfgfile)
     return runcfgmodel.PolarisRunConfig(**rundict)
 
 
 class JTemplate:
     def __init__(self) -> None:
-        self.jlogger = jinja2.make_logging_undefined(logger=logging.getLogger(), base=jinja2.Undefined)
-
         self.templates: JDICT_TYPE = dict()
 
     def expand(self, s: str, obj: JDICT_TYPE) -> str:
         try:
             template = self.templates[s]
         except KeyError:
-            self.templates[s] = jinja2.Template(s, undefined=self.jlogger)
+            self.templates[s] = jinja2.Template(s, undefined=jinja2.StrictUndefined)
             template = self.templates[s]
         return template.render(obj)
-
 
 def timestamp(tm: datetime.datetime) -> str:
     return tm.strftime('%y%m%d-%H%M%S')
@@ -80,7 +77,7 @@ def execute(runcfg: RUNCFG_TYPE, jtemplate: JTemplate, jdict: JDICT_TYPE,
 
 def jinja_variables(rootrepo: Repo) -> dict[str, Any]:
     head = rootrepo.head.commit
-    print(f'{head=}')
+    logger.debug('head={}', head)
     commit_time = head.committed_datetime
     author_time = head.authored_datetime
     is_detached = False
@@ -115,7 +112,7 @@ def determine_commit(rootrepo: Repo, githash: runcfgmodel.TYPE_GITHASH) -> Union
     try:
         commits = list(rootrepo.iter_commits(githash, max_count=1))
     except GitCommandError as _e:
-        logging.error('invalid githash "%s"', githash)
+        logger.error('invalid githash "{}"', githash)
         raise
     return commits[0]
 
@@ -172,16 +169,17 @@ def override_runconfig(runconfig: RUNCFG_TYPE, passdown_args: list[str]) -> None
             if ndx + 1 >= len(passdown_args):
                 raise ValueError('missing argument for --odir')
             runconfig.odir = passdown_args[ndx + 1]
-            logging.warning('overriding output directory with %s', runconfig.odir)
+            logger.warning('overriding output directory with {}', runconfig.odir)
         elif arg == '--study':
             if ndx + 1 >= len(passdown_args):
                 raise ValueError('missing argument for --study')
             runconfig.study = passdown_args[ndx + 1]
-            logging.warning('overriding study name with %s', runconfig.study)
+            logger.warning('overriding study name with {}', runconfig.study)
 
 
 def main() -> int:
-    logging.basicConfig(level=logging.WARNING, format='%(levelname)s:%(filename)s:%(lineno)d:%(message)s')
+    logger.remove()
+    logger.add(sys.stderr, level='WARNING')
     args: argparse.Namespace
     passdown_args: list[str]
     args, passdown_args = get_args()
@@ -192,9 +190,9 @@ def main() -> int:
 
     if args.no_dirty:
         if rootrepo.is_dirty():
-            logging.error('Repository is dirty (changes and/or untracked files), please commit or stash changes before running')
+            logger.error('Repository is dirty (changes and/or untracked files), please commit or stash changes before running')
             return 1
-        logging.info('Repository is clean')
+        logger.info('Repository is clean')
 
     commit = determine_commit(rootrepo, runconfig.githash)
 
@@ -202,11 +200,11 @@ def main() -> int:
 
     if commit is not None:
         if rootrepo.is_dirty():
-            logging.error('Repository is dirty (trying to checkout %s), please commit or stash changes before running', 
-                        commit)
+            logger.error('Repository is dirty (trying to checkout {}), please commit or stash changes before running',
+                         commit)
             return 1
         rootrepo.git.checkout(commit)
-        logging.warning('checked out requested git hash %s', commit)
+        logger.warning('checked out requested git hash {}', commit)
 
     jinjadict = jinja_variables(rootrepo)
     mytemplate = JTemplate()

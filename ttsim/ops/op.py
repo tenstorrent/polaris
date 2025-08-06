@@ -4,7 +4,7 @@
 from functools import lru_cache, reduce
 import operator
 import math
-import logging
+from loguru import logger
 import numpy as np
 from typing import Union, TYPE_CHECKING, Dict, Any
 
@@ -12,7 +12,7 @@ from onnx.mapping import TENSOR_TYPE_MAP
 import ttsim.utils.common as common
 from .tensor import SimTensor
 
-LOG   = logging.getLogger(__name__)
+LOG   = logger
 INFO  = LOG.info
 DEBUG = LOG.debug
 G_COMPUTE_UTIL_CONSTANT = 0.6 #hard coded for now, will get this from the model after Tiler implementation
@@ -190,17 +190,17 @@ def check_io_counts(op, /, in_counts, out_counts):
 def update_output_tensor(op, in_tensor, out_tensor):
     assert in_tensor.check_shape(), f"ERROR: {op} Invalid Input SHAPE in {in_tensor}"
     if out_tensor.check_shape():
-        DEBUG(f"Validated SimTensor({out_tensor.name}) SHAPE: {out_tensor.shape}")
+        DEBUG("Validated SimTensor({}) SHAPE: {}", out_tensor.name, out_tensor.shape)
         assert in_tensor.shape == out_tensor.shape, f"IO shape Mismatch {in_tensor.shape} != {out_tensor.shape} for {out_tensor.name}"
     else:
-        DEBUG(f"Updating SimTensor({out_tensor.name}) SHAPE: {out_tensor.shape} <- {in_tensor.shape}")
+        DEBUG("Updating SimTensor({}) SHAPE: {} <- {}", out_tensor.name, out_tensor.shape, in_tensor.shape)
         out_tensor.shape = in_tensor.shape
 
     if in_tensor.data is not None:
         if out_tensor.data is None:
             out_tensor.data = in_tensor.data
             out_tensor.dtype = in_tensor.dtype
-            DEBUG(f"Updating DATA SimTensor({out_tensor})")
+            DEBUG("Updating DATA SimTensor({})", out_tensor)
 
 class SimOp:
     def __init__(self, cfg):
