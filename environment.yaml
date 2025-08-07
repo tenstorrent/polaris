@@ -17,4 +17,6 @@ dependencies:
   - yaml=0.2.5
   - pydantic=2.10.6
   - gitpython
+  - loguru=0.7.3
+  - lxml=6.0.0
   - deepdiff
