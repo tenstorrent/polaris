@@ -12,8 +12,8 @@ on:
       - main
 
 jobs:
-  build-linux:
-    runs-on: ubuntu-latest
+  checkin-tests:
+    runs-on: tt-beta-ubuntu-2204-large
     strategy:
       max-parallel: 5
 
@@ -23,20 +23,18 @@ jobs:
 
     steps:
     - uses: actions/checkout@v4
-    - uses: conda-incubator/setup-miniconda@v3
-      id: setup-miniforge
+    - uses: mamba-org/setup-micromamba@v2
+      id: setup-mamba
       with:
-        miniforge-version: latest
-        channels: conda-forge
-        conda-remove-defaults: "true"
-        activate-environment: poldevenv
         environment-file: envdev.yaml
-        condarc-file: etc/condarc
-        auto-activate-base: false
-    - name: check-miniforge-config     # Ensure default channels are not being used
+        environment-name: poldevenv
+        post-cleanup: all
+
+    - name: check-micromamba-config     # Ensure default channels are not being used
       run: |
-        conda list
-        conda config --show-sources
+        micromamba info
+        micromamba list
+
     - name: Run Unit and Coverage Tests
       run: | 
         coverage erase
@@ -48,7 +46,12 @@ jobs:
     - name: Run Checkin Tests
       if: always()
       run: |
-        python checkin_tests.py static workloads
+        python checkin_tests.py static
+    - name: Check license and copyright
+      if: always()
+      run: |
+          python tools/spdxchecker.py --ignore .github/spdxchecker-ignore.yml --allowed-licenses Apache-2.0 --allowed-copyright "Tenstorrent AI ULC"
+
     - name: Upload artifacts
       if: always()
       uses: actions/upload-artifact@v4
@@ -56,6 +59,42 @@ jobs:
         name: dist-wo-onnxdumps
         path: |
            .coverage
+           __RUN_TESTS
+           !__RUN_TESTS/**/*.onnx
+    
+  userenv-tests:
+    runs-on: tt-beta-ubuntu-2204-large
+    strategy:
+      max-parallel: 5
+
+    defaults:
+      run:
+        shell: bash -el {0}
+
+    steps:
+    - uses: actions/checkout@v4
+    - uses: mamba-org/setup-micromamba@v2
+      id: userenv-setup-mamba
+      with:
+        environment-file: environment.yaml
+        environment-name: poluserenv
+        post-cleanup: all
+
+    - name: userenv-check-micromamba-config     # Ensure default channels are not being used
+      run: |
+        micromamba info
+        micromamba list
+
+    - name: userenv-checkin-tests
+      if: always()
+      run: |
+        python checkin_tests.py workloads
+    - name: Upload artifacts
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: userenv-dist-wo-onnxdumps
+        path: |
            __RUN_TESTS
            !__RUN_TESTS/**/*.onnx
     

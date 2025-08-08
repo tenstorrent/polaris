@@ -10,7 +10,7 @@ ignore:
   - condarc
   - '*.txt'
   - '*.toml'
-#warning:
-#  - '*.html'
-#  - '*.yaml'
-#  - '*.yml'
+warning:
+  - '*.html'
+  - '*.yaml'
+  - '*.yml'
