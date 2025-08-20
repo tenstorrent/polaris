@@ -1,0 +1,69 @@
+# SPDX-FileCopyrightText: (C) 2025 Tenstorrent AI ULC
+# SPDX-License-Identifier: Apache-2.0
+workloads:
+  - api: ONNX
+    name: ResNet50_ONNX
+    basedir: onnx_models
+    instances:
+      resnet50_b1:
+        path: resnet50.onnx
+        bs: 1
+        input_shape: [3, 224, 224]
+      resnet50_b8:
+        path: resnet50.onnx
+        bs: 8
+        input_shape: [3, 224, 224]
+      resnet50_b16:
+        path: resnet50.onnx
+        bs: 16
+        input_shape: [3, 224, 224]
+
+  - api: ONNX
+    name: MobileNet_ONNX
+    basedir: onnx_models
+    instances:
+      mobilenet_v2_b1:
+        path: mobilenet_v2.onnx
+        bs: 1
+        input_shape: [3, 224, 224]
+      mobilenet_v2_b4:
+        path: mobilenet_v2.onnx
+        bs: 4
+        input_shape: [3, 224, 224]
+
+  - api: ONNX
+    name: BERT_ONNX
+    basedir: onnx_models
+    instances:
+      bert_base_b1:
+        path: bert_base.onnx
+        bs: 1
+        sequence_length: 512
+      bert_base_b8:
+        path: bert_base.onnx
+        bs: 8
+        sequence_length: 512
+
+  - api: ONNX
+    name: GPT2_ONNX
+    basedir: onnx_models
+    instances:
+      gpt2_b1:
+        path: gpt2.onnx
+        bs: 1
+        sequence_length: 1024
+      gpt2_b4:
+        path: gpt2.onnx
+        bs: 4
+        sequence_length: 1024
+
+  - api: ONNX
+    name: SimpleTest_ONNX
+    basedir: onnx_models
+    instances:
+      simple_test_b1:
+        path: simple_test_model.onnx
+        bs: 1
+      simple_test_b2:
+        path: simple_test_model.onnx
+        bs: 2

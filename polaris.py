@@ -18,6 +18,7 @@ from pathlib import Path
 from typing import Any
 
 import yaml
+import numpy as np
 from pydantic import BaseModel
 
 from ttsim.config import TTSimHLWlDevRunPerfStats, TTSimHLRunSummary, get_arspec_from_yaml, get_wlmapspec_from_yaml, get_wlspec_from_yaml, TypeWorkload
@@ -393,8 +394,19 @@ def save_data(model: BaseModel, filename, outputfmt: OutputFormat)->None:
         with open(filename, 'w') as fout:
             yaml.dump(model.model_dump, fout, indent=4, Dumper=yaml.CDumper)
     elif outputfmt == OutputFormat.FMT_JSON:
+        # Custom serializer to handle numpy arrays
+        def numpy_serializer(obj):
+            if isinstance(obj, np.ndarray):
+                return obj.tolist()
+            elif isinstance(obj, (np.integer, np.floating)):
+                return obj.item()
+            return obj
+        
         with open(filename, 'w') as fout:
-            print(model.model_dump_json(indent=4), file=fout)
+            # Use model_dump with custom serializer instead of model_dump_json
+            import json
+            model_dict = model.model_dump()
+            print(json.dumps(model_dict, indent=4, default=numpy_serializer), file=fout)
     elif outputfmt == OutputFormat.FMT_PICKLE:
         with open(filename, 'wb') as foutbin:
             pickle.dump(model, foutbin)
@@ -477,12 +489,12 @@ def execute_wl_on_dev(_wl, _dl, _wspec, _dspec, wlmapspec, _WLG,
                     'fused_with_op' : 'NA' if fwd_op.fused_with_op is None else fwd_op.fused_with_op
                     }
             val.update(fwd_op.perf_stats)
-            val_in_bpe = val['inBytes'] // val['inElems']
-            if (not fwd_op.removed_in_optimization) and val_in_bpe != get_bpe(get_sim_dtype(fwd_op.precision)):
+            val_in_bpe = val['inBytes'] // val['inElems'] if val['inElems'] > 0 else 0
+            if (not fwd_op.removed_in_optimization) and val['inElems'] > 0 and val_in_bpe != get_bpe(get_sim_dtype(fwd_op.precision)):
                 WARNING("device={} workload={} instance={} op={} opclass={} input bpe mismatch: bytes/elems {}  != operator precision {} bpe {}",
                                 devname, wlname, wlins_name, fwd_op.name, fwd_op.opclass_str, val_in_bpe, fwd_op.precision, get_bpe(get_sim_dtype(fwd_op.precision)))
-            val_out_bpe = val['outBytes'] // val['outElems']
-            if (not fwd_op.removed_in_optimization) and val_out_bpe != get_bpe(get_sim_dtype(fwd_op.precision)):
+            val_out_bpe = val['outBytes'] // val['outElems'] if val['outElems'] > 0 else 0
+            if (not fwd_op.removed_in_optimization) and val['outElems'] > 0 and val_out_bpe != get_bpe(get_sim_dtype(fwd_op.precision)):
                 WARNING("device={} workload={} instance={} op={} opclass={} output bpe mismatch: bytes/elems {}  != operator precision {} bpe {}",
                                 devname, wlname, wlins_name, fwd_op.name, fwd_op.opclass_str, val_out_bpe, fwd_op.precision, get_bpe(get_sim_dtype(fwd_op.precision)))
             TOT_INSTR_COUNT = sum([v for k,v in fwd_op.perf_stats['instrs'].items()])

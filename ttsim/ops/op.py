@@ -66,6 +66,9 @@ def pooling_shape_inference(input_shape, kernel_shape, attrs):
     # Validate inputs
     if len(input_shape) < 2:
         raise ValueError(f"Expected at least 2D input tensor, got shape {input_shape}")
+    
+    if kernel_shape is None:
+        raise ValueError(f"kernel_shape cannot be None for pooling operation")
 
     num_spatial_dims = len(kernel_shape)
     if num_spatial_dims > len(input_shape) - 2:
@@ -1002,6 +1005,8 @@ class MaxPoolOp(SimOp):
         assert inT[0].check_shape(), f"Illegal Shape for {inT[0]}"
         input_shape   = inT[0].shape
         kernel_shape  = self.attrs.get('kernel_shape') #required attribute
+        if kernel_shape is None:
+            raise ValueError(f"MaxPool operator {self.name} missing required 'kernel_shape' attribute")
         output_shape  = pooling_shape_inference(input_shape, kernel_shape, self.attrs)
         outT[0].shape = output_shape
         outT[0].dtype = inT[0].dtype
@@ -1071,6 +1076,24 @@ class AveragePoolOp(SimOp):
         else:
             # Traditional AveragePool with explicit kernel_shape
             kernel_shape = self.attrs.get('kernel_shape')  # Required attribute
+            
+            # Handle GlobalAveragePool case (no kernel_shape attribute)
+            if kernel_shape is None and self.optype == 'GlobalAveragePool':
+                # GlobalAveragePool: pool over entire spatial dimensions
+                # Extract spatial dimensions (last 2 dimensions for 2D case)
+                if len(input_shape) >= 4:  # NCHW format
+                    kernel_shape = input_shape[-2:]  # [H, W]
+                    print(f"INFO: GlobalAveragePool operator {self.name} using kernel_shape={kernel_shape} from input dimensions")
+                else:
+                    raise ValueError(f"GlobalAveragePool operator {self.name} requires at least 4D input (NCHW), got shape {input_shape}")
+                
+                # Set attributes for global pooling
+                self.attrs['kernel_shape'] = kernel_shape
+                self.attrs['strides'] = kernel_shape  # Stride = kernel size for global pooling
+                self.attrs['pads'] = [0] * (2 * len(kernel_shape))  # No padding
+                
+            elif kernel_shape is None:
+                raise ValueError(f"AveragePool operator {self.name} missing required 'kernel_shape' attribute")
             output_shape = pooling_shape_inference(input_shape, kernel_shape, self.attrs)
             outT[0].shape = output_shape
             outT[0].dtype = inT[0].dtype
@@ -1102,6 +1125,18 @@ class MatMulOp(SimOp):
 
         AShape = inT[0].shape
         BShape = inT[1].shape
+        
+        # Handle transpose attributes from Gemm conversion
+        transA = self.attrs.get('transA', 0)
+        transB = self.attrs.get('transB', 0)
+        
+        # Apply transpose to shape calculations
+        if transA != 0:
+            # Transpose A: swap last two dimensions
+            AShape = AShape[:-2] + [AShape[-1], AShape[-2]]
+        if transB != 0:
+            # Transpose B: swap last two dimensions  
+            BShape = BShape[:-2] + [BShape[-1], BShape[-2]]
 
         #find output shape
         CShape = None

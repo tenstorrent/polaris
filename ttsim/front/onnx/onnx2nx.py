@@ -334,14 +334,18 @@ def get_resolved_tensors(G):
 def onnx2graph(_wlname, _wlpath):
     H,G,T = parse_onnx_model(_wlname, _wlpath)
 
+    # Convert ONNX operators to TTSIM-compatible format
+    from .onnx_converter import convert_onnx_to_ttsim
+    G_converted, T_converted = convert_onnx_to_ttsim(G, T)
+
     gg = WorkloadGraph(H['name'])
 
     gg.add_hdr_info(H)
 
-    for tensor_name,tensor_info in T.items():
+    for tensor_name,tensor_info in T_converted.items():
         gg.add_tensor(SimTensor(tensor_info))
 
-    for op_info in G['node']:
+    for op_info in G_converted['node']:
         op_cls = SimOpFactory(op_info['optype'])
         gg.add_op(op_cls(op_info))
 
