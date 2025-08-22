@@ -7,7 +7,7 @@ import ttsim.front.functional.op as F
 import ttsim.front.functional.sim_nn as SimNN
 import numpy as np
 from ttsim.ops import SimTensor
-import logging
+from loguru import logger
 
 class LeNet(SimNN.Module):
     def __init__(self, name, cfg):
@@ -35,7 +35,7 @@ class LeNet(SimNN.Module):
         self.input_tensors = {
             'x' : F._from_shape('x',  [self.bs, self.in_channels, 28, 28], is_param=False, np_dtype=np.float32),
         }
-        logging.debug('input tensors: %s', self.input_tensors['x'])
+        logger.debug('input tensors: {}', self.input_tensors['x'])
         return
 
     def get_forward_graph(self):
@@ -69,5 +69,4 @@ def run_standalone(outdir: str ='.')->None:
         gr.graph2onnx(f'{outdir}/testlenet_{cfgname}.onnx', do_model_check=False)
 
 if __name__ == '__main__':
-    logging.basicConfig(level=logging.WARNING, format="%(levelname)s:%(name)s:%(filename)s:%(lineno)d:%(message)s")
     run_standalone(outdir='.')

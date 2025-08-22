@@ -3,7 +3,6 @@
 # SPDX-License-Identifier: Apache-2.0
 import os
 import json
-import logging
 import tempfile
 
 import pytest
@@ -53,9 +52,6 @@ def test_load_runconfig_reads_yaml_and_returns_config(monkeypatch):
     # Patch PolarisRunConfig to our dummy class
     monkeypatch.setattr(polproj.runcfgmodel, 'PolarisRunConfig', DummyPolarisRunConfig)
 
-    # Patch logging to avoid clutter
-    monkeypatch.setattr(logging, 'info', lambda *a, **k: None)
-
     result = polproj.load_runconfig('dummy.yaml')
     assert isinstance(result, DummyPolarisRunConfig)
     assert result.kwargs['odir'] == 'output_dir'
@@ -71,7 +67,7 @@ def test_load_runconfig_file_not_found(monkeypatch):
         polproj.load_runconfig('does_not_exist.yaml')
 
 
-def test_determine_commit_returns_none_if_githash_is_none(monkeypatch):
+def test_determine_commit_returns_none_if_githash_is_none():
     class DummyHead:
         hexsha = 'abc123'
         commit = None
@@ -83,7 +79,7 @@ def test_determine_commit_returns_none_if_githash_is_none(monkeypatch):
     assert result is None
 
 
-def test_determine_commit_returns_none_if_head_matches_githash(monkeypatch):
+def test_determine_commit_returns_none_if_head_matches_githash():
     class DummyCommit:
         hexsha = 'abc123'
 
@@ -98,7 +94,7 @@ def test_determine_commit_returns_none_if_head_matches_githash(monkeypatch):
     assert result is None
 
 
-def test_determine_commit_returns_commit_if_githash_differs(monkeypatch):
+def test_determine_commit_returns_commit_if_githash_differs():
     class DummyCommit:
         hexsha = 'ghi789'
         # Simulate a commit that is different from the head
@@ -121,7 +117,7 @@ def test_determine_commit_returns_commit_if_githash_differs(monkeypatch):
     assert result is dummy_commit
 
 
-def test_determine_commit_raises_on_gitcommanderror(monkeypatch):
+def test_determine_commit_raises_on_gitcommanderror():
     class DummyCommit:
         hexsha = 'ghi789'
 
@@ -134,9 +130,6 @@ def test_determine_commit_raises_on_gitcommanderror(monkeypatch):
 
         def iter_commits(self, githash, max_count):
             raise GitCommandError('cmd', 1)
-
-    # Patch logging.error to avoid clutter
-    monkeypatch.setattr(logging, 'error', lambda *a, **k: None)
 
     with pytest.raises(GitCommandError):
         polproj.determine_commit(DummyRepo(), 'def456')  # type: ignore
@@ -188,7 +181,7 @@ def test_execute_expands_and_writes_json_and_calls_polaris(monkeypatch, tmp_path
     assert result == 0
 
 
-def test_execute_raises_if_passdown_args(monkeypatch):
+def test_execute_raises_if_passdown_args():
     class DummyRunCfg:
         odir = 'odir'
         study = 'study'
@@ -206,7 +199,7 @@ def test_execute_raises_if_passdown_args(monkeypatch):
                         args=type('Args', (), {})(), passdown_args=['foo'])  # type: ignore
 
 
-def test_choose_file_returns_absolute_path(tmp_path, monkeypatch):
+def test_choose_file_returns_absolute_path(tmp_path):
     # Create a dummy file with absolute path
     abs_file = tmp_path / "absfile.yaml"
     abs_file.write_text("dummy")
@@ -250,7 +243,7 @@ def test_choose_file_raises_if_file_not_found(monkeypatch):
         polproj.choose_file("doesnotexist.yaml")
 
 
-def test_override_runconfig_overrides_odir_and_study(monkeypatch):
+def test_override_runconfig_overrides_odir_and_study():
     class DummyRunCfg:
         def __init__(self):
             self.odir = "original_odir"
@@ -259,15 +252,12 @@ def test_override_runconfig_overrides_odir_and_study(monkeypatch):
     runconfig = DummyRunCfg()
     passdown_args = ['--odir', 'new_odir', '--study', 'new_study']
 
-    # Patch logging.warning to avoid clutter
-    monkeypatch.setattr(logging, 'warning', lambda *a, **k: None)
-
     polproj.override_runconfig(runconfig, passdown_args)  # type: ignore
     assert runconfig.odir == 'new_odir'
     assert runconfig.study == 'new_study'
 
 
-def test_override_runconfig_missing_odir_value(monkeypatch):
+def test_override_runconfig_missing_odir_value():
     class DummyRunCfg:
         odir = "original_odir"
         study = "original_study"
@@ -275,14 +265,12 @@ def test_override_runconfig_missing_odir_value(monkeypatch):
     runconfig = DummyRunCfg()
     passdown_args = ['--odir']
 
-    monkeypatch.setattr(logging, 'warning', lambda *a, **k: None)
-
     with pytest.raises(ValueError) as excinfo:
         polproj.override_runconfig(runconfig, passdown_args)  # type: ignore
     assert 'missing argument for --odir' in str(excinfo.value)
 
 
-def test_override_runconfig_missing_study_value(monkeypatch):
+def test_override_runconfig_missing_study_value():
     class DummyRunCfg:
         odir = "original_odir"
         study = "original_study"
@@ -290,14 +278,12 @@ def test_override_runconfig_missing_study_value(monkeypatch):
     runconfig = DummyRunCfg()
     passdown_args = ['--study']
 
-    monkeypatch.setattr(logging, 'warning', lambda *a, **k: None)
-
     with pytest.raises(ValueError) as excinfo:
         polproj.override_runconfig(runconfig, passdown_args)  # type: ignore
     assert 'missing argument for --study' in str(excinfo.value)
 
 
-def test_override_runconfig_ignores_unrelated_args(monkeypatch):
+def test_override_runconfig_ignores_unrelated_args():
     class DummyRunCfg:
         def __init__(self):
             self.odir = "original_odir"
@@ -305,8 +291,6 @@ def test_override_runconfig_ignores_unrelated_args(monkeypatch):
 
     runconfig = DummyRunCfg()
     passdown_args = ['--foo', 'bar']
-
-    monkeypatch.setattr(logging, 'warning', lambda *a, **k: None)
 
     polproj.override_runconfig(runconfig, passdown_args)  # type: ignore
     assert runconfig.odir == "original_odir"

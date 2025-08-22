@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # SPDX-FileCopyrightText: (C) 2025 Tenstorrent AI ULC
 # SPDX-License-Identifier: Apache-2.0
-import logging
+from loguru import logger
 from typing import Any, Literal
 
 from pydantic import BaseModel, ValidationError
@@ -110,7 +110,7 @@ class StatAttributeDescriptors:
             try:
                 cls.op_attribute_list.append(StatAttributeDescriptor(**x))
             except ValidationError:
-                logging.error('Invalid attribute descriptor for attribute %s', x)
+                logger.error('Invalid attribute descriptor for attribute {}', x)
                 raise
         StatAttributeDescriptors.update_attribute_descriptors(cls.op_attribute_list)
 

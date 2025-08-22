@@ -8,7 +8,7 @@ import statistics
 sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
 import argparse
 import json
-import logging
+from loguru import logger
 import math
 from collections import Counter, defaultdict, namedtuple
 from enum import Enum
@@ -183,10 +183,10 @@ def pair_layers(opstatlist_1: list[dict[str, Any]], opstatlist_2: list[dict[str,
             ndx1 += 1
             continue
         if DEBUG:
-            logging.error('could not match %d:%s and %d:%s', ndx1, opstatlist_1[ndx1]['optype'],
+            logger.error('could not match {}:{} and {}:{}', ndx1, opstatlist_1[ndx1]['optype'],
                           ndx2, opstatlist_2[ndx2]['optype'])
-            logging.error('closest match to %d is %s', ndx1, next1)
-            logging.error('closest match to %d is %s', ndx2, next2)
+            logger.error('closest match to {} is {}', ndx1, next1)
+            logger.error('closest match to {} is {}', ndx2, next2)
         raise NotImplementedError('ambiguous layer matching not implemented')
     return pairs
 
@@ -534,7 +534,7 @@ class StudyComparison:
             csv_table: list[dict[str, Any]] = []
             statdict1, statdict2 = self.run1.load_stat(k), self.run2.load_stat(k)
             jstat = compare_operator_stats(statdict1['operatorstats'], statdict2['operatorstats'], self.epsilon)
-            logging.info('Compared %s, result %s', kstr, jstat['rollup_status'].value)
+            logger.info('Compared {}, result {}', kstr, jstat['rollup_status'].value)
             output_filename = self.output_path / self.study / 'json' / os.path.basename(self.run1.statfilename(k))
             job_status[kstr] = {
                 'filename': output_filename.as_posix(),
@@ -587,7 +587,7 @@ class StudyComparison:
         os.makedirs(output_path_for_study, exist_ok=True)
         if not study_path1.is_dir() or not study_path2.is_dir():
             raise AssertionError(f'Study Directory {self.study} not found in both project run directories')
-        logging.info('Comparing %s <-> %s', study_path1, study_path2)
+        logger.info('Comparing {} <-> {}', study_path1, study_path2)
 
         config_result = self.compare_config_dir()
         config_compare_html = self.output_path / self.study / 'cfgsummary.html'
@@ -603,7 +603,7 @@ class StudyComparison:
         topsummary_html = self.output_path / self.study / 'index.html'
         self.generate_topsummary(job_result, config_compare_html, workload_compare_html_gchart, topsummary_html)
 
-        logging.info('status=%s', stat_result['rollup_status'])
+        logger.info('status={}', stat_result['rollup_status'])
         with open(output_path_for_study / 'config-comparison.json', 'w') as fout:
             json.dump(config_result, fout, indent=4)
         with open(output_path_for_study / 'stat-comparison.json', 'w') as fout:
@@ -663,8 +663,6 @@ def main() -> int:
         parser.print_help(sys.stderr)
         sys.exit(1)
     args = parser.parse_args()
-
-    logging.basicConfig(level=logging.INFO, format='%(levelname)s:%(filename)s:%(lineno)d:%(message)s')
 
     path1 = Path(args.dir1)
     path2 = Path(args.dir2)

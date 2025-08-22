@@ -8,7 +8,6 @@ import ttsim.front.functional.tensor_op as T
 import ttsim.front.functional.sim_nn as SimNN
 from ttsim.ops import SimTensor
 import numpy as np
-import logging
 
 def align_img_dim(img_dim):
     Q = img_dim // Bottleneck.expansion
@@ -187,6 +186,4 @@ def run_standalone(outdir: str ='.')->None:
 
 
 if __name__ == '__main__':
-    logging_format = "%(levelname)s:%(name)s:%(filename)s:%(lineno)d:%(message)s"
-    logging.basicConfig(level=logging.WARNING, format=logging_format)
     run_standalone()

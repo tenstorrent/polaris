@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # SPDX-FileCopyrightText: (C) 2025 Tenstorrent AI ULC
 # SPDX-License-Identifier: Apache-2.0
-import logging
+from loguru import logger
 import numpy as np
 from workloads.basicmlp import BasicMLP
 from ttsim.graph import BackwardWorkloadGraph
@@ -21,7 +21,7 @@ def _backwardpass(tmp_path):
     basedir = tmp_path / "onnxdumps"
     basedir.mkdir()
     for m_name, m_cfg in model_cfgs.items():
-        logging.info('Processing Model: %s', m_name)
+        logger.info('Processing Model: {}', m_name)
         m_obj = BasicMLP(m_name, m_cfg)
         m_obj.set_batch_size(3)
         m_obj.create_input_tensors()
@@ -30,10 +30,10 @@ def _backwardpass(tmp_path):
         loss = np.sum((y.data-z.data)**2)/y.data.size #euclidean distance...
         loss_gradient = (y.data - z.data)/y.data.size
 
-        logging.info('  OUTPUT TENSOR      : %s', y.name)
-        logging.info('  GROUND TRUTH       : %s', z.name)
-        logging.info('  LOSS               : %.2f', loss)
-        logging.info('  LOSS GRADIENT SHAPE: %s', loss_gradient.shape)
+        logger.info('  OUTPUT TENSOR      : {}', y.name)
+        logger.info('  GROUND TRUTH       : {}', z.name)
+        logger.info('  LOSS               : {:.2f}', loss)
+        logger.info('  LOSS GRADIENT SHAPE: {}', loss_gradient.shape)
 
         g = m_obj.get_forward_graph()
         fwd_onnxfile = basedir / f'{m_name}_FWD.onnx'

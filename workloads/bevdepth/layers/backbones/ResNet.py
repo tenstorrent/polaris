@@ -8,7 +8,6 @@ import ttsim.front.functional.op as F
 import ttsim.front.functional.tensor_op as T
 import ttsim.front.functional.sim_nn as SimNN
 from ttsim.ops import SimTensor
-import logging
 
 class BasicBlock(SimNN.Module):
     expansion = 1
@@ -174,8 +173,6 @@ class ResNet(SimNN.Module):
 
 if __name__ == '__main__':
     import numpy as np
-    logging_format = "%(levelname)s:%(name)s:%(filename)s:%(lineno)d:%(message)s"
-    logging.basicConfig(level=logging.WARNING, format=logging_format)
 
     #X = F._from_shape('X', [1, 3, 224, 224], np_dtype=np.float32) #N, C, H, W
     #resnet_cfg = {'layers': [3,4,6,3],  'num_classes': 1000, 'num_channels': 3}

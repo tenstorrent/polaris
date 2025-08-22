@@ -10,7 +10,6 @@ import tests.common
 from pathlib import Path
 import pytest
 from ttsim.ops import SimTensor
-import logging
 
 class ConvAndBatchnormTester(tests.common.SimOpTester):
     def __init__(self, name: str, cfgentry: dict):
