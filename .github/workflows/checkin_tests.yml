@@ -47,6 +47,12 @@ jobs:
       if: always()
       run: |
         python checkin_tests.py static
+    - name: Run standalone workload tests
+      if: always()
+      run: |
+        for test in tests/test_workloads/test_*.py; do
+          python -m pytest $test
+        done
     - name: Check license and copyright
       if: always()
       run: |

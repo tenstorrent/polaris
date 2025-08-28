@@ -196,6 +196,13 @@ class WL2ArchTypeSpec:
         return cls.instance
 
     @classmethod
+    def has_instance(cls) -> bool:
+        """
+        Check if the instance of WL2ArchDatatypes is set.
+        """
+        return cls.instance is not None
+
+    @classmethod
     def get_global_datatype(cls) -> TypeName:
         """
         Get the default data type.

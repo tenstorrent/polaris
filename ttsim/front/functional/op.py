@@ -55,11 +55,19 @@ def get_output(name):
 def get_opinfo(name, optype, **kwargs):
     return {'name': name, 'optype': optype, 'attrs': kwargs, 'domain': 'ttsim.common', 'inList': []}
 
-def get_sim_op(opinfo):
+def get_sim_op(opinfo, default_dtype=None):
     optype: str = opinfo['optype']
     opcls = SimOpFactory(optype)
     opobj = opcls(opinfo)
-    opobj.set_precision(WL2ArchTypeSpec.layer_2_datatype(optype.upper()))
+    if WL2ArchTypeSpec.has_instance():
+        opobj.set_precision(WL2ArchTypeSpec.layer_2_datatype(optype.upper()))
+    else:
+        if default_dtype is None:
+            raise AssertionError(
+                f"Cannot determine data precision for {optype} as neither workload-arch map nor default precision is set. "
+                "Consider setting a workload-arch map (WL2ArchTypeSpec) or providing a default precision parameter to resolve this issue."
+            )
+        opobj.set_precision(default_dtype)
     return opobj
 
 #####################################################################################################
@@ -115,7 +123,7 @@ class SimOpHandle:
         self.opinfo['outList'] = [self.otensor.name]
 
         #create relevant SimOp
-        self.sim_op = get_sim_op(self.opinfo)
+        self.sim_op = get_sim_op(self.opinfo, default_dtype=x.dtype)
 
         #get perf stats for the SimOp -- this also ensures that the output tensor shape/data
         #is well formed
@@ -193,7 +201,7 @@ class SplitOpHandle:
         self.opinfo['outList'] = [ot.name for ot in self.otensors]
 
         #create relevant SimOp
-        self.sim_op = get_sim_op(self.opinfo)
+        self.sim_op = get_sim_op(self.opinfo, default_dtype=x.dtype)
 
         #get perf stats for the SimOp -- this also ensures that the output tensor shape/data
         #is well formed
@@ -245,7 +253,11 @@ class VariadicInputOpHandle:
         self.opinfo['outList'] = [self.otensor.name]
 
         #create relevant SimOp
-        self.sim_op = get_sim_op(self.opinfo)
+        if xinput:
+            default_dtype = xinput[0].dtype
+        else:
+            default_dtype = np.float32
+        self.sim_op = get_sim_op(self.opinfo, default_dtype=default_dtype)
 
         #get perf stats for the SimOp -- this also ensures that the output tensor shape/data
         #is well formed
