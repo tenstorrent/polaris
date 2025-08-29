@@ -226,5 +226,5 @@ class WL2ArchTypeSpec:
 
 def get_wlmapspec_from_yaml(cfg_yaml_file) -> WL2ArchMap:
     mapspec = WL2ArchMap.from_yaml(cfg_yaml_file)
-    WL2ArchTypeSpec.set_instance(mapspec.data_type_spec)
+    WL2ArchTypeSpec.set_instance(mapspec.data_type_spec, force=True)
     return mapspec

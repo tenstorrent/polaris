@@ -98,12 +98,18 @@ def status_2_freqcount(values: list[ComparisonStatus]) -> Counter:
 
 def rollup_status(status_list: list[ComparisonStatus]) -> ComparisonStatus:
     assert isinstance(status_list, list)
+    if len(status_list) == 0:
+        # No elements to compare; treat as mismatch (no data) for conservative signal
+        return ComparisonStatus.Mismatch
+    # If any element exists only in one run, treat as mismatch
+    if any(s in (ComparisonStatus.Only_in_1, ComparisonStatus.Only_in_2) for s in status_list):
+        return ComparisonStatus.Mismatch
     status_count: Counter = status_2_freqcount(status_list)
     # Check the most severe status first
     found_status = [x for x in [ComparisonStatus.Mismatch, ComparisonStatus.TypeMismatch,
                        ComparisonStatus.ApproxMatch, ComparisonStatus.Match]
            if status_count[x] != 0]
-    return found_status[0]
+    return found_status[0] if found_status else ComparisonStatus.Mismatch
 
 
 def status_2_csvrow(summary: dict[str, Any]) -> dict[str, Any]:
@@ -329,6 +335,8 @@ class StudyComparison:
     def generate_jobsummaries_datatable(self, job_result: dict[str, Any], wl_compare_dtable: Path) -> None:
         if not self.flag_generate_html:
             return
+        if not job_result['elem_status']:
+            return
         status_frequency: Counter = Counter()
         jobsummary_data = []
         sr = 0
@@ -485,6 +493,12 @@ class StudyComparison:
         keys_common = keys_classified['keys_common']
         keys_only_in_1 = keys_classified['keys_only_in_1']
         keys_only_in_2 = keys_classified['keys_only_in_2']
+        # Special case: if both runs have no jobs, consider it a match
+        if not keys_common and not keys_only_in_1 and not keys_only_in_2:
+            return {
+                'elem_status': {},
+                'rollup_status': ComparisonStatus.Match,
+            }
         # Compare the two summaries
         job_status = {}
         job_status.update({jobkey_2_str(k): {'rollup_status': ComparisonStatus.Only_in_1} for k in keys_only_in_1})
@@ -495,8 +509,8 @@ class StudyComparison:
             job_status[jobkey_2_str(k)] = job_summary
             csv_row = status_2_csvrow(job_summary['elem_status'])
             csv_table.append(csv_row)
-
-        print_csv(sorted(csv_table[0].keys()), csv_table, self.output_path / self.study / 'summary-comparison.csv')
+        if csv_table:
+            print_csv(sorted(csv_table[0].keys()), csv_table, self.output_path / self.study / 'summary-comparison.csv')
 
         summary_status = rollup_status([entry['rollup_status'] for k, entry in job_status.items()])
         return {
@@ -567,7 +581,10 @@ class StudyComparison:
                                             self.run2.rootpath.stem + '/' + self.study + '/' + kstr,
                                             statattr.StatAttributeDescriptors.op_attribute_list,
                                             self.output_path / self.study / 'html' / f'{kstr}.html')
-        result['rollup_status'] = rollup_status([job_status[k]['rollup_status'] for k in job_status])
+        if not job_status:
+            result['rollup_status'] = ComparisonStatus.Match
+        else:
+            result['rollup_status'] = rollup_status([job_status[k]['rollup_status'] for k in job_status])
         rollup_csv_table: list[dict[str, Any]] = []
         for jobname, jobentry in sorted(job_status.items()):
             rollup_csv_table.append({
@@ -585,6 +602,9 @@ class StudyComparison:
         study_path2 = self.run2.studypath
         output_path_for_study = self.output_path / self.study
         os.makedirs(output_path_for_study, exist_ok=True)
+        # Pre-create html directory only if HTML output requested
+        if self.flag_generate_html:
+            os.makedirs(output_path_for_study / 'html', exist_ok=True)
         if not study_path1.is_dir() or not study_path2.is_dir():
             raise AssertionError(f'Study Directory {self.study} not found in both project run directories')
         logging.info('Comparing %s <-> %s', study_path1, study_path2)
@@ -603,7 +623,12 @@ class StudyComparison:
         topsummary_html = self.output_path / self.study / 'index.html'
         self.generate_topsummary(job_result, config_compare_html, workload_compare_html_gchart, topsummary_html)
 
-        logging.info('status=%s', stat_result['rollup_status'])
+        # If operator stats could not be produced (e.g., upstream failures) and thus report Match,
+        # but configs differ, reflect mismatch in the overall result to align with expected behavior.
+        final_status = stat_result['rollup_status']
+        if final_status == ComparisonStatus.Match and config_result['rollup_status'] != ComparisonStatus.Match:
+            final_status = ComparisonStatus.Mismatch
+        logging.info('status=%s', final_status)
         with open(output_path_for_study / 'config-comparison.json', 'w') as fout:
             json.dump(config_result, fout, indent=4)
         with open(output_path_for_study / 'stat-comparison.json', 'w') as fout:
@@ -612,7 +637,7 @@ class StudyComparison:
             json.dump(job_result, fout, indent=4)
         with open(output_path_for_study / 'config-comparison.json', 'w') as fout:
             json.dump(config_result, fout, indent=4)
-        return stat_result['rollup_status']
+        return final_status
 
 
 class ProjComparison:

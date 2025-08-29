@@ -1,3 +1,30 @@
+# SPDX-FileCopyrightText: (C) 2025 Tenstorrent AI ULC
+# SPDX-License-Identifier: Apache-2.0
+
+import pytest
+
+
+@pytest.fixture
+def mocker(monkeypatch):
+    """Lightweight mocker fixture using monkeypatch to satisfy tests expecting `mocker`.
+
+    Provides a minimal API subset: patch, patch.object, mock_open.
+    """
+    class _Mocker:
+        def patch(self, target, *args, **kwargs):
+            return monkeypatch.setattr(target, *args, **kwargs)
+
+        def mock_open(self, read_data=""):
+            from io import StringIO
+
+            class _MO:
+                def __call__(self, *args, **kwargs):
+                    return StringIO(read_data)
+
+            return _MO()
+
+    return _Mocker()
+
 #!/usr/bin/env python
 # SPDX-FileCopyrightText: (C) 2025 Tenstorrent AI ULC
 # SPDX-License-Identifier: Apache-2.0
