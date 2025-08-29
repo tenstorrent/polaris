@@ -45,11 +45,13 @@ def get_tensor_broadcast_shape(shape1, shape2):
     s1 = shape1[::-1]
     s2 = shape2[::-1]
     max_len = max(len(s1), len(s2))
-    s1.extend([1] * (max_len - len(s1)))
-    s2.extend([1] * (max_len - len(s2)))
+    s1_list = list(s1)
+    s2_list = list(s2)
+    s1_list.extend([1] * (max_len - len(s1_list)))
+    s2_list.extend([1] * (max_len - len(s2_list)))
 
     result = []
-    for d1, d2 in zip(s1, s2):
+    for d1, d2 in zip(s1_list, s2_list):
         if d1 == d2:
             result.append(d1)
         elif d1 == 1:
