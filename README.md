@@ -23,6 +23,7 @@ Yet Another High Level AI Simulator
 - [Introduction](#introduction)
 - [Installation](#installation)
   - [Prerequisites](#prerequisites)
+  - [Download Polaris](#download-polaris)
   - [Environment Setup](#environment-setup)
     - [User Environment](#user-environment)
     - [Developer Environment](#developer-environment)
@@ -43,6 +44,9 @@ Yet Another High Level AI Simulator
 - Python 3.13 or higher
 - Miniforge package manager
 
+### Download Polaris
+Execute ```git clone https://github.com/tenstorrent/polaris.git```
+
 ### Environment Setup
 The recommended setup uses Python with the Miniforge installation manager. It is expected that the reader is familiar with conda environments, creating and switching between environments. One can familiarize oneself with these concepts at [Conda Getting Started](https://docs.conda.io/projects/conda/en/latest/user-guide/getting-started.html).
 
@@ -56,6 +60,13 @@ The recommended setup uses Python with the Miniforge installation manager. It is
    ```bash
    conda update -n base -c conda-forge conda
    ```
+3. Conda environment initialization: The install script prompts the user to initialize conda with your shell. After this step, the user needs to log out and login again  (or,
+   exit the terminal and start a new terminal session). 
+
+4. To enable conda command on the path, run 
+    ```
+    source <your-conda-install-path>/etc/profile.d/conda.sh
+    ```
 
 #### User Environment Setup
 1. Create and activate the Polaris environment. The conda environment will
@@ -92,12 +103,25 @@ python polaris.py [options] --archspec <arch_config> --wlspec <workload_spec> --
 - `--wlmapspec,   -m`: Path to workload mapping specification YAML file
 - `--study,       -s`: Name for the simulation study (default: "study")
 - `--odir,        -o`: Output directory for results (default: ".")
-- `--outputformat`: Output format for results (none/yaml/json/pickle)
+- `--outputformat`: Output format for results (none/yaml/json/pickle, default: json)
 - `--dump_stats_csv`: Enable CSV stats output
 - `--dryrun,      -n`: Perform a dry run without actual simulation
+
+#### Data and Output Options
+- `--datatype,    -d`: Activation data type (fp64/fp32/tf32/fp16/bf16/fp8/int32/int8)
+- `--dump_ttsim_onnx`: Dump ONNX graph for TTSIM workloads
+
+#### Sweep Specifications
+- `--frequency`: Frequency (MHz) range specification (start end step)
+- `--batchsize`: Batch size range specification (start end step)
+
+#### Profiling and Analysis Options
 - `--enable_memalloc`: Enable memory allocation simulation
 - `--instr_profile`: Enable instruction profiling
 - `--enable_cprofile`: Enable Python cProfile for performance analysis
+
+#### Logging Options
+- `--log_level,    -l`: Set logging level (debug/info/warning/error/critical, default: info)
 
 ### Filtering Options
 - `--filterarch`: Filter architecture configurations
