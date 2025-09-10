@@ -77,7 +77,7 @@ may have to include that in your imports as well
 - Pass contextual `objname` from parents to children, e.g., `DoubleConv(f'{self.name}_conv', ...)`.
 
 ## Example pattern
-- PyTorch Code:
+PyTorch Code:
 ```
 class DoubleConv(nn.Module):
     """(convolution => [BN] => ReLU) * 2"""
@@ -99,7 +99,7 @@ class DoubleConv(nn.Module):
         return self.double_conv(x)
 ```
 
-- TTSim Code:
+TTSIM Code:
 ```
 class DoubleConv(SimNN.Module):
     def __init__(self, objname, in_channels, out_channels, mid_channels=None):
@@ -174,3 +174,151 @@ class Attention(nn.Module):
         x: torch.Tensor,
         ...)
 ```
+
+## Adding new operators to TTSIM
+
+If your workload has an operator which is not implemented in TTSIM, you need to do the following steps:
+
+**1) Check the API signature of the PyTorch operator**
+  - Find the equivalent ONNX operator(s). Reference: https://onnx.ai/onnx/operators/. This may or
+    may not be a simple 1:1 mapping. Pay attention to the attributes mismatch between Pytorch and
+    ONNX
+
+**2) Implement or reuse a `SimOp` class**
+  - Check if the equivalent ONNX operator(s) are missing in Polaris operators at `ttsim/ops/op.py`
+  - If the operator(s) are missing, you need to implement them as derived `SimOp` classes. Minimal
+    requirement for a such a class is input/output tensor count checks, attribute checks, shape
+    inference and precision checks. The `get_perf_counts` method needs to implement the shape inference
+    and instruction/memory-operation estimates for operator execution
+  - On the other hand, the equivalent operator may already be there, in which case we can simply
+    reuse it
+
+**3) Register the op_type in the SimOp factory**
+  - Map the ONNX `op_type` string to your `SimOp` in the factory so ONNX import can construct it:
+
+**4) Add a functional wrapper so that the PyTorch equivalent operator has a TTSIM proxy**
+  - Provide a `ttsim.front.functional` wrapper so workloads can use the op in Python modules.
+
+**5) Use the TTSIM functional wrapper in your workload code**
+  - Create the op handle during module init and call it with the required inputs:
+
+Here is an example. `Conv2d` operator in PyTorch has an ONNX equivalent `Conv`. However, their
+attribute names mismatch. We first implement and register the ONNX compliant operator as a `SimOp`
+in `ttsim/ops/op.py`:
+
+```Python
+class ConvOp(SimOp):
+    def __init__(self, opinfo):
+        super().__init__(opinfo)
+        self.opclass_str: str = 'Conv'
+
+        #perform IO checks
+        check_io_counts(self, in_counts=[2,3], out_counts=[1,1])
+        ...
+
+    def get_perf_counts(self, inT, outT, **kwargs):
+        #check input tensor shapes, and do shape inference for output tensors
+        assert inT[0].check_shape(), f"Illegal Shape for {inT[0]}"
+        assert inT[1].check_shape(), f"Illegal Shape for {inT[1]}"
+        if len(inT) == 3: assert inT[2].check_shape(), f"Illegal Shape for {inT[2]}"
+        ...
+
+def SimOpFactory(optype: str) -> type[SimOp]:
+    cls2optype: Dict[type[SimOp], list[str]] = {
+            ...
+            ConvOp : ['Conv'],
+            ...
+
+```
+
+Next we provide a functional wrapper in `ttsim/front/functional/op.py`. Notice how the attribute
+translation is done to ensure PyTorch to ONNX compatibility:
+
+```Python
+
+def Conv2d(name, in_channels, out_channels, kernel_size, **kwargs):
+    kernel_dims = (kernel_size, kernel_size)
+    arg_defaults = {
+            'stride': 1, 'padding': 0, 'dilation': 1, 'groups': 1,
+            'bias': True, 'padding_mode': 'zeros', 'device': None, 'dtype': None
+            }
+    eff_args   = common.get_kwargs_with_defaults('Conv', args=kwargs, default_args=arg_defaults)
+    stride     = common.make_tuple(eff_args['stride'], 2)
+    padding    = common.make_tuple(eff_args['padding'], 2*2)
+    dilation   = common.make_tuple(eff_args['dilation'], 2)
+    param_dims = [out_channels, in_channels // eff_args['groups'], *kernel_dims]
+    conv_param = _from_shape(name+'.param', param_dims, is_param=True)
+    op_hndl = SimOpHandle(name, 'Conv', params=[(1, conv_param)], ipos=[0],
+                          group=eff_args['groups'], # Torch to ONNX mapping
+                          strides=stride,           # Torch to ONNX mapping
+                          pads=padding,             # Torch to ONNX mapping
+                          dilations=dilation,       # Torch to ONNX mapping
+                          )
+    return op_hndl
+```
+
+So, now in your workload, you can write something like this:
+
+```Python
+import ttsim.front.functional.op as F
+import ttsim.front.functional.sim_nn as SimNN
+
+class SimpleModule(SimNN.Module):
+    def __init__(self, name, **kwargs):
+        self.conv_op = F.Conv2d(self.name + f'.conv', ic, oc, kernel_size=k, padding=p, stride=s)
+        ...
+
+    def __call__(self, x: SimTensor):
+        return self.conv_op(x)
+```
+
+Tips:
+- **Naming**: SimOp `opclass_str` string must exactly match what you register in the factory.
+- **Input Counts**: Choose the correct functional wrapper (`UnaryOperator`, `BinaryOperator`, `TernaryOperator`, or `VariadicInputOpHandle`) so input ordering matches your `SimOp`.
+- **Complex Mappings**: If the PyTorch to ONNX is complex, and involves several operators, use a
+  `SimNN.Module` instead of `SimOpHandle`
+- **Custom Operators**: Some workloads implement custom operators for efficiency or propriety
+  reasons. It is best to discuss this with Polaris team before embarking on coding/development to
+  support such workloads
+
+## ONNX model graph generation:
+
+Exporting a TTSIM model to ONNX involves three steps: prepare inputs, run the forward to materialize the graph, then export.
+
+**1) Prepare input tensors**
+  - Define a `create_input_tensors` that constructs named inputs with `F._from_shape` (or `F._from_data`).
+```
+def create_input_tensors(self):
+    self.input_tensors = {
+            'x_in': F._from_shape('x_in', ...),
+            }
+    return
+```
+
+**2) Run the model to connect ops and tensors**
+  - Build the model, create inputs, and execute `__call__` to connect handles.
+```
+rn_model = ResNet(k,v)
+rn_model.create_input_tensors()
+y = rn_model()
+print('Input:    ', rn_model.input_tensors['x_in'].shape)
+print('Output:   ', y.shape)
+```
+
+**3) Construct graph and export ONNX**
+  - Obtain the forward graph and write ONNX with optional checker.
+```
+def get_forward_graph(self):
+    GG = super()._get_forward_graph(self.input_tensors)
+    return GG
+```
+```
+gg = rn_model.get_forward_graph()
+print('Dumping ONNX...')
+gg.graph2onnx(f'resnet50.onnx', do_model_check=True)
+```
+
+Notes:
+- Ensure `super().link_op2module()` is called after constructing ops in `__init__` so they register under the module.
+- The keys of `self.input_tensors` become the graph inputs; names must be unique and match your module’s expected inputs.
+- You can also build a tensor map on the fly and call `Module._get_forward_graph({...})` directly when inputs are created outside the module.
