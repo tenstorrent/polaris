@@ -1,3 +1,13 @@
+#!/usr/bin/env python
+# SPDX-FileCopyrightText: (C) 2025 Tenstorrent AI ULC
+# SPDX-License-Identifier: Apache-2.0
+
+"""
+Test suite for Polaris diffusion schedulers.
+
+Tests scheduler implementations including Euler, DDIM, Heun, LMS, and DPM Multistep.
+"""
+
 import numpy as np
 
 from workloads.diffusers.schedulers import (
