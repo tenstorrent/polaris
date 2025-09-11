@@ -83,7 +83,8 @@ class SDXLComponentsTest:
 
         try:
             # Create UNet instance (without actual ONNX file for testing)
-            unet = UNet2DConditionModelOnnx.__new__(UNet2DConditionModelOnnx)
+            from workloads.diffusers.UNet2DConditionModelPolaris import UNet2DConditionModelPolaris
+            unet = UNet2DConditionModelPolaris.__new__(UNet2DConditionModelPolaris)
             unet.sample_size = 64
             unet.in_channels = 4
             unet.out_channels = 4
@@ -124,13 +125,14 @@ class SDXLComponentsTest:
 
         try:
             # Test VAE encoder
-            encoder = AutoencoderKLEncoderOnnx.__new__(AutoencoderKLEncoderOnnx)
+            from workloads.diffusers.AutoencoderKLPolaris import AutoencoderKLPolaris
+            encoder = AutoencoderKLPolaris.__new__(AutoencoderKLPolaris)
             encoder.scale_factor = 8
             encoder.in_channels = 3
             encoder.out_channels = 4
 
             # Test VAE decoder
-            decoder = AutoencoderKLDecoderOnnx.__new__(AutoencoderKLDecoderOnnx)
+            decoder = AutoencoderKLPolaris.__new__(AutoencoderKLPolaris)
             decoder.scale_factor = 8
             decoder.in_channels = 4
             decoder.out_channels = 3
@@ -138,7 +140,7 @@ class SDXLComponentsTest:
             print("✓ VAE encoder and decoder interfaces created")
 
             # Test combined VAE
-            vae = AutoencoderKLOnnx()
+            vae = AutoencoderKLPolaris("test_vae", {"in_channels": 3, "latent_channels": 4, "sample_size": 128})
             print("✓ Combined VAE interface created")
 
             self.test_results['vae_components'] = {'success': True}
@@ -211,8 +213,7 @@ class SDXLComponentsTest:
             step_result = scheduler.step(
                 model_output=noise,
                 timestep=timestep,
-                sample=latents,
-                return_dict=False
+                sample=latents
             )
 
             print("✓ Scheduler step executed")

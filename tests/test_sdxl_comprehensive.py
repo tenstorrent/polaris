@@ -53,10 +53,16 @@ class SDXLPipelineTest:
         # Create scheduler
         scheduler = kwargs.get('scheduler', EulerDiscreteScheduler())
 
-        # Create pipeline
-        self.pipeline = SDXLPipelinePolarisWorkload(
-            scheduler=scheduler
-        )
+        # Create pipeline with scheduler in config
+        cfg = {
+            'bs': 1,
+            'num_inference_steps': 10,
+            'guidance_scale': 7.5,
+            'height': 256,
+            'width': 256,
+            'scheduler': 'euler'
+        }
+        self.pipeline = SDXLPipelinePolarisWorkload("test_sdxl", cfg)
 
         # Configure guidance if specified
         guidance_scale = kwargs.get('guidance_scale', 7.5)
@@ -85,6 +91,7 @@ class SDXLPipelineTest:
         if self.pipeline is None:
             self.setup_pipeline()
 
+        assert self.pipeline is not None, "Pipeline should be initialized"
         # Default test parameters
         prompt = kwargs.get('prompt', "a beautiful landscape at sunset")
         height = kwargs.get('height', 256)
@@ -145,6 +152,7 @@ class SDXLPipelineTest:
         if self.pipeline is None:
             self.setup_pipeline()
 
+        assert self.pipeline is not None, "Pipeline should be initialized"
         guidance_scales = [1.0, 3.0, 7.5, 15.0]
         prompt = "a futuristic city at night"
 
@@ -185,6 +193,7 @@ class SDXLPipelineTest:
         if self.pipeline is None:
             self.setup_pipeline()
 
+        assert self.pipeline is not None, "Pipeline should be initialized"
         prompts = [
             "a serene mountain landscape",
             "a bustling city street",
@@ -231,6 +240,7 @@ class SDXLPipelineTest:
         if self.pipeline is None:
             self.setup_pipeline()
 
+        assert self.pipeline is not None, "Pipeline should be initialized"
         import tempfile
         with tempfile.TemporaryDirectory() as tmpdir:
             save_path = Path(tmpdir) / "sdxl_test_pipeline"
@@ -287,6 +297,7 @@ class SDXLPipelineTest:
         if self.pipeline is None:
             self.setup_pipeline()
 
+        assert self.pipeline is not None, "Pipeline should be initialized"
         import time
 
         prompt = kwargs.get('prompt', "performance test image")
@@ -317,11 +328,11 @@ class SDXLPipelineTest:
                 print(".2f")
             except Exception as e:
                 print(f"    ❌ Failed: {e}")
-                times.append(None)
+                times.append(0.0)  # Use 0.0 for failed runs
 
-        successful_runs = sum(1 for t in times if t is not None)
+        successful_runs = sum(1 for t in times if t > 0.0)
         if successful_runs > 0:
-            avg_time = sum(t for t in times if t is not None) / successful_runs
+            avg_time = sum(t for t in times if t > 0.0) / successful_runs
             print(".2f")
             self.test_results['performance'] = {
                 'success': True,

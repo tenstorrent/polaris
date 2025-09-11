@@ -137,7 +137,7 @@ class SimTensor:
     def reshape(self, *shape):
         """Reshape tensor to new shape"""
         if len(shape) == 1 and isinstance(shape[0], (list, tuple)):
-            shape = shape[0]
+            shape = tuple(shape[0])
         
         # Import here to avoid circular imports
         import ttsim.front.functional.op as F

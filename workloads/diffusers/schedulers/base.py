@@ -42,6 +42,8 @@ class SchedulerBase:
         if self._betas is None:
             self._build_base_schedules()
         # Slice schedules for selected timesteps
+        assert self._sigmas_all is not None, "_sigmas_all should be initialized by _build_base_schedules"
+        assert self._alphas_cumprod is not None, "_alphas_cumprod should be initialized by _build_base_schedules"
         sigmas = [float(self._sigmas_all[t]) for t in self.timesteps]
         abar = [float(self._alphas_cumprod[t]) for t in self.timesteps]
         self._sigmas = sigmas

@@ -30,10 +30,10 @@ from ttsim.graph.wl_graph import WorkloadGraph
 
 # Import our SDXL pipeline components
 from .schedulers import create_scheduler
-from AutoencoderKLPolaris import AutoencoderKLPolaris
-from TextEncodersPolaris import CLIPTextModelPolaris, CLIPTextModelWithProjectionPolaris, CLIPTokenizerHost
-from ClassifierFreeGuidancePolaris import ClassifierFreeGuidance
-from ConditioningPolaris import ControlNetPolaris, T2IAdapterPolaris
+from .AutoencoderKLPolaris import AutoencoderKLPolaris
+from .TextEncodersPolaris import CLIPTextModelPolaris, CLIPTextModelWithProjectionPolaris, CLIPTokenizerHost
+from .ClassifierFreeGuidancePolaris import ClassifierFreeGuidance
+from .ConditioningPolaris import ControlNetPolaris, T2IAdapterPolaris
 
 
 class SDXLPipelinePolarisWorkload(SimNN.Module):
@@ -85,7 +85,7 @@ class SDXLPipelinePolarisWorkload(SimNN.Module):
         self.workload_graph = WorkloadGraph(self.name)
 
         # Performance tracking
-        self.performance_stats = {}
+        self.performance_stats: Dict[str, Any] = {}
 
         INFO(f"Initialized SDXL Pipeline Workload: {name}")
         INFO(f"Configuration: bs={self.bs}, steps={self.num_inference_steps}, guidance={self.guidance_scale}")
@@ -176,7 +176,7 @@ class SDXLPipelinePolarisWorkload(SimNN.Module):
         # Optional conditioning modules
         self.conditioning_type = str(self.cfg.get('conditioning', 'none')).lower()
         self.conditioning_cfg = self.cfg.get('conditioning_cfg', {'conditioning_strength': 1.0})
-        self.conditioner = None
+        self.conditioner: Optional[Union[ControlNetPolaris, T2IAdapterPolaris]] = None
         if self.conditioning_type == 'controlnet':
             self.conditioner = ControlNetPolaris("controlnet", self.conditioning_cfg)
         elif self.conditioning_type in ('t2i_adapter', 't2i-adapter'):
@@ -431,7 +431,7 @@ class SDXLPipelinePolarisWorkload(SimNN.Module):
             'inference_steps': self.num_inference_steps,
             'guidance_scale': self.guidance_scale,
             'output_resolution': f"{self.height}x{self.width}",
-            'graph_nodes': len(self.workload_graph.nodes) if hasattr(self, 'workload_graph') else 0,
+            'graph_nodes': self.workload_graph.get_node_count() if hasattr(self, 'workload_graph') else 0,
             'estimated_params': self._estimate_parameter_count(),
         }
 
@@ -584,7 +584,7 @@ class SDXLPipelinePolarisWorkload(SimNN.Module):
         execution_time = self._simulate_execution(workload_graph)
 
         # Collect results
-        results = {
+        results: Dict[str, Any] = {
             'prompt': prompt,
             'workload_graph': workload_graph,
             'performance': {
@@ -612,20 +612,18 @@ class SDXLPipelinePolarisWorkload(SimNN.Module):
         # No-op: inputs are created during graph generation
         return None
 
-    def __call__(self, prompt: str = "a beautiful landscape", height: int = 1024, width: int = 1024,
+    def __call__(self, prompt: Union[str, List[str]] = "a beautiful landscape", height: int = 1024, width: int = 1024,
                  num_inference_steps: int = 20, guidance_scale: float = 7.5, num_images_per_prompt: int = 1, **kwargs):
         """Build the forward graph with specified parameters."""
-        # Handle multiple prompts first
+        # Handle multiple prompts and input validation
         if isinstance(prompt, list):
             num_prompts = len(prompt)
+        elif isinstance(prompt, str):
+            num_prompts = 1
         else:
-            num_prompts = 1
-
-        # Input validation
-        if not isinstance(prompt, str) and not isinstance(prompt, list):
-            # Convert non-string/non-list prompts to string
-            prompt = str(prompt)
-            num_prompts = 1
+            # Convert non-string/non-list prompts to string (defensive programming)
+            prompt = str(prompt)  # type: ignore[unreachable]
+            num_prompts = 1  # type: ignore[unreachable]
 
         # Update instance parameters if provided
         if height != 1024:

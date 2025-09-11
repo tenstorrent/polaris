@@ -18,7 +18,7 @@ import numpy as np
 from workloads.diffusers.SDXLPipelinePolaris import SDXLPipelinePolarisWorkload
 from workloads.diffusers.schedulers.base import SchedulerBase
 from workloads.diffusers.schedulers.euler_discrete import EulerDiscreteScheduler
-from test_components_integration import PolarisDiffusionPipeline
+from test_components_integration import PolarisDiffusionPipeline  # type: ignore[import]
 
 
 class MockComponent:

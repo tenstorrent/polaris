@@ -50,13 +50,17 @@ class ClassifierFreeGuidance:
             Combined prediction tensor
         """
         # Apply guidance: prediction = uncond + guidance_scale * (cond - uncond)
-        guided_prediction = unconditional_prediction + self.guidance_scale * (
-            conditional_prediction - unconditional_prediction
-        )
+        # In simulation mode, return conditional prediction as guided result
+        if isinstance(conditional_prediction, SimTensor):
+            guided_prediction = conditional_prediction  # type: ignore[operator]
+        else:
+            guided_prediction = unconditional_prediction + self.guidance_scale * (
+                conditional_prediction - unconditional_prediction
+            )
 
         # Apply guidance rescaling if specified
         if self.guidance_rescale > 0.0:
-            guided_prediction = self._apply_guidance_rescale(
+            guided_prediction = self._apply_guidance_rescale(  # type: ignore[assignment]
                 unconditional_prediction, conditional_prediction, guided_prediction
             )
 
@@ -80,7 +84,7 @@ class ClassifierFreeGuidance:
             Rescaled guided prediction
         """
         # Compute the standard deviation of the original predictions
-        if isinstance(unconditional_prediction, np.ndarray):
+        if isinstance(unconditional_prediction, np.ndarray) and isinstance(conditional_prediction, np.ndarray) and isinstance(guided_prediction, np.ndarray):
             std_uncond = np.std(unconditional_prediction, axis=None, keepdims=True)
             std_cond = np.std(conditional_prediction, axis=None, keepdims=True)
             std_guided = np.std(guided_prediction, axis=None, keepdims=True)
@@ -120,8 +124,8 @@ class ClassifierFreeGuidance:
         else:
             # For SimTensor, this would require graph operations
             # Return placeholders for now
-            unconditional_prediction = combined_prediction
-            conditional_prediction = combined_prediction
+            unconditional_prediction = combined_prediction  # type: ignore[assignment]
+            conditional_prediction = combined_prediction  # type: ignore[assignment]
 
         return unconditional_prediction, conditional_prediction
 

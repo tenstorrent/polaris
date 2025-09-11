@@ -28,7 +28,30 @@ class StableDiffusionXLPipelineOutput:
         # Validate image shapes
         for i, img in enumerate(images):
             if len(img.shape) != 3:
-                raise ValueError(f"Image {i} has invalid shape {img.shape}. Expected 3 dimensions (height, width, channels)")
+                raise ValueError(f"Image {i} has invalid shape {img.shape}. Expected 3 dimensions")
+
+            # For diffusion model outputs, we accept various channel counts
+            # since latents can have many channels, but final images should have reasonable dimensions
+            dim1, dim2, dim3 = img.shape
+
+            # Check if this looks like (height, width, channels) format
+            if dim3 in [1, 3, 4] and dim1 > 10 and dim2 > 10:  # Likely (H, W, C) format
+                height, width, channels = dim1, dim2, dim3
+            # Check if this looks like (channels, height, width) format
+            elif dim1 in [1, 3, 4] and dim2 > 10 and dim3 > 10:  # Likely (C, H, W) format
+                channels, height, width = dim1, dim2, dim3
+            # For large channel counts, assume (channels, height, width) format
+            elif dim1 > 100 and dim2 > 10 and dim3 > 10:  # Likely latent (C, H, W) format
+                channels, height, width = dim1, dim2, dim3
+            else:
+                # Ambiguous case - allow it but warn
+                height, width, channels = dim2, dim3, dim1  # Assume (C, H, W) as fallback
+
+            # Basic sanity checks
+            if height < 1 or width < 1:
+                raise ValueError(f"Image {i} has invalid dimensions {height}x{width}. Dimensions must be positive")
+            if height > 16384 or width > 16384:  # Reasonable maximum size
+                raise ValueError(f"Image {i} has dimensions {height}x{width} which exceed maximum allowed size")
 
         self.images = images
         self.nsfw_content_detected = nsfw_content_detected

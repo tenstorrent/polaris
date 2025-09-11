@@ -150,9 +150,9 @@ class PolarisDiffusionPipeline(SDXLPipelinePolarisWorkload):
         if hasattr(self, '_components'):
             for name, component in self._components.items():
                 if hasattr(component, 'name') and hasattr(component, 'onnx_path'):
-                    serializable_config[name] = [component.__class__.__name__, component.onnx_path]
+                    serializable_config[name] = [str(component.__class__.__name__), str(component.onnx_path)]  # type: ignore[assignment]
                 elif hasattr(component, '__class__'):
-                    serializable_config[name] = [component.__class__.__name__, None]
+                    serializable_config[name] = [str(component.__class__.__name__), None]  # type: ignore[assignment]
 
         # Add scheduler information (always include)
         scheduler_type = "EulerDiscreteScheduler"
@@ -160,10 +160,10 @@ class PolarisDiffusionPipeline(SDXLPipelinePolarisWorkload):
         # Use actual scheduler if available
         if hasattr(self, '_components') and 'scheduler' in self._components:
             scheduler = self._components['scheduler']
-            scheduler_type = scheduler.__class__.__name__
+            scheduler_type = str(scheduler.__class__.__name__)
 
         # Save as list format for test compatibility but handle string conversion
-        serializable_config['scheduler'] = [scheduler_type]
+        serializable_config['scheduler'] = [scheduler_type]  # type: ignore[assignment]
 
         with open(config_file, 'w') as f:
             json.dump(serializable_config, f, indent=2)
@@ -199,7 +199,7 @@ class PolarisDiffusionPipeline(SDXLPipelinePolarisWorkload):
         wrapper = cls(name=base_pipeline.name)
         # Copy important attributes from the loaded pipeline (avoid config property)
         wrapper.cfg = base_pipeline.cfg
-        wrapper._loaded_config = base_pipeline.config  # Store in private attribute
+        wrapper._loaded_config = base_pipeline.cfg  # Store config in private attribute
         return wrapper
 
     @classmethod

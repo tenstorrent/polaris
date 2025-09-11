@@ -161,12 +161,11 @@ class TestSerializationRoundtrip:
                 "width": 128,
                 "num_inference_steps": 2,
                 "guidance_scale": 1.0,
-                "return_dict": True,
             }
 
             # Both pipelines should execute without error
-            original_result = original_pipeline(prompt, **params)
-            loaded_result = loaded_pipeline(prompt, **params)
+            original_result = original_pipeline(prompt, **params)  # type: ignore[arg-type]
+            loaded_result = loaded_pipeline(prompt, **params)  # type: ignore[arg-type]
 
             # Both should return result objects
             assert hasattr(original_result, 'images') or isinstance(original_result, dict)

@@ -46,7 +46,7 @@ class BaseOnnxComponent:
 
         # Placeholder for actual ONNX loading logic
         # This would typically use onnxruntime or similar
-        self._model = str(self.onnx_path)  # Mock ONNX model loaded
+        self._model = str(self.onnx_path)  # type: ignore[assignment] # Mock ONNX model loaded
         self._input_names = ["input"]  # Mock input names
         self._output_names = ["output"]  # Mock output names
 
@@ -118,7 +118,7 @@ class BaseOnnxComponent:
         }
 
         if data is not None:
-            cfg['data'] = data
+            cfg['data'] = data  # type: ignore[assignment]
 
         return SimTensor(cfg)
 

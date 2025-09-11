@@ -115,10 +115,10 @@ class UNet2DConditionModelPolaris(BaseOnnxComponent):
             height = sample.shape[2] if len(sample.shape) > 2 else self.sample_size
             width = sample.shape[3] if len(sample.shape) > 3 else self.sample_size
         else:
-            # Fallback for shape inference
-            batch_size = 1
-            height = self.sample_size
-            width = self.sample_size
+            # Fallback for shape inference (defensive programming)
+            batch_size = 1  # type: ignore[unreachable]
+            height = self.sample_size  # type: ignore[unreachable]
+            width = self.sample_size  # type: ignore[unreachable]
 
         # Create output shape
         output_shape = [batch_size, self.out_channels, height, width]
@@ -180,8 +180,7 @@ class UNet2DConditionModelPolaris(BaseOnnxComponent):
                 name=timestep_name,
                 shape=[1],
                 dtype="float32",
-                data=np.array([timestep], dtype=np.float32),
-                is_const=True
+                data=np.array([timestep], dtype=np.float32)
             )
             graph.add_tensor(timestep_tensor)
         elif isinstance(timestep, str):

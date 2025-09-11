@@ -18,7 +18,7 @@ import numpy as np
 # Import Polaris components
 from workloads.diffusers.ClassifierFreeGuidancePolaris import ClassifierFreeGuidance
 from workloads.diffusers.SDXLPipelinePolaris import SDXLPipelinePolarisWorkload
-from test_components_integration import PolarisDiffusionPipeline
+from test_components_integration import PolarisDiffusionPipeline  # type: ignore[import]
 
 
 class TestClassifierFreeGuidance:
@@ -50,7 +50,12 @@ class TestClassifierFreeGuidance:
         # = [1,2,3,4] + 2.0 * ([2,3,4,5] - [1,2,3,4]) = [1,2,3,4] + 2.0 * [1,1,1,1] = [3,4,5,6]
         expected = np.array([[[3.0, 4.0], [5.0, 6.0]]])
 
-        np.testing.assert_array_equal(result, expected)
+        # Convert result to numpy array if it's a SimTensor
+        if hasattr(result, 'data'):
+            result_array = np.array(result.data)
+        else:
+            result_array = np.array(result)
+        np.testing.assert_array_equal(result_array, expected)
 
     def test_guidance_scaling_zero_scale(self):
         """Test guidance with scale = 1.0 (no guidance)."""
@@ -62,7 +67,12 @@ class TestClassifierFreeGuidance:
         result = guidance.combine_predictions(unconditional, conditional)
 
         # With scale=1.0, result should equal conditional
-        np.testing.assert_array_equal(result, conditional)
+        # Convert result to numpy array if it's a SimTensor
+        if hasattr(result, 'data'):
+            result_array = np.array(result.data)
+        else:
+            result_array = np.array(result)
+        np.testing.assert_array_equal(result_array, conditional)
 
     def test_guidance_rescaling(self):
         """Test guidance rescaling functionality."""
@@ -76,7 +86,12 @@ class TestClassifierFreeGuidance:
         # The rescaling should modify the final result
         # This is a complex calculation, so we just verify it's different from basic scaling
         assert result.shape == unconditional.shape
-        assert not np.array_equal(result, unconditional)
+        # Convert result to numpy array if it's a SimTensor
+        if hasattr(result, 'data'):
+            result_array = np.array(result.data)
+        else:
+            result_array = np.array(result)
+        assert not np.array_equal(result_array, unconditional)
 
     def test_guidance_validation(self):
         """Test input validation."""
@@ -158,8 +173,8 @@ class TestGuidancePipelineIntegration:
                 return np.random.randn(1, 4, 64, 64).astype(np.float32)
 
         # Set up mock components
-        pipeline.text_encoder = MockTextEncoder()
-        pipeline.unet = MockUNet()
+        pipeline.text_encoder = MockTextEncoder()  # type: ignore[assignment]
+        pipeline.unet = MockUNet()  # type: ignore[assignment]
 
         # Test guidance scale parameter handling without full pipeline execution
         # This avoids the complex graph system integration issues
@@ -256,8 +271,18 @@ class TestGuidanceAdvancedFeatures:
         # Split back
         split_uncond, split_cond = guidance.split_predictions(combined, batch_size=1)
 
-        np.testing.assert_array_equal(split_uncond, unconditional)
-        np.testing.assert_array_equal(split_cond, conditional)
+        # Convert results to numpy arrays if they're SimTensors
+        if hasattr(split_uncond, 'data'):
+            split_uncond_array = np.array(split_uncond.data)
+        else:
+            split_uncond_array = np.array(split_uncond)
+        if hasattr(split_cond, 'data'):
+            split_cond_array = np.array(split_cond.data)
+        else:
+            split_cond_array = np.array(split_cond)
+
+        np.testing.assert_array_equal(split_uncond_array, unconditional)
+        np.testing.assert_array_equal(split_cond_array, conditional)
 
         # Combine again
         recombined = guidance.combine_predictions(split_uncond, split_cond)
@@ -294,7 +319,12 @@ class TestGuidanceErrorHandling:
 
         # Should complete without numerical issues
         assert result.shape == unconditional.shape
-        assert np.all(np.isfinite(result))  # No inf or nan values
+        # Convert result to numpy array if it's a SimTensor
+        if hasattr(result, 'data'):
+            result_array = np.array(result.data)
+        else:
+            result_array = np.array(result)
+        assert np.all(np.isfinite(result_array))  # No inf or nan values
 
 
 if __name__ == "__main__":
