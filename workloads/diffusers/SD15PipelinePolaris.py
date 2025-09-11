@@ -123,7 +123,7 @@ class SD15PipelinePolarisWorkload(SimNN.Module):
         self.text_encoder = CLIPTextModelPolaris("text_encoder", self.text_encoder_config)
         self.tokenizer = CLIPTokenizerHost()
         # Reuse SDXL UNet functional stub for SD15 (dimension config differs via cfg)
-        from SDXLPipelinePolaris import UNet2DConditionModelPolaris as _UNetStub
+        from .UNet2DConditionModelPolaris import UNet2DConditionModelPolaris as _UNetStub
         self.unet = _UNetStub("unet", self.unet_config)
 
         scheduler_name = self.cfg.get('scheduler', 'euler')

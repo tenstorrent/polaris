@@ -120,6 +120,7 @@ class UNet2DConditionModelPolaris(BaseOnnxComponent):
             height = self.sample_size
             width = self.sample_size
 
+        # Create output shape
         output_shape = [batch_size, self.out_channels, height, width]
 
         # Create output tensor
