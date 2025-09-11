@@ -15,9 +15,10 @@ import pytest
 import numpy as np
 
 # Import Polaris pipeline components
-from pipelines.pipeline_utils import PolarisDiffusionPipeline
-from pipelines.schedulers.scheduling_utils import SchedulerMixin
-from pipelines.schedulers.scheduling_euler_discrete import EulerDiscreteScheduler
+from workloads.diffusers.SDXLPipelinePolaris import SDXLPipelinePolarisWorkload
+from workloads.diffusers.schedulers.base import SchedulerBase
+from workloads.diffusers.schedulers.euler_discrete import EulerDiscreteScheduler
+from test_components_integration import PolarisDiffusionPipeline
 
 
 class MockComponent:

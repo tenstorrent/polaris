@@ -13,6 +13,7 @@
 # limitations under the License.
 
 from typing import Dict, List, Optional, Union
+from pathlib import Path
 
 import numpy as np
 
@@ -21,7 +22,7 @@ from ttsim.graph.wl_graph import WorkloadGraph
 from ttsim.ops.tensor import SimTensor
 
 
-class UNet2DConditionModelOnnx(BaseOnnxComponent):
+class UNet2DConditionModelPolaris(BaseOnnxComponent):
     """
     ONNX-based UNet2DConditionModel wrapper for Polaris diffusion pipelines.
 

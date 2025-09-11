@@ -1,0 +1,37 @@
+# SPDX-FileCopyrightText: (C) 2025 Tenstorrent AI ULC
+# SPDX-License-Identifier: Apache-2.0
+
+# UNet Component Testing Configuration
+# This configuration runs various UNet models for testing and benchmarking
+
+# Global settings
+output_dir: "./unet_test_results"
+study_name: "unet_component_analysis"
+
+# Workload specifications
+workloads_spec: "config/unet_workloads.yaml"
+
+# Architecture specifications
+arch_specs: "config/all_archs.yaml"
+
+# Workload to architecture mapping
+wl2arch_mapping: "config/wl2archmapping.yaml"
+
+# Test filters - UNet specific
+workload_group_filter: ["unet"]
+workload_filter: ["sdxl_unet_component", "sd15_unet_component", "unet_specialized"]
+workload_instance_filter: [
+  "unet_nano", "unet_micro", "unet_small", "unet_base", "unet_large",
+  "sd15_unet_micro", "sd15_unet_small", "sd15_unet_base",
+  "unet_high_res", "unet_efficient", "unet_deep", "unet_wide", "unet_compact"
+]
+
+# Architecture filters
+arch_filter: ["Q1_S1", "Q1_A1", "Q2_A2"]
+
+# Test settings
+dry_run: true
+
+# Additional options
+verbose: true
+save_results: true

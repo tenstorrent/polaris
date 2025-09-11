@@ -20,7 +20,7 @@ from ttsim.graph.wl_graph import WorkloadGraph
 sys.path.append(str(Path(__file__).parent.parent))
 sys.path.append(str(Path(__file__).parent))
 
-from schedulers import create_scheduler
+from .schedulers import create_scheduler
 from AutoencoderKLPolaris import AutoencoderKLPolaris
 from TextEncodersPolaris import CLIPTextModelPolaris, CLIPTokenizerHost
 from ClassifierFreeGuidancePolaris import ClassifierFreeGuidance

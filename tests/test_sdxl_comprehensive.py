@@ -17,8 +17,8 @@ from pathlib import Path
 # Add the parent directory to the path to import pipeline components
 sys.path.append(str(Path(__file__).parent.parent))
 
-from pipelines.stable_diffusion_xl import StableDiffusionXLPipelinePolaris
-from pipelines.schedulers import EulerDiscreteScheduler
+from workloads.diffusers.SDXLPipelinePolaris import SDXLPipelinePolarisWorkload
+from workloads.diffusers.schedulers.euler_discrete import EulerDiscreteScheduler
 
 
 class SDXLPipelineTest:
@@ -54,7 +54,7 @@ class SDXLPipelineTest:
         scheduler = kwargs.get('scheduler', EulerDiscreteScheduler())
 
         # Create pipeline
-        self.pipeline = StableDiffusionXLPipelinePolaris(
+        self.pipeline = SDXLPipelinePolarisWorkload(
             scheduler=scheduler
         )
 
@@ -243,8 +243,8 @@ class SDXLPipelineTest:
 
                 # Load pipeline
                 print("Loading pipeline...")
-                from pipelines.stable_diffusion_xl import StableDiffusionXLPipelinePolaris
-                loaded_pipeline = StableDiffusionXLPipelinePolaris.from_pretrained(save_path)
+                from workloads.diffusers.SDXLPipelinePolaris import SDXLPipelinePolarisWorkload
+                loaded_pipeline = SDXLPipelinePolarisWorkload.from_pretrained(save_path)
                 print("✓ Pipeline loaded successfully")
 
                 # Test loaded pipeline

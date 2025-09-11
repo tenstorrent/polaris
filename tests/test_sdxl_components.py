@@ -17,18 +17,12 @@ from pathlib import Path
 # Add the parent directory to the path
 sys.path.append(str(Path(__file__).parent.parent))
 
-from pipelines.models import (
-    BaseOnnxComponent,
-    UNet2DConditionModelOnnx,
-    AutoencoderKLOnnx,
-    AutoencoderKLEncoderOnnx,
-    AutoencoderKLDecoderOnnx,
-    CLIPTextModelOnnx,
-    CLIPTextModelWithProjectionOnnx,
-    CLIPTokenizerHost
-)
-from pipelines.guiders import ClassifierFreeGuidance
-from pipelines.schedulers import EulerDiscreteScheduler
+from workloads.diffusers.base_onnx_component import BaseOnnxComponent
+from workloads.diffusers.UNet2DConditionModelPolaris import UNet2DConditionModelPolaris
+from workloads.diffusers.AutoencoderKLPolaris import AutoencoderKLPolaris
+from workloads.diffusers.TextEncodersPolaris import CLIPTextModelPolaris, CLIPTextModelWithProjectionPolaris, CLIPTokenizerHost
+from workloads.diffusers.ClassifierFreeGuidancePolaris import ClassifierFreeGuidance
+from workloads.diffusers.schedulers.euler_discrete import EulerDiscreteScheduler
 
 
 class SDXLComponentsTest:

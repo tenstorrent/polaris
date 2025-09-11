@@ -17,22 +17,22 @@ print(f"Python path: {sys.path}")
 print(f"Current directory: {os.getcwd()}")
 
 try:
-    # Test basic imports using relative imports
-    from pipelines.pipeline_utils import PolarisDiffusionPipeline
-    print("✓ PolarisDiffusionPipeline imported")
+    # Test basic imports using correct paths
+    from workloads.diffusers.SDXLPipelinePolaris import SDXLPipelinePolarisWorkload
+    print("✓ SDXLPipelinePolarisWorkload imported")
 
-    from pipelines.schedulers import EulerDiscreteScheduler
+    from workloads.diffusers.schedulers.euler_discrete import EulerDiscreteScheduler
     print("✓ EulerDiscreteScheduler imported")
 
-    from pipelines.models import BaseOnnxComponent
-    print("✓ BaseOnnxComponent imported")
+    from workloads.diffusers.ClassifierFreeGuidancePolaris import ClassifierFreeGuidance
+    print("✓ ClassifierFreeGuidance imported")
 
-    # Test SDXL imports
-    from pipelines.stable_diffusion_xl.pipeline_output import StableDiffusionXLPipelineOutput
-    print("✓ StableDiffusionXLPipelineOutput imported")
+    # Test other SDXL components
+    from workloads.diffusers.UNet2DConditionModelPolaris import UNet2DConditionModelPolaris
+    print("✓ UNet2DConditionModelPolaris imported")
 
-    from pipelines.stable_diffusion_xl import pipeline_stable_diffusion_xl
-    print("✓ SDXL pipeline module imported")
+    from workloads.diffusers.AutoencoderKLPolaris import AutoencoderKLPolaris
+    print("✓ AutoencoderKLPolaris imported")
 
     print("All imports successful!")
 

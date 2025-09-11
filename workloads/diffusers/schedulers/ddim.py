@@ -17,14 +17,31 @@ class DDIMScheduler(SchedulerBase):
     """
 
     def __init__(self, **config: Any) -> None:
+        # Set DDIM-specific defaults
+        config.setdefault('eta', 0.0)  # Default to deterministic
+        config.setdefault('prediction_type', 'epsilon')
         super().__init__(**config)
 
     def step(self, model_output, timestep, sample) -> Dict[str, Any]:
-        # DDIM: use eta=0 (deterministic) approximation: x_{t-1} = x_t + (sigma_next - sigma) * pred
+        # DDIM step parameters
         idx = self._timestep_to_index.get(int(timestep), 0)
-        sigma = self._sigmas[idx] if self._sigmas else 1.0
-        sigma_next = self._sigmas[idx + 1] if (self._sigmas and idx + 1 < len(self._sigmas)) else 0.0
-        gamma = float(abs(sigma_next - sigma))
-        return {"gamma": max(gamma, 1e-3)}
+
+        # Get alpha cumulative products
+        alpha_cum = self._abar[idx] if self._abar else 1.0
+        alpha_cum_prev = self._abar[idx + 1] if (self._abar and idx + 1 < len(self._abar)) else 1.0
+
+        # Get sigma values
+        sigma = self._sigmas[idx] if self._sigmas else 0.0
+        sigma_prev = self._sigmas[idx + 1] if (self._sigmas and idx + 1 < len(self._sigmas)) else 0.0
+
+        return {
+            'alpha_cum': float(alpha_cum),
+            'alpha_cum_prev': float(alpha_cum_prev),
+            'eta': self.config.get('eta', 0.0),
+            'prediction_type': self.config.get('prediction_type', 'epsilon'),
+            'timestep': int(timestep),
+            'sigma': float(sigma),
+            'sigma_prev': float(sigma_prev)
+        }
 
 

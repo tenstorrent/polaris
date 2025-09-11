@@ -17,15 +17,27 @@ class DPMSolverMultistepScheduler(SchedulerBase):
     """
 
     def __init__(self, **config: Any) -> None:
+        config.setdefault('solver_order', 2)
+        config.setdefault('prediction_type', 'epsilon')
         super().__init__(**config)
 
+    def scale_model_input(self, latents, timestep) -> float:
+        """DPM-Solver doesn't scale model input."""
+        return 1.0
+
     def step(self, model_output, timestep, sample) -> Dict[str, Any]:
-        # DPM-Solver (multistep) surrogate: slightly larger step bias to reflect faster convergence
+        # DPM-Solver (multistep) step parameters
         idx = self._timestep_to_index.get(int(timestep), 0)
         sigma = self._sigmas[idx] if self._sigmas else 1.0
         sigma_next = self._sigmas[idx + 1] if (self._sigmas and idx + 1 < len(self._sigmas)) else 0.0
         dt = float(abs(sigma_next - sigma))
         gamma = max(1.2 * dt, 1e-3)
-        return {"gamma": gamma}
+
+        return {
+            'gamma': gamma,
+            'solver_order': self.config.get('solver_order', 2),
+            'prediction_type': self.config.get('prediction_type', 'epsilon'),
+            'timestep': int(timestep)
+        }
 
 
