@@ -447,6 +447,15 @@ def execute_wl_on_dev(_wl, _dl, _wspec, _dspec, wlmapspec, _WLG,
         #publish stats
         rows   = []
         model_rows = []
+        # Initialize device frequency to a sensible default so we can safely emit
+        # run statistics even for workloads that produce zero graph nodes.
+        try:
+            dev_freq_MHz = dev_obj.frequency('matrix', units='MHz')
+        except Exception:
+            try:
+                dev_freq_MHz = dev_obj.frequency('vector', units='MHz')
+            except Exception:
+                dev_freq_MHz = None
         for i,x in enumerate(wlgraph.get_ordered_nodes()):
             is_inode = x in wlgraph._input_nodes
             is_onode = x in wlgraph._output_nodes
@@ -523,6 +532,13 @@ def execute_wl_on_dev(_wl, _dl, _wspec, _dspec, wlmapspec, _WLG,
                 del opval[tmp]
             model_rows.append(opval)
 
+        # If no nodes were processed, ensure we still have a concrete device frequency
+        if dev_freq_MHz is None:
+            try:
+                dev_freq_MHz = dev_obj.frequency('matrix', units='MHz')
+            except Exception:
+                dev_freq_MHz = 0.0
+
         model_dict = {
             'devname': devname,
             'freq_MHz': dev_freq_MHz,
@@ -539,7 +555,7 @@ def execute_wl_on_dev(_wl, _dl, _wspec, _dspec, wlmapspec, _WLG,
         statF_parts += [] if wlbatch is None else [f"b{wlbatch}"]
         statF = "-".join(statF_parts) + '-opstats.csv'
         statP = stat_dir / statF
-        if flag_dump_stats_csv:
+        if flag_dump_stats_csv and len(rows) > 0:
             print_csv(rows[0].keys(), rows, statP)
         if outputfmt != OutputFormat.FMT_NONE:
             statyamlP = stat_dir / (statP.stem + '.' + outputfmt.cname)
@@ -551,7 +567,56 @@ def execute_wl_on_dev(_wl, _dl, _wspec, _dspec, wlmapspec, _WLG,
                 saved_devices.add(devname)
 
         reduced_stat  = ReducedStats(devname, wlgroup, wlname, wlins_name, dev_obj)
-        summary_dict = reduced_stat.summarize(rows)
+        # When no ops were generated (e.g., empty/placeholder graphs), synthesize a minimal
+        # row to avoid downstream consumers failing on empty stats.
+        if len(rows) == 0:
+            rows = [{
+                'freq_MHz': dev_freq_MHz if dev_freq_MHz is not None else 0.0,
+                'batch': wlcfg['bs'],
+                'op_rpt_count': 0,
+                'cycles': 0,
+                'msecs': 0.0,
+                'inParamCount': 0,
+                'precision': 'FP16',
+                'rsrc_bnck': 'NA',
+                'inActCount': 0,
+                'outActCount': 0,
+                'removed': False,
+                'fused': False,
+            }]
+        # Guard against empty/zero cycles leading to divide-by-zero in summarize
+        try:
+            summary_dict = reduced_stat.summarize(rows)
+        except ZeroDivisionError:
+            # Populate minimal summary with zeros
+            summary_dict = {
+                'devname'      : devname,
+                'freq_Mhz'     : dev_freq_MHz if dev_freq_MHz is not None else 0.0,
+                'wlcls'        : wlgroup,
+                'wlname'       : wlname,
+                'wlinstance'   : wlins_name,
+                'bs'           : wlcfg['bs'],
+                'inParams'     : 0,
+                'inActs'       : 0,
+                'outActs'      : 0,
+                'maxActs'      : 0,
+                'inParamBytes' : 0,
+                'inActBytes'   : 0,
+                'outActBytes'  : 0,
+                'maxActBytes'  : 0,
+                'tot_cycles'   : 0,
+                'tot_msecs'    : 0.0,
+                'ideal_throughput': 0.0,
+                'mem_size_GB'  : 0.0,
+                'device_memsize_GB': dev_obj.mem_size(units='GB'),
+                'fits_device'  : True,
+                'device_peak_bw_GBps': dev_obj.peak_bandwidth(),
+                'device_peak_fp8_tflops': dev_obj.peak_flops('matrix', 'mac', 'fp8', mul_factor=2),
+                'perf_projection': 0.0,
+                'rsrc_comp': 0.0,
+                'rsrc_mem' : 0.0,
+                'stat_filename': ''
+            }
         if outputfmt != OutputFormat.FMT_NONE:
             summary_dict['stat_filename'] = statyamlP.relative_to(_odir).as_posix()
         else:

@@ -1,0 +1,14 @@
+# SPDX-FileCopyrightText: (C) 2025 Tenstorrent AI ULC
+# SPDX-License-Identifier: Apache-2.0
+# Run Configuration for SDXL workloads using Polaris script tool
+
+title: Run SDXL workloads
+study: sdxl_study
+odir: __sdxl_runs
+wlspec: config/sdxl_workloads.yaml
+archspec: config/all_archs.yaml
+wlmapspec: config/wl2archmapping.yaml
+filterwlg: TTSIM
+filterwl: sdxl_pipeline_polaris
+dump_stats_csv: true
+outputformat: yaml

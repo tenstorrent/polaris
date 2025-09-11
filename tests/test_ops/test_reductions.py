@@ -22,7 +22,7 @@ test_cases = [
 @pytest.mark.opunit
 def test_reductions():
     msgw = max([len(x[0]) for x in test_cases])
-    for op_type in ['Softmax']:
+    for op_type in ['ReduceMin', 'ReduceMean', 'ReduceProd']:
         for tno, (tmsg, input_shape) in enumerate(test_cases):
             op_name = f'test_{op_type}_{tno}'
             i_tensors = [F._from_shape('X', input_shape, np_dtype=np.float32)]

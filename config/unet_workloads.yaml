@@ -1,0 +1,183 @@
+# SPDX-FileCopyrightText: (C) 2025 Tenstorrent AI ULC
+# SPDX-License-Identifier: Apache-2.0
+workloads:
+  # UNet Component Workloads - Multiple Configurations
+  - api: TTSIM
+    name: sdxl_unet_component
+    group: unet
+    basedir: workloads/diffusers
+    module: UNet2DConditionModelPolaris.py
+    params:
+      # Base UNet configuration (Ground Truth SDXL Standards)
+      sample_size: 128
+      in_channels: 4
+      out_channels: 4
+      cross_attention_dim: 2048
+      block_out_channels: [320, 640, 1280, 1280]
+      down_block_types: ["CrossAttnDownBlock2D", "CrossAttnDownBlock2D", "CrossAttnDownBlock2D", "DownBlock2D"]
+      up_block_types: ["UpBlock2D", "CrossAttnUpBlock2D", "CrossAttnUpBlock2D", "CrossAttnUpBlock2D"]
+      transformer_layers_per_block: [1, 2, 10, 10]
+      attention_head_dim: [5, 10, 20, 20]
+      layers_per_block: 2
+      act_fn: "silu"
+      norm_num_groups: 32
+      addition_embed_type: "text_time"
+      addition_time_embed_dim: 256
+      projection_class_embeddings_input_dim: 2816
+      # Common settings for all UNet instances
+      bs: 1
+
+    instances:
+      # Nano UNet - Minimal configuration for quick testing
+      unet_nano:
+        sample_size: 16
+        block_out_channels: [32, 64, 128, 128]
+        transformer_layers_per_block: [1, 1, 1, 1]
+        attention_head_dim: [2, 4, 8, 8]
+        cross_attention_dim: 256
+        layers_per_block: 1
+
+      # Micro UNet - Small but functional configuration
+      unet_micro:
+        sample_size: 32
+        block_out_channels: [80, 160, 320, 320]
+        transformer_layers_per_block: [1, 1, 2, 2]
+        attention_head_dim: [4, 8, 16, 16]
+        cross_attention_dim: 512
+        layers_per_block: 1
+
+      # Small UNet - Balanced configuration
+      unet_small:
+        sample_size: 64
+        block_out_channels: [160, 320, 640, 640]
+        transformer_layers_per_block: [1, 1, 5, 5]
+        attention_head_dim: [4, 8, 16, 16]
+        cross_attention_dim: 1024
+        layers_per_block: 2
+
+      # Base UNet - Standard SDXL configuration
+      unet_base:
+        sample_size: 128
+        block_out_channels: [320, 640, 1280, 1280]
+        transformer_layers_per_block: [1, 2, 10, 10]
+        attention_head_dim: [5, 10, 20, 20]
+        cross_attention_dim: 2048
+        layers_per_block: 2
+
+      # Large UNet - High capacity configuration
+      unet_large:
+        sample_size: 256
+        block_out_channels: [640, 1280, 2560, 2560]
+        transformer_layers_per_block: [2, 3, 15, 15]
+        attention_head_dim: [8, 16, 32, 32]
+        cross_attention_dim: 4096
+        layers_per_block: 3
+
+  # SD15 UNet Component (for comparison)
+  - api: TTSIM
+    name: sd15_unet_component
+    group: unet
+    basedir: workloads/diffusers
+    module: UNet2DConditionModelPolaris.py
+    params:
+      # Base SD15 UNet configuration
+      sample_size: 64
+      in_channels: 4
+      out_channels: 4
+      cross_attention_dim: 768
+      block_out_channels: [320, 640, 1280, 1280]
+      down_block_types: ["CrossAttnDownBlock2D", "CrossAttnDownBlock2D", "CrossAttnDownBlock2D", "DownBlock2D"]
+      up_block_types: ["UpBlock2D", "CrossAttnUpBlock2D", "CrossAttnUpBlock2D", "CrossAttnUpBlock2D"]
+      transformer_layers_per_block: [1, 2, 2, 2]
+      attention_head_dim: [4, 8, 8, 8]
+      layers_per_block: 2
+      act_fn: "silu"
+      norm_num_groups: 32
+      addition_embed_type: "text_time"
+      addition_time_embed_dim: 256
+      projection_class_embeddings_input_dim: 2816
+      bs: 1
+
+    instances:
+      # SD15 Micro
+      sd15_unet_micro:
+        sample_size: 32
+        block_out_channels: [80, 160, 320, 320]
+        transformer_layers_per_block: [1, 1, 2, 2]
+        attention_head_dim: [4, 8, 16, 16]
+        cross_attention_dim: 512
+
+      # SD15 Small
+      sd15_unet_small:
+        sample_size: 64
+        block_out_channels: [160, 320, 640, 640]
+        transformer_layers_per_block: [1, 1, 5, 5]
+        attention_head_dim: [4, 8, 16, 16]
+        cross_attention_dim: 768
+
+      # SD15 Base
+      sd15_unet_base:
+        sample_size: 64
+        block_out_channels: [320, 640, 1280, 1280]
+        transformer_layers_per_block: [1, 2, 2, 2]
+        attention_head_dim: [4, 8, 8, 8]
+        cross_attention_dim: 768
+
+  # Specialized UNet Configurations
+  - api: TTSIM
+    name: unet_specialized
+    group: unet
+    basedir: workloads/diffusers
+    module: UNet2DConditionModelPolaris.py
+    params:
+      # Base configuration
+      sample_size: 64
+      in_channels: 4
+      out_channels: 4
+      cross_attention_dim: 1024
+      act_fn: "silu"
+      norm_num_groups: 32
+      addition_embed_type: "text_time"
+      addition_time_embed_dim: 256
+      bs: 1
+
+    instances:
+      # High Resolution UNet
+      unet_high_res:
+        sample_size: 128
+        block_out_channels: [160, 320, 640, 1280]
+        transformer_layers_per_block: [1, 2, 8, 8]
+        attention_head_dim: [4, 8, 16, 32]
+        cross_attention_dim: 1024
+
+      # Efficient UNet (reduced parameters)
+      unet_efficient:
+        sample_size: 32
+        block_out_channels: [64, 128, 256, 512]
+        transformer_layers_per_block: [1, 1, 2, 2]
+        attention_head_dim: [2, 4, 8, 16]
+        cross_attention_dim: 256
+
+      # Deep UNet (more layers)
+      unet_deep:
+        sample_size: 64
+        block_out_channels: [160, 320, 640, 1280]
+        transformer_layers_per_block: [2, 4, 12, 12]
+        attention_head_dim: [4, 8, 16, 32]
+        cross_attention_dim: 2048
+
+      # Wide UNet (wider channels)
+      unet_wide:
+        sample_size: 64
+        block_out_channels: [640, 1280, 2560, 5120]
+        transformer_layers_per_block: [1, 1, 3, 3]
+        attention_head_dim: [8, 16, 32, 64]
+        cross_attention_dim: 4096
+
+      # Compact UNet (minimal but functional)
+      unet_compact:
+        sample_size: 16
+        block_out_channels: [32, 64, 128, 256]
+        transformer_layers_per_block: [1, 1, 1, 1]
+        attention_head_dim: [1, 2, 4, 8]
+        cross_attention_dim: 128

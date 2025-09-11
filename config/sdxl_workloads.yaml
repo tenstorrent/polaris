@@ -1,0 +1,586 @@
+# SPDX-FileCopyrightText: (C) 2025 Tenstorrent AI ULC
+# SPDX-License-Identifier: Apache-2.0
+workloads:
+  # SDXL Pipeline Workloads
+  - api: TTSIM
+    name: sdxl_pipeline_polaris
+    group: sdxl
+    basedir: workloads/diffusers
+    module: SDXLPipelinePolaris.py
+    params:
+      # Global pipeline settings
+      bs: 1
+      num_inference_steps: 20
+      guidance_scale: 7.5
+      height: 1024
+      width: 1024
+
+      # VAE configuration (Production VAE - ~83M parameters, TTSIM compatible)
+      vae_in_channels: 3
+      vae_latent_channels: 4
+      vae_sample_size: 256
+      vae_block_out_channels: [128, 256, 512, 512]
+      vae_layers_per_block: 2
+      vae_scaling_factor: 0.13025
+      vae_norm_num_groups: 32
+      vae_act_fn: "silu"
+
+      # CLIP configuration (Dual Text Encoder - aligned with UNet cross-attention dim)
+      clip_vocab_size: 49408
+      clip_max_seq_length: 77
+      # Text encoder 1 (CLIPTextModel)
+      clip_hidden_size: 768
+      clip_intermediate_size: 3072
+      clip_num_attention_heads: 12
+      # Text encoder 2 (CLIPTextModelWithProjection)
+      clip_hidden_size_2: 1280
+      clip_intermediate_size_2: 5120
+      clip_num_attention_heads_2: 20
+      clip_projection_dim: 1280
+      clip_num_hidden_layers: 6
+      clip_max_position_embeddings: 77
+
+      # UNet configuration (Ground Truth SDXL Standards)
+      unet_sample_size: 128
+      unet_in_channels: 4
+      unet_out_channels: 4
+      cross_attention_dim: 2048
+      block_out_channels: [320, 640, 1280, 1280]
+      down_block_types: ["CrossAttnDownBlock2D", "CrossAttnDownBlock2D", "CrossAttnDownBlock2D", "DownBlock2D"]
+      up_block_types: ["UpBlock2D", "CrossAttnUpBlock2D", "CrossAttnUpBlock2D", "CrossAttnUpBlock2D"]
+      transformer_layers_per_block: [1, 2, 10, 10]
+      attention_head_dim: [5, 10, 20, 20]
+      layers_per_block: 2
+      act_fn: "silu"
+      norm_num_groups: 32
+      addition_embed_type: "text_time"
+      addition_time_embed_dim: 256
+      projection_class_embeddings_input_dim: 2816
+
+    instances:
+      sdxl_micro:
+        bs: 1
+        scheduler: ddim
+        vae_sample_size: 128
+        unet_sample_size: 32
+        clip_max_seq_length: 32
+        clip_hidden_size: 256
+        clip_intermediate_size: 1024
+        clip_num_attention_heads: 4
+        clip_hidden_size_2: 256
+        clip_intermediate_size_2: 1024
+        clip_num_attention_heads_2: 4
+        clip_projection_dim: 256
+        clip_num_hidden_layers: 3
+        block_out_channels: [80, 160, 320, 320]
+        transformer_layers_per_block: [1, 1, 2, 2]
+        attention_head_dim: [4, 8, 16, 16]
+        cross_attention_dim: 512
+        num_inference_steps: 10
+        height: 256
+        width: 256
+
+      sdxl_micro_controlnet:
+        bs: 1
+        scheduler: euler
+        conditioning: controlnet
+        conditioning_cfg:
+          conditioning_strength: 0.8
+          conditioning_hidden_channels: 8
+        vae_sample_size: 128
+        unet_sample_size: 32
+        clip_max_seq_length: 32
+        clip_hidden_size: 256
+        clip_intermediate_size: 1024
+        clip_num_attention_heads: 4
+        clip_hidden_size_2: 256
+        clip_intermediate_size_2: 1024
+        clip_num_attention_heads_2: 4
+        clip_projection_dim: 256
+        clip_num_hidden_layers: 3
+        block_out_channels: [80, 160, 320, 320]
+        transformer_layers_per_block: [1, 1, 2, 2]
+        attention_head_dim: [4, 8, 16, 16]
+        cross_attention_dim: 512
+        num_inference_steps: 10
+        height: 256
+        width: 256
+
+      sdxl_micro_t2iadapter:
+        bs: 1
+        scheduler: euler
+        conditioning: t2i_adapter
+        conditioning_cfg:
+          conditioning_strength: 0.7
+          conditioning_hidden_channels: 8
+        vae_sample_size: 128
+        unet_sample_size: 32
+        clip_max_seq_length: 32
+        clip_hidden_size: 256
+        clip_intermediate_size: 1024
+        clip_num_attention_heads: 4
+        clip_hidden_size_2: 256
+        clip_intermediate_size_2: 1024
+        clip_num_attention_heads_2: 4
+        clip_projection_dim: 256
+        clip_num_hidden_layers: 3
+        block_out_channels: [80, 160, 320, 320]
+        transformer_layers_per_block: [1, 1, 2, 2]
+        attention_head_dim: [4, 8, 16, 16]
+        cross_attention_dim: 512
+        num_inference_steps: 10
+        height: 256
+        width: 256
+
+      sdxl_micro_euler:
+        bs: 1
+        scheduler: euler
+        vae_sample_size: 128
+        unet_sample_size: 32
+        clip_max_seq_length: 32
+        clip_hidden_size: 256
+        clip_intermediate_size: 1024
+        clip_num_attention_heads: 4
+        clip_hidden_size_2: 256
+        clip_intermediate_size_2: 1024
+        clip_num_attention_heads_2: 4
+        clip_projection_dim: 256
+        clip_num_hidden_layers: 3
+        block_out_channels: [80, 160, 320, 320]
+        transformer_layers_per_block: [1, 1, 2, 2]
+        attention_head_dim: [4, 8, 16, 16]
+        cross_attention_dim: 512
+        num_inference_steps: 10
+        height: 256
+        width: 256
+
+      sdxl_img2img_micro:
+        bs: 1
+        scheduler: euler
+        mode: img2img
+        img2img_strength: 0.7
+        vae_sample_size: 128
+        unet_sample_size: 32
+        clip_max_seq_length: 32
+        clip_hidden_size: 256
+        clip_intermediate_size: 1024
+        clip_num_attention_heads: 4
+        clip_hidden_size_2: 256
+        clip_intermediate_size_2: 1024
+        clip_num_attention_heads_2: 4
+        clip_projection_dim: 256
+        clip_num_hidden_layers: 3
+        block_out_channels: [80, 160, 320, 320]
+        transformer_layers_per_block: [1, 1, 2, 2]
+        attention_head_dim: [4, 8, 16, 16]
+        cross_attention_dim: 512
+        num_inference_steps: 10
+        height: 256
+        width: 256
+
+      sdxl_inpaint_micro:
+        bs: 1
+        scheduler: euler
+        mode: inpaint
+        inpaint_mask_ratio: 0.5
+        vae_sample_size: 128
+        unet_sample_size: 32
+        clip_max_seq_length: 32
+        clip_hidden_size: 256
+        clip_intermediate_size: 1024
+        clip_num_attention_heads: 4
+        clip_hidden_size_2: 256
+        clip_intermediate_size_2: 1024
+        clip_num_attention_heads_2: 4
+        clip_projection_dim: 256
+        clip_num_hidden_layers: 3
+        block_out_channels: [80, 160, 320, 320]
+        transformer_layers_per_block: [1, 1, 2, 2]
+        attention_head_dim: [4, 8, 16, 16]
+        cross_attention_dim: 512
+        num_inference_steps: 10
+        height: 256
+        width: 256
+
+      sdxl_micro_heun:
+        bs: 1
+        scheduler: heun
+        vae_sample_size: 128
+        unet_sample_size: 32
+        clip_max_seq_length: 32
+        clip_hidden_size: 256
+        clip_intermediate_size: 1024
+        clip_num_attention_heads: 4
+        clip_hidden_size_2: 256
+        clip_intermediate_size_2: 1024
+        clip_num_attention_heads_2: 4
+        clip_projection_dim: 256
+        clip_num_hidden_layers: 3
+        block_out_channels: [80, 160, 320, 320]
+        transformer_layers_per_block: [1, 1, 2, 2]
+        attention_head_dim: [4, 8, 16, 16]
+        cross_attention_dim: 512
+        num_inference_steps: 10
+        height: 256
+        width: 256
+
+      sdxl_micro_lms:
+        bs: 1
+        scheduler: lms
+        vae_sample_size: 128
+        unet_sample_size: 32
+        clip_max_seq_length: 32
+        clip_hidden_size: 256
+        clip_intermediate_size: 1024
+        clip_num_attention_heads: 4
+        clip_hidden_size_2: 256
+        clip_intermediate_size_2: 1024
+        clip_num_attention_heads_2: 4
+        clip_projection_dim: 256
+        clip_num_hidden_layers: 3
+        block_out_channels: [80, 160, 320, 320]
+        transformer_layers_per_block: [1, 1, 2, 2]
+        attention_head_dim: [4, 8, 16, 16]
+        cross_attention_dim: 512
+        num_inference_steps: 10
+        height: 256
+        width: 256
+
+      sdxl_micro_dpm:
+        bs: 1
+        scheduler: dpm_multistep
+        vae_sample_size: 128
+        unet_sample_size: 32
+        clip_max_seq_length: 32
+        clip_hidden_size: 256
+        clip_intermediate_size: 1024
+        clip_num_attention_heads: 4
+        clip_hidden_size_2: 256
+        clip_intermediate_size_2: 1024
+        clip_num_attention_heads_2: 4
+        clip_projection_dim: 256
+        clip_num_hidden_layers: 3
+        block_out_channels: [80, 160, 320, 320]
+        transformer_layers_per_block: [1, 1, 2, 2]
+        attention_head_dim: [4, 8, 16, 16]
+        cross_attention_dim: 512
+        num_inference_steps: 10
+        height: 256
+        width: 256
+
+      sdxl_small:
+        bs: 1
+        vae_sample_size: 256
+        unet_sample_size: 64
+        clip_max_seq_length: 77
+        clip_hidden_size: 384
+        clip_intermediate_size: 1536
+        clip_num_attention_heads: 6
+        clip_hidden_size_2: 640
+        clip_intermediate_size_2: 2560
+        clip_num_attention_heads_2: 10
+        clip_projection_dim: 640
+        clip_num_hidden_layers: 6
+        block_out_channels: [160, 320, 640, 640]
+        transformer_layers_per_block: [1, 1, 5, 5]
+        attention_head_dim: [4, 8, 16, 16]
+        cross_attention_dim: 1024
+        num_inference_steps: 20
+        height: 512
+        width: 512
+
+      sdxl_base:
+        bs: 1
+        vae_sample_size: 512
+        unet_sample_size: 128
+        clip_max_seq_length: 77
+        clip_hidden_size: 768
+        clip_intermediate_size: 3072
+        clip_num_attention_heads: 12
+        clip_hidden_size_2: 1280
+        clip_intermediate_size_2: 5120
+        clip_num_attention_heads_2: 20
+        clip_projection_dim: 1280
+        clip_num_hidden_layers: 6
+        block_out_channels: [320, 640, 1280, 1280]
+        transformer_layers_per_block: [1, 2, 10, 10]
+        attention_head_dim: [5, 10, 20, 20]
+        cross_attention_dim: 2048
+        num_inference_steps: 20
+        height: 1024
+        width: 1024
+
+  # Individual Component Workloads for Testing
+  - api: TTSIM
+    name: sdxl_vae_component
+    group: sdxl_components
+    basedir: workloads/diffusers
+    module: AutoencoderKLPolaris.py
+    params:
+      in_channels: 3
+      latent_channels: 4
+      sample_size: 256
+      block_out_channels: [128, 256, 512, 512]
+      layers_per_block: 2
+      scaling_factor: 0.13025
+      norm_num_groups: 32
+      act_fn: "silu"
+      bs: 1
+    instances:
+      vae_micro:
+        sample_size: 128
+        block_out_channels: [64, 128, 256, 256]
+        layers_per_block: 1
+      vae_small:
+        sample_size: 256
+        block_out_channels: [128, 256, 512, 512]
+        layers_per_block: 2
+      vae_base:
+        sample_size: 512
+        block_out_channels: [128, 256, 512, 512]
+        layers_per_block: 2
+
+  - api: TTSIM
+    name: sdxl_text_encoder_component
+    group: sdxl_components
+    basedir: workloads/diffusers
+    module: TextEncodersPolaris.py
+    params:
+      vocab_size: 49408
+      max_seq_length: 77
+      hidden_size: 768
+      intermediate_size: 3072
+      num_attention_heads: 12
+      hidden_size_2: 1280
+      intermediate_size_2: 5120
+      num_attention_heads_2: 20
+      projection_dim: 1280
+      num_hidden_layers: 6
+      max_position_embeddings: 77
+      bs: 1
+    instances:
+      clip_micro:
+        vocab_size: 1000
+        max_seq_length: 32
+        hidden_size: 256
+        intermediate_size: 1024
+        num_attention_heads: 4
+        hidden_size_2: 256
+        intermediate_size_2: 1024
+        num_attention_heads_2: 4
+        projection_dim: 256
+        num_hidden_layers: 3
+      clip_small:
+        vocab_size: 10000
+        max_seq_length: 77
+        hidden_size: 384
+        intermediate_size: 1536
+        num_attention_heads: 6
+        hidden_size_2: 640
+        intermediate_size_2: 2560
+        num_attention_heads_2: 10
+        projection_dim: 640
+        num_hidden_layers: 6
+      clip_base:
+        vocab_size: 49408
+        max_seq_length: 77
+        hidden_size: 768
+        intermediate_size: 3072
+        num_attention_heads: 12
+        hidden_size_2: 1280
+        intermediate_size_2: 5120
+        num_attention_heads_2: 20
+        projection_dim: 1280
+        num_hidden_layers: 6
+
+  - api: TTSIM
+    name: sdxl_unet_component
+    group: sdxl_components
+    basedir: workloads/diffusers
+    module: UNet2DConditionModelPolaris.py
+    params:
+      sample_size: 128
+      in_channels: 4
+      out_channels: 4
+      cross_attention_dim: 2048
+      block_out_channels: [320, 640, 1280, 1280]
+      down_block_types: ["CrossAttnDownBlock2D", "CrossAttnDownBlock2D", "CrossAttnDownBlock2D", "DownBlock2D"]
+      up_block_types: ["UpBlock2D", "CrossAttnUpBlock2D", "CrossAttnUpBlock2D", "CrossAttnUpBlock2D"]
+      transformer_layers_per_block: [1, 2, 10, 10]
+      attention_head_dim: [5, 10, 20, 20]
+      layers_per_block: 2
+      act_fn: "silu"
+      norm_num_groups: 32
+      addition_embed_type: "text_time"
+      addition_time_embed_dim: 256
+      projection_class_embeddings_input_dim: 2816
+      bs: 1
+    instances:
+      unet_micro:
+        sample_size: 32
+        block_out_channels: [80, 160, 320, 320]
+        transformer_layers_per_block: [1, 1, 2, 2]
+        attention_head_dim: [4, 8, 16, 16]
+        cross_attention_dim: 512
+      unet_small:
+        sample_size: 64
+        block_out_channels: [160, 320, 640, 640]
+        transformer_layers_per_block: [1, 1, 5, 5]
+        attention_head_dim: [4, 8, 16, 16]
+        cross_attention_dim: 1024
+      unet_base:
+        sample_size: 128
+        block_out_channels: [320, 640, 1280, 1280]
+        transformer_layers_per_block: [1, 2, 10, 10]
+        attention_head_dim: [5, 10, 20, 20]
+        cross_attention_dim: 2048
+
+  # SD 1.5 Pipeline Workloads
+  - api: TTSIM
+    name: sd15_pipeline_polaris
+    group: sd15
+    basedir: workloads/diffusers
+    module: SD15PipelinePolaris.py
+    params:
+      bs: 1
+      num_inference_steps: 20
+      guidance_scale: 7.5
+      height: 512
+      width: 512
+
+      # VAE (SD15 scaling)
+      vae_in_channels: 3
+      vae_latent_channels: 4
+      vae_sample_size: 256
+      vae_block_out_channels: [128, 256, 512, 512]
+      vae_layers_per_block: 2
+      vae_scaling_factor: 0.18215
+      vae_norm_num_groups: 32
+      vae_act_fn: "silu"
+
+      # CLIP
+      clip_vocab_size: 49408
+      clip_max_seq_length: 77
+      clip_hidden_size: 768
+      clip_intermediate_size: 3072
+      clip_num_attention_heads: 12
+      clip_num_hidden_layers: 6
+      clip_max_position_embeddings: 77
+
+      # UNet
+      unet_sample_size: 64
+      unet_in_channels: 4
+      unet_out_channels: 4
+      cross_attention_dim: 768
+      block_out_channels: [320, 640, 1280, 1280]
+      down_block_types: ["CrossAttnDownBlock2D", "CrossAttnDownBlock2D", "CrossAttnDownBlock2D", "DownBlock2D"]
+      up_block_types: ["UpBlock2D", "CrossAttnUpBlock2D", "CrossAttnUpBlock2D", "CrossAttnUpBlock2D"]
+      transformer_layers_per_block: [1, 2, 2, 2]
+      attention_head_dim: [4, 8, 8, 8]
+      layers_per_block: 2
+      act_fn: "silu"
+      norm_num_groups: 32
+
+    instances:
+      sd15_micro:
+        bs: 1
+        scheduler: euler
+        vae_sample_size: 128
+        unet_sample_size: 32
+        clip_max_seq_length: 32
+        clip_hidden_size: 384
+        clip_intermediate_size: 1536
+        clip_num_attention_heads: 6
+        num_inference_steps: 10
+        height: 256
+        width: 256
+
+      sd15_micro_controlnet:
+        bs: 1
+        scheduler: euler
+        conditioning: controlnet
+        conditioning_cfg:
+          conditioning_strength: 0.8
+          conditioning_hidden_channels: 8
+        vae_sample_size: 128
+        unet_sample_size: 32
+        clip_max_seq_length: 32
+        clip_hidden_size: 384
+        clip_intermediate_size: 1536
+        clip_num_attention_heads: 6
+        num_inference_steps: 10
+        height: 256
+        width: 256
+
+      sd15_micro_t2iadapter:
+        bs: 1
+        scheduler: euler
+        conditioning: t2i_adapter
+        conditioning_cfg:
+          conditioning_strength: 0.7
+          conditioning_hidden_channels: 8
+        vae_sample_size: 128
+        unet_sample_size: 32
+        clip_max_seq_length: 32
+        clip_hidden_size: 384
+        clip_intermediate_size: 1536
+        clip_num_attention_heads: 6
+        num_inference_steps: 10
+        height: 256
+        width: 256
+
+      sd15_img2img_micro:
+        bs: 1
+        scheduler: euler
+        mode: img2img
+        img2img_strength: 0.7
+        vae_sample_size: 128
+        unet_sample_size: 32
+        clip_max_seq_length: 32
+        clip_hidden_size: 384
+        clip_intermediate_size: 1536
+        clip_num_attention_heads: 6
+        num_inference_steps: 10
+        height: 256
+        width: 256
+
+      sd15_inpaint_micro:
+        bs: 1
+        scheduler: euler
+        mode: inpaint
+        inpaint_mask_ratio: 0.5
+        vae_sample_size: 128
+        unet_sample_size: 32
+        clip_max_seq_length: 32
+        clip_hidden_size: 384
+        clip_intermediate_size: 1536
+        clip_num_attention_heads: 6
+        num_inference_steps: 10
+        height: 256
+        width: 256
+
+      sd15_micro_ddim:
+        bs: 1
+        scheduler: ddim
+        vae_sample_size: 128
+        unet_sample_size: 32
+        clip_max_seq_length: 32
+        clip_hidden_size: 384
+        clip_intermediate_size: 1536
+        clip_num_attention_heads: 6
+        num_inference_steps: 10
+        height: 256
+        width: 256
+
+      sd15_micro_heun:
+        bs: 1
+        scheduler: heun
+        vae_sample_size: 128
+        unet_sample_size: 32
+        clip_max_seq_length: 32
+        clip_hidden_size: 384
+        clip_intermediate_size: 1536
+        clip_num_attention_heads: 6
+        num_inference_steps: 10
+        height: 256
+        width: 256
