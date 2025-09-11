@@ -36,13 +36,22 @@ op_fusion_spec:
   - [Conv, BatchNormalization, Sigmoid, Mul]
   - [Conv, BatchNormalization, Mul]
   - [Conv, BatchNormalization]
+  # SDXL UNet specific fusion patterns
+  - [Conv, GroupNorm, SiLU, Conv, GroupNorm, SiLU, Add]  # ResNet block
+  - [GroupNorm, SiLU, Conv]  # ResNet sub-block
+  - [LayerNorm, Linear, Linear, Linear, Softmax, Linear]  # Cross-attention
+  - [LayerNorm, Linear, Gelu, Linear, Add]  # Feed-forward network
+  - [Linear, Add, LayerNorm]  # Attention output projection
+  - [Reshape, Permute, Matmul, Softmax, Matmul, Permute, Reshape]  # Full attention pattern (Permute variant)
+  - [Reshape, Transpose, Matmul, Softmax, Matmul, Transpose, Reshape]  # Full attention pattern (Transpose variant)
 
 op_rsrc_spec:
   compute:
-    matrix: [Matmul, Conv]
-    vector: [Gather, Reshape, Transpose, Gelu, Relu, LeakyRelu, Resize, Sigmoid, Slice,
+    matrix: [Matmul, Conv, Conv2d]
+    vector: [Gather, Reshape, Permute, Transpose, Gelu, Relu, LeakyRelu, Resize, Sigmoid, Slice,
              Flatten, ReduceMax, ArgMax, Cast, NonMaxSuppression, Add, Sub, Mul, Div,
-             Dropout, Split, Softmax, LayerNormalization, Identity, Constant, Where,
+             Dropout, Split, Softmax, LayerNormalization, GroupNormalization, Identity, Constant, Where,
              Pow, Tanh, MaxPool, BatchNormalization, Concat, Unsqueeze, Squeeze, Trilu,
-             AveragePool, Tile, VoxelPooling
+             AveragePool, Tile, VoxelPooling, GroupNorm, SiLU, Linear, Sin, Cos, Exp,
+             Arange, Meshgrid, Chunk, Pad, Triu, Var, Mean, Sqrt, Upsample
             ]

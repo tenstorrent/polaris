@@ -1,0 +1,190 @@
+{
+    "devname": "Grendel",
+    "name": "Q1_S1",
+    "ipgroups": [
+        {
+            "ipname": "tensix",
+            "iptype": "compute",
+            "num_units": 32,
+            "freq_MHz": null,
+            "ramp_penalty": 50.0,
+            "ipobj": {
+                "name": "tensix",
+                "iptype": "compute",
+                "l2_cache": {
+                    "num_banks": 64,
+                    "bytes_per_clk_per_bank": 64
+                },
+                "pipes": [
+                    {
+                        "name": "matrix",
+                        "num_units": 4,
+                        "freq_MHz": 1000.0,
+                        "systolic_depth": 1,
+                        "instructions": [
+                            {
+                                "name": "add",
+                                "tpt": {
+                                    "int8": 2048.0,
+                                    "bf16": 512.0,
+                                    "fp16": 512.0,
+                                    "fp8": 2048.0
+                                }
+                            },
+                            {
+                                "name": "sub",
+                                "tpt": {
+                                    "int8": 2048.0,
+                                    "bf16": 512.0,
+                                    "fp16": 512.0,
+                                    "fp8": 2048.0
+                                }
+                            },
+                            {
+                                "name": "mul",
+                                "tpt": {
+                                    "int8": 2048.0,
+                                    "bf16": 512.0,
+                                    "fp16": 512.0,
+                                    "fp8": 2048.0
+                                }
+                            },
+                            {
+                                "name": "mac",
+                                "tpt": {
+                                    "int8": 2048.0,
+                                    "bf16": 512.0,
+                                    "fp16": 512.0,
+                                    "fp8": 2048.0
+                                }
+                            }
+                        ]
+                    },
+                    {
+                        "name": "vector",
+                        "num_units": 4,
+                        "freq_MHz": 1000.0,
+                        "systolic_depth": 1,
+                        "instructions": [
+                            {
+                                "name": "add",
+                                "tpt": {
+                                    "int8": 128.0,
+                                    "int32": 32.0,
+                                    "fp32": 32.0
+                                }
+                            },
+                            {
+                                "name": "sub",
+                                "tpt": {
+                                    "int8": 128.0,
+                                    "int32": 32.0,
+                                    "fp32": 32.0
+                                }
+                            },
+                            {
+                                "name": "mul",
+                                "tpt": {
+                                    "int8": 128.0,
+                                    "int32": 32.0,
+                                    "fp32": 32.0
+                                }
+                            },
+                            {
+                                "name": "div",
+                                "tpt": {
+                                    "int8": 128.0,
+                                    "int32": 32.0,
+                                    "fp32": 32.0
+                                }
+                            },
+                            {
+                                "name": "mac",
+                                "tpt": {
+                                    "int8": 128.0,
+                                    "int32": 32.0,
+                                    "fp32": 32.0
+                                }
+                            },
+                            {
+                                "name": "tanh",
+                                "tpt": {
+                                    "int8": 128.0,
+                                    "int32": 32.0,
+                                    "fp32": 32.0
+                                }
+                            },
+                            {
+                                "name": "log",
+                                "tpt": {
+                                    "int8": 128.0,
+                                    "int32": 32.0,
+                                    "fp32": 32.0
+                                }
+                            },
+                            {
+                                "name": "exp",
+                                "tpt": {
+                                    "int8": 128.0,
+                                    "int32": 32.0,
+                                    "fp32": 32.0
+                                }
+                            },
+                            {
+                                "name": "rsqrt",
+                                "tpt": {
+                                    "int8": 128.0,
+                                    "int32": 32.0,
+                                    "fp32": 32.0
+                                }
+                            },
+                            {
+                                "name": "cmp",
+                                "tpt": {
+                                    "int8": 128.0,
+                                    "int32": 32.0,
+                                    "fp32": 32.0
+                                }
+                            },
+                            {
+                                "name": "mov",
+                                "tpt": {
+                                    "int8": 128.0,
+                                    "int32": 32.0,
+                                    "fp32": 32.0
+                                }
+                            },
+                            {
+                                "name": "max",
+                                "tpt": {
+                                    "int8": 128.0,
+                                    "int32": 32.0,
+                                    "fp32": 32.0
+                                }
+                            }
+                        ]
+                    }
+                ]
+            },
+            "systolic_depth": null
+        },
+        {
+            "ipname": "gddr7",
+            "iptype": "memory",
+            "num_units": 8,
+            "freq_MHz": null,
+            "ramp_penalty": 0.0,
+            "ipobj": {
+                "name": "gddr7",
+                "iptype": "memory",
+                "technology": "GDDR",
+                "data_bits": 32,
+                "freq_MHz": 1250.0,
+                "size_GB": 2,
+                "stacks": 1,
+                "data_rate": 16
+            },
+            "systolic_depth": null
+        }
+    ]
+}

@@ -228,7 +228,12 @@ class Linear(Module):
     def __call__(self, x):
         Y = self.matmul(x, self.param)
         if self.bias is not None:
-            Y += self.bias
+            # Fix: Use explicit Add operation instead of += operator
+            if not hasattr(self, '_bias_add_op'):
+                # Create bias addition operation once and reuse
+                self._bias_add_op = F.Add(f"{self.name}.bias_add")
+                self._bias_add_op.set_module(self)
+            Y = self._bias_add_op(Y, self.bias)
         return Y
 
     def analytical_param_count(self, lvl):

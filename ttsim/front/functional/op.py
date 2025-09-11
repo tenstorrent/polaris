@@ -376,6 +376,43 @@ def ReshapeFixed(name, shape1, **kwargs):
     op_hndl = SimOpHandle(name, 'Reshape', params=[(1,shape_term)], ipos=[0], **kwargs)
     return op_hndl
 
+def SliceFixed(name, starts, ends, axes=None, out_shape=None, **kwargs):
+    """
+    Fixed slicing operation for tensor indexing
+    
+    Args:
+        name (str): Operation name
+        starts (list): Start indices for each dimension
+        ends (list): End indices for each dimension  
+        axes (list, optional): Axes to slice, defaults to range(len(starts))
+        out_shape (list, optional): Expected output shape for the slice operation
+        **kwargs: Additional arguments passed to SimOpHandle
+    """
+    if axes is None:
+        axes = list(range(len(starts)))
+    
+    # Calculate output shape if not provided
+    if out_shape is None:
+        # Simple shape calculation: ends - starts for each dimension
+        out_shape = [end - start for start, end in zip(starts, ends)]
+    
+    # Create constant tensors for slice parameters
+    starts_term = _from_data(name + '.starts', is_const=True, data=np.array(starts, dtype=np.int64))
+    starts_term.op_in.append(name)
+    
+    ends_term = _from_data(name + '.ends', is_const=True, data=np.array(ends, dtype=np.int64))
+    ends_term.op_in.append(name)
+    
+    axes_term = _from_data(name + '.axes', is_const=True, data=np.array(axes, dtype=np.int64))
+    axes_term.op_in.append(name)
+    
+    # Add out_shape to kwargs so it gets passed to the operation attributes
+    kwargs['out_shape'] = out_shape
+    
+    # Create SliceFixed operation handle with fixed parameters
+    op_hndl = SimOpHandle(name, 'Slice', params=[(1, starts_term), (2, ends_term), (3, axes_term)], ipos=[0], **kwargs)
+    return op_hndl
+
 def Linear(name, nrow, ncol, **kwargs):
     mm_param = _from_shape(name + '.param', [nrow, ncol], is_param=True)
     mm_param.op_in.append(name)
@@ -477,6 +514,23 @@ def BatchNorm2d(name, channels, /, **kwargs):
     op_hndl = SimOpHandle(name, 'BatchNormalization', params=[(1,scale), (2,bias),(3,input_mean), (4,input_var)], ipos=[0], **kwargs)
     return op_hndl
 
+def GroupNorm(name, channels, num_groups, **kwargs):
+    # GroupNorm follows ONNX GroupNormalization specification
+    # Parameters: scale and bias tensors of size [channels]
+    # Attributes: num_groups (required), epsilon (optional, default 1e-5)
+    scale = _from_shape(name + '.scale', [channels], is_param=True)
+    scale.op_in.append(name)
+    bias = _from_shape(name + '.bias', [channels], is_param=True)
+    bias.op_in.append(name)
+    
+    # Set num_groups as an attribute
+    if 'num_groups' not in kwargs:
+        kwargs['num_groups'] = num_groups
+    # allow epsilon to be passed via kwargs (defaults handled in SimOp)
+    
+    op_hndl = SimOpHandle(name, 'GroupNormalization', params=[(1,scale), (2,bias)], ipos=[0], **kwargs)
+    return op_hndl
+
 def Resize(name: str, /, scale_factor, **kwargs):
     roi     = _from_data(name + '.roi',    np.array([], dtype=np.float32), is_param=False, is_const=True)
     if isinstance(scale_factor, (float, int)):
@@ -513,6 +567,7 @@ Transpose     = partial(UnaryOperator, optype='Transpose')
 Gelu          = partial(UnaryOperator, optype='Gelu')
 Relu          = partial(UnaryOperator, optype='Relu')
 LeakyReLU     = partial(UnaryOperator, optype='LeakyRelu')
+SiLU          = partial(UnaryOperator, optype='SiLU')
 Sigmoid       = partial(UnaryOperator, optype='Sigmoid')
 AveragePool2d = partial(UnaryOperator, optype='AveragePool')
 

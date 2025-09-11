@@ -50,3 +50,4 @@ workloads:
     instances:
       bert_base : { nL: 12, nH: 12, dE:  768, nW:  512}
       bert_large: { nL: 24, nH: 16, dE: 1024, nW:  512}
+

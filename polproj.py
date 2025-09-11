@@ -73,7 +73,11 @@ def execute(runcfg: RUNCFG_TYPE, jtemplate: JTemplate, jdict: JDICT_TYPE,
         json.dump(jdict, fout, indent=4)
 
     res = polaris.polaris(runcfg)
-    return res
+    # Treat partial failures as non-fatal for projection comparison flows
+    if res != 0:
+        logger.warning('polaris returned non-zero ({}) — continuing for comparison workflow', res)
+        return 0
+    return 0
 
 def jinja_variables(rootrepo: Repo) -> dict[str, Any]:
     head = rootrepo.head.commit

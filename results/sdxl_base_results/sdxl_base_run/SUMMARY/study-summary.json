@@ -1,0 +1,32 @@
+{
+    "summary": [
+        {
+            "devname": "Q1_S1",
+            "freq_Mhz": 1000.0,
+            "wlcls": "TTSIM",
+            "wlname": "sdxl_complete_pipeline",
+            "wlinstance": "sdxl_micro",
+            "bs": 1,
+            "inParams": 179817952,
+            "inActs": 725186991886,
+            "outActs": 724594760000,
+            "maxActs": 274919849984,
+            "inParamBytes": 179817952,
+            "inActBytes": 725186991886,
+            "outActBytes": 724594760000,
+            "maxActBytes": 274919849984,
+            "tot_cycles": 1996910459,
+            "tot_msecs": 1996.910459,
+            "ideal_throughput": 0.5007735802539557,
+            "perf_projection": 0.37558018519046676,
+            "mem_size_GB": 256.2065310180187,
+            "device_memsize_GB": 16,
+            "device_peak_bw_GBps": 1280.0,
+            "device_peak_fp8_tflops": 524.288,
+            "fits_device": false,
+            "rsrc_mem": 0.6358089674365314,
+            "rsrc_comp": 0.3641910325634686,
+            "stat_filename": "sdxl_base_run/STATS/Q1_S1-TTSIM-sdxl_complete_pipeline-sdxl_micro-opstats.json"
+        }
+    ]
+}

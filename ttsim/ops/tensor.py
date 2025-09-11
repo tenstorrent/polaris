@@ -98,5 +98,103 @@ class SimTensor:
         cloned_tensor.link_module = self.link_module
         return cloned_tensor
 
+    def transpose(self, dim0=None, dim1=None, perm=None):
+        """
+        Transpose tensor dimensions
+        
+        Args:
+            dim0, dim1: Two dimensions to swap (for 2D transpose)
+            perm: Permutation of dimensions (for multi-dimensional)
+        
+        Returns:
+            SimTensor: Transposed tensor
+        """
+        # Import here to avoid circular imports
+        import ttsim.front.functional.op as F
+        
+        if perm is not None:
+            # Multi-dimensional transpose
+            transpose_op = F.Transpose(f"{self.name}.transpose", perm=perm)
+        elif dim0 is not None and dim1 is not None:
+            # 2D transpose - swap two dimensions
+            perm = list(range(len(self.shape)))
+            perm[dim0], perm[dim1] = perm[dim1], perm[dim0]
+            transpose_op = F.Transpose(f"{self.name}.transpose", perm=perm)
+        else:
+            # Default: transpose last two dimensions (like PyTorch .T)
+            if len(self.shape) < 2:
+                return self
+            perm = list(range(len(self.shape)))
+            perm[-2], perm[-1] = perm[-1], perm[-2]
+            transpose_op = F.Transpose(f"{self.name}.transpose", perm=perm)
+        
+        # Set module context if available
+        if self.link_module is not None:
+            transpose_op.set_module(self.link_module)
+        
+        return transpose_op(self)
+    
+    def reshape(self, *shape):
+        """Reshape tensor to new shape"""
+        if len(shape) == 1 and isinstance(shape[0], (list, tuple)):
+            shape = shape[0]
+        
+        # Import here to avoid circular imports
+        import ttsim.front.functional.op as F
+        
+        reshape_op = F.ReshapeFixed(f"{self.name}.reshape", list(shape))
+        
+        # Set module context if available
+        if self.link_module is not None:
+            reshape_op.set_module(self.link_module)
+            
+        return reshape_op(self)
+    
+    def squeeze(self, dim=None):
+        """Remove dimensions of size 1"""
+        # Import here to avoid circular imports
+        import ttsim.front.functional.op as F
+        
+        if dim is not None:
+            # Squeeze specific dimension
+            if self.shape[dim] != 1:
+                raise ValueError(f"Cannot squeeze dim {dim} with size {self.shape[dim]} != 1")
+            squeeze_axes = [dim]
+        else:
+            # Squeeze all dimensions of size 1
+            squeeze_axes = [i for i, size in enumerate(self.shape) if size == 1]
+            if not squeeze_axes:
+                return self
+        
+        axes_tensor = F._from_data(f"{self.name}.squeeze_axes", 
+                                  np.array(squeeze_axes, dtype=np.int64), is_const=True)
+        
+        # Set module context if available
+        if self.link_module is not None:
+            axes_tensor.set_module(self.link_module)
+        
+        squeeze_op = F.Squeeze(f"{self.name}.squeeze")
+        if self.link_module is not None:
+            squeeze_op.set_module(self.link_module)
+        
+        return squeeze_op(self, axes_tensor)
+    
+    def unsqueeze(self, dim):
+        """Add dimension of size 1 at specified position"""
+        # Import here to avoid circular imports
+        import ttsim.front.functional.op as F
+        
+        # Calculate new shape
+        new_shape = list(self.shape)
+        new_shape.insert(dim, 1)
+        
+        reshape_op = F.ReshapeFixed(f"{self.name}.unsqueeze", new_shape)
+        
+        # Set module context if available
+        if self.link_module is not None:
+            reshape_op.set_module(self.link_module)
+        
+        return reshape_op(self)
+
 def make_tensor(name: str) -> SimTensor:
     return SimTensor({'name': name, 'shape': [], 'dtype': None})
