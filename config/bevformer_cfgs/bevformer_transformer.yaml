@@ -1,0 +1,16 @@
+# BEVFormer Transformer Configuration
+# Spatiotemporal transformer configuration
+
+embed_dims: 256
+num_cams: 6
+bev_h: 200
+bev_w: 200
+num_layers: 6
+num_heads: 8
+feedforward_channels: 1024
+rotate_prev_bev: true
+use_shift: true
+use_can_bus: true
+can_bus_norm: true
+use_cams_embeds: true
+num_bev_queue: 2

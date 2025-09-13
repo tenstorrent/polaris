@@ -1,0 +1,51 @@
+# BEVFormer Detection Head Configuration
+# 3D object detection head configuration
+
+bev_h: 200
+bev_w: 200
+num_query: 900
+num_classes: 10
+embed_dims: 256
+num_reg_fcs: 2
+code_size: 10
+num_cls_fcs: 2
+
+# Loss configurations
+loss_cls:
+  type: 'FocalLoss'
+  use_sigmoid: true
+  gamma: 2.0
+  alpha: 0.25
+  loss_weight: 2.0
+
+loss_bbox:
+  type: 'L1Loss'
+  loss_weight: 0.25
+
+# Transformer configuration for detection (mirrors upstream structure)
+transformer:
+  type: 'PerceptionTransformer'
+  rotate_prev_bev: true
+  use_shift: true
+  use_can_bus: true
+  embed_dims: 256
+  encoder:
+    type: 'BEVFormerEncoder'
+    num_layers: 6
+    pc_range: [-51.2, -51.2, -5.0, 51.2, 51.2, 3.0]
+    num_points_in_pillar: 4
+    return_intermediate: false
+    transformerlayers:
+      type: 'BEVFormerLayer'
+      attn_cfgs:
+        - type: 'TemporalSelfAttention'
+          embed_dims: 256
+          num_levels: 1
+        - type: 'SpatialCrossAttention'
+          pc_range: [-51.2, -51.2, -5.0, 51.2, 51.2, 3.0]
+          deformable_attention:
+            type: 'MSDeformableAttention3D'
+            embed_dims: 256
+            num_points: 8
+            num_levels: 4
+          embed_dims: 256

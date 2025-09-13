@@ -1,0 +1,59 @@
+# BEVFormer Base Configuration
+# Main configuration for BEVFormer-base model
+
+# Model settings
+bs: 1
+num_sweeps: 1
+num_cameras: 6
+img_channels: 3
+img_height: 256
+img_width: 704
+video_test_mode: true
+
+# Component configurations
+backbone_conf_yaml: 'config/bevformer_cfgs/bevformer_backbone.yaml'
+transformer_conf_yaml: 'config/bevformer_cfgs/bevformer_transformer.yaml'
+head_conf_yaml: 'config/bevformer_cfgs/bevformer_head.yaml'
+
+# Training settings
+train_cfg:
+  point_cloud_range: [-51.2, -51.2, -5, 51.2, 51.2, 3]
+  grid_size: [512, 512, 1]
+  voxel_size: [0.2, 0.2, 8]
+  out_size_factor: 4
+  dense_reg: 1
+  gaussian_overlap: 0.1
+  max_objs: 500
+  min_radius: 2
+  code_weights: [1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 0.5, 0.5]
+
+# Testing settings
+test_cfg:
+  post_center_limit_range: [-61.2, -61.2, -10.0, 61.2, 61.2, 10.0]
+  max_per_img: 500
+  max_pool_nms: false
+  min_radius: [4, 12, 10, 1, 0.85, 0.175]
+  score_threshold: 0.1
+  out_size_factor: 4
+  voxel_size: [0.2, 0.2, 8]
+  nms_type: 'circle'
+  pre_max_size: 1000
+  post_max_size: 83
+  nms_thr: 0.2
+
+# Dataset settings
+point_cloud_range: [-51.2, -51.2, -5.0, 51.2, 51.2, 3.0]
+voxel_size: [0.2, 0.2, 8]
+
+# Class names for nuScenes
+class_names:
+  - 'car'
+  - 'truck'
+  - 'construction_vehicle'
+  - 'bus'
+  - 'trailer'
+  - 'barrier'
+  - 'motorcycle'
+  - 'bicycle'
+  - 'pedestrian'
+  - 'traffic_cone'

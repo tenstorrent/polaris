@@ -5,6 +5,9 @@ markers = [
     "tools_secondary: Tests for secondary tools",
 ]
 pythonpath = "."
+filterwarnings = [
+    "ignore:PydanticDeprecatedSince20:DeprecationWarning",
+]
 
 [tool.mypy]
 check_untyped_defs = true

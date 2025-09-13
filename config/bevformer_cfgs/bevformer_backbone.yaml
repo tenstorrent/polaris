@@ -1,0 +1,30 @@
+# BEVFormer Backbone Configuration
+# Image backbone and neck configuration for multi-camera feature extraction
+
+img_backbone_conf:
+  type: 'ResNet'
+  depth: 101
+  num_stages: 4
+  layers: [3, 4, 23, 3]  # ResNet-101 layer configuration
+  out_indices: [1, 2, 3]  # C3, C4, C5 features
+  frozen_stages: 1
+  norm_cfg:
+    type: 'BN2d'
+    requires_grad: false
+  norm_eval: true
+  style: 'caffe'
+  dcn:
+    type: 'DCNv2'
+    deform_groups: 1
+    fallback_on_stride: false
+  stage_with_dcn: [false, false, true, true]
+
+img_neck_conf:
+  in_channels: [512, 1024, 2048]  # ResNet-101 outputs
+  out_channels: 256
+  start_level: 0
+  add_extra_convs: 'on_output'
+  num_outs: 4
+  relu_before_extra_convs: true
+
+

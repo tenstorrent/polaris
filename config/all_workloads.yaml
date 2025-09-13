@@ -51,3 +51,24 @@ workloads:
       bert_base : { nL: 12, nH: 12, dE:  768, nW:  512}
       bert_large: { nL: 24, nH: 16, dE: 1024, nW:  512}
 
+  - api: TTSIM
+    name: BEVFormer
+    basedir: workloads/bevformer
+    module : BEVFormer@BEVFormer.py
+    params :
+      bs: 1
+      num_sweeps: 1
+      num_cameras: 6
+      img_channels: 3
+      img_height: 256
+      img_width: 704
+      video_test_mode: true
+      backbone_conf_yaml: config/bevformer_cfgs/bevformer_backbone.yaml
+      transformer_conf_yaml: config/bevformer_cfgs/bevformer_transformer.yaml
+      head_conf_yaml: config/bevformer_cfgs/bevformer_head.yaml
+    instances:
+      bevformer_base : { bevformer_base_yaml: 'config/bevformer_cfgs/bevformer_base.yaml' }
+      bevformer_s    : { img_height: 192, img_width: 512 }
+      bevformer_m    : { img_height: 256, img_width: 800 }
+      bevformer_hd   : { img_height: 512, img_width: 1408 }
+

@@ -47,3 +47,24 @@ workloads:
       bevdepth_s : { img_height:   32, img_width:   32, img_channels: 3, bs: 1 }
       bevdepth_m : { img_height:  256, img_width:  256, img_channels: 3, bs: 1 }
       bevdepth_l : { img_height: 1024, img_width: 1024, img_channels: 3, bs: 1 }
+
+  - api: TTSIM
+    name: BEVFormer
+    basedir: workloads/bevformer
+    module : BEVFormer@BEVFormer.py
+    params :
+      bs: 1
+      num_sweeps: 1
+      num_cameras: 6
+      img_channels: 3
+      img_height: 256
+      img_width: 704
+      video_test_mode: true
+      backbone_conf_yaml: config/bevformer_cfgs/bevformer_backbone.yaml
+      transformer_conf_yaml: config/bevformer_cfgs/bevformer_transformer.yaml
+      head_conf_yaml: config/bevformer_cfgs/bevformer_head.yaml
+    instances:
+      bevformer_base : {}
+      bevformer_s    : { img_height: 192, img_width: 512 }
+      bevformer_m    : { img_height: 256, img_width: 800 }
+      bevformer_hd   : { img_height: 512, img_width: 1408 }
