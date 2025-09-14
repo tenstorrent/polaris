@@ -10,13 +10,11 @@ Tests scheduler implementations including Euler, DDIM, Heun, LMS, and DPM Multis
 
 import numpy as np
 
-from workloads.diffusers.schedulers import (
-    EulerDiscreteScheduler,
-    DDIMScheduler,
-    HeunDiscreteScheduler,
-    LMSDiscreteScheduler,
-    DPMSolverMultistepScheduler,
-)
+from workloads.diffusers.schedulers.euler_discrete import EulerDiscreteScheduler
+from workloads.diffusers.schedulers.ddim import DDIMScheduler
+from workloads.diffusers.schedulers.heun_discrete import HeunDiscreteScheduler
+from workloads.diffusers.schedulers.lms_discrete import LMSDiscreteScheduler
+from workloads.diffusers.schedulers.dpm_multistep import DPMSolverMultistepScheduler
 
 
 # def test_euler_ancestral_set_timesteps_and_scale():

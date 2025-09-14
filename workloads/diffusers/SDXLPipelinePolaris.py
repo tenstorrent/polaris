@@ -29,7 +29,7 @@ from ttsim.ops import SimTensor
 from ttsim.graph.wl_graph import WorkloadGraph
 
 # Import our SDXL pipeline components
-from .schedulers import create_scheduler
+from .schedulers.factory import create_scheduler
 from .AutoencoderKLPolaris import AutoencoderKLPolaris
 from .TextEncodersPolaris import CLIPTextModelPolaris, CLIPTextModelWithProjectionPolaris, CLIPTokenizerHost
 from .ClassifierFreeGuidancePolaris import ClassifierFreeGuidance

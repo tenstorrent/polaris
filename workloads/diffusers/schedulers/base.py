@@ -24,6 +24,9 @@ class SchedulerBase:
         self.beta_start: float = float(config.get('beta_start', 1e-4))
         self.beta_end: float = float(config.get('beta_end', 2e-2))
         self.beta_schedule: str = str(config.get('beta_schedule', 'scaled_linear'))
+        # Number of inference steps used in the last call to set_timesteps
+        # Exposed for tests and downstream consumers
+        self.num_inference_steps: int = 0
         self.timesteps: List[int] = []
         # Precomputed schedules
         self._betas: np.ndarray | None = None
@@ -36,6 +39,8 @@ class SchedulerBase:
         self._timestep_to_index: Dict[int, int] = {}
 
     def set_timesteps(self, num_inference_steps: int) -> None:
+        # Record for external visibility
+        self.num_inference_steps = int(num_inference_steps)
         step = max(self.num_train_timesteps // max(int(num_inference_steps), 1), 1)
         self.timesteps = list(range(self.num_train_timesteps - 1, -1, -step))[:num_inference_steps]
         # Build base schedules on first use
