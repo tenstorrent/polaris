@@ -10027,7 +10027,7 @@ class QAttentionOp(SimOp):
 
 def SimOpFactory(optype: str) -> type[SimOp]:
     cls2optype: Dict[type[SimOp], list[str]] = {
-            EltwiseBinaryOp      : ['Add', 'Sub', 'Mul', 'Div', 'Greater', 'Less', 'Equal', 'Not', 'And', 'Or', 'Xor'],
+            EltwiseBinaryOp      : ['Add', 'Sub', 'Mul', 'Div', 'Greater', 'Less', 'Not', 'And', 'Or', 'Xor'],
             EltwiseUnaryOp       : ['Identity', 'Tanh', 'Sin', 'Cos', 'Neg', 'Sqrt', 'Exp', 'Log', 'Abs', 'Sign', 'Floor', 'Ceil', 'Round', 'Reciprocal', 'Erf', 'Acos', 'Acosh', 'Asin', 'Asinh', 'Atan', 'Atanh', 'Cosh', 'Sinh'],
             ConstantOp           : ['Constant'],
             GatherOp             : ['Gather'],
@@ -10134,5 +10134,5 @@ def SimOpFactory(optype: str) -> type[SimOp]:
             optype2cls[optype] = tmp
     opcls: Union[type[SimOp], None] = optype2cls.get(optype, None)
     if opcls is None:
-        raise RuntimeError(f'Operator type {optype} not yet mapped in SimOpFactory')
+        raise NotImplementedError(f'Operator type {optype} not yet mapped in SimOpFactory')
     return opcls
