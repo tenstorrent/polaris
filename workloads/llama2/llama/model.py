@@ -34,8 +34,9 @@ class RMSNorm(SimNN.Module):
         self.eps = eps
         self.weight = F._from_shape(f'{self.name}_weight', shape=[dim], is_param=True)
         self.mulopx2 = F.Mul(f'{self.name}_mulopx2')
-        self.meanop = F.mean(f'{self.name}_meanop', dim=-1)
-        self.rsqrtop = F.rsqrt(f'{self.name}_rsqrtop')
+        self.meanop = F.Mean(f'{self.name}_meanop', dim=-1)
+        self.sqrtop = F.Sqrt(f'{self.name}_sqrtop')
+        self.reciprocalop = F.Reciprocal(f'{self.name}_reciprocalop')
         self.mulop = F.Mul(f'{self.name}_mulop')
         super().link_op2module()
 
@@ -43,7 +44,7 @@ class RMSNorm(SimNN.Module):
         x2 = self.mulopx2(x,x)
         mu = self.meanop(x2).unsqueeze(-1) ## y_flat.pow(2) substituted with mul ## unsqueeze for keepdim=True
         rmsnorm_eps_tensor = F._from_shape('rmsnorm_eps', shape=mu.shape)
-        return x * self.rsqrtop(mu + rmsnorm_eps_tensor)
+        return x * self.reciprocalop(self.sqrtop(mu + rmsnorm_eps_tensor))
 
     def __call__(self, x):
         output = self._norm(x) #self._norm(x.float()).type_as(x)

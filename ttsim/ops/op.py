@@ -2533,10 +2533,10 @@ class VoxelPoolingOp(SimOp):
 
         return self.perf_stats
 
-class RsqrtOp(SimOp):
+class ReciprocalOp(SimOp):
     def __init__(self, opinfo):
         super().__init__(opinfo)
-        self.opclass_str: str = 'rsqrt'
+        self.opclass_str: str = 'Reciprocal'
         check_io_counts(self, in_counts=[1, 1], out_counts=[1, 1])
 
     def get_perf_counts(self, inT, outT, **kwargs):
@@ -2551,7 +2551,7 @@ class RsqrtOp(SimOp):
                 'inBytes' : inT[0].nbytes(self.precision),
                 'outElems': outT[0].nelems(),
                 'outBytes': outT[0].nbytes(self.precision),
-                'instrs'  : {'sqrt': nElem, 'div': nElem}
+                'instrs'  : {'div': nElem}
                 }
         return self.perf_stats
 
@@ -2839,7 +2839,7 @@ class PadOp(SimOp):
 def SimOpFactory(optype: str) -> type[SimOp]:
     cls2optype: Dict[type[SimOp], list[str]] = {
             EltwiseBinaryOp      : ['Add', 'Sub', 'Mul', 'Div'],
-            EltwiseUnaryOp       : ['Identity', 'Tanh', 'Sin', 'Cos', 'Neg'],
+            EltwiseUnaryOp       : ['Identity', 'Tanh', 'Sin', 'Cos', 'Neg', 'Sqrt'],
             ConstantOp           : ['Constant'],
             GatherOp             : ['Gather'],
             LayerNormalizationOp : ['LayerNormalization'],
@@ -2874,7 +2874,7 @@ def SimOpFactory(optype: str) -> type[SimOp]:
             ConvTransposeOp      : ['ConvTranspose'], #UNet
             VoxelPoolingOp       : ['VoxelPooling'], #BEVDepth
             MeanOp               : ['Mean'], #llama2
-            RsqrtOp              : ['Rsqrt'], #llama2
+            ReciprocalOp         : ['Reciprocal'], #llama2
 
             ConvOp               : ['Conv'],   # TBD: step in adding new operator / layer typez
             MaxPoolOp            : ['MaxPool'],
