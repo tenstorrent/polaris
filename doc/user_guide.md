@@ -15,12 +15,16 @@ Polaris is a high-level simulator for performance analysis of AI architectures. 
 - Python 3.13 or higher
 - Miniforge package manager
 
+### Download Polaris
+Execute ```git clone https://github.com/tenstorrent/polaris.git```
+
 ### Setup Steps
 1. Install Miniforge:
    ```bash
    curl -L -O "https://github.com/conda-forge/miniforge/releases/latest/download/Miniforge3-$(uname)-$(uname -m).sh"
    bash Miniforge3-$(uname)-$(uname -m).sh
    conda update -n base -c conda-forge conda
+   source <your-conda-install-path>/etc/profile.d/conda.sh
    ```
 
 2. Create and activate the Polaris environment:
@@ -45,9 +49,22 @@ python polaris.py [options] --archspec <arch_config> --wlspec <workload_spec> --
 - `--outputformat`: Output format for results (none/yaml/json/pickle)
 - `--dump_stats_csv`: Enable CSV stats output
 - `--dryrun,      -n`: Perform a dry run without actual simulation
+
+#### Data and Output Options
+- `--datatype,    -d`: Activation data type (fp64/fp32/tf32/fp16/bf16/fp8/int32/int8)
+- `--dump_ttsim_onnx`: Dump ONNX graph for TTSIM workloads
+
+#### Sweep Specifications
+- `--frequency`: Frequency (MHz) range specification (start end step)
+- `--batchsize`: Batch size range specification (start end step)
+
+#### Profiling and Analysis Options
 - `--enable_memalloc`: Enable memory allocation simulation
 - `--instr_profile`: Enable instruction profiling
 - `--enable_cprofile`: Enable Python cProfile for performance analysis
+
+#### Logging Options
+- `--log_level,    -l`: Set logging level (debug/info/warning/error/critical, default: info)
 
 ### Filtering Options
 - `--filterarch`: Filter architecture configurations

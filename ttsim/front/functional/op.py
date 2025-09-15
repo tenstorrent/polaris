@@ -403,6 +403,26 @@ def Conv2d(name, in_channels, out_channels, kernel_size, **kwargs):
                           )
     return op_hndl
 
+def ConvTranspose2d(name, in_channels, out_channels, kernel_size=2, stride=2):
+    kernel_dims = (kernel_size, kernel_size)
+    stride      = common.make_tuple(stride, 2)
+    param_dims  = [in_channels, out_channels, *kernel_dims]
+    convt_param = _from_shape(name+'.param', param_dims, is_param=True)
+    op_hndl = SimOpHandle(name, 'ConvTranspose', params=[(1, convt_param)], ipos=[0],
+                          strides=stride,
+                          )
+    return op_hndl
+
+def Upsample(name, scale_factor, mode='nearest', align_corners=True):
+    op_hndl = SimOpHandle(name, 'Upsample',
+                          ipos=[0],
+                          params=[],
+                          scale_factor=scale_factor,
+                          mode=mode,
+                          align_corners=align_corners
+                          )
+    return op_hndl
+
 def MaxPool2d(name, kernel_size, **kwargs):
     arg_defaults = {
         'stride': None,
@@ -532,6 +552,7 @@ Unsqueeze      = partial(BinaryOperator, optype='Unsqueeze')
 Squeeze        = partial(BinaryOperator, optype='Squeeze')
 Tile           = partial(BinaryOperator, optype='Tile')
 Equal          = partial(BinaryOperator, optype='Equal')
+Pad            = partial(BinaryOperator, optype='Pad')
 
 #Ternary Operators
 TernaryOperator = partial(UniversalOperator, params=[], ipos=[0,1,2])
