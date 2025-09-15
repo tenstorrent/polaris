@@ -14,7 +14,7 @@ type TYPE_batchsize = Tuple[int, int, int]
 
 class PolarisRunConfig(BaseModel, extra='forbid'):
     # Title is used only in the run config, it is not a command line attribute of polaris
-    title: str = Field(description='Human readable itle for the run')
+    title: str = Field(description='Human readable title for the run')
 
     # Attributes corresponding to polaris command line options
     odir: str = Field(

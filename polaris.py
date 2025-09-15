@@ -291,7 +291,7 @@ def setup_cmdline_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument('--batchsize', nargs=3, metavar=('start', 'end', 'step'), type=int,
                         action='append', help='batchsize range specification (geom-seq)')
     parser.add_argument('--outputformat', choices=['none', 'yaml', 'json', 'pickle'], default='json', type=str.lower)
-    parser.add_argument('--dumpstatscsv', dest='dump_stats_csv', action='store_true', 
+    parser.add_argument('--dump_stats_csv', dest='dump_stats_csv', action='store_true', 
                         default=False, help='Dump stats in CSV format')
 
     #cmdline args processing

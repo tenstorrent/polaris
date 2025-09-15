@@ -19,13 +19,20 @@ model = Mamba2Simple(
     d_state=64,  # SSM state expansion factor, typically 64 or 128
     d_conv=4,    # Local convolution width
     expand=2,    # Block expansion factor
+    batch_size=1, # Batch size
+    seq_len=16,   # Sequence length
 )
 # Define input tensor x with shape (batch_size, sequence_length, d_model)
 batch_size = 1
 sequence_length = 16
-x = F._from_shape('input', [batch_size, sequence_length, d_model_sz])
+# x = F._from_shape('input', [batch_size, sequence_length, d_model_sz])
 
-y = model(x)
-print(f'input shape is {x.shape} and output shape is {y.shape}')
-assert y.shape == x.shape, 'Test failed!'
+model.create_input_tensors()
+y = model()
+print(f'input shape is [{model.batch_size}, {model.seq_len}, {model.d_model}] and output shape is {y.shape}')
+assert y.shape == [model.batch_size, model.seq_len, model.d_model], 'Test failed!'
 print('Test passed!')
+
+# gg = model.get_forward_graph()
+# print('Dumping ONNX...')
+# gg.graph2onnx(f'mamba2_simple.onnx', do_model_check=False)

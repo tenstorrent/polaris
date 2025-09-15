@@ -46,8 +46,8 @@ def get_tensor_broadcast_shape(shape1, shape2):
     s2 = shape2[::-1]
     max_len = max(len(s1), len(s2))
     s1_list = list(s1)
-    s1_list.extend([1] * (max_len - len(s1_list)))
     s2_list = list(s2)
+    s1_list.extend([1] * (max_len - len(s1_list)))
     s2_list.extend([1] * (max_len - len(s2_list)))
 
     result = []
@@ -1435,20 +1435,17 @@ class WhereOp(SimOp):
                 }
         return self.perf_stats
 
-class ClampOp(SimOp):
+class ClipOp(SimOp):
     def __init__(self, opinfo):
         super().__init__(opinfo)
-        self.opclass_str: str = 'Clamp'
-        check_io_counts(self, in_counts=[1, 1], out_counts=[1, 1])
-        self._kw_args_defaults = {'min': None, 'max': None}
-        if 'attrs' in opinfo:
-            self.check_known_args(opinfo['attrs'])
+        self.opclass_str: str = 'Clip'
+        check_io_counts(self, in_counts=[1, 3], out_counts=[1, 1])
 
     def get_perf_counts(self, inT, outT, **kwargs):
         if self.perf_stats is not None:
             return self.perf_stats
 
-        # Clamp(x, min, max): y = min(max(x, min), max)
+        # Clip(x, min, max): y = min(max(x, min), max)
         nElem = inT[0].nelems()
         outT[0].shape = inT[0].shape
         outT[0].dtype = inT[0].dtype
@@ -2242,36 +2239,6 @@ class ReluOp(SimOp):
         else:
             return {}
 
-class SiluOp(SimOp):
-    def __init__(self, opinfo):
-        super().__init__(opinfo)
-        self.opclass_str: str = 'Silu'
-        check_io_counts(self, in_counts=[1, 1], out_counts=[1, 1])
-
-    def get_perf_counts(self, inT, outT, **kwargs):
-        if self.perf_stats is not None:
-            return self.perf_stats
-        # SiLU(x) = x * sigmoid(x)
-        nElem = inT[0].nelems()
-        outT[0].shape = inT[0].shape
-        outT[0].dtype = inT[0].dtype
-        instr = {
-            'mov': nElem,      # for output
-            'mul': nElem,      # x * sigmoid(x)
-            'exp': nElem,      # sigmoid(x) = 1 / (1 + exp(-x))
-            'add': nElem,      # 1 + exp(-x)
-            'div': nElem,      # 1 / (1 + exp(-x))
-            'neg': nElem       # -x
-        }
-        self.perf_stats = {
-            'inElems': nElem,
-            'inBytes': inT[0].nbytes(),
-            'outElems': outT[0].nelems(),
-            'outBytes': outT[0].nbytes(),
-            'instrs': instr
-        }
-        return self.perf_stats
-
 class LeakyReluOp(SimOp):
     def __init__(self, opinfo):
         super().__init__(opinfo)
@@ -2666,6 +2633,281 @@ class VoxelPoolingOp(SimOp):
 
         return self.perf_stats
 
+class ReciprocalOp(SimOp):
+    def __init__(self, opinfo):
+        super().__init__(opinfo)
+        self.opclass_str: str = 'Reciprocal'
+        check_io_counts(self, in_counts=[1, 1], out_counts=[1, 1])
+
+    def get_perf_counts(self, inT, outT, **kwargs):
+        if self.perf_stats is not None:
+            return self.perf_stats
+
+        nElem = inT[0].nelems()
+        outT[0].shape = inT[0].shape
+        outT[0].dtype = inT[0].dtype
+        self.perf_stats = {
+                'inElems' : inT[0].nelems(),
+                'inBytes' : inT[0].nbytes(self.precision),
+                'outElems': outT[0].nelems(),
+                'outBytes': outT[0].nbytes(self.precision),
+                'instrs'  : {'div': nElem}
+                }
+        return self.perf_stats
+
+class MeanOp(SimOp):
+    def __init__(self, opinfo):
+        super().__init__(opinfo)
+        self.opclass_str: str = 'Mean'
+        check_io_counts(self, in_counts=[1, 1], out_counts=[1, 1])
+        self._kw_args_defaults = {'dim': None}
+        if 'attrs' in opinfo:
+            self.check_known_args(opinfo['attrs'])
+
+    def get_perf_counts(self, inT, outT, **kwargs):
+        if self.perf_stats is not None:
+            return self.perf_stats
+
+        dim = self.attrs.get('dim', None)
+        input_tensor = inT[0]
+        assert input_tensor.check_shape(), f"Illegal Shape for {input_tensor}"
+
+        rank = input_tensor.rank()
+        if dim is not None and dim < 0:
+            dim += rank
+
+        if dim is None:
+            # Mean all elements, output is scalar
+            output_shape = []
+        else:
+            assert 0 <= dim < rank, f"dim {dim} out of bounds for rank {rank}"
+            # Output shape is input shape with dim removed
+            output_shape = [s for i, s in enumerate(input_tensor.shape) if i != dim]
+
+        outT[0].shape = output_shape
+        outT[0].dtype = input_tensor.dtype
+
+        nelems = input_tensor.nelems()
+        self.perf_stats = {
+            'inElems': nelems,
+            'inBytes': input_tensor.nbytes(self.precision),
+            'outElems': outT[0].nelems(),
+            'outBytes': outT[0].nbytes(self.precision),
+            'instrs': {'add': nelems, 'div': outT[0].nelems()}
+        }
+        return self.perf_stats
+
+class UpsampleOp(SimOp):
+    """
+    Implements torch.nn.Upsample (nearest/bilinear/bicubic/linear/trilinear).
+    Only supports 'nearest' and 'linear'/'bilinear'/'trilinear' (interpolation) modes for now.
+    """
+    def __init__(self, opinfo):
+        super().__init__(opinfo)
+        self.opclass_str: str = 'Upsample'
+        check_io_counts(self, in_counts=[1,1], out_counts=[1,1])
+        self._kw_args_defaults = {
+            'mode': 'nearest',  # 'nearest', 'linear', 'bilinear', 'trilinear', 'bicubic'
+            #'scales': None,
+            'scale_factor': 1,
+            'size': None,
+            'align_corners': False,
+        }
+        if 'attrs' in opinfo:
+            self.check_known_args(opinfo['attrs'])
+
+    def get_perf_counts(self, inT, outT, **kwargs):
+        if self.perf_stats is not None:
+            return self.perf_stats
+
+        X = inT[0]
+        input_shape = X.shape
+        mode = self.attrs.get('mode', 'nearest')
+        #scales = self.attrs.get('scales', None)
+        scale_factor = self.attrs.get('scale_factor', 1)
+        size = self.attrs.get('size', None)
+        align_corners = self.attrs.get('align_corners', False)
+
+        # Determine output shape
+        if size is not None:
+            # size is a tuple/list of output spatial dims
+            # torch.nn.Upsample expects size to specify the output spatial dims
+            # For 2D: input (N, C, H, W), size = (out_H, out_W)
+            output_shape = list(input_shape)
+            spatial_dims = len(size)
+            output_shape[-spatial_dims:] = list(size)
+        # elif scales is not None:
+        elif scale_factor is not None:
+            # scales is a list/tuple of scaling factors for each dim
+            output_shape = list(input_shape)
+            if len(output_shape) >= 2:
+                output_shape[-2] = int(round(output_shape[-2] * scale_factor))
+                output_shape[-1] = int(round(output_shape[-1] * scale_factor))
+        else:
+            raise ValueError("UpsampleOp requires either 'size' or 'scales' attribute")
+
+        outT[0].shape = output_shape
+        outT[0].dtype = X.dtype
+
+        # Estimate instruction count: each output element is a copy or interpolation
+        nElem_in = X.nelems()
+        nElem_out = np.prod(output_shape)
+        instr_count = {}
+        if mode == 'nearest':
+            instr_count['mov'] = nElem_out
+        elif mode in ['linear', 'bilinear', 'trilinear', 'bicubic']:
+            # Each output element: interpolation (mul/add per neighbor)
+            # For bilinear: 4 neighbors, trilinear: 8, linear: 2, bicubic: 16
+            neighbors = {'linear': 2, 'bilinear': 4, 'trilinear': 8, 'bicubic': 16}
+            n = neighbors.get(mode, 4)
+            instr_count['mul'] = nElem_out * n
+            instr_count['add'] = nElem_out * (n - 1)
+        else:
+            raise ValueError(f"Unsupported Upsample mode: {mode}")
+
+        self.perf_stats = {
+            'inElems': nElem_in,
+            'inBytes': X.nbytes(self.precision),
+            'outElems': nElem_out,
+            'outBytes': outT[0].nbytes(self.precision),
+            'instrs': instr_count
+        }
+        return self.perf_stats
+
+class ConvTransposeOp(SimOp):
+    """
+    Implements torch.nn.ConvTranspose shape inference and perf stats.
+    Only supports NCHW layout.
+    """
+    def __init__(self, opinfo):
+        super().__init__(opinfo)
+        self.opclass_str: str = 'ConvTranspose'
+        check_io_counts(self, in_counts=[2,3], out_counts=[1,1])
+        self._kw_args_defaults = {
+            'strides': (1, 1),
+            'padding': (0, 0),
+            'output_padding': (0, 0),
+            'groups': 1,
+            'dilation': (1, 1),
+            'kernel_size': None,
+        }
+        if 'attrs' in opinfo:
+            self.check_known_args(opinfo['attrs'])
+
+    def get_perf_counts(self, inT, outT, **kwargs):
+        if self.perf_stats is not None:
+            return self.perf_stats
+
+        X = inT[0]  # Input: (N, C_in, H_in, W_in)
+        W = inT[1]  # Weights: (C_in, C_out/groups, kH, kW)
+        B = inT[2] if len(inT) == 3 else None
+
+        assert X.rank() == 4, f"Input must be 4D (N, C_in, H_in, W_in), got {X.shape}"
+        assert W.rank() == 4, f"Weight must be 4D (C_in, C_out/groups, kH, kW), got {W.shape}"
+
+        N, C_in, H_in, W_in = X.shape
+        C_in_w, C_out_per_group, kH, kW = W.shape
+
+        stride = tuple(self.attrs.get('strides', (1, 1)))
+        padding = tuple(self.attrs.get('padding', (0, 0)))
+        output_padding = tuple(self.attrs.get('output_padding', (0, 0)))
+        groups = self.attrs.get('groups', 1)
+        dilation = tuple(self.attrs.get('dilation', (1, 1)))
+        kernel_size = tuple(self.attrs.get('kernel_size', (kH, kW)))
+
+        # Validate shapes
+        assert C_in == C_in_w * groups, f"C_in mismatch: {C_in} != {C_in_w} * {groups}"
+        C_out = C_out_per_group * groups
+
+        # Output shape calculation (NCHW)
+        H_out = (H_in - 1) * stride[0] - 2 * padding[0] + dilation[0] * (kernel_size[0] - 1) + output_padding[0] + 1
+        W_out = (W_in - 1) * stride[1] - 2 * padding[1] + dilation[1] * (kernel_size[1] - 1) + output_padding[1] + 1
+
+        output_shape = [N, C_out, H_out, W_out]
+        outT[0].shape = output_shape
+        outT[0].dtype = X.dtype
+
+        # MACs: each output element is a sum over (C_in/groups * kH * kW)
+        macs_per_output = (C_in // groups) * kH * kW
+        output_elements = N * C_out * H_out * W_out
+        total_macs = output_elements * macs_per_output
+        instr_count = {'mac': int(total_macs)}
+        if B is not None:
+            instr_count['add'] = output_elements
+
+        bias_elems = B.nelems() if B is not None else 0
+        bias_bytes = B.nbytes(self.precision) if B is not None else 0
+        inElems = X.nelems() + W.nelems() + bias_elems
+        inBytes = X.nbytes(self.precision) + W.nbytes(self.precision) + bias_bytes
+
+        self.perf_stats = {
+            'inElems': inElems,
+            'outElems': outT[0].nelems(),
+            'inBytes': inBytes,
+            'outBytes': outT[0].nbytes(self.precision),
+            'instrs': instr_count
+        }
+        return self.perf_stats
+
+class PadOp(SimOp):
+    """
+    Implements padding operation for tensors.
+    Expects:
+      - inT[0]: input tensor
+      - inT[1]: pad_tensor (1D tensor with padding values, length = 2 * rank)
+      - attrs['mode']: 'constant', 'reflect', or 'edge' (default: 'constant')
+      - attrs['value']: constant value for 'constant' mode (default: 0)
+    """
+    def __init__(self, opinfo):
+        super().__init__(opinfo)
+        self.opclass_str: str = 'Pad'
+        check_io_counts(self, in_counts=[2,2], out_counts=[1,1])
+        self._kw_args_defaults = {
+            'mode': 'constant',
+            'value': 0,
+        }
+        if 'attrs' in opinfo:
+            self.check_known_args(opinfo['attrs'])
+
+    def get_perf_counts(self, inT, outT, **kwargs):
+        if self.perf_stats is not None:
+            return self.perf_stats
+
+        X = inT[0]
+        pad_tensor = inT[1]
+        mode = self.attrs.get('mode', 'constant')
+        value = self.attrs.get('value', 0)
+
+        assert pad_tensor.data is not None, "PadOp requires pad_tensor with data"
+        pads = [int(x) for x in pad_tensor.data.tolist()]
+        # Only pad the last 2 dimensions
+        assert len(pads) == 4, f"pads length {len(pads)} != 4 (for last 2 dims only)"
+        rank = X.rank()
+        pad_before = [0] * (rank - 2) + pads[:2]
+        pad_after = [0] * (rank - 2) + pads[2:]
+        output_shape = [X.shape[i] + pad_before[i] + pad_after[i] for i in range(rank)]
+
+        outT[0].shape = output_shape
+        outT[0].dtype = X.dtype
+
+        # Estimate instruction count: each output element is a copy or fill
+        nElem_in = X.nelems()
+        nElem_out = np.prod(output_shape)
+        instr_count = {'mov': nElem_in}
+        if mode == 'constant':
+            instr_count['fill'] = nElem_out - nElem_in
+        else:
+            instr_count['mov'] = nElem_out
+
+        self.perf_stats = {
+            'inElems': nElem_in + pad_tensor.nelems(),
+            'inBytes': X.nbytes(self.precision) + pad_tensor.nbytes(self.precision),
+            'outElems': nElem_out,
+            'outBytes': outT[0].nbytes(self.precision),
+            'instrs': instr_count
+        }
+        return self.perf_stats
+
 class AssignOp(SimOp):
     def __init__(self, opinfo):
         super().__init__(opinfo)
@@ -2715,69 +2957,6 @@ class AssignOp(SimOp):
         }
         return self.perf_stats
 
-class MeanOp(SimOp):
-    def __init__(self, opinfo):
-        super().__init__(opinfo)
-        self.opclass_str: str = 'Mean'
-        check_io_counts(self, in_counts=[1, 1], out_counts=[1, 1])
-        self._kw_args_defaults = {'dim': None}
-        if 'attrs' in opinfo:
-            self.check_known_args(opinfo['attrs'])
-
-    def get_perf_counts(self, inT, outT, **kwargs):
-        if self.perf_stats is not None:
-            return self.perf_stats
-
-        dim = self.attrs.get('dim', None)
-        input_tensor = inT[0]
-        assert input_tensor.check_shape(), f"Illegal Shape for {input_tensor}"
-
-        rank = input_tensor.rank()
-        if dim is not None and dim < 0:
-            dim += rank
-
-        if dim is None:
-            # Mean all elements, output is scalar
-            output_shape = []
-        else:
-            assert 0 <= dim < rank, f"dim {dim} out of bounds for rank {rank}"
-            # Output shape is input shape with dim removed
-            output_shape = [s for i, s in enumerate(input_tensor.shape) if i != dim]
-
-        outT[0].shape = output_shape
-        outT[0].dtype = input_tensor.dtype
-
-        nelems = input_tensor.nelems()
-        self.perf_stats = {
-            'inElems': nelems,
-            'inBytes': input_tensor.nbytes(self.precision),
-            'outElems': outT[0].nelems(),
-            'outBytes': outT[0].nbytes(self.precision),
-            'instrs': {'add': nelems, 'div': outT[0].nelems()}
-        }
-        return self.perf_stats
-
-class RsqrtOp(SimOp):
-    def __init__(self, opinfo):
-        super().__init__(opinfo)
-        self.opclass_str: str = 'rsqrt'
-        check_io_counts(self, in_counts=[1, 1], out_counts=[1, 1])
-
-    def get_perf_counts(self, inT, outT, **kwargs):
-        if self.perf_stats is not None:
-            return self.perf_stats
-
-        nElem = inT[0].nelems()
-        outT[0].shape = inT[0].shape
-        outT[0].dtype = inT[0].dtype
-        self.perf_stats = {
-                'inElems' : inT[0].nelems(),
-                'inBytes' : inT[0].nbytes(self.precision),
-                'outElems': outT[0].nelems(),
-                'outBytes': outT[0].nbytes(self.precision),
-                'instrs'  : {'sqrt': nElem, 'div': nElem}
-                }
-        return self.perf_stats
 
 ######################  CONCRETE OP IMPLEMENTATION END ##################
 
@@ -2809,7 +2988,7 @@ class RsqrtOp(SimOp):
 def SimOpFactory(optype: str) -> type[SimOp]:
     cls2optype: Dict[type[SimOp], list[str]] = {
             EltwiseBinaryOp      : ['Add', 'Sub', 'Mul', 'Div'],
-            EltwiseUnaryOp       : ['Identity', 'Tanh', 'Sin', 'Cos', 'Neg', 'Exp', 'Log'],
+            EltwiseUnaryOp       : ['Identity', 'Tanh', 'Sin', 'Cos', 'Neg', 'Sqrt', 'Exp', 'Log'],
             ConstantOp           : ['Constant'],
             GatherOp             : ['Gather'],
             LayerNormalizationOp : ['LayerNormalization'],
@@ -2819,6 +2998,7 @@ def SimOpFactory(optype: str) -> type[SimOp]:
             SplitOp              : ['Split'],
             ReshapeOp            : ['Reshape'],
             TransposeOp          : ['Transpose'],
+            PadOp                : ['Pad'],
             WhereOp              : ['Where'],
             SoftmaxOp            : ['Softmax'],
             SoftplusOp           : ['Softplus'],
@@ -2836,17 +3016,18 @@ def SimOpFactory(optype: str) -> type[SimOp]:
             RangeOp              : ['Range'],
             GeluOp               : ['Gelu'],
             ReluOp               : ['Relu'],
-            SiluOp               : ['Silu'], #Mamba2
-            ClampOp              : ['Clamp'], #Mamba2
-            MeanOp               : ['Mean'], #Mamba2
-            RsqrtOp              : ['Rsqrt'], #Mamba2
+            ClipOp               : ['Clip'], #Mamba2
             LeakyReluOp          : ['LeakyRelu'], #Yolo-v7
             SigmoidOp            : ['Sigmoid'], #Yolo-v7
             ResizeOp             : ['Resize'], #Yolo-v7
             ReduceMaxOp          : ['ReduceMax', 'ArgMax'], #Yolo-v7
             NonMaxSuppressionOp  : ['NonMaxSuppression'], #Yolo-v7
             FlattenOp            : ['Flatten'], #Yolo-v7
+            UpsampleOp           : ['Upsample'], #UNet
+            ConvTransposeOp      : ['ConvTranspose'], #UNet
             VoxelPoolingOp       : ['VoxelPooling'], #BEVDepth
+            MeanOp               : ['Mean'], #llama2, Mamba2
+            ReciprocalOp         : ['Reciprocal'], #llama2
 
             ConvOp               : ['Conv'],   # TBD: step in adding new operator / layer typez
             MaxPoolOp            : ['MaxPool'],

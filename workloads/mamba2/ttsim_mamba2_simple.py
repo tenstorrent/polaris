@@ -79,20 +79,23 @@ def mamba_chunk_scan_combined(
         state = decay * state + B_t.unsqueeze(2) * x[:, l, :, :].unsqueeze(-1)  # (B,H,P,N)
 
         # output: multiply C_t over N, sum over N → (B,H,P)
-        sumop = F.sum(f'sumop_{l}', dim=-1)
+        sumop = F.Sum(f'sumop_{l}', dim=-1)
         sumop.set_module(module)
         temp = sumop(C_t.unsqueeze(2) * state)
-        assignop = F.assign(f'assignop_{l}', slice=(slice(None), l, slice(None), slice(None)))
+        assignop = F.Assign(f'assignop_{l}', slice=(slice(None), l, slice(None), slice(None)))
         assignop.set_module(module)
-        assignop(y, temp)
+        module._op_hndls[assignop.name] = assignop
+        module._tensors[y.name] = y
+        y = assignop(y, temp)
         if D is not None:
             temp = D.view(1, H, 1) * x[:, l, :, :]
             addop = F.Add(f'addop_{l}')
             addop.set_module(module)
+            module._op_hndls[addop.name] = addop
             temp = addop(temp, y[:, l, :, :]) # type: ignore
-            assignop2 = F.assign(f'assignop2_{l}', slice=(slice(None), l, slice(None), slice(None)))
+            assignop2 = F.Assign(f'assignop2_{l}', slice=(slice(None), l, slice(None), slice(None)))
             assignop2.set_module(module)
-            assignop2(y, temp)
+            y = assignop2(y, temp)
 
     return y
 
@@ -136,24 +139,30 @@ def mamba_split_conv1d_scan_combined(
     # ---- Split ----
     splitop = F.Split('split_zxbcdt', axis=2, count=5)
     splitop.set_module(module)
+    module._op_hndls[splitop.name] = splitop
     split_tensor = F._from_data('split_tensor', data=np.array([d_inner, d_inner, ngroups*d_state, ngroups*d_state, nheads]))
     z, x, B_part, C_part, dt = splitop(zxbcdt, split_tensor)
 
     # ---- Process dt ----
     softplusop = F.softplus('softplus')
-    clampop = F.clamp('clamp', min=dt_limit[0], max=dt_limit[1])
-    clampop.set_module(module)
-    dt = clampop(softplusop(dt + dt_bias))  # (B, L, nheads)
+    clipop = F.Clip('mamba_split_conv1d_scan_combined_clip', min=dt_limit[0], max=dt_limit[1])
+    clipop.set_module(module)
+    softplusop.set_module(module)
+    module._op_hndls[clipop.name] = clipop
+    module._op_hndls[softplusop.name] = softplusop
+    dt = clipop(softplusop(dt + dt_bias))  # (B, L, nheads)
 
     # ---- Depthwise conv on x, B, C combined ----
     catop = F.ConcatX('catop', axis=-1)
     catop.set_module(module)
+    module._op_hndls[catop.name] = catop
     xBC = catop(x, B_part, C_part)  # (B, L, d_inner + 2*ngroups*d_state)
     xBC_conv_in = xBC.transpose(1, 2)  # (B, Cin, L)
     weight = conv1d_weight.unsqueeze(1)  # type: ignore[attr-defined]
     conv1dOp = F.conv1d('conv1d', pads=[conv1d_weight.shape[-1] - 1, conv1d_weight.shape[-1] - 1],
                         group=xBC_conv_in.shape[1])
     conv1dOp.set_module(module)
+    module._op_hndls[conv1dOp.name] = conv1dOp
     xBC_conv = conv1dOp(
         xBC_conv_in,
         weight,
@@ -162,8 +171,9 @@ def mamba_split_conv1d_scan_combined(
 
     # ---- Activation ----
     if activation in ("swish", "silu"):
-        siluop = F.SiLU('silu')
-        xBC_conv = siluop(xBC_conv)
+        sigmoidop = F.Sigmoid('mamba_split_conv1d_scan_combined_sigmoid')
+        module._op_hndls[sigmoidop.name] = sigmoidop
+        xBC_conv = xBC_conv * sigmoidop(xBC_conv)
     else:
         raise NotImplementedError(f"Activation {activation} not supported")
 
@@ -198,22 +208,29 @@ def mamba_split_conv1d_scan_combined(
 
     # ---- RMSNorm + gate ----
     if rmsnorm_weight is not None:
-        meanop = F.mean('mean', dim=-1)
+        meanop = F.Mean('mean', dim=-1)
         meanop.set_module(module)
+        module._op_hndls[meanop.name] = meanop
         mu = meanop(y_flat * y_flat).unsqueeze(-1) ## y_flat.pow(2) substituted with mul ## unsqueeze for keepdim=True
         rmsnorm_eps_tensor = F._from_shape('rmsnorm_eps', shape=mu.shape)
-        rsqrtop = F.rsqrt('rsqrt')
-        rsqrtop.set_module(module)
-        y_flat = y_flat * rsqrtop(mu + rmsnorm_eps_tensor) * rmsnorm_weight
+        sqrtop = F.Sqrt(f'_sqrtop')
+        reciprocalop = F.Reciprocal(f'_reciprocalop')
+        sqrtop.set_module(module)
+        reciprocalop.set_module(module)
+        module._op_hndls[sqrtop.name] = sqrtop
+        module._op_hndls[reciprocalop.name] = reciprocalop
+        y_flat = y_flat * reciprocalop(sqrtop(mu + rmsnorm_eps_tensor)) * rmsnorm_weight
 
     sigmoidop = F.Sigmoid('sigmoid')
     sigmoidop.set_module(module)
+    module._op_hndls[sigmoidop.name] = sigmoidop
     y_flat = y_flat * sigmoidop(z)  # gate
 
     # ---- Out projection ----
     nrows, ncols = outproj_weight.shape
-    linearop = F.Linear('outproj', ncols, nrows)
+    linearop = F.Linear('outproj', ncols, nrows, module=module)
     linearop.set_module(module)
+    module._op_hndls[linearop.name] = linearop
     out = linearop(y_flat) #, outproj_weight, outproj_bias)
 
     return out
@@ -228,6 +245,8 @@ class Mamba2Simple(SimNN.Module):
         d_conv=4,
         conv_init=None,
         expand=2,
+        batch_size=1,
+        seq_len=16,
         headdim=128,
         ngroups=1,
         A_init_range=(1, 16),
@@ -254,6 +273,8 @@ class Mamba2Simple(SimNN.Module):
         self.d_conv = d_conv
         self.conv_init = conv_init
         self.expand = expand
+        self.batch_size = batch_size
+        self.seq_len = seq_len
         self.d_inner = self.expand * self.d_model
         self.headdim = headdim
         self.ngroups = ngroups
@@ -282,22 +303,17 @@ class Mamba2Simple(SimNN.Module):
         if self.learnable_init_states:
             assert not(self.learnable_init_states), 'learnable init states not implemented!'
         
-        self.act = F.SiLU(f'{self.name}_silu')
-
         dt_expop = F.exp('expop_dt')
         dt = dt_expop(F._from_shape(f'{self.name}_dt', shape=[self.nheads]))
-        dt_clampop = F.clamp('clamp_dt', min=dt_init_floor)
-        dt_clampop.set_module(self)
-        dt = dt_clampop(dt)
+        dt_clipop = F.Clip('clip_dt', min=dt_init_floor)
+        dt_clipop.set_module(self)
+        dt = dt_clipop(dt)
         
         expm1op = F.exp('expm1')
         expm1op.set_module(self)
         inv_dt_logop = F.Log('log_inv_dt')
         inv_dt_logop.set_module(self)
         self.dt_bias = inv_dt_logop(expm1op(dt))
-
-        # Just to be explicit. Without this we already don't put wd on dt_bias because of the check
-        # name.endswith("bias") in param_grouping.py
 
         # A parameter
         A = F._from_shape(f'{self.name}_A', shape=[self.nheads])
@@ -310,8 +326,6 @@ class Mamba2Simple(SimNN.Module):
 
         # Extra normalization layer right before output projection
         self.norm = RMSNormGated(f'{self.name}_norm', self.d_inner, eps=1e-5, norm_before_gate=False, **factory_kwargs)
-
-        #self.out_proj = F.Linear(f'{self.name}_out_proj', self.d_inner, self.d_model, bias=bias, **factory_kwargs)
         self.out_proj_weight = F._from_shape(f'{self.name}_out_proj_weight', shape=[self.d_model, self.d_inner])
         self.expop = F.exp('expop')
         self.expop.set_module(self)
@@ -319,13 +333,26 @@ class Mamba2Simple(SimNN.Module):
         self.conv1d_weight.set_module(self)
         self.out_proj_weight.set_module(self)
         self.D.set_module(self)
+    
+    def create_input_tensors(self):
+        self.input_tensors = {
+                'x_in': F._from_shape('input_tensor', shape=[self.batch_size, self.seq_len, self.d_model]),
+                }
+        return
 
-    def __call__(self, u, seq_idx=None):
+    def analytical_param_count(self):
+        return 0
+
+    def get_forward_graph(self):
+        GG = super()._get_forward_graph(self.input_tensors)
+        return GG
+
+    def __call__(self, u=None, seq_idx=None):
         """
         u: (B, L, D)
         Returns: same shape as u
         """
-        batch, seqlen, dim = u.shape
+        u = self.input_tensors['x_in'] if u is None else u
 
         zxbcdt = self.in_proj(u)  # (B, L, d_in_proj)
         A = self.expop(self.A_log)  # (nheads) or (d_inner, d_state)
