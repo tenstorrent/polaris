@@ -16,6 +16,7 @@ import json
 import numpy as np
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Union
+import importlib
 
 # Add paths for pipeline and workloads imports
 sys.path.append(str(Path(__file__).parent.parent))
@@ -28,12 +29,29 @@ import ttsim.front.functional.sim_nn as SimNN
 from ttsim.ops import SimTensor
 from ttsim.graph.wl_graph import WorkloadGraph
 
-# Import our SDXL pipeline components
-from .schedulers.factory import create_scheduler
-from .AutoencoderKLPolaris import AutoencoderKLPolaris
-from .TextEncodersPolaris import CLIPTextModelPolaris, CLIPTextModelWithProjectionPolaris, CLIPTokenizerHost
-from .ClassifierFreeGuidancePolaris import ClassifierFreeGuidance
-from .ConditioningPolaris import ControlNetPolaris, T2IAdapterPolaris
+# Import our SDXL pipeline components using importlib to satisfy both runtime and static analysis
+try:
+    create_scheduler = importlib.import_module('workloads.diffusers.schedulers.factory').create_scheduler  # type: ignore[attr-defined]
+    AutoencoderKLPolaris = getattr(importlib.import_module('workloads.diffusers.AutoencoderKLPolaris'), 'AutoencoderKLPolaris')  # type: ignore[assignment]
+    _te_mod = importlib.import_module('workloads.diffusers.TextEncodersPolaris')
+    CLIPTextModelPolaris = getattr(_te_mod, 'CLIPTextModelPolaris')  # type: ignore[assignment]
+    CLIPTextModelWithProjectionPolaris = getattr(_te_mod, 'CLIPTextModelWithProjectionPolaris')  # type: ignore[assignment]
+    CLIPTokenizerHost = getattr(_te_mod, 'CLIPTokenizerHost')  # type: ignore[assignment]
+    ClassifierFreeGuidance = getattr(importlib.import_module('workloads.diffusers.ClassifierFreeGuidancePolaris'), 'ClassifierFreeGuidance')  # type: ignore[assignment]
+    _cond_mod = importlib.import_module('workloads.diffusers.ConditioningPolaris')
+    ControlNetPolaris = getattr(_cond_mod, 'ControlNetPolaris')  # type: ignore[assignment]
+    T2IAdapterPolaris = getattr(_cond_mod, 'T2IAdapterPolaris')  # type: ignore[assignment]
+except Exception:
+    create_scheduler = importlib.import_module('schedulers.factory').create_scheduler  # type: ignore[attr-defined]
+    AutoencoderKLPolaris = getattr(importlib.import_module('AutoencoderKLPolaris'), 'AutoencoderKLPolaris')  # type: ignore[assignment]
+    _te_mod = importlib.import_module('TextEncodersPolaris')
+    CLIPTextModelPolaris = getattr(_te_mod, 'CLIPTextModelPolaris')  # type: ignore[assignment]
+    CLIPTextModelWithProjectionPolaris = getattr(_te_mod, 'CLIPTextModelWithProjectionPolaris')  # type: ignore[assignment]
+    CLIPTokenizerHost = getattr(_te_mod, 'CLIPTokenizerHost')  # type: ignore[assignment]
+    ClassifierFreeGuidance = getattr(importlib.import_module('ClassifierFreeGuidancePolaris'), 'ClassifierFreeGuidance')  # type: ignore[assignment]
+    _cond_mod = importlib.import_module('ConditioningPolaris')
+    ControlNetPolaris = getattr(_cond_mod, 'ControlNetPolaris')  # type: ignore[assignment]
+    T2IAdapterPolaris = getattr(_cond_mod, 'T2IAdapterPolaris')  # type: ignore[assignment]
 
 
 class SDXLPipelinePolarisWorkload(SimNN.Module):
@@ -176,7 +194,7 @@ class SDXLPipelinePolarisWorkload(SimNN.Module):
         # Optional conditioning modules
         self.conditioning_type = str(self.cfg.get('conditioning', 'none')).lower()
         self.conditioning_cfg = self.cfg.get('conditioning_cfg', {'conditioning_strength': 1.0})
-        self.conditioner: Optional[Union[ControlNetPolaris, T2IAdapterPolaris]] = None
+        self.conditioner: Optional[Any] = None
         if self.conditioning_type == 'controlnet':
             self.conditioner = ControlNetPolaris("controlnet", self.conditioning_cfg)
         elif self.conditioning_type in ('t2i_adapter', 't2i-adapter'):
@@ -639,7 +657,11 @@ class SDXLPipelinePolarisWorkload(SimNN.Module):
         self.generate_workload_graph(prompt=prompt if isinstance(prompt, str) else prompt[0])
 
         # Return a mock result for test compatibility
-        from .pipeline_output import StableDiffusionXLPipelineOutput
+        try:
+            _po_mod = importlib.import_module('workloads.diffusers.pipeline_output')
+        except Exception:
+            _po_mod = importlib.import_module('pipeline_output')
+        StableDiffusionXLPipelineOutput = getattr(_po_mod, 'StableDiffusionXLPipelineOutput')  # type: ignore[assignment]
         import numpy as np
 
         # Create mock images based on parameters

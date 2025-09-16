@@ -34,6 +34,10 @@ class DDIMScheduler(SchedulerBase):
         sigma = self._sigmas[idx] if self._sigmas else 0.0
         sigma_prev = self._sigmas[idx + 1] if (self._sigmas and idx + 1 < len(self._sigmas)) else 0.0
 
+        # Provide a generic gamma for downstream consumers expecting an update scale
+        dt = float(abs(sigma_prev - sigma))
+        gamma = max(dt, 1e-3)
+
         return {
             'alpha_cum': float(alpha_cum),
             'alpha_cum_prev': float(alpha_cum_prev),
@@ -41,7 +45,8 @@ class DDIMScheduler(SchedulerBase):
             'prediction_type': self.config.get('prediction_type', 'epsilon'),
             'timestep': int(timestep),
             'sigma': float(sigma),
-            'sigma_prev': float(sigma_prev)
+            'sigma_prev': float(sigma_prev),
+            'gamma': gamma,
         }
 
 

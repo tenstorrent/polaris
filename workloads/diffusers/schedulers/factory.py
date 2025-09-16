@@ -21,6 +21,8 @@ _NAME_TO_CLASS: Dict[str, Type[SchedulerBase]] = {
     "heun": HeunDiscreteScheduler,
     "lms": LMSDiscreteScheduler,
     "dpmms": DPMSolverMultistepScheduler,
+    "dpm_multistep": DPMSolverMultistepScheduler,
+    "dpmmultistep": DPMSolverMultistepScheduler,
 }
 
 

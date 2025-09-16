@@ -8,6 +8,7 @@ import time
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Union
 import sys
+import importlib
 
 import numpy as np
 
@@ -20,11 +21,26 @@ from ttsim.graph.wl_graph import WorkloadGraph
 sys.path.append(str(Path(__file__).parent.parent))
 sys.path.append(str(Path(__file__).parent))
 
-from .schedulers.factory import create_scheduler
-from .AutoencoderKLPolaris import AutoencoderKLPolaris
-from .TextEncodersPolaris import CLIPTextModelPolaris, CLIPTokenizerHost
-from .ClassifierFreeGuidancePolaris import ClassifierFreeGuidance
-from .ConditioningPolaris import ControlNetPolaris, T2IAdapterPolaris
+try:
+    create_scheduler = importlib.import_module('workloads.diffusers.schedulers.factory').create_scheduler  # type: ignore[attr-defined]
+    AutoencoderKLPolaris = getattr(importlib.import_module('workloads.diffusers.AutoencoderKLPolaris'), 'AutoencoderKLPolaris')  # type: ignore[assignment]
+    _te_mod = importlib.import_module('workloads.diffusers.TextEncodersPolaris')
+    CLIPTextModelPolaris = getattr(_te_mod, 'CLIPTextModelPolaris')  # type: ignore[assignment]
+    CLIPTokenizerHost = getattr(_te_mod, 'CLIPTokenizerHost')  # type: ignore[assignment]
+    ClassifierFreeGuidance = getattr(importlib.import_module('workloads.diffusers.ClassifierFreeGuidancePolaris'), 'ClassifierFreeGuidance')  # type: ignore[assignment]
+    _cond_mod = importlib.import_module('workloads.diffusers.ConditioningPolaris')
+    ControlNetPolaris = getattr(_cond_mod, 'ControlNetPolaris')  # type: ignore[assignment]
+    T2IAdapterPolaris = getattr(_cond_mod, 'T2IAdapterPolaris')  # type: ignore[assignment]
+except Exception:
+    create_scheduler = importlib.import_module('schedulers.factory').create_scheduler  # type: ignore[attr-defined]
+    AutoencoderKLPolaris = getattr(importlib.import_module('AutoencoderKLPolaris'), 'AutoencoderKLPolaris')  # type: ignore[assignment]
+    _te_mod = importlib.import_module('TextEncodersPolaris')
+    CLIPTextModelPolaris = getattr(_te_mod, 'CLIPTextModelPolaris')  # type: ignore[assignment]
+    CLIPTokenizerHost = getattr(_te_mod, 'CLIPTokenizerHost')  # type: ignore[assignment]
+    ClassifierFreeGuidance = getattr(importlib.import_module('ClassifierFreeGuidancePolaris'), 'ClassifierFreeGuidance')  # type: ignore[assignment]
+    _cond_mod = importlib.import_module('ConditioningPolaris')
+    ControlNetPolaris = getattr(_cond_mod, 'ControlNetPolaris')  # type: ignore[assignment]
+    T2IAdapterPolaris = getattr(_cond_mod, 'T2IAdapterPolaris')  # type: ignore[assignment]
 # Use a local UNet functional stub to avoid package-relative import issues
 
 
@@ -123,8 +139,16 @@ class SD15PipelinePolarisWorkload(SimNN.Module):
         self.text_encoder = CLIPTextModelPolaris("text_encoder", self.text_encoder_config)
         self.tokenizer = CLIPTokenizerHost()
         # Reuse SDXL UNet functional stub for SD15 (dimension config differs via cfg)
-        from .UNet2DConditionModelPolaris import UNet2DConditionModelPolaris as _UNetStub
-        self.unet = _UNetStub("", **self.unet_config)
+        _UnetType: Any
+        try:
+            _UnetType = getattr(importlib.import_module('workloads.diffusers.SDXLPipelinePolaris'), 'UNet2DConditionModelPolaris')
+        except Exception:
+            _UnetType = getattr(importlib.import_module('SDXLPipelinePolaris'), 'UNet2DConditionModelPolaris')
+        # Support both stub signatures: (name, cfg) and (onnx_path, **kwargs)
+        try:
+            self.unet = _UnetType("unet", self.unet_config)  # type: ignore[arg-type]
+        except TypeError:
+            self.unet = _UnetType("", **self.unet_config)
 
         scheduler_name = self.cfg.get('scheduler', 'euler')
         self.scheduler = create_scheduler(scheduler_name, **self.scheduler_config)
@@ -133,7 +157,7 @@ class SD15PipelinePolarisWorkload(SimNN.Module):
         # Optional conditioning modules
         self.conditioning_type = str(self.cfg.get('conditioning', 'none')).lower()
         self.conditioning_cfg = self.cfg.get('conditioning_cfg', {'conditioning_strength': 1.0})
-        self.conditioner: Optional[Union[ControlNetPolaris, T2IAdapterPolaris]] = None
+        self.conditioner: Optional[Any] = None
         if self.conditioning_type == 'controlnet':
             self.conditioner = ControlNetPolaris("controlnet", self.conditioning_cfg)
         elif self.conditioning_type in ('t2i_adapter', 't2i-adapter'):
