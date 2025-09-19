@@ -1,13 +1,13 @@
 [![Python 3.13](https://img.shields.io/badge/python-3.13-blue.svg)](https://www.python.org/downloads/release/python-3132/)
-![Checkin Tests](https://github.com/tenstorrent/polaris/actions/workflows/checkin_tests.yml/badge.svg?branch=main)
-<!-- 
-  ![Unit Tests](./__ci/badge/pytest.svg?dummy=8484744)
-  [![Coverage](./__ci/badge/coverage.svg?dummy=8484744)](./__ci/html/index.html)
--->
+&nbsp;&nbsp;&nbsp;![Checkin Tests](https://github.com/tenstorrent/polaris/actions/workflows/checkin_tests.yml/badge.svg?branch=main)
+&nbsp;&nbsp;&nbsp;![Coverage](https://img.shields.io/endpoint?url=https://gist.githubusercontent.com/ssapreTT/c230835a5065366c13d3bbfb79f23bf6/raw/polaris_coverage_badge.json)
+&nbsp;&nbsp;&nbsp;![Unit Tests](https://img.shields.io/endpoint?url=https://gist.githubusercontent.com/ssapreTT/c230835a5065366c13d3bbfb79f23bf6/raw/polaris_tests_badge.json)
+&nbsp;&nbsp;&nbsp;![MyPy](https://img.shields.io/endpoint?url=https://gist.githubusercontent.com/ssapreTT/c230835a5065366c13d3bbfb79f23bf6/raw/polaris_mypy.json)
+&nbsp;&nbsp;&nbsp;![SPDX](https://img.shields.io/endpoint?url=https://gist.githubusercontent.com/ssapreTT/c230835a5065366c13d3bbfb79f23bf6/raw/polaris_spdx.json)
 
-<div align="center">
+![RTL Status](https://img.shields.io/endpoint?url=https://gist.githubusercontent.com/ssapreTT/c230835a5065366c13d3bbfb79f23bf6/raw/polaris_rtl_scurve_status.json)
+&nbsp;&nbsp;&nbsp;![RTL Correlation](https://img.shields.io/endpoint?url=https://gist.githubusercontent.com/ssapreTT/c230835a5065366c13d3bbfb79f23bf6/raw/polaris_rtl_scurve_ratio_geomean.json)
 
-<picture>
 <img alt="Polaris logo" src="doc/polaris_logo.png" height="200">
 </picture>
 

@@ -4,27 +4,39 @@ name: polarisdev
 channels:
   - conda-forge
 dependencies:
-  - python=3.13.2
+  # Core dependencies (shared with environment.yaml, same order)
+  # Essential packages required for running polaris
+  - deepdiff
+  - gitpython
   - hydra-core=1.3.2
+  - loguru=0.7.3
+  - lxml=6.0.0
   - matplotlib=3.10.0
   - networkx=3.4.2
   - numpy=2.2.3
   - onnx=1.17.0
   - openpyxl=3.1.5
+  - pydantic=2.10.6
+  - pyelftools=0.31
+  - python=3.13.2
   - pyyaml=6.0.2
+  - simpy=4.1.1
   - sphinx=8.2.1
   - sphinx-rtd-theme=3.0.1
   - yaml=0.2.5
-  - pydantic=2.10.6
-  - gitpython
-  - loguru=0.7.3
-  - lxml=6.0.0
-  - deepdiff
-  - pytest-mock
-  - mypy=1.15.0
+  # Development-specific dependencies (alphabetical order)
+  # Additional packages for development, testing, and code quality
   - coverage=7.6.12
-  - pre-commit
+  - fabric
+  - isort
+  - mypy=1.15.0
   - pip=25.0.1
+  - pre-commit
+  - pytest-cov
+  - pytest-json-report
+  - pytest-mock
+  - pytest-xdist
+  - ruff
   - pip:
     - pytest==8.3.4
     - types-PYYAML==6.0.12.20241230

@@ -1,0 +1,26 @@
+name: 'Setup mamba'
+description: 'Setup mamba'
+inputs:
+  environment-file:
+    description: 'Path to the environment file'
+    required: false
+    default: 'envdev.yaml'
+  environment-name:
+    description: 'Name of the conda environment'
+    required: false
+    default: 'polenvdev'
+runs:
+  using: "composite"
+  steps:
+    - uses: mamba-org/setup-micromamba@v2
+      id: setup-mamba
+      with:
+        environment-file: ${{ inputs.environment-file }}
+        environment-name: ${{ inputs.environment-name }}
+        post-cleanup: all
+
+    - name: check-micromamba-config     # Ensure default channels are not being used
+      shell: bash
+      run: |
+        micromamba info
+        micromamba list

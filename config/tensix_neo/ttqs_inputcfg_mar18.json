@@ -1,0 +1,22 @@
+{
+  "llkVersionTag": "mar18",
+  "debug": 15,
+  "numTCores": 1,
+  "input": {
+    "syn": 0,
+    "name": "t6-quas-n1-ttx-matmul-block-l1-acc-in0-llk",
+    "tc0": {
+      "numThreads": 4,
+      "startFunction": "main",
+      "th0Elf": "thread_0.elf",
+      "th0Path": "t6-quas-n1-ttx-matmul-block-l1-acc-in0-llk_0/ttx/kernels/core_00_00/neo_0/thread_0/out",
+      "th1Elf": "thread_1.elf",
+      "th1Path": "t6-quas-n1-ttx-matmul-block-l1-acc-in0-llk_0/ttx/kernels/core_00_00/neo_0/thread_1/out",
+      "th2Elf": "thread_2.elf",
+      "th2Path": "t6-quas-n1-ttx-matmul-block-l1-acc-in0-llk_0/ttx/kernels/core_00_00/neo_0/thread_2/out",
+      "th3Elf": "",
+      "th3Path": ""
+    }
+  },
+  "description": {}
+}

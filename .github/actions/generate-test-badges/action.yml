@@ -1,0 +1,88 @@
+# SPDX-FileCopyrightText: (C) 2025 Tenstorrent AI ULC
+# SPDX-License-Identifier: Apache-2.0
+
+name: 'Generate Test and Coverage Badges'
+description: 'Creates dynamic badges from test results and uploads to GitHub Gists'
+
+inputs:
+  gist-id:
+    description: 'GitHub Gist ID for badge storage'
+    required: true
+  gist-token:
+    description: 'GitHub token for gist access'
+    required: true
+  repo-name:
+    description: 'Repository name for badge naming'
+    required: true
+  results-dir:
+    description: 'Directory containing test result files'
+    required: false
+    default: '__ci/json'
+  coverage-yellow-threshold:
+    description: 'Coverage percentage threshold for yellow color'
+    required: false
+    default: '75'
+  coverage-required-threshold:
+    description: 'Coverage percentage threshold for red color'
+    required: false
+    default: '85'
+  test-yellow-threshold:
+    description: 'Test pass rate threshold for yellow color'
+    required: false
+    default: '75'
+  test-required-threshold:
+    description: 'Test pass rate threshold for red color'
+    required: false
+    default: '95'
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Generate test and coverage badges
+      shell: bash -el {0}
+      env:
+        GIST_TOKEN: ${{ inputs.gist-token }}
+      run: |
+        echo "Generating badges for repository: ${{ inputs.repo-name }}"
+        echo "Using results from: ${{ inputs.results-dir }}"
+        
+        # Verify required files exist
+        if [[ ! -f "${{ inputs.results-dir }}/pyunit.json" ]]; then
+          echo "❌ Error: pyunit.json not found in ${{ inputs.results-dir }}"
+          exit 1
+        fi
+        
+        if [[ ! -f "${{ inputs.results-dir }}/coverage.json" ]]; then
+          echo "❌ Error: coverage.json not found in ${{ inputs.results-dir }}"
+          exit 1
+        fi
+        
+        # Extract test and coverage stats (optimized - single jq call per file)
+        TOTAL_TESTS=$(jq -r .summary.total ${{ inputs.results-dir }}/pyunit.json)
+        PASSED_TESTS=$(jq -r .summary.passed ${{ inputs.results-dir }}/pyunit.json)
+        COVERAGE_PERCENTAGE=$(jq -r .totals.percent_covered ${{ inputs.results-dir }}/coverage.json)
+        
+        echo "Test results: $PASSED_TESTS/$TOTAL_TESTS passed"
+        echo "Coverage: $COVERAGE_PERCENTAGE%"
+        
+        # Create summary files for gist upload
+        jq .summary ${{ inputs.results-dir }}/pyunit.json > ${{ inputs.results-dir }}/pyunit.summary.json
+        jq .totals ${{ inputs.results-dir }}/coverage.json > ${{ inputs.results-dir }}/coverage.totals.json
+        
+        # Upload summary data to gists
+        python tools/ci/makegist.py --gist-id ${{ inputs.gist-id }} --gist-filename ${{ inputs.repo-name }}_unittestssummary.json --input-file ${{ inputs.results-dir }}/pyunit.summary.json repo=$GITHUB_REPOSITORY branch=$GITHUB_REF sha=$GITHUB_SHA
+        python tools/ci/makegist.py --gist-id ${{ inputs.gist-id }} --gist-filename ${{ inputs.repo-name }}_unittestscoverage.json --input-file ${{ inputs.results-dir }}/coverage.totals.json repo=$GITHUB_REPOSITORY branch=$GITHUB_REF sha=$GITHUB_SHA
+        
+        # Generate badge messages and colors
+        COVERAGE_MESSAGE=$(printf "%.2f" $COVERAGE_PERCENTAGE)%
+        TESTS_MESSAGE="$PASSED_TESTS/$TOTAL_TESTS"
+        PASS_PERCENTAGE=$(expr $PASSED_TESTS \* 100 / $TOTAL_TESTS)
+        
+        COVERAGE_COLOR=$(python3 tools/ci/colorpicker.py --value $COVERAGE_PERCENTAGE --highcolor brightgreen ${{ inputs.coverage-yellow-threshold }} red ${{ inputs.coverage-required-threshold }} yellow)
+        TESTS_COLOR=$(python3 tools/ci/colorpicker.py --value $PASS_PERCENTAGE --highcolor brightgreen ${{ inputs.test-yellow-threshold }} red ${{ inputs.test-required-threshold }} yellow)
+        
+        # Create badge JSON files
+        python tools/ci/makegist.py --gist-id ${{ inputs.gist-id }} --gist-filename ${{ inputs.repo-name }}_tests_badge.json label="Unit Tests" message="$TESTS_MESSAGE" color="$TESTS_COLOR"
+        python tools/ci/makegist.py --gist-id ${{ inputs.gist-id }} --gist-filename ${{ inputs.repo-name }}_coverage_badge.json label="Coverage" message="$COVERAGE_MESSAGE" color="$COVERAGE_COLOR"
+        
+        echo "✅ Successfully generated test and coverage badges"

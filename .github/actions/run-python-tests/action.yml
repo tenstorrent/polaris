@@ -1,0 +1,38 @@
+# SPDX-FileCopyrightText: (C) 2025 Tenstorrent AI ULC
+# SPDX-License-Identifier: Apache-2.0
+
+name: 'Run Python Tests with Coverage'
+description: 'Runs pytest with coverage and generates JSON/HTML reports'
+
+inputs:
+  test-markers:
+    description: 'Pytest markers to include/exclude'
+    required: false
+    default: 'not slow and not tools_secondary'
+  output-dir:
+    description: 'Output directory for reports'
+    required: false
+    default: '__ci'
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Run Python tests with coverage
+      shell: bash -el {0}
+      run: |
+        echo "Running Python tests with markers: ${{ inputs.test-markers }}"
+        echo "Output directory: ${{ inputs.output-dir }}"
+        
+        # Ensure output directories exist
+        mkdir -p ${{ inputs.output-dir }}/json
+        mkdir -p ${{ inputs.output-dir }}/html
+        
+        # Run coverage and tests
+        coverage erase
+        coverage run -m pytest -m "${{ inputs.test-markers }}" --json-report --json-report-file ${{ inputs.output-dir }}/json/pyunit.json
+        coverage combine
+        coverage report 
+        coverage html -d ${{ inputs.output-dir }}/html/
+        coverage json -o ${{ inputs.output-dir }}/json/coverage.json
+        
+        echo "✅ Python tests completed successfully"

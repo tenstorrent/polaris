@@ -42,6 +42,7 @@ class SPDXHeaderStatus(Enum):
 # file based on its extension
 LANGUAGES = {
     'python': ['.py'],
+    'shell': ['.sh'],
     'javascript': ['.js', '.mjs', '.cjs'],
     'html': ['.html', '.htm'],
     'css': ['.css'],
@@ -50,6 +51,7 @@ LANGUAGES = {
 
 LANG_2_SYNTAX = {
     'python': {'comment': '#'},
+    'shell': {'comment': '#'},
     'javascript': {'comment': '//'},
     'html': {'comment': '<!--', 'end_comment': '-->'},
     'css': {'comment': '/*', 'end_comment': '*/'},

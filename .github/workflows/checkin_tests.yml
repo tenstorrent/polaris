@@ -5,14 +5,27 @@ name: Checkin Tests
 
 on:
   workflow_dispatch:
-  workflow_call:
   push:
   pull_request:
     branches:
       - main
+  merge_group:
+    branches:
+    - main
 
 jobs:
   checkin-tests:
+    env:
+      GIST_ID: 'c230835a5065366c13d3bbfb79f23bf6'
+      GIST_TOKEN: ${{ secrets.POLARIS_BIG_GIST_TOKEN }}
+      REPO_NAME: ${{ github.event.repository.name }}
+      GITHUB_REF: ${{ github.ref }}
+      GITHUB_SHA: ${{ github.sha }}
+      PASS_YELLOW: 75
+      PASS_REQUIRED: 95
+      COVERAGE_YELLOW: 75
+      COVERAGE_REQUIRED: 85
+
     runs-on: tt-ubuntu-2204-large-stable
     strategy:
       max-parallel: 5
@@ -22,49 +35,66 @@ jobs:
         shell: bash -el {0}
 
     steps:
-    - uses: actions/checkout@v4
-    - uses: mamba-org/setup-micromamba@v2
-      id: setup-mamba
+    - id: checkout
+      name: Checkout
+      uses: actions/checkout@v4
+
+    - id: lfcdownload
+      name: Download required files from LFC
+      uses: ./.github/actions/lfcdownload
+
+    - id: setup-mamba
+      name: Setup mamba - developer
+      if: '!cancelled()'
+      uses: ./.github/actions/setup_mamba
       with:
         environment-file: envdev.yaml
         environment-name: poldevenv
-        post-cleanup: all
 
-    - name: check-micromamba-config     # Ensure default channels are not being used
-      run: |
-        micromamba info
-        micromamba list
+    - id: run-unit-and-coverage-tests
+      name: Run Unit and Coverage Tests
+      if: '!cancelled()'
+      uses: ./.github/actions/run-python-tests
 
-    - name: Run Unit and Coverage Tests
-      run: | 
-        coverage erase
-        coverage run -m pytest -m "not tools_secondary" --junitxml __ci/xml/junit.xml
-        coverage combine
-        coverage report 
-        coverage html -d __ci/html/
-        coverage xml -o __ci/xml/coverage.xml
-    - name: Run Checkin Tests
-      if: always()
-      run: |
-        python checkin_tests.py static
-    - name: Run standalone workload tests
-      if: always()
-      run: |
-        for test in tests/test_workloads/test_*.py; do
-          python -m pytest $test
-        done
-    - name: Check license and copyright
-      if: always()
-      run: |
-          python tools/spdxchecker.py --ignore .github/spdxchecker-ignore.yml --allowed-licenses Apache-2.0 --allowed-copyright "Tenstorrent AI ULC"
+    - id: run-static-analysis
+      name: Run Static Analysis
+      if: '!cancelled()'
+      uses: ./.github/actions/run-static-analysis
 
-    - name: Upload artifacts
-      if: always()
+    - id: generate-test-badges
+      name: Generate Test and Coverage Badges
+      if: ${{ !cancelled() && github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+      uses: ./.github/actions/generate-test-badges
+      with:
+        gist-id: ${{ env.GIST_ID }}
+        gist-token: ${{ env.GIST_TOKEN }}
+        repo-name: ${{ env.REPO_NAME }}
+        coverage-yellow-threshold: ${{ env.COVERAGE_YELLOW }}
+        coverage-required-threshold: ${{ env.COVERAGE_REQUIRED }}
+        test-yellow-threshold: ${{ env.PASS_YELLOW }}
+        test-required-threshold: ${{ env.PASS_REQUIRED }}
+
+    - id: generate-status-badges
+      name: Generate Status Badges
+      if: ${{ !cancelled() && github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+      uses: ./.github/actions/generate-status-badges
+      with:
+        gist-id: ${{ env.GIST_ID }}
+        gist-token: ${{ env.GIST_TOKEN }}
+        repo-name: ${{ env.REPO_NAME }}
+        static-tests-outcome: ${{ steps.run-static-analysis.outputs.static-tests-outcome }}
+        spdx-tests-outcome: ${{ steps.run-static-analysis.outputs.license-checks-outcome }}
+
+    - id: upload-artifacts
+      name: Upload artifacts
+      if: '!cancelled()'
       uses: actions/upload-artifact@v4
       with:
         name: dist-wo-onnxdumps
         path: |
            .coverage
+           __ci/json
+           __ci/html
            __RUN_TESTS
            !__RUN_TESTS/**/*.onnx
     
@@ -78,25 +108,21 @@ jobs:
         shell: bash -el {0}
 
     steps:
-    - uses: actions/checkout@v4
-    - uses: mamba-org/setup-micromamba@v2
-      id: userenv-setup-mamba
+    - name: Checkout
+      uses: actions/checkout@v4
+
+    - name: Setup mamba - user
+      uses: ./.github/actions/setup_mamba
       with:
         environment-file: environment.yaml
         environment-name: poluserenv
-        post-cleanup: all
-
-    - name: userenv-check-micromamba-config     # Ensure default channels are not being used
-      run: |
-        micromamba info
-        micromamba list
 
     - name: userenv-checkin-tests
-      if: always()
+      if: '!cancelled()'
       run: |
         python checkin_tests.py workloads
+
     - name: Upload artifacts
-      if: always()
       uses: actions/upload-artifact@v4
       with:
         name: userenv-dist-wo-onnxdumps

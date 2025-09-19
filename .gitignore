@@ -20,6 +20,8 @@ private/
 # Macbook etc.
 .DS_Store
 
+# Orig files created during kdiff3 3-way merges
+*.orig
 
 # Distribution / packaging
 .Python

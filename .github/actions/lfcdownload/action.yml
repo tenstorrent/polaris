@@ -1,0 +1,19 @@
+# SPDX-FileCopyrightText: (C) 2025 Tenstorrent AI ULC
+# SPDX-License-Identifier: Apache-2.0
+
+name: 'Download required files from LFC'
+description: 'Download required files from LFC'
+inputs:
+  files:  # id of input
+    description: 'Files to download, space separated list'
+    required: false
+    default: 'test_onnx_models.tar.gz llk_elf_files.tar.gz ext_rtl_test_data_set_feb19.tar.gz ext_rtl_test_data_set_jul1.tar.gz ext_rtl_test_data_set_jul27.tar.gz ext_rtl_test_data_set_mar18.tar.gz'
+runs:
+  using: "composite"
+  steps:
+    - name: Download files from LFC
+      shell: bash
+      run: |
+         for file in ${{ inputs.files }}; do
+            bash tools/ci/lfc_downloader.sh --extract $file
+         done

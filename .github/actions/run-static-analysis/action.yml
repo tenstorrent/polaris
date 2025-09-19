@@ -1,0 +1,85 @@
+# SPDX-FileCopyrightText: (C) 2025 Tenstorrent AI ULC
+# SPDX-License-Identifier: Apache-2.0
+
+name: 'Run Static Analysis'
+description: 'Runs static tests and license/copyright checks'
+
+inputs:
+  run-static-tests:
+    description: 'Whether to run static tests (mypy, etc.)'
+    required: false
+    default: 'true'
+  run-license-checks:
+    description: 'Whether to run license and copyright checks'
+    required: false
+    default: 'true'
+  static-test-command:
+    description: 'Command to run for static tests'
+    required: false
+    default: 'python checkin_tests.py static'
+  spdx-ignore-file:
+    description: 'SPDX checker ignore file path'
+    required: false
+    default: '.github/spdxchecker-ignore.yml'
+  allowed-licenses:
+    description: 'Allowed license types (comma-separated)'
+    required: false
+    default: 'Apache-2.0'
+  allowed-copyright:
+    description: 'Allowed copyright holder'
+    required: false
+    default: 'Tenstorrent AI ULC'
+
+outputs:
+  static-tests-outcome:
+    description: 'Outcome of static tests (success, failure, skipped)'
+    value: ${{ steps.static-tests.outcome || 'skipped' }}
+  license-checks-outcome:
+    description: 'Outcome of license checks (success, failure, skipped)'
+    value: ${{ steps.license-checks.outcome || 'skipped' }}
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Run static tests
+      id: static-tests
+      if: inputs.run-static-tests == 'true'
+      shell: bash -el {0}
+      run: |
+        echo "Running static analysis tests..."
+        echo "Command: ${{ inputs.static-test-command }}"
+        ${{ inputs.static-test-command }}
+        echo "✅ Static tests completed successfully"
+    
+    - name: Run license and copyright checks
+      id: license-checks
+      if: inputs.run-license-checks == 'true'
+      shell: bash -el {0}
+      run: |
+        echo "Running license and copyright checks..."
+        echo "Ignore file: ${{ inputs.spdx-ignore-file }}"
+        echo "Allowed licenses: ${{ inputs.allowed-licenses }}"
+        echo "Allowed copyright: ${{ inputs.allowed-copyright }}"
+        
+        python tools/spdxchecker.py \
+          --ignore ${{ inputs.spdx-ignore-file }} \
+          --allowed-licenses ${{ inputs.allowed-licenses }} \
+          --allowed-copyright "${{ inputs.allowed-copyright }}"
+        
+        echo "✅ License and copyright checks completed successfully"
+    
+    - name: Summary
+      shell: bash -el {0}
+      run: |
+        echo "=== Static Analysis Summary ==="
+        if [ "${{ inputs.run-static-tests }}" == "true" ]; then
+          echo "Static tests outcome: ${{ steps.static-tests.outcome }}"
+        else
+          echo "Static tests: skipped"
+        fi
+        
+        if [ "${{ inputs.run-license-checks }}" == "true" ]; then
+          echo "License checks outcome: ${{ steps.license-checks.outcome }}"
+        else
+          echo "License checks: skipped"
+        fi
