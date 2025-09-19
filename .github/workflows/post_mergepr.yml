@@ -17,7 +17,7 @@ jobs:
 
     env:
       GIST_ID: 'c230835a5065366c13d3bbfb79f23bf6'
-      GIST_TOKEN: ${{ secrets.POLARIS_BIG_GIST_TOKEN }}
+      GIST_TOKEN: ${{ secrets.POLARIS_GIST_TOKEN }}
       REPO_NAME: ${{ github.event.repository.name }}
       GITHUB_REF: ${{ github.ref }}
       GITHUB_SHA: ${{ github.sha }}

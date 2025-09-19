@@ -239,7 +239,7 @@ run: |
 ```yaml
 env:
   GIST_ID: 'XXXX-YOUR-GIST-ID-HERE-XXXX'           # GitHub Gist ID for badge storage
-  GIST_TOKEN: ${{ secrets.POLARIS_BIG_GIST_TOKEN }}     # GitHub token for Gist access
+  GIST_TOKEN: ${{ secrets.POLARIS_GIST_TOKEN }}     # GitHub token for Gist access
   REPO_NAME: ${{ github.event.repository.name }}       # Repository name for file naming
   
   # Color thresholds
@@ -522,7 +522,7 @@ The tools work together in the GitHub Actions workflow:
 
 ```yaml
 # Add to repository secrets
-POLARIS_BIG_GIST_TOKEN: <github_personal_access_token>
+POLARIS_GIST_TOKEN: <github_personal_access_token>
 ```
 
 **Required Token Permissions:**
