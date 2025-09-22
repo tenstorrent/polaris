@@ -998,6 +998,708 @@ class ConvOp(SimOp):
         }
         return self.perf_stats
 
+class ConvTransposeOp(SimOp):
+    def __init__(self, opinfo):
+        super().__init__(opinfo)
+        self.opclass_str: str = 'ConvTranspose'
+        check_io_counts(self, in_counts=[2,3], out_counts=[1,1])
+        self._kw_args_defaults = {
+            'auto_pad'      : 'NOTSET',
+            'dilations'     : [1, 1],
+            'group'         : 1,
+            'kernel_shape'  : None,
+            'output_padding': [0, 0],
+            'output_shape'  : None,
+            'pads'          : [0, 0, 0, 0],
+            'strides'       : [1, 1],
+        }
+        if 'attrs' in opinfo:
+            self.check_known_args(opinfo['attrs'])
+
+    def get_perf_counts(self, inT, outT, **kwargs):
+        if self.perf_stats is not None:
+            return self.perf_stats
+
+        assert inT[0].check_shape(), f"Illegal Shape for {inT[0]}"
+        assert inT[1].check_shape(), f"Illegal Shape for {inT[1]}"
+        if len(inT) == 3: assert inT[2].check_shape(), f"Illegal Shape for {inT[2]}"
+
+        X = inT[0]  # Input tensor
+        W = inT[1]  # Weight tensor
+        B = inT[2] if len(inT) == 3 else None  # Bias tensor (optional)
+
+        # Get attributes with defaults
+        group = self.attrs.get('group', 1)
+        dilations = self.attrs.get('dilations', [1] * (X.rank() - 2))
+        strides = self.attrs.get('strides', [1] * (X.rank() - 2))
+        pads = self.attrs.get('pads', [0] * (2 * (X.rank() - 2)))
+        auto_pad = self.attrs.get('auto_pad', 'NOTSET')
+        output_padding = self.attrs.get('output_padding', [0] * (X.rank() - 2))
+        output_shape = self.attrs.get('output_shape', None)
+        kernel_shape = self.attrs.get('kernel_shape', None)
+
+        # Validate inputs
+        num_spatial_dims = X.rank() - 2
+        if num_spatial_dims < 1:
+            raise ValueError("X must have at least 1 spatial dimension (N, C, spatial...): {X}")
+
+        if W.rank() != num_spatial_dims + 2:
+            raise ValueError(f"Weight shape must have {num_spatial_dims + 2} dims (C_in, C_out/group, kernel_dims): {W}")
+
+        # Validate group parameter
+        if group <= 0 or X.shape[1] % group != 0:
+            raise ValueError(f"C_in {X.shape[1]} must be divisible by group {group}")
+
+        # Validate weight tensor dimensions
+        # For ConvTranspose: W.shape[0] is C_in (input channels), W.shape[1] is C_out/group (output channels per group)
+        expected_input_channels = X.shape[1] // group
+        if W.shape[0] != expected_input_channels:
+            raise ValueError(f"Weight C_in {W.shape[0]} must match input C_in/group {expected_input_channels}")
+
+        # Validate bias tensor if present
+        if B is not None:
+            if B.rank() != 1:
+                raise ValueError(f"Bias shape must be 1D (C_out,), got {B.shape}")
+            expected_bias_channels = W.shape[1] * group
+            if B.shape[0] != expected_bias_channels:
+                raise ValueError(f"Bias shape {B.shape} must match C_out * group {expected_bias_channels}")
+
+        N, C_in = X.shape[0], X.shape[1]
+        C_out = W.shape[1] * group  # Output channels = C_out/group * group
+        spatial_dims = X.shape[2:]
+        kernel_dims = W.shape[2:]
+
+        # Validate kernel dimensions
+        if len(kernel_dims) != num_spatial_dims:
+            raise ValueError("Kernel spatial dims must match input spatial dims")
+
+        if kernel_shape is not None:
+            if kernel_shape != kernel_dims:
+                raise ValueError("Kernel shape does not match kernel dims calculated from weights")
+
+        # Compute effective kernel size with dilation
+        effective_kernel = [(kernel_dims[i] - 1) * dilations[i] + 1 for i in range(num_spatial_dims)]
+
+        # Validate dilations, strides, pads, and output_padding
+        if len(dilations) != num_spatial_dims or len(strides) != num_spatial_dims:
+            raise ValueError("Dilations and strides must match spatial dimensions")
+        if len(pads) != 2 * num_spatial_dims:
+            raise ValueError("Pads must have 2 values per spatial dimension")
+        if len(output_padding) != num_spatial_dims:
+            raise ValueError("Output padding must match spatial dimensions")
+
+        # Compute output spatial dimensions
+        output_spatial = []
+        for i in range(num_spatial_dims):
+            Di = spatial_dims[i]
+            ki = effective_kernel[i]
+            stride_i = strides[i]
+            output_pad_i = output_padding[i]
+
+            if auto_pad == "NOTSET":
+                # Use provided pads
+                pad_begin_i = pads[i]
+                pad_end_i = pads[i + num_spatial_dims]
+                total_padding = pad_begin_i + pad_end_i
+                Oi = (Di - 1) * stride_i + ki - total_padding + output_pad_i
+            elif auto_pad in ["SAME_UPPER", "SAME_LOWER"]:
+                # Auto padding for transpose convolution
+                total_padding_needed = (Di - 1) * stride_i + ki - Di
+                if auto_pad == "SAME_UPPER":
+                    pad_begin_i = total_padding_needed // 2
+                    pad_end_i = total_padding_needed - pad_begin_i
+                else:  # SAME_LOWER
+                    pad_end_i = total_padding_needed // 2
+                    pad_begin_i = total_padding_needed - pad_end_i
+                Oi = Di * stride_i
+            else:
+                raise ValueError(f"Unsupported auto_pad value: {auto_pad}")
+
+            if Oi <= 0:
+                raise ValueError(f"Output dimension {i} would be <= 0: {Oi}")
+            output_spatial.append(Oi)
+
+        # If output_shape is specified, validate it matches computed shape
+        if output_shape is not None:
+            expected_output_shape = [N, C_out] + output_spatial
+            if len(output_shape) != len(expected_output_shape):
+                raise ValueError(f"Output shape length mismatch: expected {len(expected_output_shape)}, got {len(output_shape)}")
+            for i, (expected, actual) in enumerate(zip(expected_output_shape, output_shape)):
+                if expected != actual:
+                    raise ValueError(f"Output shape mismatch at dimension {i}: expected {expected}, got {actual}")
+
+        output_shape_computed = [N, C_out] + output_spatial
+
+        outT[0].shape = output_shape_computed
+        outT[0].dtype = inT[0].dtype
+
+        # Performance estimation
+        reduced_dim = np.prod(kernel_dims)
+        total_output_elements = np.prod(output_shape_computed)
+
+        self.perf_stats = {
+            'inElems'  : inT[0].nelems() + inT[1].nelems() + (inT[2].nelems() if len(inT) == 3 else 0),
+            'outElems' : outT[0].nelems(),
+            'inBytes'  : inT[0].nbytes(self.precision) + inT[1].nbytes(self.precision) +
+                        (inT[2].nbytes(self.precision) if len(inT) == 3 else 0),
+            'outBytes' : outT[0].nbytes(self.precision),
+            'instrs'   : {'mac': total_output_elements * reduced_dim * C_in // group}
+        }
+
+        return self.perf_stats
+
+    def backward(self, inT, outT, inGT, outGT):
+        # ConvTranspose backward pass involves regular convolution
+        # dX = Conv(dY, W^T)
+        # dW = Conv(X^T, dY^T) - grouped convolution
+        # dB = ReduceSum(dY) if bias exists
+        assert self.perf_stats is not None, f"{self.name} backward() called before get_perf_stats()"
+
+        if len(outGT) > 0 and outGT[0] is not None:
+            # Create transposed weight tensor for backward pass
+            W_T = SimTensor({'name': inT[1].name + '_T'})
+            perm = [1, 0] + list(range(2, inT[1].rank()))
+            T_OP = TransposeOp({
+                'name': inT[1].name + '.Transpose',
+                'optype': 'Transpose',
+                'inList': [inT[1].name],
+                'outList': [W_T.name],
+                'attrs': {'perm': perm}
+            })
+
+            # Gradient computation for input
+            G_OP_X = ConvOp({
+                'name': outGT[0].name + '.Conv',
+                'optype': 'Conv',
+                'inList': [outGT[0].name, W_T.name],
+                'outList': [inT[0].name + '_grad'],
+                'attrs': {
+                    'group': self.attrs.get('group', 1),
+                    'dilations': self.attrs.get('dilations', [1, 1]),
+                    'strides': [1] * (inT[0].rank() - 2),
+                    'pads': [0] * (2 * (inT[0].rank() - 2)),
+                    'auto_pad': 'NOTSET'
+                }
+            })
+
+            # Update tensor operation links
+            outGT[0].op_in.append(G_OP_X.name)
+            W_T.op_in.append(G_OP_X.name)
+            inT[0].op_out.append(G_OP_X.name)
+            inT[1].op_in.append(T_OP.name)
+            W_T.op_out.append(T_OP.name)
+
+        # Bias gradient if bias exists
+        if len(inT) == 3 and len(outGT) > 0 and outGT[0] is not None:
+            bias_grad_op = ReduceSumOp({
+                'name': inT[2].name + '_grad.ReduceSum',
+                'optype': 'ReduceSum',
+                'inList': [outGT[0].name],
+                'outList': [inT[2].name + '_grad'],
+                'attrs': {'axes': list(range(2, outGT[0].rank())), 'keepdims': True}
+            })
+            outGT[0].op_in.append(bias_grad_op.name)
+            inT[2].op_out.append(bias_grad_op.name)
+
+
+class ConvIntegerOp(SimOp):
+    def __init__(self, opinfo):
+        super().__init__(opinfo)
+        self.opclass_str: str = 'ConvInteger'
+        check_io_counts(self, in_counts=[2, 4], out_counts=[1, 1])
+        self._kw_args_defaults = {
+            'auto_pad'     : 'NOTSET',
+            'dilations'    : [1, 1],
+            'group'        : 1,
+            'kernel_shape' : None,
+            'pads'         : [0, 0, 0, 0],
+            'strides'      : [1, 1],
+        }
+        if 'attrs' in opinfo:
+            self.check_known_args(opinfo['attrs'])
+
+    def get_perf_counts(self, inT, outT, **kwargs):
+        if self.perf_stats is not None:
+            return self.perf_stats
+
+        assert inT[0].check_shape(), f"Illegal Shape for {inT[0]}"
+        assert inT[1].check_shape(), f"Illegal Shape for {inT[1]}"
+
+        X = inT[0]  # Input tensor (uint8)
+        W = inT[1]  # Weight tensor (uint8)
+        X_zero_point = inT[2] if len(inT) >= 3 else None  # Input zero point (uint8)
+        W_zero_point = inT[3] if len(inT) >= 4 else None  # Weight zero point (uint8)
+
+        # Get attributes with defaults
+        group = self.attrs.get('group', 1)
+        dilations = self.attrs.get('dilations', [1] * (X.rank() - 2))
+        strides = self.attrs.get('strides', [1] * (X.rank() - 2))
+        pads = self.attrs.get('pads', [0] * (2 * (X.rank() - 2)))
+        auto_pad = self.attrs.get('auto_pad', 'NOTSET')
+        kernel_shape = self.attrs.get('kernel_shape', None)
+
+        # Validate inputs
+        num_spatial_dims = X.rank() - 2
+        if num_spatial_dims < 1:
+            raise ValueError("X must have at least 1 spatial dimension (N, C, spatial...): {X}")
+
+        if W.rank() != num_spatial_dims + 2:
+            raise ValueError(f"Weight shape must have {num_spatial_dims + 2} dims (C_out, C_in/group, kernel_dims): {W}")
+
+        # Validate group parameter
+        if group <= 0 or X.shape[1] % group != 0:
+            raise ValueError(f"C_in {X.shape[1]} must be divisible by group {group}")
+
+        # Validate weight tensor dimensions
+        expected_weight_channels = X.shape[1] // group
+        if W.shape[1] != expected_weight_channels:
+            raise ValueError(f"Weight C_in/group {W.shape[1]} must match input C_in/group {expected_weight_channels}")
+
+        # Validate zero points
+        if X_zero_point is not None:
+            if X_zero_point.rank() > 1 or (X_zero_point.rank() == 1 and X_zero_point.shape[0] != 1):
+                raise ValueError(f"Input zero point must be scalar or 1-element vector, got shape {X_zero_point.shape}")
+
+        if W_zero_point is not None:
+            if W_zero_point.rank() > 1 or (W_zero_point.rank() == 1 and W_zero_point.shape[0] != 1):
+                raise ValueError(f"Weight zero point must be scalar or 1-element vector, got shape {W_zero_point.shape}")
+
+        N, C_in = X.shape[0], X.shape[1]
+        C_out = W.shape[0]
+        spatial_dims = X.shape[2:]
+        kernel_dims = W.shape[2:]
+
+        # Validate kernel dimensions
+        if len(kernel_dims) != num_spatial_dims:
+            raise ValueError("Kernel spatial dims must match input spatial dims")
+
+        if kernel_shape is not None:
+            if kernel_shape != kernel_dims:
+                raise ValueError("Kernel shape does not match kernel dims calculated from weights")
+
+        # Compute effective kernel size with dilation
+        effective_kernel = [(kernel_dims[i] - 1) * dilations[i] + 1 for i in range(num_spatial_dims)]
+
+        # Validate dilations, strides, pads
+        if len(dilations) != num_spatial_dims or len(strides) != num_spatial_dims:
+            raise ValueError("Dilations and strides must match spatial dimensions")
+        if len(pads) != 2 * num_spatial_dims:
+            raise ValueError("Pads must have 2 values per spatial dimension")
+
+        # Compute output spatial dimensions
+        output_spatial = []
+        for i in range(num_spatial_dims):
+            Di = spatial_dims[i]
+            ki = effective_kernel[i]
+            stride_i = strides[i]
+
+            if auto_pad == "NOTSET":
+                # Use provided pads
+                pad_begin_i = pads[i]
+                pad_end_i = pads[i + num_spatial_dims]
+                total_padding = pad_begin_i + pad_end_i
+                Oi = (Di + total_padding - ki) // stride_i + 1
+            elif auto_pad in ["SAME_UPPER", "SAME_LOWER"]:
+                # Auto padding
+                Oi = int(np.ceil(Di / stride_i))
+            else:
+                raise ValueError(f"Unsupported auto_pad value: {auto_pad}")
+
+            if Oi <= 0:
+                raise ValueError(f"Output dimension {i} would be <= 0: {Oi}")
+            output_spatial.append(Oi)
+
+        output_shape = [N, C_out] + output_spatial
+
+        outT[0].shape = output_shape
+        outT[0].dtype = 'int32'  # ConvInteger always outputs int32
+
+        # Performance estimation for quantized convolution
+        reduced_dim = np.prod(kernel_dims)
+        total_output_elements = np.prod(output_shape)
+
+        # Account for zero point operations
+        zero_point_ops = 0
+        if X_zero_point is not None:
+            zero_point_ops += total_output_elements
+        if W_zero_point is not None:
+            zero_point_ops += total_output_elements * reduced_dim
+
+        self.perf_stats = {
+            'inElems'  : inT[0].nelems() + inT[1].nelems() +
+                        (inT[2].nelems() if len(inT) >= 3 else 0) +
+                        (inT[3].nelems() if len(inT) >= 4 else 0),
+            'outElems' : outT[0].nelems(),
+            'inBytes'  : inT[0].nbytes(self.precision) + inT[1].nbytes(self.precision) +
+                        (inT[2].nbytes(self.precision) if len(inT) >= 3 else 0) +
+                        (inT[3].nbytes(self.precision) if len(inT) >= 4 else 0),
+            'outBytes' : outT[0].nbytes(self.precision),
+            'instrs'   : {'mac': total_output_elements * reduced_dim * C_in // group,
+                         'add': zero_point_ops}
+        }
+
+        return self.perf_stats
+
+    def backward(self, inT, outT, inGT, outGT):
+        # ConvInteger backward pass involves regular convolution
+        # dX = ConvInteger(dY, W^T) - but need to handle quantization properly
+        # dW = ConvInteger(X^T, dY^T)
+        # This is complex due to quantization, so we'll use a simplified approach
+        assert self.perf_stats is not None, f"{self.name} backward() called before get_perf_stats()"
+
+        if len(outGT) > 0 and outGT[0] is not None:
+            # Create transposed weight tensor for backward pass
+            W_T = SimTensor({'name': inT[1].name + '_T'})
+            perm = [1, 0] + list(range(2, inT[1].rank()))
+            T_OP = TransposeOp({
+                'name': inT[1].name + '.Transpose',
+                'optype': 'Transpose',
+                'inList': [inT[1].name],
+                'outList': [W_T.name],
+                'attrs': {'perm': perm}
+            })
+
+            # Gradient computation for input (simplified - ignoring quantization details)
+            G_OP_X = ConvIntegerOp({
+                'name': outGT[0].name + '.ConvInteger',
+                'optype': 'ConvInteger',
+                'inList': [outGT[0].name, W_T.name] +
+                         ([inT[2].name] if len(inT) >= 3 else []) +
+                         ([inT[3].name] if len(inT) >= 4 else []),
+                'outList': [inT[0].name + '_grad'],
+                'attrs': {
+                    'group': self.attrs.get('group', 1),
+                    'dilations': self.attrs.get('dilations', [1, 1]),
+                    'strides': [1] * (inT[0].rank() - 2),
+                    'pads': [0] * (2 * (inT[0].rank() - 2)),
+                    'auto_pad': 'NOTSET'
+                }
+            })
+
+            # Update tensor operation links
+            outGT[0].op_in.append(G_OP_X.name)
+            W_T.op_in.append(G_OP_X.name)
+            if len(inT) >= 3:
+                inT[2].op_in.append(G_OP_X.name)
+            if len(inT) >= 4:
+                inT[3].op_in.append(G_OP_X.name)
+            inT[0].op_out.append(G_OP_X.name)
+            inT[1].op_in.append(T_OP.name)
+            W_T.op_out.append(T_OP.name)
+
+
+class QLinearConvOp(SimOp):
+    def __init__(self, opinfo):
+        super().__init__(opinfo)
+        self.opclass_str: str = 'QLinearConv'
+
+        # QLinearConv supports 8-9 inputs and 1 output
+        # x, x_scale, x_zero_point, w, w_scale, w_zero_point, y_scale, y_zero_point, bias?
+        check_io_counts(self, in_counts=[8,9], out_counts=[1,1])
+
+        # Parse attributes - standard convolution attributes
+        self.auto_pad = self.attrs.get('auto_pad', 'NOTSET')
+        self.dilations = self.attrs.get('dilations', [1, 1])
+        self.group = self.attrs.get('group', 1)
+        self.kernel_shape = self.attrs.get('kernel_shape')
+        self.pads = self.attrs.get('pads', [0, 0, 0, 0])
+        self.strides = self.attrs.get('strides', [1, 1])
+
+        # Normalize possible 1D argument forms BEFORE validation
+        if isinstance(self.dilations, list) and len(self.dilations) == 1:
+            # Keep height dimension neutral (1), apply provided dilation to width
+            self.dilations = [1, self.dilations[0]]
+        if isinstance(self.strides, list) and len(self.strides) == 1:
+            # Keep height stride 1, apply provided stride to width
+            self.strides = [1, self.strides[0]]
+        if isinstance(self.pads, list) and len(self.pads) == 2:
+            # Map [pad_w_begin, pad_w_end] to [pad_h_begin, pad_w_begin, pad_h_end, pad_w_end]
+            self.pads = [0, self.pads[0], 0, self.pads[1]]
+
+        # Validate attributes (after normalization)
+        if self.auto_pad not in ['NOTSET', 'SAME_UPPER', 'SAME_LOWER', 'VALID']:
+            raise ValueError(f"QLinearConv auto_pad must be one of NOTSET, SAME_UPPER, SAME_LOWER, VALID, got {self.auto_pad}")
+        if not isinstance(self.dilations, list) or len(self.dilations) != 2:
+            raise ValueError(f"QLinearConv dilations must be a list of 2 integers, got {self.dilations}")
+        if not isinstance(self.group, int) or self.group < 1:
+            raise ValueError(f"QLinearConv group must be a positive integer, got {self.group}")
+        # kernel_shape is optional - will be inferred from weight tensor
+        if self.kernel_shape is not None and (not isinstance(self.kernel_shape, list) or len(self.kernel_shape) != 2):
+            raise ValueError(f"QLinearConv kernel_shape must be a list of 2 integers, got {self.kernel_shape}")
+        if not isinstance(self.pads, list) or len(self.pads) != 4:
+            raise ValueError(f"QLinearConv pads must be a list of 4 integers, got {self.pads}")
+        if not isinstance(self.strides, list) or len(self.strides) != 2:
+            raise ValueError(f"QLinearConv strides must be a list of 2 integers, got {self.strides}")
+
+    def get_perf_counts(self, inT, outT, **kwargs):
+        if self.perf_stats is not None:
+            return self.perf_stats
+
+        is_backprop = kwargs.get('is_backprop', False)
+        assert is_backprop == False, "QLinearConv operation does not support backward pass yet"
+
+        # Input validation
+        num_inputs = len(inT)
+        assert num_inputs >= 8, f"QLinearConv expects at least 8 inputs, got {num_inputs}"
+        assert len(outT) == 1, f"QLinearConv expects 1 output, got {len(outT)}"
+
+        # Parse inputs - QLinearConv has a specific input order
+        x = inT[0]              # Quantized input tensor [N, C, H, W]
+        x_scale = inT[1]        # Input scale (scalar or per-channel)
+        x_zero_point = inT[2]   # Input zero point (scalar or per-channel)
+        w = inT[3]              # Quantized weight tensor [M, C/group, kH, kW]
+        w_scale = inT[4]        # Weight scale (scalar or per-channel)
+        w_zero_point = inT[5]   # Weight zero point (scalar or per-channel)
+        y_scale = inT[6]        # Output scale (scalar)
+        y_zero_point = inT[7]   # Output zero point (scalar)
+        bias = inT[8] if num_inputs >= 9 else None  # Optional bias
+
+        # Validate input types
+        integer_types = ['int8', 'uint8', 'int16', 'uint16', 'int32', 'uint32']
+        float_types = ['float32', 'float16', 'bfloat16']
+
+        assert x.dtype in integer_types, f"Input x must be integer type, got {x.dtype}"
+        assert w.dtype in integer_types, f"Weight w must be integer type, got {w.dtype}"
+
+        assert x_scale.dtype in float_types, f"Input scale must be float type, got {x_scale.dtype}"
+        assert w_scale.dtype in float_types, f"Weight scale must be float type, got {w_scale.dtype}"
+        assert y_scale.dtype in float_types, f"Output scale must be float type, got {y_scale.dtype}"
+
+        assert x_zero_point.dtype in integer_types, f"Input zero point must be integer type, got {x_zero_point.dtype}"
+        assert w_zero_point.dtype in integer_types, f"Weight zero point must be integer type, got {w_zero_point.dtype}"
+        assert y_zero_point.dtype in integer_types, f"Output zero point must be integer type, got {y_zero_point.dtype}"
+
+        if bias is not None:
+            assert bias.dtype in float_types, f"Bias must be float type, got {bias.dtype}"
+
+        # Validate tensor shapes
+        x_shape = x.shape
+        w_shape = w.shape
+
+        # Support both 1D and 2D convolutions
+        assert len(x_shape) in [3, 4], f"Input x must be 3D [N, C, W] or 4D [N, C, H, W], got {x_shape}"
+        assert len(w_shape) in [3, 4], f"Weight w must be 3D [M, C/group, kW] or 4D [M, C/group, kH, kW], got {w_shape}"
+
+        if len(x_shape) == 4:
+            N, C, H, W = x_shape
+            M, C_per_group, kH, kW = w_shape
+        else:  # 1D convolution
+            N, C, W = x_shape
+            H = 1  # 1D convolution has H=1
+            M, C_per_group, kW = w_shape
+            kH = 1  # 1D convolution has kH=1
+
+        # Set kernel_shape from weight tensor if not provided
+        if self.kernel_shape is None:
+            self.kernel_shape = [kH, kW]
+        else:
+            # Validate kernel shape consistency
+            assert kH == self.kernel_shape[0], f"Kernel height mismatch: expected {self.kernel_shape[0]}, got {kH}"
+            assert kW == self.kernel_shape[1], f"Kernel width mismatch: expected {self.kernel_shape[1]}, got {kW}"
+
+        # Validate channel count
+        assert C % self.group == 0, f"Input channels {C} must be divisible by group {self.group}"
+        assert C_per_group == C // self.group, f"Weight channels per group {C_per_group} must be C/group = {C // self.group}"
+
+        # Validate scale and zero point shapes
+        # x_scale and x_zero_point can be scalar or per-channel (C,)
+        assert len(x_scale.shape) <= 1, f"Input scale must be scalar or 1D, got shape {x_scale.shape}"
+        if len(x_scale.shape) == 1:
+            assert x_scale.shape[0] == C, f"Input scale per-channel must match input channels {C}, got {x_scale.shape[0]}"
+
+        assert len(x_zero_point.shape) <= 1, f"Input zero point must be scalar or 1D, got shape {x_zero_point.shape}"
+        if len(x_zero_point.shape) == 1:
+            assert x_zero_point.shape[0] == C, f"Input zero point per-channel must match input channels {C}, got {x_zero_point.shape[0]}"
+
+        # w_scale and w_zero_point can be scalar or per-output-channel (M,)
+        assert len(w_scale.shape) <= 1, f"Weight scale must be scalar or 1D, got shape {w_scale.shape}"
+        if len(w_scale.shape) == 1:
+            assert w_scale.shape[0] == M, f"Weight scale per-channel must match output channels {M}, got {w_scale.shape[0]}"
+
+        assert len(w_zero_point.shape) <= 1, f"Weight zero point must be scalar or 1D, got shape {w_zero_point.shape}"
+        if len(w_zero_point.shape) == 1:
+            assert w_zero_point.shape[0] == M, f"Weight zero point per-channel must match output channels {M}, got {w_zero_point.shape[0]}"
+
+        # y_scale and y_zero_point must be scalar
+        assert len(y_scale.shape) == 0, f"Output scale must be scalar, got shape {y_scale.shape}"
+        assert len(y_zero_point.shape) == 0, f"Output zero point must be scalar, got shape {y_zero_point.shape}"
+
+        # Validate bias if present
+        if bias is not None:
+            bias_shape = bias.shape
+            assert len(bias_shape) == 1 and bias_shape[0] == M, f"Bias must be 1D with {M} elements, got {bias_shape}"
+
+        # Compute output shape (support 1D and 2D)
+        if len(x_shape) == 4:
+            output_height = self._compute_conv_output_size(
+                H, kH, self.strides[0], self.pads[0], self.pads[2], self.dilations[0]
+            )
+            output_width = self._compute_conv_output_size(
+                W, kW, self.strides[1], self.pads[1], self.pads[3], self.dilations[1]
+            )
+            output_shape = [N, M, output_height, output_width]
+        else:
+            # 1D convolution: only width dimension
+            output_width = self._compute_conv_output_size(
+                W, kW, self.strides[1], self.pads[1], self.pads[3], self.dilations[1]
+            )
+            output_shape = [N, M, output_width]
+
+        outT[0].shape = output_shape
+        outT[0].dtype = x.dtype  # Output is same type as input (quantized)
+
+        # Performance estimation for quantized linear convolution
+        # This includes: dequantization, convolution, requantization
+        reduced_dim = np.prod([kH, kW])
+        total_output_elements = np.prod(output_shape)
+
+        # Estimate operations for quantization/dequantization
+        dequant_ops = (x.nelems() + w.nelems())  # Dequantize input and weights
+        conv_ops = total_output_elements * reduced_dim * C // self.group  # Convolution
+        requant_ops = total_output_elements  # Requantize output
+
+        self.perf_stats = {
+            'inElems'  : sum(t.nelems() for t in inT),
+            'outElems' : outT[0].nelems(),
+            'inBytes'  : sum(t.nbytes(self.precision) for t in inT),
+            'outBytes' : outT[0].nbytes(self.precision),
+            'instrs'   : {'dequant': dequant_ops, 'mac': conv_ops, 'requant': requant_ops}
+        }
+
+        return self.perf_stats
+
+    def backward(self, inT, outT, inGT, outGT):
+        # QLinearConv backward pass is complex due to quantization
+        # Simplified implementation - would need proper quantization-aware gradients
+        assert self.perf_stats is not None, f"{self.name} backward() called before get_perf_counts()"
+
+        if len(outGT) > 0 and outGT[0] is not None:
+            # This is a highly simplified backward pass
+            # In practice, this would require quantization-aware gradient computation
+            print(f"WARNING: QLinearConv backward pass is simplified and may not be numerically accurate")
+
+    def _compute_conv_output_size(self, input_size, kernel_size, stride, pad_begin, pad_end, dilation):
+        """Compute output size for convolution"""
+        effective_kernel = (kernel_size - 1) * dilation + 1
+        total_padding = pad_begin + pad_end
+
+        if self.auto_pad == "NOTSET":
+            output_size = (input_size + total_padding - effective_kernel) // stride + 1
+        elif self.auto_pad in ["SAME_UPPER", "SAME_LOWER"]:
+            output_size = int(np.ceil(input_size / stride))
+        else:
+            raise ValueError(f"Unsupported auto_pad value: {self.auto_pad}")
+
+        return max(1, output_size)
+
+
+class InstanceNormalizationOp(SimOp):
+    def __init__(self, opinfo):
+        super().__init__(opinfo)
+        self.opclass_str: str = 'InstanceNormalization'
+        check_io_counts(self, in_counts=[2,3], out_counts=[1,1])
+
+    def get_perf_counts(self, inT, outT, **kwargs):
+        if self.perf_stats is not None:
+            return self.perf_stats
+
+        is_backprop = kwargs.get('is_backprop', False)
+        assert is_backprop == False, f"InstanceNormalization cannot be a backward op!!"
+
+        epsilon = self.attrs.get('epsilon', 1e-5)
+
+        X = inT[0]      # Input tensor [N, C, H, W]
+        scale = inT[1]  # Scale tensor [C]
+        bias = inT[2] if len(inT) == 3 else None  # Bias tensor [C] (optional)
+
+        assert X.check_shape(), f"Illegal Shape for {X}"
+        XShape = X.shape
+        XRank = X.rank()
+
+        # Instance normalization operates on each channel of each sample independently
+        # It normalizes across spatial dimensions (H, W) for each sample and channel
+        assert XRank == 4, f"InstanceNormalization requires 4D input [N, C, H, W], got {XShape}"
+
+        N, C, H, W = XShape
+        spatial_size = H * W
+
+        # Validate scale tensor
+        assert scale.rank() == 1, f"Scale must be 1D [C], got {scale.shape}"
+        assert scale.shape[0] == C, f"Scale must have {C} elements, got {scale.shape[0]}"
+
+        # Validate bias tensor if present
+        if bias is not None:
+            assert bias.rank() == 1, f"Bias must be 1D [C], got {bias.shape}"
+            assert bias.shape[0] == C, f"Bias must have {C} elements, got {bias.shape[0]}"
+
+        # Instance Normalization computation:
+        # For each sample n, channel c:
+        #   mean_c = mean(X[n, c, :, :])
+        #   var_c = var(X[n, c, :, :])
+        #   X_norm[n, c, :, :] = (X[n, c, :, :] - mean_c) / sqrt(var_c + epsilon)
+        #   Y[n, c, :, :] = X_norm[n, c, :, :] * scale[c] + bias[c]
+
+        instr_count = {'add': 0, 'sub': 0, 'mul': 0, 'div': 0, 'mac': 0, 'rsqrt': 0}
+
+        total_elements = X.nelems()
+        elements_per_channel_per_sample = spatial_size
+
+        # Per-channel, per-sample statistics computation
+        num_channel_sample_combinations = N * C
+
+        # Compute mean for each channel of each sample
+        instr_count['add'] += total_elements  # Sum all elements in each channel
+        instr_count['div'] += num_channel_sample_combinations  # Divide by spatial size
+
+        # Compute variance for each channel of each sample
+        instr_count['sub'] += total_elements  # Subtract mean from each element
+        instr_count['mul'] += total_elements  # Square the differences
+        instr_count['add'] += total_elements  # Sum the squared differences
+        instr_count['div'] += num_channel_sample_combinations  # Divide by spatial size
+        instr_count['add'] += num_channel_sample_combinations  # Add epsilon
+        instr_count['rsqrt'] += num_channel_sample_combinations  # Compute 1/sqrt(var + eps)
+
+        # Apply normalization
+        instr_count['sub'] += total_elements  # Subtract mean
+        instr_count['mul'] += total_elements  # Multiply by inverse std dev
+
+        # Apply scale and bias
+        instr_count['mac'] += total_elements  # Multiply by scale and add bias
+
+        outT[0].shape = XShape
+        outT[0].dtype = X.dtype
+
+        self.perf_stats = {
+            'inElems': X.nelems() + scale.nelems() + (bias.nelems() if bias is not None else 0),
+            'outElems': outT[0].nelems(),
+            'inBytes': X.nbytes(self.precision) + scale.nbytes(self.precision) +
+                      (bias.nbytes(self.precision) if bias is not None else 0),
+            'outBytes': outT[0].nbytes(self.precision),
+            'instrs': instr_count
+        }
+
+        return self.perf_stats
+
+    def backward(self, inT, outT, inGT, outGT):
+        # Instance normalization backward pass
+        # This is complex as it involves computing gradients through the normalization
+        # For now, we'll provide a simplified implementation
+        assert self.perf_stats is not None, f"{self.name} backward() called before get_perf_stats()"
+
+        if len(outGT) > 0 and outGT[0] is not None:
+            # Simplified backward pass - in practice this would need proper gradient computation
+            # through the normalization statistics
+            print(f"WARNING: InstanceNormalization backward pass is simplified")
+
+            # For each input, create a gradient tensor with the same shape as output gradient
+            for i, in_tensor in enumerate(inT):
+                if i < len(outGT) and outGT[i] is not None:
+                    # Copy output gradient to input gradient (simplified)
+                    grad_tensor_name = f"{in_tensor.name}_grad"
+                    # In practice, this would need to compute proper gradients considering
+                    # the normalization statistics and scale/bias parameters
+
+
 class MaxPoolOp(SimOp):
     def __init__(self, opinfo):
         super().__init__(opinfo)
@@ -3246,38 +3948,38 @@ class ReduceSumOp(SimOp):
         if self.perf_stats is not None:
             return self.perf_stats
 
-        is_backprop = kwargs.get('is_backprop', False)
-        assert is_backprop == True, f"ReduceSumOp currently only supported as a backward op!!"
-
-        keepdims             = self.attrs.get('keepdims', 1)
-        noop_with_empty_axes = self.attrs.get('noop_with_empty_axes', 0)
-
-
-        T = clone_tensor_by_shape(inT[0])
-        inElems = T.nelems()
-        inBytes = T.nbytes(self.precision)
-        if len(inT) == 2:
-            axes = clone_tensor_by_shape(inT[1])
-            inElems += axes.nelems()
-            inBytes += axes.nbytes(self.precision)
-            np_out = np.sum(T.data, axis=tuple(axes.data.tolist()), keepdims=keepdims==1)
+        X = inT[0]
+        keepdims = self.attrs.get('keepdims', 1)
+        # Determine axes
+        if len(inT) == 2 and inT[1].data is not None:
+            axes_list = [int(a) for a in inT[1].data.tolist()]
         else:
-            np_out = np.sum(T.data, axis=None, keepdims=keepdims==1)
+            axes_list = list(range(X.rank()))
 
-        print(np_out)
+        # Normalize negative axes
+        axes = sorted([ax if ax >= 0 else X.rank() + ax for ax in axes_list])
 
-        tmp_outT = build_tmp_data_tensor(np_out, self.name + '__tmp_out__')
-        update_output_tensor(self, tmp_outT, outT[0])
-        outElems = outT[0].nelems()
-        outBytes = outT[0].nbytes(self.precision)
+        # Compute output shape
+        out_shape = []
+        for i, dim in enumerate(X.shape):
+            if i in axes:
+                if keepdims == 1:
+                    out_shape.append(1)
+            else:
+                out_shape.append(dim)
+        if len(out_shape) == 0:
+            out_shape = [1] if keepdims == 1 else []
+
+        outT[0].shape = out_shape
+        outT[0].dtype = X.dtype
 
         self.perf_stats = {
-                'inElems' : inElems,
-                'inBytes' : inBytes,
-                'outElems': outElems,
-                'outBytes': outBytes,
-                'instrs'  : {}
-                }
+            'inElems' : X.nelems(),
+            'inBytes' : X.nbytes(self.precision),
+            'outElems': outT[0].nelems(),
+            'outBytes': outT[0].nbytes(self.precision),
+            'instrs'  : {}
+        }
 
         return self.perf_stats
 
@@ -5910,7 +6612,7 @@ class AveragePoolExtOp(SimOp):
         raise NotImplementedError("AveragePoolExt backward pass not yet implemented")
 
 
-class QLinearConvOp(SimOp):
+class QLinearConvOpAlt(SimOp):
     """
     ONNX 1.20.0 QLinearConv Operation
     Quantized Linear Convolution operation.
@@ -5947,10 +6649,17 @@ class QLinearConvOp(SimOp):
             raise ValueError(f"QLinearConv dilations must be a list of 2 integers, got {self.dilations}")
         if not isinstance(self.group, int) or self.group < 1:
             raise ValueError(f"QLinearConv group must be a positive integer, got {self.group}")
-        if self.kernel_shape is None:
-            raise ValueError("QLinearConv kernel_shape is required")
-        if not isinstance(self.kernel_shape, list) or len(self.kernel_shape) != 2:
+        # kernel_shape is optional - will be inferred from weight tensor
+        if self.kernel_shape is not None and (not isinstance(self.kernel_shape, list) or len(self.kernel_shape) != 2):
             raise ValueError(f"QLinearConv kernel_shape must be a list of 2 integers, got {self.kernel_shape}")
+        # For 1D convolutions, adjust default values before validation
+        if len(self.dilations) == 1:
+            self.dilations = [1, 1]  # Ensure 2D defaults
+        if len(self.strides) == 1:
+            self.strides = [1, 1]
+        if len(self.pads) == 2:
+            self.pads = [self.pads[0], self.pads[1], self.pads[0], self.pads[1]]  # Convert to 4-element format
+
         if not isinstance(self.pads, list) or len(self.pads) != 4:
             raise ValueError(f"QLinearConv pads must be a list of 4 integers, got {self.pads}")
         if not isinstance(self.strides, list) or len(self.strides) != 2:
@@ -5998,15 +6707,26 @@ class QLinearConvOp(SimOp):
         x_shape = x.shape
         w_shape = w.shape
 
-        assert len(x_shape) == 4, f"Input x must be 4D [N, C, H, W], got {x_shape}"
-        assert len(w_shape) == 4, f"Weight w must be 4D [M, C/group, kH, kW], got {w_shape}"
+        # Support both 1D and 2D convolutions
+        assert len(x_shape) in [3, 4], f"Input x must be 3D [N, C, W] or 4D [N, C, H, W], got {x_shape}"
+        assert len(w_shape) in [3, 4], f"Weight w must be 3D [M, C/group, kW] or 4D [M, C/group, kH, kW], got {w_shape}"
 
-        N, C, H, W = x_shape
-        M, C_per_group, kH, kW = w_shape
+        if len(x_shape) == 4:
+            N, C, H, W = x_shape
+            M, C_per_group, kH, kW = w_shape
+        else:  # 1D convolution
+            N, C, W = x_shape
+            H = 1  # 1D convolution has H=1
+            M, C_per_group, kW = w_shape
+            kH = 1  # 1D convolution has kH=1
 
-        # Validate kernel shape consistency
-        assert kH == self.kernel_shape[0], f"Kernel height mismatch: expected {self.kernel_shape[0]}, got {kH}"
-        assert kW == self.kernel_shape[1], f"Kernel width mismatch: expected {self.kernel_shape[1]}, got {kW}"
+        # Set kernel_shape from weight tensor if not provided
+        if self.kernel_shape is None:
+            self.kernel_shape = [kH, kW]
+        else:
+            # Validate kernel shape consistency
+            assert kH == self.kernel_shape[0], f"Kernel height mismatch: expected {self.kernel_shape[0]}, got {kH}"
+            assert kW == self.kernel_shape[1], f"Kernel width mismatch: expected {self.kernel_shape[1]}, got {kW}"
 
         # Validate channel count
         assert C % self.group == 0, f"Input channels {C} must be divisible by group {self.group}"
@@ -6040,16 +6760,22 @@ class QLinearConvOp(SimOp):
             assert len(bias_shape) == 1 and bias_shape[0] == M, f"Bias must be 1D with {M} elements, got {bias_shape}"
 
         # Compute output shape
-        output_height = self._compute_conv_output_size(H, kH, self.strides[0], self.pads[0], self.pads[2], self.dilations[0])
-        output_width = self._compute_conv_output_size(W, kW, self.strides[1], self.pads[1], self.pads[3], self.dilations[1])
-
-        output_shape = [N, M, output_height, output_width]
+        if len(x_shape) == 4:  # 2D convolution
+            output_height = self._compute_conv_output_size(H, kH, self.strides[0], self.pads[0], self.pads[2], self.dilations[0])
+            output_width = self._compute_conv_output_size(W, kW, self.strides[1], self.pads[1], self.pads[3], self.dilations[1])
+            output_shape = [N, M, output_height, output_width]
+        else:  # 1D convolution
+            output_width = self._compute_conv_output_size(W, kW, self.strides[0], self.pads[0], self.pads[1], self.dilations[0])
+            output_shape = [N, M, output_width]
 
         outT[0].shape = output_shape
         outT[0].dtype = x.dtype  # Output has same quantized type as input
 
         # Calculate performance statistics
-        total_elements = N * M * output_height * output_width
+        if len(x_shape) == 4:
+            total_elements = N * M * output_height * output_width
+        else:
+            total_elements = N * M * output_width
 
         # QLinearConv performance breakdown:
         # 1. Dequantize input: convert x from quantized to float
@@ -6062,7 +6788,10 @@ class QLinearConvOp(SimOp):
         weight_dequant_ops = M * C_per_group * kH * kW  # Dequantize each weight element
 
         # Convolution operations (similar to ConvExt but with float operations)
-        conv_mac_ops = M * N * output_height * output_width * kH * kW * C_per_group
+        if len(x_shape) == 4:
+            conv_mac_ops = M * N * output_height * output_width * kH * kW * C_per_group
+        else:
+            conv_mac_ops = M * N * output_width * kW * C_per_group
 
         # Quantization operations
         output_quant_ops = total_elements
@@ -6120,7 +6849,7 @@ class QLinearConvOp(SimOp):
         raise NotImplementedError("QLinearConv backward pass not yet implemented")
 
 
-class ConvIntegerOp(SimOp):
+class ConvIntegerOpAlt(SimOp):
     """
     ONNX 1.20.0 ConvInteger Operation
     Integer Convolution operation for quantized neural networks.
@@ -6139,9 +6868,9 @@ class ConvIntegerOp(SimOp):
         super().__init__(opinfo)
         self.opclass_str: str = 'ConvInteger'
 
-        # ConvInteger supports 2-3 inputs and 1 output
-        # x, w, B?
-        check_io_counts(self, in_counts=[2,3], out_counts=[1,1])
+        # ConvInteger supports 2-4 inputs and 1 output
+        # x, w, x_zero_point?, w_zero_point?
+        check_io_counts(self, in_counts=[2,4], out_counts=[1,1])
 
         # Parse attributes - standard convolution attributes
         self.auto_pad = self.attrs.get('auto_pad', 'NOTSET')
@@ -6158,9 +6887,8 @@ class ConvIntegerOp(SimOp):
             raise ValueError(f"ConvInteger dilations must be a list of 2 integers, got {self.dilations}")
         if not isinstance(self.group, int) or self.group < 1:
             raise ValueError(f"ConvInteger group must be a positive integer, got {self.group}")
-        if self.kernel_shape is None:
-            raise ValueError("ConvInteger kernel_shape is required")
-        if not isinstance(self.kernel_shape, list) or len(self.kernel_shape) != 2:
+        # kernel_shape is optional - will be inferred from weight tensor
+        if self.kernel_shape is not None and (not isinstance(self.kernel_shape, list) or len(self.kernel_shape) != 2):
             raise ValueError(f"ConvInteger kernel_shape must be a list of 2 integers, got {self.kernel_shape}")
         if not isinstance(self.pads, list) or len(self.pads) != 4:
             raise ValueError(f"ConvInteger pads must be a list of 4 integers, got {self.pads}")
@@ -6182,15 +6910,33 @@ class ConvIntegerOp(SimOp):
         # Parse inputs
         x = inT[0]          # Quantized input tensor [N, C, H, W]
         w = inT[1]          # Quantized weight tensor [M, C/group, kH, kW]
-        bias = inT[2] if num_inputs >= 3 else None  # Optional integer bias
+
+        # Parse zero points - they come before bias in ConvInteger
+        x_zero_point = None
+        w_zero_point = None
+        bias = None
+
+        if num_inputs >= 3:
+            # Check if third input is a zero point (scalar/1-element) or bias (1D with M elements)
+            third_input = inT[2]
+            if len(third_input.shape) <= 1 or (len(third_input.shape) == 1 and third_input.shape[0] <= 1):
+                x_zero_point = third_input
+            else:
+                bias = third_input
+
+        if num_inputs >= 4:
+            # Fourth input is always the weight zero point
+            w_zero_point = inT[3]
 
         # Validate input types - all should be integers
         integer_types = ['int8', 'uint8', 'int16', 'uint16', 'int32', 'uint32']
 
         assert x.dtype in integer_types, f"Input x must be integer type, got {x.dtype}"
         assert w.dtype in integer_types, f"Weight w must be integer type, got {w.dtype}"
-        if bias is not None:
-            assert bias.dtype in integer_types, f"Bias must be integer type, got {bias.dtype}"
+        if x_zero_point is not None:
+            assert x_zero_point.dtype in integer_types, f"Input zero point must be integer type, got {x_zero_point.dtype}"
+        if w_zero_point is not None:
+            assert w_zero_point.dtype in integer_types, f"Weight zero point must be integer type, got {w_zero_point.dtype}"
 
         # Validate tensor shapes
         x_shape = x.shape
@@ -6202,9 +6948,13 @@ class ConvIntegerOp(SimOp):
         N, C, H, W = x_shape
         M, C_per_group, kH, kW = w_shape
 
-        # Validate kernel shape consistency
-        assert kH == self.kernel_shape[0], f"Kernel height mismatch: expected {self.kernel_shape[0]}, got {kH}"
-        assert kW == self.kernel_shape[1], f"Kernel width mismatch: expected {self.kernel_shape[1]}, got {kW}"
+        # Set kernel_shape from weight tensor if not provided
+        if self.kernel_shape is None:
+            self.kernel_shape = [kH, kW]
+        else:
+            # Validate kernel shape consistency
+            assert kH == self.kernel_shape[0], f"Kernel height mismatch: expected {self.kernel_shape[0]}, got {kH}"
+            assert kW == self.kernel_shape[1], f"Kernel width mismatch: expected {self.kernel_shape[1]}, got {kW}"
 
         # Validate channel count
         assert C % self.group == 0, f"Input channels {C} must be divisible by group {self.group}"
@@ -10106,6 +10856,10 @@ def SimOpFactory(optype: str) -> type[SimOp]:
             VoxelPoolingOp       : ['VoxelPooling'], #BEVDepth
 
             ConvOp               : ['Conv'],   # TBD: step in adding new operator / layer typez
+            ConvTransposeOp      : ['ConvTranspose'],  # ONNX 1.20.0 ConvTranspose operation
+            ConvIntegerOp       : ['ConvInteger'],    # ONNX 1.20.0 ConvInteger operation
+            QLinearConvOp       : ['QLinearConv'],    # ONNX 1.20.0 QLinearConv operation
+            InstanceNormalizationOp : ['InstanceNormalization'],  # ONNX 1.20.0 InstanceNormalization operation
             MaxPoolOp            : ['MaxPool'],
             BatchNormalizationOp : ['BatchNormalization'],
             AveragePoolOp        : ['AveragePool'],
