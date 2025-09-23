@@ -49,6 +49,13 @@ workloads:
       bevdepth_l : { img_height: 1024, img_width: 1024, img_channels: 3, bs: 1 }
 
   - api: TTSIM
+    name: UNet
+    basedir: workloads/UNet
+    module : UNet@unet_model.py
+    instances:
+      unet_b1 : {'n_channels': 3, 'n_classes': 2, 'img_size': 256, 'bilinear': False, 'bs': 1}
+
+  - api: TTSIM
     name: llama2
     basedir: workloads/llama2
     module : Transformer@model.py

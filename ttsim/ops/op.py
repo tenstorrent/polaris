@@ -2895,7 +2895,7 @@ class PadOp(SimOp):
         nElem_out = np.prod(output_shape)
         instr_count = {'mov': nElem_in}
         if mode == 'constant':
-            instr_count['fill'] = nElem_out - nElem_in
+            instr_count['mov'] = nElem_out - nElem_in
         else:
             instr_count['mov'] = nElem_out
 

@@ -39,10 +39,10 @@ op_fusion_spec:
 
 op_rsrc_spec:
   compute:
-    matrix: [Matmul, Conv]
+    matrix: [Matmul, Conv, ConvTranspose]
     vector: [Gather, Reshape, Transpose, Gelu, Relu, LeakyRelu, Resize, Sigmoid, Slice,
              Flatten, ReduceMax, ArgMax, Cast, NonMaxSuppression, Add, Sub, Mul, Div,
              Dropout, Split, Softmax, LayerNormalization, Identity, Constant, Where,
              Pow, Tanh, MaxPool, BatchNormalization, Concat, Unsqueeze, Squeeze, Trilu,
-             AveragePool, Tile, VoxelPooling, Mean, Sqrt, Reciprocal
+             AveragePool, Tile, VoxelPooling, Mean, Sqrt, Reciprocal, Pad,
             ]
