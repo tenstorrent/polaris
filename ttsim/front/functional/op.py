@@ -557,7 +557,6 @@ LeakyReLU     = partial(UnaryOperator, optype='LeakyRelu')
 Sigmoid       = partial(UnaryOperator, optype='Sigmoid')
 AveragePool2d = partial(UnaryOperator, optype='AveragePool')
 Sum           = partial(UnaryOperator, optype='Sum')
-Rsqrt         = partial(UnaryOperator, optype='Rsqrt')
 Mean          = partial(UnaryOperator, optype='Mean')
 Reciprocal    = partial(UnaryOperator, optype='Reciprocal')
 

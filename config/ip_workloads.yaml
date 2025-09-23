@@ -47,3 +47,11 @@ workloads:
       bevdepth_s : { img_height:   32, img_width:   32, img_channels: 3, bs: 1 }
       bevdepth_m : { img_height:  256, img_width:  256, img_channels: 3, bs: 1 }
       bevdepth_l : { img_height: 1024, img_width: 1024, img_channels: 3, bs: 1 }
+
+  - api: TTSIM
+    name: llama2
+    basedir: workloads/llama2
+    module : Transformer@model.py
+    instances:
+      input_small: {'dim': 32, 'n_layers': 2, 'n_heads': 2, 'vocab_size': 256, 'max_batch_size': 2, 'max_seq_len': 8, 'seq_len': 1, 'bs': 1}
+      input_standard: {'dim': 4096, 'n_layers': 32, 'n_heads': 32, 'vocab_size': 32000, 'max_batch_size': 2, 'max_seq_len': 8, 'seq_len': 1, 'bs': 1}

@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from typing import Optional, Tuple
 
 import os, sys
-sys.path.append(os.path.join(os.path.dirname(__file__), '../../..'))
+sys.path.append(os.path.join(os.path.dirname(__file__), '../..'))
 import ttsim.front.functional.op as F
 import ttsim.front.functional.sim_nn as SimNN
 import ttsim.front.functional.tensor_op as T
@@ -269,20 +269,30 @@ class TransformerBlock(SimNN.Module):
 
 
 class Transformer(SimNN.Module):
-    def __init__(self, objname: str, params: ModelArgs):
+    def __init__(self, objname: str, cfg):
         super().__init__()
+        print('Transformer config:', cfg)
         self.name = objname
-        self.params = params
-        self.vocab_size = params.vocab_size
-        self.n_layers = params.n_layers
+        self.params = ModelArgs(
+            dim=cfg['dim'],
+            n_layers=cfg['n_layers'],
+            n_heads=cfg['n_heads'],
+            vocab_size=cfg['vocab_size'],
+            max_batch_size=cfg['max_batch_size'],
+            max_seq_len=cfg['max_seq_len'],
+        )
+        self.batch_size = cfg['bs']
+        self.seq_len = cfg['seq_len']
+        self.vocab_size = self.params.vocab_size
+        self.n_layers = self.params.n_layers
 
         self.tok_embeddings = F.Embedding(f'{self.name}_tok_embeddings',
-            params.vocab_size, params.dim
+            self.params.vocab_size, self.params.dim
         )
-        self.layers = SimNN.ModuleList([TransformerBlock(f'{self.name}_layer_{i}', i, params) for i in range(self.n_layers)])
-        self.norm = RMSNorm(f'{self.name}_rmsnorm', params.dim, eps=params.norm_eps)
+        self.layers = SimNN.ModuleList([TransformerBlock(f'{self.name}_layer_{i}', i, self.params) for i in range(self.n_layers)])
+        self.norm = RMSNorm(f'{self.name}_rmsnorm', self.params.dim, eps=self.params.norm_eps)
         self.output = F.Linear(f'{self.name}_output',
-            params.dim, params.vocab_size, bias=False
+            self.params.dim, self.params.vocab_size, bias=False
         )
         precompute_obj = Precompute(f'{self.name}_precompute', self.params.dim // self.params.n_heads,
                                     self.params.max_seq_len * 2)
@@ -291,9 +301,12 @@ class Transformer(SimNN.Module):
 
     def create_input_tensors(self):
         self.input_tensors = {
-                'x_in': F._from_shape('input_tokens', [1, 1]),
+                'x_in': F._from_shape('input_tokens', [self.batch_size, self.seq_len]),
         }
         return
+
+    def analytical_param_count(self):
+        return 0
 
     def get_forward_graph(self):
         GG = super()._get_forward_graph(self.input_tensors)
