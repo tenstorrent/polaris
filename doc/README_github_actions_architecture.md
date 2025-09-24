@@ -31,16 +31,26 @@ This document describes the project's architecture and best practices for struct
 ```
 .github/
 ├── actions/                    # Custom reusable actions
+│   ├── generate-rtl-badges/   # RTL badge generation action
+│   │   └── action.yml
+│   ├── generate-status-badges/ # Status badge generation action
+│   │   └── action.yml
+│   ├── generate-test-badges/  # Test and coverage badge generation action
+│   │   └── action.yml
 │   ├── lfcdownload/           # Large File Cache download action
+│   │   └── action.yml
+│   ├── run-python-tests/      # Python unit and coverage tests action
+│   │   └── action.yml
+│   ├── run-rtl-tests/         # RTL test execution action
+│   │   └── action.yml
+│   ├── run-static-analysis/   # Static analysis action
 │   │   └── action.yml
 │   └── setup_mamba/           # Mamba environment setup action
 │       └── action.yml
 ├── spdxchecker-ignore.yml     # SPDX license checker ignore rules
 └── workflows/                 # CI/CD workflows using actions
-    ├── checkin_tests.yml      # Pre-merge validation
-    ├── rtl_tests.yml          # RTL-specific testing
-    ├── nightly_tests.yml      # Comprehensive nightly testing
-    └── post_mergepr.yml       # Post-merge status updates
+    ├── checkin_tests.yml      # Pre-merge validation with integrated RTL testing
+    └── nightly_tests.yml      # Comprehensive nightly testing
 ```
 
 ### Action vs Workflow Responsibility
@@ -52,7 +62,239 @@ This document describes the project's architecture and best practices for struct
 
 ## Reusable Actions Reference
 
-### 1. lfcdownload Action
+### 1. run-rtl-tests Action
+
+**Purpose**: Execute RTL tests with configurable parameters and handle LFC file downloads
+
+**Location**: `.github/actions/run-rtl-tests/action.yml`
+
+**Interface**:
+```yaml
+name: 'Run RTL Tests'
+description: 'Execute RTL tests with configurable parameters and handle LFC file downloads'
+inputs:
+  tag:
+    description: 'Test tag to run'
+    required: true
+  parallel:
+    description: 'Number of parallel processes'
+    required: false
+    default: '4'
+  lfc-files:
+    description: 'Space-separated list of LFC files to download'
+    required: true
+  results-file:
+    description: 'Path to RTL test results output file'
+    required: true
+outputs:
+  outcome:
+    description: 'Test execution outcome (success/failure)'
+  exit-code:
+    description: 'Test exit code for badge generation'
+  results-file:
+    description: 'Path to the generated RTL test results file'
+```
+
+**Usage Examples**:
+
+#### Basic Usage
+```yaml
+- name: Run RTL Tests
+  uses: ./.github/actions/run-rtl-tests
+  with:
+    tag: jul27
+    lfc-files: 'ext_rtl_test_data_set_jul27.tar.gz'
+    results-file: 'rtl_test_results.txt'
+```
+
+#### Custom Configuration
+```yaml
+- name: Run RTL Tests with Custom Settings
+  uses: ./.github/actions/run-rtl-tests
+  with:
+    tag: mar18
+    parallel: 8
+    lfc-files: 'ext_rtl_test_data_set_mar18.tar.gz'
+    results-file: 'custom_rtl_results.txt'
+```
+
+**Key Features**:
+- **Automated LFC Downloads**: Handles test data downloads internally
+- **Explicit Configuration**: Requires specification of test tag, data files, and results file path  
+- **Configurable Parallelism**: Optional parallel execution parameter (defaults to 4)
+- **Error Resilience**: Uses `continue-on-error` for non-blocking execution
+- **Output Generation**: Provides outcomes and results file path for downstream badge generation
+
+### 2. generate-rtl-badges Action
+
+**Purpose**: Generate RTL test result badges and upload to GitHub Gists
+
+**Location**: `.github/actions/generate-rtl-badges/action.yml`
+
+**Interface**:
+```yaml
+name: 'Generate RTL Badges'
+description: 'Generate RTL test result badges and upload to GitHub Gists'
+inputs:
+  gist-id:
+    description: 'GitHub Gist ID for badge storage'
+    required: true
+  gist-token:
+    description: 'GitHub token for gist access'
+    required: true
+  repo-name:
+    description: 'Repository name for badge naming'
+    required: true
+  rtl-outcome:
+    description: 'RTL test outcome (success/failure)'
+    required: true
+  rtl-exit-code:
+    description: 'RTL test exit code'
+    required: true
+  results-file:
+    description: 'Path to RTL test results file'
+    required: true
+```
+
+**Usage Examples**:
+
+#### With RTL Test Results
+```yaml
+- name: Generate RTL Badges
+  uses: ./.github/actions/generate-rtl-badges
+  with:
+    gist-id: ${{ env.GIST_ID }}
+    gist-token: ${{ env.GIST_TOKEN }}
+    repo-name: ${{ env.REPO_NAME }}
+    rtl-outcome: ${{ steps.run-rtl-tests.outputs.outcome }}
+    rtl-exit-code: ${{ steps.run-rtl-tests.outputs.exit-code }}
+    results-file: ${{ steps.run-rtl-tests.outputs.results-file }}
+```
+
+**Key Features**:
+- **Badge Generation**: Creates dynamic RTL test status badges
+- **Gist Integration**: Uploads badges to GitHub Gists for external access
+- **Configurable Input**: Requires explicit results file path specification
+- **Consistent API**: Follows same pattern as other badge generation actions
+
+### 3. generate-status-badges Action
+
+**Purpose**: Generate status badges based on workflow step outcomes
+
+**Location**: `.github/actions/generate-status-badges/action.yml`
+
+**Interface**:
+```yaml
+name: 'Generate Status Badges'
+description: 'Creates status badges based on workflow step outcomes'
+inputs:
+  gist-id:
+    description: 'GitHub Gist ID for badge storage'
+    required: true
+  gist-token:
+    description: 'GitHub token for gist access'
+    required: true
+  repo-name:
+    description: 'Repository name for badge naming'
+    required: true
+  static-tests-outcome:
+    description: 'Outcome of static tests step (success, failure, skipped, cancelled)'
+    required: true
+  spdx-tests-outcome:
+    description: 'Outcome of SPDX/license checks step (success, failure, skipped, cancelled)'
+    required: true
+  mypy-badge-label:
+    description: 'Label for MyPy badge'
+    required: false
+    default: 'MyPy'
+  spdx-badge-label:
+    description: 'Label for SPDX badge'
+    required: false
+    default: 'SPDX'
+```
+
+**Usage Examples**:
+
+#### With Test Outcomes
+```yaml
+- name: Generate Status Badges
+  uses: ./.github/actions/generate-status-badges
+  with:
+    gist-id: ${{ env.GIST_ID }}
+    gist-token: ${{ env.GIST_TOKEN }}
+    repo-name: ${{ env.REPO_NAME }}
+    static-tests-outcome: ${{ steps.run-static-analysis.outputs.static-tests-outcome }}
+    spdx-tests-outcome: ${{ steps.run-static-analysis.outputs.license-checks-outcome }}
+```
+
+**Key Features**:
+- **Multi-badge Generation**: Creates both MyPy and SPDX status badges
+- **Outcome-based Colors**: Badge colors determined by test step outcomes
+- **Explicit Configuration**: Requires explicit specification of test outcomes
+- **Configurable Labels**: Optional customization of badge labels
+
+### 4. generate-test-badges Action
+
+**Purpose**: Generate test and coverage badges from test results and upload to GitHub Gists
+
+**Location**: `.github/actions/generate-test-badges/action.yml`
+
+**Interface**:
+```yaml
+name: 'Generate Test and Coverage Badges'
+description: 'Creates dynamic badges from test results and uploads to GitHub Gists'
+inputs:
+  gist-id:
+    description: 'GitHub Gist ID for badge storage'
+    required: true
+  gist-token:
+    description: 'GitHub token for gist access'
+    required: true
+  repo-name:
+    description: 'Repository name for badge naming'
+    required: true
+  results-dir:
+    description: 'Directory containing test result files'
+    required: false
+    default: '__ci/json'
+  coverage-yellow-threshold:
+    description: 'Coverage percentage threshold for yellow color'
+    required: true
+  coverage-required-threshold:
+    description: 'Coverage percentage threshold for red color'
+    required: true
+  test-yellow-threshold:
+    description: 'Test pass rate threshold for yellow color'
+    required: true
+  test-required-threshold:
+    description: 'Test pass rate threshold for red color'
+    required: true
+```
+
+**Usage Examples**:
+
+#### With Custom Thresholds
+```yaml
+- name: Generate Test and Coverage Badges
+  uses: ./.github/actions/generate-test-badges
+  with:
+    gist-id: ${{ env.GIST_ID }}
+    gist-token: ${{ env.GIST_TOKEN }}
+    repo-name: ${{ env.REPO_NAME }}
+    coverage-yellow-threshold: '75'
+    coverage-required-threshold: '85'
+    test-yellow-threshold: '75'
+    test-required-threshold: '95'
+```
+
+**Key Features**:
+- **Dual Badge Generation**: Creates both test pass rate and coverage percentage badges
+- **Configurable Thresholds**: Requires explicit specification of all color thresholds
+- **Automatic Metrics Extraction**: Processes test results and coverage data from JSON files
+- **Color-coded Status**: Dynamic badge colors based on performance vs thresholds
+- **Gist Integration**: Uploads badges to GitHub Gists for external access
+
+### 5. lfcdownload Action
 
 **Purpose**: Downloads required files from Large File Cache (LFC) for testing
 
@@ -227,10 +469,8 @@ jobs:
 
 | Workflow | Purpose | Environment | Key Features |
 |----------|---------|-------------|--------------|
-| **checkin_tests.yml** | Pre-merge validation | Developer + User | Unit tests, coverage, static analysis, license checks |
+| **checkin_tests.yml** | Pre-merge validation with integrated RTL testing | Developer + User | Unit tests, coverage, static analysis, RTL tests, badge generation |
 | **nightly_tests.yml** | Comprehensive testing | Developer | Full test suite including slow tests |
-| **rtl_tests.yml** | RTL-specific testing | Developer | RTL test execution with specific data sets |
-| **post_mergepr.yml** | Status updates | Developer | Badge generation, metrics collection |
 
 ## Implementation Examples
 
@@ -315,26 +555,6 @@ jobs:
 - Captures output with `tee` for debugging
 - Uploads test results as artifacts
 
-### 4. post_mergepr.yml
-
-**Purpose**: Post-merge status updates and badge generation
-
-**Key Features**:
-- **Metrics collection**: Test results and coverage data
-- **Badge generation**: Dynamic badges for README
-- **Status reporting**: Upload to GitHub Gists
-
-**Action Usage**:
-```yaml
-jobs:
-  update-status-for-main-branch:
-    steps:
-    - uses: ./.github/actions/lfcdownload
-    - uses: ./.github/actions/setup_mamba
-      with:
-        environment-file: envdev.yaml
-        environment-name: poldevenv
-```
 
 ## Development Best Practices
 

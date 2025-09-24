@@ -66,7 +66,7 @@ graph TD
 ### 2. Detailed Step-by-Step Process
 
 #### **Step 1: Workflow Trigger**
-- Push to `main` branch triggers `post_mergepr.yml` workflow
+- Push to `main` branch triggers `checkin_tests.yml` workflow
 - Workflow runs on `tt-ubuntu-2204-large-stable` runner
 - Environment variables are set for Gist ID, token, and thresholds
 
@@ -133,8 +133,7 @@ python tools/ci/makegist.py \
 ### 3. Key Components
 
 #### **GitHub Workflows**
-- **`post_mergepr.yml`**: Main badge generation workflow that runs on every push to main
-- **`checkin_tests.yml`**: Provides GitHub Action status badge for CI/CD pipeline status
+- **`checkin_tests.yml`**: Main badge generation workflow that runs on every push to main, includes unit tests, coverage, static analysis, RTL tests, and all badge generation
 
 #### **Custom Tools**
 - **`tools/ci/makegist.py`**: Python script that creates JSON dictionaries and uploads them to GitHub Gists
@@ -152,15 +151,18 @@ python tools/ci/makegist.py \
 ### Step 1: Test Execution and Metric Collection
 
 ```yaml
-# .github/workflows/post_mergepr.yml
-- name: Update Status for Main Branch
-  run: | 
-    coverage erase
-    coverage run -m pytest -m "not slow and not tools_secondary" --json-report --json-report-file __ci/json/pyunit.json
-    coverage combine
-    coverage report 
-    coverage html -d __ci/html/
-    coverage json -o __ci/json/coverage.json
+# .github/workflows/checkin_tests.yml
+- name: Generate Test and Coverage Badges
+  if: ${{ !cancelled() && github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+  uses: ./.github/actions/generate-test-badges
+  with:
+    gist-id: ${{ env.GIST_ID }}
+    gist-token: ${{ env.GIST_TOKEN }}
+    repo-name: ${{ env.REPO_NAME }}
+    coverage-yellow-threshold: ${{ env.COVERAGE_YELLOW }}
+    coverage-required-threshold: ${{ env.COVERAGE_REQUIRED }}
+    test-yellow-threshold: ${{ env.PASS_YELLOW }}
+    test-required-threshold: ${{ env.PASS_REQUIRED }}
 ```
 
 ### Step 2: Extract Key Metrics
@@ -1138,6 +1140,5 @@ The combination of custom tools (`makegist.py`, `colorpicker.py`, and RTL badge 
 - `doc/tools/ci/README_makegist.md` - JSON generation tool documentation
 - `doc/tools/ci/README_colorpicker.md` - Color selection tool documentation  
 - `doc/tools/ci/README_rtl_scurve_badge.md` - RTL badge generator documentation
-- `.github/workflows/post_mergepr.yml` - Main badge generation workflow
-- `.github/workflows/rtl_tests.yml` - RTL test badge generation workflow
+- `.github/workflows/checkin_tests.yml` - Main badge generation workflow with integrated RTL testing
 - `README.md` - Live badge examples

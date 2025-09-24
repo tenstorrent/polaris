@@ -1,0 +1,60 @@
+# SPDX-FileCopyrightText: (C) 2025 Tenstorrent AI ULC
+# SPDX-License-Identifier: Apache-2.0
+
+name: 'Run RTL Tests'
+description: 'Execute RTL tests with configurable parameters and handle LFC file downloads'
+
+inputs:
+  tag:
+    description: 'Test tag to run'
+    required: true
+  parallel:
+    description: 'Number of parallel processes'
+    required: false
+    default: '4'
+  lfc-files:
+    description: 'Space-separated list of LFC files to download'
+    required: true
+  results-file:
+    description: 'Path to RTL test results output file'
+    required: true
+
+outputs:
+  outcome:
+    description: 'Test execution outcome (success/failure)'
+    value: ${{ steps.run-rtl-tests.outcome }}
+  exit-code:
+    description: 'Test exit code for badge generation'
+    value: ${{ steps.set-exit-code.outputs.exit_code }}
+  results-file:
+    description: 'Path to the generated RTL test results file'
+    value: ${{ inputs.results-file }}
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Download RTL test files from LFC
+      uses: ./.github/actions/lfcdownload
+      with:
+        files: ${{ inputs.lfc-files }}
+
+    - name: Run RTL Tests
+      id: run-rtl-tests
+      continue-on-error: true
+      shell: bash -el {0}
+      run: | 
+        echo "Running RTL tests with tag: ${{ inputs.tag }}, parallel: ${{ inputs.parallel }}"
+        echo "Output file: ${{ inputs.results-file }}"
+        set -o pipefail
+        python tests/standalone/execute_test.py --tag ${{ inputs.tag }} --parallel ${{ inputs.parallel }} 2>&1 | tee ${{ inputs.results-file }}
+        find __llk_out -mindepth 2 -maxdepth 2 -name "*.png" -exec mv {} __llk_out/ \; 2>/dev/null || true
+
+    - name: Set exit code for badge generation
+      id: set-exit-code
+      shell: bash
+      run: |
+        if [ "${{ steps.run-rtl-tests.outcome }}" == "success" ]; then
+          echo "exit_code=0" >> $GITHUB_OUTPUT
+        else
+          echo "exit_code=1" >> $GITHUB_OUTPUT
+        fi

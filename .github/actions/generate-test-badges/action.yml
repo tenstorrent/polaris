@@ -20,20 +20,16 @@ inputs:
     default: '__ci/json'
   coverage-yellow-threshold:
     description: 'Coverage percentage threshold for yellow color'
-    required: false
-    default: '75'
+    required: true
   coverage-required-threshold:
     description: 'Coverage percentage threshold for red color'
-    required: false
-    default: '85'
+    required: true
   test-yellow-threshold:
     description: 'Test pass rate threshold for yellow color'
-    required: false
-    default: '75'
+    required: true
   test-required-threshold:
     description: 'Test pass rate threshold for red color'
-    required: false
-    default: '95'
+    required: true
 
 runs:
   using: 'composite'

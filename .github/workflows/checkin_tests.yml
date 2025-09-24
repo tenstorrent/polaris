@@ -61,6 +61,17 @@ jobs:
       if: '!cancelled()'
       uses: ./.github/actions/run-static-analysis
 
+    - id: run-rtl-tests
+      name: Run RTL Tests
+      if: '!cancelled()'
+      continue-on-error: true
+      uses: ./.github/actions/run-rtl-tests
+      with:
+        tag: jul27
+        parallel: 4
+        lfc-files: 'ext_rtl_test_data_set_jul27.tar.gz'
+        results-file: 'rtl_test_results.txt'
+
     - id: generate-test-badges
       name: Generate Test and Coverage Badges
       if: ${{ !cancelled() && github.event_name == 'push' && github.ref == 'refs/heads/main' }}
@@ -85,18 +96,42 @@ jobs:
         static-tests-outcome: ${{ steps.run-static-analysis.outputs.static-tests-outcome }}
         spdx-tests-outcome: ${{ steps.run-static-analysis.outputs.license-checks-outcome }}
 
+    - id: generate-rtl-badges
+      name: Generate RTL Badges
+      if: ${{ !cancelled() && github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+      uses: ./.github/actions/generate-rtl-badges
+      with:
+        gist-id: ${{ env.GIST_ID }}
+        gist-token: ${{ env.GIST_TOKEN }}
+        repo-name: ${{ env.REPO_NAME }}
+        rtl-outcome: ${{ steps.run-rtl-tests.outputs.outcome }}
+        rtl-exit-code: ${{ steps.run-rtl-tests.outputs.exit-code }}
+        results-file: ${{ steps.run-rtl-tests.outputs.results-file }}
+
     - id: upload-artifacts
       name: Upload artifacts
       if: '!cancelled()'
       uses: actions/upload-artifact@v4
       with:
-        name: dist-wo-onnxdumps
+        name: checkin_artifacts
         path: |
            .coverage
            __ci/json
            __ci/html
            __RUN_TESTS
            !__RUN_TESTS/**/*.onnx
+
+    - id: upload-rtl-artifacts
+      name: Upload RTL artifacts
+      if: '!cancelled()'
+      uses: actions/upload-artifact@v4
+      with:
+        name: rtl_artifacts
+        path: |
+           ${{ steps.run-rtl-tests.outputs.results-file }}
+           __llk_out/*.json
+           __llk_out/*.csv
+           __llk_out/*.png
     
   userenv-tests:
     runs-on: tt-ubuntu-2204-large-stable
@@ -125,7 +160,7 @@ jobs:
     - name: Upload artifacts
       uses: actions/upload-artifact@v4
       with:
-        name: userenv-dist-wo-onnxdumps
+        name: checkin_userenv_artifacts
         path: |
            __RUN_TESTS
            !__RUN_TESTS/**/*.onnx

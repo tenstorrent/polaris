@@ -1,0 +1,53 @@
+# SPDX-FileCopyrightText: (C) 2025 Tenstorrent AI ULC
+# SPDX-License-Identifier: Apache-2.0
+
+name: 'Generate RTL Badges'
+description: 'Generate RTL test result badges and upload to GitHub Gists'
+
+inputs:
+  gist-id:
+    description: 'GitHub Gist ID for badge storage'
+    required: true
+  gist-token:
+    description: 'GitHub token for gist access'
+    required: true
+  repo-name:
+    description: 'Repository name for badge naming'
+    required: true
+  rtl-outcome:
+    description: 'RTL test outcome (success/failure)'
+    required: true
+  rtl-exit-code:
+    description: 'RTL test exit code'
+    required: true
+  results-file:
+    description: 'Path to RTL test results file'
+    required: true
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Generate RTL badges
+      shell: bash -el {0}
+      env:
+        GIST_TOKEN: ${{ inputs.gist-token }}
+      run: |
+        echo "Generating RTL badges for repository: ${{ inputs.repo-name }}"
+        echo "RTL outcome: ${{ inputs.rtl-outcome }}"
+        echo "RTL exit code: ${{ inputs.rtl-exit-code }}"
+        echo "Results file: ${{ inputs.results-file }}"
+        
+        # Verify results file exists
+        if [[ ! -f "${{ inputs.results-file }}" ]]; then
+          echo "❌ Error: ${{ inputs.results-file }} not found"
+          exit 1
+        fi
+        
+        # Generate RTL badges using the existing script
+        python tools/ci/rtl_scurve_badge.py \
+          --runexitcode ${{ inputs.rtl-exit-code }} \
+          --repo ${{ inputs.repo-name }} \
+          --gistid ${{ inputs.gist-id }} \
+          --input ${{ inputs.results-file }}
+        
+        echo "✅ Successfully generated RTL badges"

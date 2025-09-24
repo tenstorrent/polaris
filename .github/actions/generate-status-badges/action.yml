@@ -16,12 +16,10 @@ inputs:
     required: true
   static-tests-outcome:
     description: 'Outcome of static tests step (success, failure, skipped, cancelled)'
-    required: false
-    default: 'skipped'
+    required: true
   spdx-tests-outcome:
     description: 'Outcome of SPDX/license checks step (success, failure, skipped, cancelled)'
-    required: false
-    default: 'skipped'
+    required: true
   mypy-badge-label:
     description: 'Label for MyPy badge'
     required: false
