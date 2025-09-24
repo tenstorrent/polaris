@@ -101,6 +101,69 @@ The script automatically detects whether you want to download a file or director
 ./tools/ci/lfc_downloader.sh -v --type file --extract models/weights.tar.gz ./model_weights/weights.tar.gz
 ```
 
+## macOS Dependency Management
+
+### Automatic wget Detection
+On macOS systems, the script automatically checks for `wget` availability and provides helpful installation guidance if it's missing.
+
+#### When wget is Available
+```bash
+$ ./tools/ci/lfc_downloader.sh -v tests/models/
+Found wget at /opt/homebrew/bin/wget
+Downloading from http://aus2-lfcache.aus2.tenstorrent.com/simulators-ai-perf/tests/models/ to tests/models/...
+```
+
+#### When wget is Missing (Homebrew Available)
+```bash
+$ ./tools/ci/lfc_downloader.sh tests/models/
+Error: wget is not installed on this macOS system.
+
+To install wget using Homebrew, run:
+    brew install wget
+
+Then retry running this script.
+```
+
+#### When wget is Missing (Homebrew Not Available)
+```bash
+$ ./tools/ci/lfc_downloader.sh tests/models/
+Error: wget is not installed on this macOS system.
+
+To install wget, you first need to install Homebrew (a package manager for macOS):
+
+1. Install Homebrew by running:
+    /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+
+2. After Homebrew installation completes, install wget:
+    brew install wget
+
+3. Then retry running this script.
+
+Alternatively, you can install wget using other methods:
+- MacPorts: sudo port install wget
+- Direct download: https://www.gnu.org/software/wget/
+```
+
+### macOS Installation Options
+
+#### Option 1: Homebrew (Recommended)
+```bash
+# Install Homebrew if not already installed
+/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+
+# Install wget
+brew install wget
+```
+
+#### Option 2: MacPorts
+```bash
+# If you have MacPorts installed
+sudo port install wget
+```
+
+#### Option 3: Manual Installation
+Download wget directly from the [GNU wget website](https://www.gnu.org/software/wget/) and follow the installation instructions.
+
 ## Tailscale VPN Requirements
 
 ### Automatic Tailscale Detection

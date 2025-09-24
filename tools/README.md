@@ -28,8 +28,13 @@ See [doc/tools/ci/README_check_behind_tailscale.md](../doc/tools/ci/README_check
 Downloads models and files from the Large File Cache (LFCache) server.
 
 **Requirements:**
+- **wget** (automatically checked on macOS with helpful installation guidance)
 - **Tailscale VPN connection** (for non-CI environments)
 - CI environments automatically bypass Tailscale requirement
+
+**Platform Support:**
+- **Linux**: wget typically pre-installed
+- **macOS**: Automatic wget detection with installation instructions for Homebrew/MacPorts
 
 **Usage:**
 ```bash

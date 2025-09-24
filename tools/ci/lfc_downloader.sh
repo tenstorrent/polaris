@@ -2,6 +2,7 @@
 # SPDX-FileCopyrightText: (C) 2025 Tenstorrent AI ULC
 # SPDX-License-Identifier: Apache-2.0
 # This script is used to download the models from the LFCache server to the local machine.
+# Supports both Linux and macOS with automatic dependency checking and helpful error messages.
 # Usage: lfc_downloader.sh [-v|--verbose] [-n|--dryrun] [--type TYPE] [--extract] <server_path> [local_path]
 #   CI mode is automatically detected from GITHUB_ACTIONS environment variable
 #   -v, --verbose    Enable verbose output (optional, default is false)
@@ -10,6 +11,11 @@
 #   --extract        Extract .tar.gz files after download and remove archive (optional, only valid for .tar.gz files)
 #   server_path      Path on the LFCache server relative to simulators-ai-perf (required)
 #   local_path       Local path to download models to (optional, default is the same as server_path)
+#
+# macOS Support:
+#   - Automatically detects wget availability
+#   - Provides installation instructions for Homebrew/MacPorts if wget is missing
+#   - Works in both CI and development environments
 
 # Detect CI mode from environment
 if [ "${GITHUB_ACTIONS:-}" = "true" ]; then
@@ -207,6 +213,43 @@ else
         echo "Error: Failed to create directory $LOCAL_PATH" >&2
         exit 1
     }
+fi
+
+# Function to show macOS wget installation help
+show_macos_wget_installation_help() {
+    echo "Error: wget is not installed on this macOS system." >&2
+    echo >&2
+    
+    if command -v brew >/dev/null 2>&1; then
+        echo "To install wget using Homebrew, run:" >&2
+        echo "    brew install wget" >&2
+        echo >&2
+        echo "Then retry running this script." >&2
+    else
+        echo "To install wget, you first need to install Homebrew (a package manager for macOS):" >&2
+        echo >&2
+        echo "1. Install Homebrew by running:" >&2
+        echo "    /bin/bash -c \"\$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)\"" >&2
+        echo >&2
+        echo "2. After Homebrew installation completes, install wget:" >&2
+        echo "    brew install wget" >&2
+        echo >&2
+        echo "3. Then retry running this script." >&2
+        echo >&2
+        echo "Alternatively, you can install wget using other methods:" >&2
+        echo "- MacPorts: sudo port install wget" >&2
+        echo "- Direct download: https://www.gnu.org/software/wget/" >&2
+    fi
+}
+
+# Platform-specific dependency checks
+if [[ "$(uname)" == "Darwin" ]]; then
+    if ! command -v wget >/dev/null 2>&1; then
+        show_macos_wget_installation_help
+        exit 1
+    elif [[ "$VERBOSE" == true ]]; then
+        echo "Found wget at $(command -v wget)"
+    fi
 fi
 
 # Download models from LFCache server
