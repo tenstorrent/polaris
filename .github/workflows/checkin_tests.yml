@@ -67,9 +67,9 @@ jobs:
       continue-on-error: true
       uses: ./.github/actions/run-rtl-tests
       with:
-        tag: sep23
+        tag: jul27
         parallel: 4
-        lfc-files: 'ext_rtl_test_data_set_sep23.tar.gz'
+        lfc-files: 'ext_rtl_test_data_set_jul27.tar.gz'
         results-file: 'rtl_test_results.txt'
 
     - id: generate-test-badges
@@ -132,6 +132,86 @@ jobs:
            __llk_out/*.json
            __llk_out/*.csv
            __llk_out/*.png
+
+    - id: check-overall-success
+      name: Check Overall Success
+      if: '!cancelled()'
+      run: |
+        echo "Checking overall job success status..."
+        echo "This step will succeed ONLY if ALL prior steps have succeeded, regardless of continue-on-error settings"
+        echo ""
+        
+        # Track steps that are not successful
+        NON_SUCCESS_STEPS=""
+        
+        # Check all test and processing steps - must be 'success' to pass
+        if [[ "${{ steps.run-unit-and-coverage-tests.outcome }}" != "success" ]]; then
+          echo "❌ Unit and coverage tests: ${{ steps.run-unit-and-coverage-tests.outcome }}"
+          NON_SUCCESS_STEPS="$NON_SUCCESS_STEPS run-unit-and-coverage-tests(${{ steps.run-unit-and-coverage-tests.outcome }})"
+        else
+          echo "✅ Unit and coverage tests: success"
+        fi
+        
+        if [[ "${{ steps.run-static-analysis.outcome }}" != "success" ]]; then
+          echo "❌ Static analysis: ${{ steps.run-static-analysis.outcome }}"
+          NON_SUCCESS_STEPS="$NON_SUCCESS_STEPS run-static-analysis(${{ steps.run-static-analysis.outcome }})"
+        else
+          echo "✅ Static analysis: success"
+        fi
+        
+        if [[ "${{ steps.run-rtl-tests.outcome }}" != "success" ]]; then
+          echo "❌ RTL tests: ${{ steps.run-rtl-tests.outcome }}"
+          NON_SUCCESS_STEPS="$NON_SUCCESS_STEPS run-rtl-tests(${{ steps.run-rtl-tests.outcome }})"
+        else
+          echo "✅ RTL tests: success"
+        fi
+        
+        if [[ "${{ steps.generate-test-badges.outcome }}" != "success" && "${{ steps.generate-test-badges.outcome }}" != "skipped" ]]; then
+          echo "❌ Test badges generation: ${{ steps.generate-test-badges.outcome }}"
+          NON_SUCCESS_STEPS="$NON_SUCCESS_STEPS generate-test-badges(${{ steps.generate-test-badges.outcome }})"
+        else
+          echo "✅ Test badges generation: ${{ steps.generate-test-badges.outcome }}"
+        fi
+        
+        if [[ "${{ steps.generate-status-badges.outcome }}" != "success" && "${{ steps.generate-status-badges.outcome }}" != "skipped" ]]; then
+          echo "❌ Status badges generation: ${{ steps.generate-status-badges.outcome }}"
+          NON_SUCCESS_STEPS="$NON_SUCCESS_STEPS generate-status-badges(${{ steps.generate-status-badges.outcome }})"
+        else
+          echo "✅ Status badges generation: ${{ steps.generate-status-badges.outcome }}"
+        fi
+        
+        if [[ "${{ steps.generate-rtl-badges.outcome }}" != "success" && "${{ steps.generate-rtl-badges.outcome }}" != "skipped" ]]; then
+          echo "❌ RTL badges generation: ${{ steps.generate-rtl-badges.outcome }}"
+          NON_SUCCESS_STEPS="$NON_SUCCESS_STEPS generate-rtl-badges(${{ steps.generate-rtl-badges.outcome }})"
+        else
+          echo "✅ RTL badges generation: ${{ steps.generate-rtl-badges.outcome }}"
+        fi
+        
+        if [[ "${{ steps.upload-artifacts.outcome }}" != "success" ]]; then
+          echo "❌ Artifacts upload: ${{ steps.upload-artifacts.outcome }}"
+          NON_SUCCESS_STEPS="$NON_SUCCESS_STEPS upload-artifacts(${{ steps.upload-artifacts.outcome }})"
+        else
+          echo "✅ Artifacts upload: success"
+        fi
+        
+        if [[ "${{ steps.upload-rtl-artifacts.outcome }}" != "success" ]]; then
+          echo "❌ RTL artifacts upload: ${{ steps.upload-rtl-artifacts.outcome }}"
+          NON_SUCCESS_STEPS="$NON_SUCCESS_STEPS upload-rtl-artifacts(${{ steps.upload-rtl-artifacts.outcome }})"
+        else
+          echo "✅ RTL artifacts upload: success"
+        fi
+        
+        # Succeed only if ALL steps succeeded
+        if [[ -n "$NON_SUCCESS_STEPS" ]]; then
+          echo ""
+          echo "❌ Job failed - not all steps succeeded:$NON_SUCCESS_STEPS"
+          echo "Overall job status: FAILED"
+          exit 1
+        else
+          echo ""
+          echo "🎉 ALL steps completed successfully!"
+          echo "Overall job status: PASSED"
+        fi
     
   userenv-tests:
     runs-on: tt-ubuntu-2204-large-stable
