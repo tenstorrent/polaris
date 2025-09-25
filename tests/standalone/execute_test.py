@@ -252,7 +252,7 @@ class InputParams:
     num_processes: int                   = 1
     rtl_data_path_prefix: str            = f"{RTL_DATA_PATH_ROOT}/rtl_test_data_set"
     rtl_status_file_name: str            = "sim_result.yml"
-    rtl_tags: list[str]                  = ["feb19", "mar18", "jul1", "jul27"]
+    rtl_tags: list[str]                  = ["feb19", "mar18", "jul1", "jul27", "sep23"]
     rtl_test_dir_path_suffix: str        = 'rsim/debug'
     rtl_test_dir_suffix: str             = '_0'
     rtl_tests: list[str]                 = []
@@ -1241,7 +1241,7 @@ def execute_tests_and_get_status(tags: list[str] | None = None, tests: list[str]
 if "__main__" == __name__:
     # Set up argument parser
     parser = argparse.ArgumentParser(description = 'Execute RTL tests via model')
-    parser.add_argument('--tag', nargs = '+', default = None, help = 'Optional: RTL tags to execute tests with (e.g., feb19 mar18 jul1 jul27)')
+    parser.add_argument('--tag', nargs = '+', default = None, help = 'Optional: RTL tags to execute tests with (e.g., feb19 mar18 jul1 jul27 sep23)')
     parser.add_argument('--test', nargs = '+', default = None, help = 'Optional: Specific test names to run (default: run all tests)')
     parser.add_argument('--parallel', type = int, default = None, help = 'Optional: Number of parallel processes to use')
 

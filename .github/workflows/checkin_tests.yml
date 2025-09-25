@@ -67,9 +67,9 @@ jobs:
       continue-on-error: true
       uses: ./.github/actions/run-rtl-tests
       with:
-        tag: jul27
+        tag: sep23
         parallel: 4
-        lfc-files: 'ext_rtl_test_data_set_jul27.tar.gz'
+        lfc-files: 'ext_rtl_test_data_set_sep23.tar.gz'
         results-file: 'rtl_test_results.txt'
 
     - id: generate-test-badges

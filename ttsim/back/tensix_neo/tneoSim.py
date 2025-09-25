@@ -95,7 +95,7 @@ def get_accepted_llk_version_tags():
     tags = dict({
         "ttwh": None,
         "ttbh": None,
-        "ttqs": ["feb19", "mar18", "jul1", "jul27"]
+        "ttqs": ["feb19", "mar18", "jul1", "jul27", "sep23"]
         })
 
     assert len(tags) == len(get_accepted_architectures()), \

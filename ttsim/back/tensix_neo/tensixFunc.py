@@ -1321,7 +1321,7 @@ class tensixFunc:
         assert "immediates" not in dir(ins.getOperands()) , "Zero Imm expected"
         match ins.kind:
             case decoded_instruction.instruction_kind.ttqs:
-                if(self.args['llkVersionTag'] in ["jul1", "jul27"]):
+                if(self.args['llkVersionTag'] in ["jul1", "jul27", "sep23"]):
                     assert len(ins.getAttr()) == 6, "Six attribs expected. Received " + str(len(ins.getAttr()))
                 else:
                     assert len(ins.getAttr()) == 4, "Four attribs expected. Received " + str(len(ins.getAttr()))
@@ -1953,7 +1953,7 @@ class tensixFunc:
         for w in waitRsrcList:
             if(w in ins.getAttr()):
                 waitRsrc = ins.getAttr()[w]
-                if(self.args['llkVersionTag'] in ["jul1", "jul27"]):
+                if(self.args['llkVersionTag'] in ["jul1", "jul27", "sep23"]):
                     match waitRsrc:
                         # case: 0x00: srcPipes.append(0) nada,
                         case 0x01:
@@ -2042,8 +2042,10 @@ class tensixFunc:
         assert "sources" not in dir(ins.getOperands()) , "Zero Src expected"
         assert "immediates" not in dir(ins.getOperands()) , "Zero Imm expected"
         #TODO: Remove llkVersionTag based code once LLK stabilizes
-        if(self.args['llkVersionTag'] in ["apr24", "jul1", "jul27"]):            assert len(ins.getAttr()) == 7, "Seven attribs expected. Received " + str(len(ins.getAttr()))
-        else:                                                   assert len(ins.getAttr()) == 4, "Four attribs expected. Received " + str(len(ins.getAttr()))
+        if(self.args['llkVersionTag'] in ["apr24", "jul1", "jul27", "sep23"]):
+            assert len(ins.getAttr()) == 7, "Seven attribs expected. Received " + str(len(ins.getAttr()))
+        else:
+            assert len(ins.getAttr()) == 4, "Four attribs expected. Received " + str(len(ins.getAttr()))
 
         nextRelAddr = ins.getRelAddr() + 4
         return nextRelAddr
@@ -2130,7 +2132,7 @@ class tensixFunc:
                 dst.append(0);  vldUpd[0] = 0; bankUpd[0] = 0; #srcA
                 src.append(3);  vldUpd[3] = 0; bankUpd[3] = 0; #dst0
             case "MOVD2B":
-                if(self.args['llkVersionTag'] in ["jul1", "jul27"]):
+                if(self.args['llkVersionTag'] in ["jul1", "jul27", "sep23"]):
                     assert len(ins.getAttr()) == 6, "Six attribs expected. Received " + str(len(ins.getAttr()))
                 else:
                     assert len(ins.getAttr()) == 5, "Five attribs expected. Received " + str(len(ins.getAttr()))
