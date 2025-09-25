@@ -16,8 +16,8 @@ class memReq:
     cnt = itertools.count(start=0, step=1)
     def __init__(self, op, addr, bytes):
         self.reqId  = next(memReq.cnt)
-        self.parentReqId = None
-        self.childReqId  = None
+        self.parentReqIds = [] 
+        self.childReqIds  = [] 
         self.insId  = None
         self.op     = op
         self.bytes  = bytes
@@ -39,15 +39,15 @@ class memReq:
     def __setInsId__(self, id):
         self.insId = id
 
-    def __getParentReqId__(self):
-        return self.parentReqId
-    def __setParentReqId__(self, id):
-        self.parentReqId = id
+    def __getParentReqIds__(self):
+        return self.parentReqIds
+    def __setParentReqIds__(self, idList):
+        self.parentReqIds = idList
 
-    def __getChildReqId__(self):
-        return self.parentReqId
-    def __setChildReqId__(self, id):
-        self.parentReqId = id
+    def __getChildReqIds__(self):
+        return self.childReqIds
+    def __setChildReqIds__(self, idList):
+        self.childReqIds = idList
 
     def __getPipeId__(self):
         return self.pipeId

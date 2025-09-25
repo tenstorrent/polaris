@@ -1635,30 +1635,33 @@ class tensixCore:
                         memReq.__setTarget__(sourceReq.__getTarget__())
                         memReq.__setInsId__(sourceReq.__getInsId__())
                         for k in sourceReqTrk.keys():     parents.append(sourceReqTrk[k].__getReqId__())
-                        memReq.__setParentReqId__(parents)
+                        memReq.__setParentReqIds__(parents)
 
                         # L1 - put in iBuff, REG - put in oBuff
                         if self.debug & 0x8: print(f"Target: {memReq.__getTarget__()} Cycle:{self.env.now} Addr:{hex(pipeIns.getRelAddr())} TCore{self.coreId} Thread{pipeIns.getThread()} pipeInsId:{pipeIns.getInsId()} pipeInstruction:{pipeIns.getOp()} {memReq.__getTarget__()} access (inprogress) at [{self.coreId},{pipeIns.getExPipe()}] from pipe:{pipeIns.getExPipe()}")
                         if(memReq.__getTarget__() == "L1" and self.args_dict['enableSharedL1']):
                             yield iBuff.put(memReq)
                         else:
+                            if self.debug & 0x8: print(f"Cycle:{self.env.now} TCore{self.coreId} Req{memReq.__getReqId__()} insId{memReq.__getInsId__()} {memReq.__getTarget__()} access initiation (inprogress) from pipe:{pipeIns.getExPipe()} to {memReq.__getTarget__()}")
+                            if self.debug & 0x8: print(f"Cycle:{self.env.now} TCore{self.coreId} Req{memReq.__getReqId__()} insId{memReq.__getInsId__()} {memReq.__getTarget__()} access initiation (done) from pipe:{pipeIns.getExPipe()} to {memReq.__getTarget__()}")
                             yield oBuff.put(memReq)
+                            if self.debug & 0x8: print(f"Cycle:{self.env.now} Req{memReq.__getReqId__()} insId{memReq.__getInsId__()} arbitration (done)")
 
                         reqTrk[memReq.__getReqId__()] = memReq          # Insert into tracker.
                         accumSentBytes += portWidth
                         pipeIns.incrMemInfo(readsSent, 1)
+                        if(pipeIns.getMemInfo(readsSent) == 1):      pipeIns.setMemInfo("startL1Time", self.env.now)
                         if self.debug & 0x10:
-                            if(pipeIns.getMemInfo(readsSent) == 1):      pipeIns.setMemInfo("startL1Time", self.env.now)
-                            print(f"Target: {memReq.__getTarget__()} Inserting Req{memReq.__getReqId__()} into tracker. AccumSentBytes={accumSentBytes}, AccumSrcBytes={accumSrcBytes}")
-                            print(f"Target: {memReq.__getTarget__()} Reads Sent {pipeIns.getMemInfo(readsSent)}. Total Reads={pipeIns.getMemInfo(totalReads)}")
-                            print(f"Target: {memReq.__getTarget__()} Sending {memReq.__getTarget__()} request {memReq.__getReqId__()} for insId {memReq.__getInsId__()} from {pipeIns.getExPipe()}")
+                            print(f"Cycle:{self.env.now} TCore{self.coreId} Req{memReq.__getReqId__()} insId{memReq.__getInsId__()} Target: {memReq.__getTarget__()} Inserting Req into tracker. AccumSentBytes={accumSentBytes}, AccumSrcBytes={accumSrcBytes}")
+                            print(f"Cycle:{self.env.now} TCore{self.coreId} Req{memReq.__getReqId__()} insId{memReq.__getInsId__()} Target: {memReq.__getTarget__()} Reads Sent {pipeIns.getMemInfo(readsSent)}. Total Reads={pipeIns.getMemInfo(totalReads)}")
+                            print(f"Cycle:{self.env.now} TCore{self.coreId} Req{memReq.__getReqId__()} insId{memReq.__getInsId__()} Target: {memReq.__getTarget__()} Sending request from {pipeIns.getExPipe()}")
 
                         if accumSentBytes == accumSrcBytes:
                             if self.debug & 0x10:
-                                print(f"Target: {memReq.__getTarget__()} All bytes sent for Req{memReq.__getReqId__()}.")
+                                print(f"Cycle:{self.env.now} TCore{self.coreId} Req{memReq.__getReqId__()} insId{memReq.__getInsId__()} Target: {memReq.__getTarget__()} All bytes sent")
                             for i in parents:
                                 if self.debug & 0x10:
-                                    print(f"Target: {memReq.__getTarget__()} Removing Req{i} from sourceReqTrk. AccumSrcBytes={accumSrcBytes}. AccumSentBytes={accumSentBytes}")
+                                    print(f"Cycle:{self.env.now} TCore{self.coreId} Req{memReq.__getReqId__()} insId{memReq.__getInsId__()} Target: {memReq.__getTarget__()} Removing Req{i} from sourceReqTrk. AccumSrcBytes={accumSrcBytes}. AccumSentBytes={accumSentBytes}")
                                 del sourceReqTrk[i]  # Remove from tracker
                             maxTimer = maxTimerValue
                         else:
@@ -1669,11 +1672,11 @@ class tensixCore:
                                 assert maxTimer > 0, msg
                         yield self.env.timeout(1)
 
+                    assert accumSentBytes == accumSrcBytes, f"Cycle:{self.env.now} TCore{self.coreId} Thread{pipeIns.getThread()} Not all bytes sent for L1 Req numL1ReadsSent={pipeIns.getMemInfo("numL1ReadsSent")} numTotalL1Reads={pipeIns.getMemInfo("numTotalL1Reads")}"
                     if self.debug & 0x10:   print(f"Resetting accumulators")
                     accumSrcBytes = 0; accumSentBytes = 0
-                    assert pipeIns.getMemInfo(readsSent) == pipeIns.getMemInfo(totalReads), f"Error: L1 Reads Sent {pipeIns.getMemInfo(readsSent)} != L1 Reads Total {pipeIns.getMemInfo(totalReads)}"
                     if pipeIns.getMemInfo(totalReads) > 0 and (self.debug & 0x10):
-                        print(f"Target: {sourceReq.__getTarget__()} All Reads Sent {pipeIns.getMemInfo(readsSent)} == L1 Reads Total {pipeIns.getMemInfo(totalReads)}")
+                        print(f"Cycle:{self.env.now} TCore{self.coreId} Req{memReq.__getReqId__()} insId{memReq.__getInsId__()} Target: {sourceReq.__getTarget__()} All Reads Sent {pipeIns.getMemInfo(readsSent)} == L1 Reads Total {pipeIns.getMemInfo(totalReads)}")
 
                 case "WR":
                     #Handle reads to L1 and Register - Extendable to any memory
@@ -1691,12 +1694,10 @@ class tensixCore:
                         assert False, "Unknown target for L1 Req" + str(sourceReq.__getTarget__())
 
                     # Find request(s) meeting targetBytes
-                    accumSrcBytes = 0
-                    for k in sourceReqTrk.keys():
-                        accumSrcBytes += sourceReqTrk[k].__getBytes__()
-                    if self.debug & 0x10:
-                        print(f"Target: {sourceReq.__getTarget__()} Accumulated Bytes for Req{k} = {accumSrcBytes}")
+                    accumSrcBytes = self._accumulate_request_bytes(sourceReqTrk)
+                    if self.debug & 0x10:           print(f"Target: {sourceReq.__getTarget__()} Accumulated Bytes for Req{k}  = {accumSrcBytes} Length sourceReqTrk={len(sourceReqTrk)}")
                     if(accumSrcBytes < portWidth):     continue # Wait for more requests to accumulate
+                    if self.debug & 0x10:           print(f"Target: {sourceReq.__getTarget__()} Setting number of read requests to {sourceReq.__getTarget__()}={pipeIns.getMemInfo(totalWrites)} , NumBytes={accumSrcBytes} , PortWidth={portWidth}")
 
                     if self.debug & 0x10:
                         print(f"Target: {sourceReq.__getTarget__()} Setting number of write requests to {sourceReq.__getTarget__()}={pipeIns.getMemInfo(totalWrites)} , NumBytes={accumSrcBytes} , PortWidth={portWidth}")
@@ -1714,30 +1715,33 @@ class tensixCore:
                         memReq.__setTarget__(sourceReq.__getTarget__())
                         memReq.__setInsId__(sourceReq.__getInsId__())
                         for k in sourceReqTrk.keys():     parents.append(sourceReqTrk[k].__getReqId__())
-                        memReq.__setParentReqId__(parents)
+                        memReq.__setParentReqIds__(parents)
 
                         # L1 - put in iBuff, REG - put in oBuff
-                        if self.debug & 0x8: print(f"Target: {sourceReq.__getTarget__()} Cycle:{self.env.now} Addr:{hex(pipeIns.getRelAddr())} TCore{self.coreId} Thread{pipeIns.getThread()} pipeInsId:{pipeIns.getInsId()} pipeInstruction:{pipeIns.getOp()} Req{memReq.__getReqId__()} {memReq.__getTarget__()} access (inprogress) at [{self.coreId},{pipeIns.getExPipe()}] from pipe:{pipeIns.getExPipe()}")
+                        if self.debug & 0x8: print(f"Cycle:{self.env.now} TCore{self.coreId} Req{memReq.__getReqId__()} insId{memReq.__getInsId__()} Target: {sourceReq.__getTarget__()} Cycle:{self.env.now} Addr:{hex(pipeIns.getRelAddr())} TCore{self.coreId} Thread{pipeIns.getThread()} pipeInsId:{pipeIns.getInsId()} pipeInstruction:{pipeIns.getOp()} Req{memReq.__getReqId__()} {memReq.__getTarget__()} access (inprogress) at [{self.coreId},{pipeIns.getExPipe()}] from pipe:{pipeIns.getExPipe()}")
                         if(memReq.__getTarget__() == "L1" and self.args_dict['enableSharedL1']):
                             yield iBuff.put(memReq)
                         else:
+                            if self.debug & 0x8: print(f"Cycle:{self.env.now} TCore{self.coreId} Req{memReq.__getReqId__()} insId{memReq.__getInsId__()} {memReq.__getTarget__()} access initiation (inprogress) from pipe:{pipeIns.getExPipe()} to {memReq.__getTarget__()}")
+                            if self.debug & 0x8: print(f"Cycle:{self.env.now} TCore{self.coreId} Req{memReq.__getReqId__()} insId{memReq.__getInsId__()} {memReq.__getTarget__()} access initiation (done) from pipe:{pipeIns.getExPipe()} to {memReq.__getTarget__()}")
                             yield oBuff.put(memReq)
+                            if self.debug & 0x8: print(f"Cycle:{self.env.now} Req{memReq.__getReqId__()} insId{memReq.__getInsId__()} arbitration (done)")
 
                         reqTrk[memReq.__getReqId__()] = memReq          # Insert into tracker.
                         accumSentBytes += portWidth
                         pipeIns.incrMemInfo(writesSent, 1)
                         if(pipeIns.getMemInfo(writesSent) == 1):      pipeIns.setMemInfo("startL1Time", self.env.now)
                         if self.debug & 0x10:
-                            print(f"Target: {memReq.__getTarget__()} Inserting Req{memReq.__getReqId__()} into tracker. AccumSentBytes={accumSentBytes}, AccumSrcBytes={accumSrcBytes}")
-                            print(f"Target: {memReq.__getTarget__()} Writes Sent {pipeIns.getMemInfo(writesSent)}. Total Writes={pipeIns.getMemInfo(totalWrites)}")
-                            print(f"Target: {memReq.__getTarget__()} Sending {memReq.__getTarget__()} request {memReq.__getReqId__()} for insId {memReq.__getInsId__()} from {pipeIns.getExPipe()}")
-                        if(memReq.__getTarget__() == "L1"):    yield self.env.timeout(self.args_dict['latency_l1'])
-                        else:                               yield self.env.timeout(1)
+                            print(f"Cycle:{self.env.now} TCore{self.coreId} Req{memReq.__getReqId__()} insId{memReq.__getInsId__()} Target: {memReq.__getTarget__()} Inserting Req into tracker. AccumSentBytes={accumSentBytes}, AccumSrcBytes={accumSrcBytes}")
+                            print(f"Cycle:{self.env.now} TCore{self.coreId} Req{memReq.__getReqId__()} insId{memReq.__getInsId__()} Target: {memReq.__getTarget__()} Writes Sent {pipeIns.getMemInfo(writesSent)}. Total Writes={pipeIns.getMemInfo(totalWrites)}")
+                            print(f"Cycle:{self.env.now} TCore{self.coreId} Req{memReq.__getReqId__()} insId{memReq.__getInsId__()} Target: {memReq.__getTarget__()} Sending request from {pipeIns.getExPipe()}")
 
                         if accumSentBytes == accumSrcBytes:
-                            if self.debug & 0x10:   print(f"Target: {memReq.__getTarget__()} All bytes sent for Req{memReq.__getReqId__()}.")
+                            if self.debug & 0x10:
+                                print(f"Cycle:{self.env.now} TCore{self.coreId} Req{memReq.__getReqId__()} insId{memReq.__getInsId__()} Target: {memReq.__getTarget__()} All bytes sent")
                             for i in parents:
-                                if self.debug & 0x10: print(f"Target: {memReq.__getTarget__()} Removing Req{i} from sourceReqTrk. AccumSrcBytes={accumSrcBytes}. AccumSentBytes={accumSentBytes}")
+                                if self.debug & 0x10:
+                                    print(f"Cycle:{self.env.now} TCore{self.coreId} Req{memReq.__getReqId__()} insId{memReq.__getInsId__()} Target: {memReq.__getTarget__()} Removing Req{i} from sourceReqTrk. AccumSrcBytes={accumSrcBytes}. AccumSentBytes={accumSentBytes}")
                                 del sourceReqTrk[i]  # Remove from tracker
                                 maxTimer = maxTimerValue
                         else:
@@ -1746,11 +1750,11 @@ class tensixCore:
                                 msg = f"WARNING: Cycle:{self.env.now} TCore{self.coreId} Thread{pipeIns.getThread()} Timeout {maxTimerValue} reached for L1 Req numL1ReadsSent={pipeIns.getMemInfo("numL1ReadsSent")} numTotalL1Reads={pipeIns.getMemInfo("numTotalL1Reads")}"
                                 if(self.debug & 0x20):   print(msg); return True
                                 assert maxTimer > 0, msg
+                        yield self.env.timeout(1)
 
+                    assert accumSentBytes == accumSrcBytes, f"Cycle:{self.env.now} TCore{self.coreId} Thread{pipeIns.getThread()} Not all bytes sent for L1 Req numL1WritesSent={pipeIns.getMemInfo("numL1WritesSent")} numTotalL1Writes={pipeIns.getMemInfo("numTotalL1Writes")}"
                     if self.debug & 0x10: print(f"Target: {sourceReq.__getTarget__()} Resetting accumulators")
                     accumSrcBytes = 0; accumSentBytes = 0
-                    # assert pipeIns.getMemInfo(writesSent) == pipeIns.getMemInfo(totalWrites), f"Error: L1 Writes Sent {pipeIns.getMemInfo(writesSent)} != L1 Writes Total {pipeIns.getMemInfo(totalWrites)}"
-                    # if pipeIns.getMemInfo(totalWrites) > 0: print(f"Target: {sourceReq.__getTarget__()} All Writes Sent {pipeIns.getMemInfo(writesSent)} == L1 Writes Total {pipeIns.getMemInfo(totalWrites)}")
 
                 case _:
                     assert False, "L1 Req unknown op " + str(sourceReq.__getOp__())
@@ -2165,7 +2169,7 @@ class tensixCore:
                 memReq.__setSrc__(pipeId)
                 memReq.__setTarget__("L1")
                 memReq.__setInsId__(pipeIns.getInsId())
-                memReq.__setParentReqId__(-1)
+                memReq.__setParentReqIds__([])
 
                 # Dst Request
                 numDstBytes = self.align(pipeIns.getDstSize(), max(l1PortWidth, regPortWidth))
@@ -2289,7 +2293,7 @@ class tensixCore:
                 # Src Request
                 numSrcBytes = self.align(pipeIns.getSrcSize(), max(l1PortWidth, regPortWidth))
                 if self.debug & 0x8:
-                    print(f"Cycle:{self.env.now} Addr:{hex(pipeIns.getRelAddr())} TCore{self.coreId} Thread{pipeIns.getThread()} insId{pipeIns.getInsId()} Instruction:{pipeIns.getOp()} Unpacker fetch of {numSrcBytes} bytes from L1")
+                    print(f"Cycle:{self.env.now} Addr:{hex(pipeIns.getRelAddr())} TCore{self.coreId} Thread{pipeIns.getThread()} insId{pipeIns.getInsId()} Instruction:{pipeIns.getOp()} Packer fetch of {numSrcBytes} bytes from REG")
                 self.numTotalL1Bytes += numSrcBytes
 
                 # Create source write request
@@ -2298,12 +2302,12 @@ class tensixCore:
                 memReq.__setSrc__(pipeId)
                 memReq.__setTarget__("REG")
                 memReq.__setInsId__(pipeIns.getInsId())
-                memReq.__setParentReqId__(-1)
+                memReq.__setParentReqIds__([])
 
                 # Dst Request
                 numDstBytes = self.align(pipeIns.getDstSize(), max(l1PortWidth, regPortWidth))
                 if self.debug & 0x10:
-                    print(f"Cycle:{self.env.now} Addr:{hex(pipeIns.getRelAddr())} TCore{self.coreId} Thread{pipeIns.getThread()} insId{pipeIns.getInsId()} Instruction:{pipeIns.getOp()} Unpacker write of {numDstBytes} bytes to Reg")
+                    print(f"Cycle:{self.env.now} Addr:{hex(pipeIns.getRelAddr())} TCore{self.coreId} Thread{pipeIns.getThread()} insId{pipeIns.getInsId()} Instruction:{pipeIns.getOp()} Packer write of {numDstBytes} bytes to L1")
                 self.numTotalRegBytes += numDstBytes
 
                 pipeIns.setMemInfo("numTotalRegReads", self._calculate_memory_requests(memReq.__getBytes__(), regPortWidth, memReq.__getOp__()))
@@ -2321,7 +2325,7 @@ class tensixCore:
                 if self.debug & 0x8:     print(f"Cycle:{self.env.now} Addr:{hex(pipeIns.getRelAddr())} TCore{self.coreId} Thread{pipeIns.getThread()} insId{pipeIns.getInsId()} Instruction:{pipeIns.getOp()} Packer Accesses (inprogress)(nonBarrier) Req:{memReq.__getReqId__()}")
                 if(self.args_dict['enableSharedL1']):
                     if self.debug & 0x8:
-                        print(f"Cycle:{self.env.now} Addr:{hex(pipeIns.getRelAddr())} TCore{self.coreId} Thread{pipeIns.getThread()} insId{pipeIns.getInsId()} Instruction:{pipeIns.getOp()} Unpacker Accesses (inprogress)(nonBarrier) Req:{memReq.__getReqId__()} dstSize={numDstBytes}, srcSize={numSrcBytes}")
+                        print(f"Cycle:{self.env.now} Addr:{hex(pipeIns.getRelAddr())} TCore{self.coreId} Thread{pipeIns.getThread()} insId{pipeIns.getInsId()} Instruction:{pipeIns.getOp()} Packer Accesses (inprogress)(nonBarrier) Req:{memReq.__getReqId__()} dstSize={numDstBytes}, srcSize={numSrcBytes}")
 
                     #Reg
                     self.env.process(self._handle_memory_request(self.regReqBuff,self.regIBuffer[self.coreId][pipeId], self.regOBuffer[self.coreId][pipeId], reqTrk))
