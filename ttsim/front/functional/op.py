@@ -519,6 +519,13 @@ def Resize(name: str, /, scale_factor, **kwargs):
 def Split(name, **kwargs):
     return SplitOpHandle(name, ipos=[0, 1], **kwargs)
 
+def AdaptiveAvgPool1d(name, adaptive=True, output_size=1, **kwargs):
+    op_hndl = SimOpHandle(name, 'AveragePool', params=[], ipos=[0],
+                          adaptive=adaptive,
+                          output_size=output_size,
+                          **kwargs)
+    return op_hndl
+
 def conv1d(name, **kwargs):
     op_hndl = SimOpHandle(
         name,

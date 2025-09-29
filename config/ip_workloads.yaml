@@ -55,3 +55,10 @@ workloads:
     instances:
       input_small: {'dim': 32, 'n_layers': 2, 'n_heads': 2, 'vocab_size': 256, 'max_batch_size': 2, 'max_seq_len': 8, 'seq_len': 1, 'bs': 1}
       input_standard: {'dim': 4096, 'n_layers': 32, 'n_heads': 32, 'vocab_size': 32000, 'max_batch_size': 2, 'max_seq_len': 8, 'seq_len': 1, 'bs': 1}
+
+  - api: TTSIM
+    name: SwinTransformer
+    basedir: workloads/Swin-Transformer
+    module : SwinTransformer@SwinTransformer.py
+    instances:
+      input_1: {'img_size': 224, 'in_chans': 3, 'bs': 3, 'num_classes': 3000}

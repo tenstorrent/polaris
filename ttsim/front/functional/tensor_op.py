@@ -209,6 +209,16 @@ def tensor_transpose(self, dim0, dim1):
         self.link_module._tensors[self.name] = self
     return op(self)
 
+def tensor_permute(self, perm):
+    assert self.link_module is not None, f"link_module for {self.name} not specified!!"
+    op_name = f"{self.link_module.name}.permute.impl_{next(counter)}"
+    op = F.Transpose(op_name, perm=perm)
+    op.set_module(self.link_module)
+    self.link_module._op_hndls[op.name] = op
+    if self.name not in self.link_module._tensors:
+        self.link_module._tensors[self.name] = self
+    return op(self)
+
 def tensor_unsqueeze(self, dim):
     assert isinstance(self, SimTensor), f"unsqueeze self = {self} not a SimTensor!!"
     if self.rank() < 0: raise ValueError("Tensor rank must be at least 0.")
@@ -566,6 +576,7 @@ SimTensor.contiguous  = tensor_contiguous  #type: ignore
 SimTensor.flatten     = tensor_flatten     #type: ignore
 SimTensor.repeat      = tensor_repeat      #type: ignore
 SimTensor.softmax     = tensor_softmax     #type: ignore
+SimTensor.permute     = tensor_permute     #type: ignore
 
 #TODO:
 # 0. Cleanup op-naming/link-module/tensor etc... (refactor)

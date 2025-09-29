@@ -1040,31 +1040,45 @@ class AveragePoolOp(SimOp):
 
         if is_adaptive:
             # For adaptive pooling, calculate kernel_shape dynamically based on input and desired output size
-            output_size = self.attrs.get('output_size', (1, 1))
+            output_size = self.attrs.get('output_size', 1)
 
-            # Ensure output_size is a tuple of 2 elements
+            # Ensure output_size is a tuple of appropriate length
             if isinstance(output_size, int):
-                output_size = (output_size, output_size)
+                output_size = (output_size,)
 
-            # Extract spatial dimensions (last 2 dimensions for 2D pooling)
-            input_height, input_width = input_shape[-2], input_shape[-1]
-            output_height, output_width = output_size
+            # Determine if we're doing 1D or 2D pooling based on input shape
+            num_spatial_dims = len(input_shape) - 2  # Subtract batch and channel dims
 
-            # Calculate kernel size, stride, and padding to achieve the desired output size
-            # For simplicity, we use a kernel that divides the input evenly if possible
-            kernel_height = input_height // output_height if output_height > 0 else 1
-            kernel_width = input_width // output_width if output_width > 0 else 1
+            if num_spatial_dims == 1:
+                # 1D pooling
+                input_length = input_shape[-1]
+                output_length = output_size[0]
 
-            # Set the calculated kernel shape
-            kernel_shape = (kernel_height, kernel_width)
+                # Calculate kernel size and stride to achieve desired output size
+                kernel_length = input_length // output_length if output_length > 0 else 1
+                kernel_shape = (kernel_length,)
+                strides = (kernel_length,)
+                pads = [0, 0]  # No padding for adaptive pooling
 
-            # Calculate appropriate strides
-            strides = (kernel_height, kernel_width)
+            elif num_spatial_dims == 2:
+                # 2D pooling
+                input_height, input_width = input_shape[-2], input_shape[-1]
+                output_height, output_width = output_size if len(output_size) == 2 else (output_size[0], output_size[0])
+
+                # Calculate kernel sizes and strides
+                kernel_height = input_height // output_height if output_height > 0 else 1
+                kernel_width = input_width // output_width if output_width > 0 else 1
+                kernel_shape = (kernel_height, kernel_width)    # type: ignore[assignment]
+                strides = (kernel_height, kernel_width) # type: ignore[assignment]
+                pads = [0, 0, 0, 0]  # No padding for adaptive pooling
+
+            else:
+                raise ValueError(f"Unsupported number of spatial dimensions: {num_spatial_dims}")
 
             # Set attributes for the pooling_shape_inference function
             self.attrs['kernel_shape'] = kernel_shape
             self.attrs['strides'] = strides
-            self.attrs['pads'] = [0, 0, 0, 0]  # No padding for adaptive pooling
+            self.attrs['pads'] = pads
 
             # Use pooling_shape_inference instead of direct shape setting
             output_shape = pooling_shape_inference(input_shape, kernel_shape, self.attrs)
