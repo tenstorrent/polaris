@@ -3,17 +3,37 @@
 ## Table of Contents
 
 1. [Overview](#overview)
-2. [Installation](#installation)
+   - [Key Features](#key-features)
+2. [Quick Start](#quick-start)
+3. [Installation](#installation)
    - [Prerequisites](#prerequisites)
    - [Environment Setup](#environment-setup)
-3. [Configuration Files](#configuration-files)
-4. [Execution](#execution)
-   - [Basic Execution](#basic-execution)
-   - [Scripts Based Execution](#scripts-based-execution)
-5. [Quick Start](#quick-start)
+     - [1. Install Miniforge](#1-install-miniforge)
+     - [2. Clone Repository](#2-clone-repository)
+     - [3. Create Conda Environment](#3-create-conda-environment)
+   - [Development Setup (Optional)](#development-setup-optional)
+4. [Configuration Files](#configuration-files)
+   - [Core Configuration Files](#core-configuration-files)
+   - [Configuration versions](#configuration-versions)
+5. [Execution](#execution)
+   - [Default execution mode](#default-execution-mode)
+     - [Minimal input configuration file](#minimal-input-configuration-file)
+     - [Execute a test](#execute-a-test)
+     - [Test output](#test-output)
+   - [Custom execution mode](#custom-execution-mode)
+   - [Managed execution mode](#managed-execution-mode)
+     - [Optional prerequisites](#optional-prerequisites)
 6. [Configuration Guide](#configuration-guide)
+   - [gitignore](#gitignore)
+   - [Debug Levels](#debug-levels)
+   - [Multi-core input configuration file](#multi-core-input-configuration-file)
+   - [Engine Configuration](#engine-configuration)
 7. [Output and Analysis](#output-and-analysis)
+   - [Output Files](#output-files)
+   - [Chrome Trace Visualization](#chrome-trace-visualization)
+   - [Performance Metrics](#performance-metrics)
 8. [Troubleshooting](#troubleshooting)
+   - [Common Issues](#common-issues)
 9. [Support](#support)
 
 ## Overview
@@ -30,9 +50,15 @@ NeoSim is a cycle-accurate simulator for Tenstorrent's Tensix Neo architecture, 
 - **Performance analysis** with detailed instruction traces and Chrome trace output
 - **Configurable architecture** supporting different Tensix variants (TTQS, TTWH, TTBH)
 
+## Quick Start
+
+- Follow the steps to install NeoSim at [Installation](#installation)
+- Follow steps to run NeoSim under [Execution](#execution)
+- Follow steps to view output at [Output and Analysis](#output-and-analysis)
+
 ## Installation
 
-The sections below describe steps to create appropriate conda environment. For more updated instructions for Miniforge installation please see section `Installation` from `polaris/README.md`. 
+The sections below describe steps to create appropriate conda environment. For more updated instructions for Miniforge installation please see the [Installation section](https://github.com/tenstorrent/polaris?tab=readme-ov-file#installation) from the Polaris README.
 
 ### Prerequisites
 
@@ -90,149 +116,392 @@ conda activate polaris-dev
 
 ## Configuration Files
 
-NeoSim uses JSON configuration files located in `config/tensix_neo/` directory:
+NeoSim uses JSON configuration files located in `config/tensix_neo/`
+directory:
 
 ### Core Configuration Files
+- **Input Configuration** (`ttqs_inputcfg_*.json`): Defines simulation
+parameters, ELF paths, and test configuration.
+- **Memory Map** (`ttqs_memory_map_*.json`): Specifies memory layout and
+address mappings.
+- **Architecture Configuration** (`ttqs_neo*.json`): Defines core
+architecture parameters
+- **Default Configuration** (`defCfg.json`): Engine definitions and
+basic settings
+- **Instruction Set Architecture file**: Defines instruction set for
+given architecture. These are YAML files and are located
+in `ttsim/config/llk/instruction_sets/ttqs` for Quasar (`ttqs`)
+architecture.
 
-- **Input Configuration** (`ttqs_inputcfg_*.json`): Defines simulation parameters, ELF paths, and test configuration
-- **Memory Map** (`ttqs_memory_map_*.json`): Specifies memory layout and address mappings
-- **Architecture Configuration** (`ttqs_neo*.json`): Defines core architecture parameters
-- **Default Configuration** (`defCfg.json`): Engine definitions and basic settings
-
-### Configuration Versions
+### Configuration versions
 
 Available configuration sets by LLK version tag:
 
-- `sep23`   : September 23rd version 
-- `jul27`   : July 27th version 
-- `jul1`    : July 1st version  
-- `mar18`   : March 2018 version
-- `feb19`   : February 2019 version
+- `feb19` : LLK tests from RTL snapshot taken on February 19, 2025
+- `mar18` : LLK tests from RTL snapshot taken on March 18, 2025
+- `jul1`  : LLK tests from RTL snapshot taken on July 1, 2025
+- `jul27` : LLK tests from RTL snapshot taken on July 27, 2025
+- `sep23` : LLK tests from RTL snapshot taken on September 23, 2025
+
+The NeoSim maintains 100% test pass rate for all the LLK tests in the
+snapshots above.
 
 ## Execution
 
-### Basic Execution
+The NeoSim model can be called via Python script
+`ttsim/back/tensix_neo/tneoSim.py`.
 
-```bash
-Update th*Path in config/tensix_neo/ttqs_inputcfg_jul27.json. Refer to command-line arguments 
-export PYTHONPATH=<polaris directory>
-cd "<polaris directory>"
+An RTL LLK test can be executed via NeoSim model using the same
+binary files (ELF) generated during the execution of the test via RTL.
+The ELF files and associated parameters need to be specified in an
+input configuration file for execution via the model.
 
-# Run single LLK
-python ttsim/back/tensix_neo/tneosim.py \
-    --cfg config/tensix_neo/ttqs_neo4_jul27.json \
-    --inputcfg config/tensix_neo/ttqs_inputcfg_jul27.json
+NeoSim supports 3 modes of execution. They are as follows.
 
-# Run single LLK with specific output directory
-python ttsim/back/tensix_neo/tneosim.py \
-    --cfg config/tensix_neo/ttqs_neo4_jul27.json \
-    --inputcfg config/tensix_neo/ttqs_inputcfg_jul27.json \
-    --odir __logs/llk_jul27
+| Mode        | Best for                                        | Configuration required       |
+|-------------|-------------------------------------------------|------------------------------|
+| **Default** | Quick testing, learning                         | Minimal inputcfg only        |
+| **Custom**  | Custom architectures, design evaluation         | Full configuration control   |
+| **Managed** | Enterprise and Tenstorrent users, batch testing | Test name + version tag only |
 
-# Run single LLK with medium debug detail
-python ttsim/back/tensix_neo/tneosim.py \
-    --cfg config/tensix_neo/ttqs_neo4_jul27.json \
-    --inputcfg config/tensix_neo/ttqs_inputcfg_jul27.json \
-    --debug 15
+Each execution mode is described in the following section in further
+details.
 
+### Default execution mode
+
+Assuming ELF files are available, an RTL test can be executed via
+the NeoSim model with just an input script.
+
+The following sections explain how to write the input configuration
+file and how to execute a given test.
+
+#### Minimal input configuration file
+
+Input configuration file, referred to as `inputcfg` hereafter, is a JSON
+file. A minimal inputcfg JSON file is as follows.
+```json
+{
+  "llkVersionTag":     "<llk tag>",
+  "numTCores":         "<Number of TRISC Cores>",
+  "input": {
+    "name":            "test_simulation",
+    "tc0": {
+      "numThreads":    "<Number of threads in TRISC Core 0>",
+      "startFunction": "<Entry Function in LLK (assumes same in each thread)>",
+      "th0Elf":        "<ELF Filename of Thread0>",
+      "th0Path":       "</path/to/elf/directory>",
+      "th1Elf":        "<ELF Filename of Thread1>",
+      "th1Path":       "</path/to/elf/directory>",
+      "th2Elf":        "<ELF Filename of Thread2>",
+      "th2Path":       "</path/to/elf/directory>",
+      "th3Elf":        "<>",
+      "th3Path":       "<>",
+    }
+  },
+  "description": "<Description of the LLK>"
+}
 ```
 
-Note: Output directories starting with '__' as specified in gitignore will not get accidentally included under version control. So --odir can point to base directories satisfying this condition
+The JSON keys seen above are required inputs, further explanation about
+them is as follows.
+- **`llkVersionTag`**: Version identifier for LLK compatibility.
+  This is a mandatory argument. Accepted values are listed in
+  section `Configuration Versions`.
+- **`numTCores`**: Number of Tensix cores to simulate.
+- **`numThreads`**: Number of threads per core (1-4 supported)
+- **`startFunction`**: Entry point function name (e.g. `main`).
+- **`th*Elf`**: ELF binary filename for each thread (e.g.
+`thread_0.elf`, `thread_1.elf`, etc.)
+- **`th*Path`**: Directory path containing ELF binaries (e.g. path of
+`thread_0.elf`, etc.)
 
-### Scripts Based Execution
+#### Execute a test
 
+Once the input configuration file is prepared, the tests can be executed
+with
 ```bash
-# Run single LLK
-cd "<polaris directory>"
-python tests/standalone/execute_test.py \
-    --test t6-quas-n1-ttx-elwadd-broadcast-col0-fp16-llk \
-    --tag jul27
-
-# Run all LLK serial
-python tests/standalone/execute_test.py \
-    --tag jul27
-
-# Run all LLK with two runs in parallel
-python tests/standalone/execute_test.py \
-    --tag jul27 \
-    --parallel 2
-
+PYTHONPATH="." python ttsim/back/tensix_neo/tneosim.py --inputcfg inputcfg.json
 ```
 
-### Command-Line Arguments
+If the `polaris` directory is already present in `PYTHONPATH`, the
+initial `PYTHONPATH` can be omitted.
+```bash
+python ttsim/back/tensix_neo/tneosim.py --inputcfg inputcfg.json
+```
 
-| Argument | Type | Required | Description |
-|----------|------|----------|-------------|
-| `--inputcfg` | string | Yes | Path to LLK configuration JSON file |
-| `--debug` | int | No | Debug verbosity level (0-63, see Debug Levels) |
-| `--cfg` | string | No | Override architecture configuration file |
-| `--memoryMap` | string | No | Override memory map configuration file |
-| `--defCfg` | string | No | Override default configuration file |
-| `--risc.cpi` | float | No | RISC cycles per instruction override |
-| `--odir` | string | No | Output directory (default: `__llk`) |
-| `--exp` | string | No | Experiment prefix for log files (default: `neo`) |
+#### Test output
+
+A successful test would print
+1. Estimated number of cycles for the given test e.g.
+`Total Cycles =  6841.0`.
+2. Summary of the test. This includes
+   1. RISCV and tensix instruction count.
+   2. Tensix instruction histogram by engines, mnemonics.
+   3. Configuration register writes.
+   3. Number of L1 and register accesses.
+3. A chrome trace file for further analysis of instruction timings,
+access patterns, etc. Please see section `Chrome Trace Visualization`
+for more details.
+
+
+### Custom execution mode
+
+The users can specify custom architecture configuration, memory map,
+instruction set, instruction throughput, etc. either via commandline
+options or via inputcfg. The commandline arguments supersede arguments
+from inputcfg which in turn supersede defaults.
+
+The commandline arguments are as follows:
+| Argument          | Type   | Required | Description                                      |
+|-------------------|--------|----------|--------------------------------------------------|
+| `--inputcfg`      | string | Yes      | Path to LLK configuration JSON file              |
+| `--cfg`           | string | No       | Override architecture configuration file         |
+| `--debug`         | int    | No       | Debug verbosity level (0-63, see Debug Levels)   |
+| `--defCfg`        | string | No       | Override default configuration file              |
+| `--exp`           | string | No       | Experiment prefix for log files (default: `neo`) |
+| `--memoryMap`     | string | No       | Override memory map configuration file           |
+| `--odir`          | string | No       | Output directory (default: `__llk`)              |
+| `--risc.cpi`      | float  | No       | Override RISCV number of cycles per instruction  |
+| `--ttISAFileName` | string | No       | Override instruction set file.                   |
+
+Please see section `Debug Levels` for more details on debug flag values.
+
+The defaults for `cfg`, `memoryMap` and `ttISAFileName` are tied
+to `llkVersionTag` tag in `inputcfg`. E.g. for `llkVersionTag` of `jul27`,
+the defaults would be
+1. `cfg`: `config/tensix_neo/ttqs_neo4_jul27.json`
+2. `memoryMap`: `config/tensix_neo/ttqs_memory_map_jul27.json`
+3. `ttISAFileName`: `ttsim/config/llk/instruction_sets/ttqs/assembly.jul27.yaml`
+
+Custom architecture configuration file (`cfg`) allows customisation of
+tensix instruction throughput, L1 memory latency, etc. This is a JSON file.
+The file also contains stack pointer information, this would be
+deprecated in future versions.
+
+The memory map, specifically config register space can be customised
+via the memory map file. This is a JSON file.
+
+Please note that custom tensix instruction set is accepted as YAML file,
+and NOT as a JSON file.
+
+If a custom file is provided, the simulator completely disregards the
+defaults. Hence, please ensure both the modified and unmodified fields
+are included in the new file.
+
+Arguments such as `risc.cpi` (number of cycles per instruction for
+RV32 instructions) can also be specified either via `cfg` file or via
+commandline. The commandline arguments overrides the value provided
+via cfg file.
+
+Arguments `debug`, `memoryMap`, `ttISAFileName` can also be specified
+via `inputcfg`. As before, commandline argument overrides any values
+provided via inputcfg file.
+
+The following example explains the overrides better. Consider
+following files.
+```bash
+$ cat cfg.json
+...
+"risc.cpi" : 10
+...
+
+$ cat inputcfg.json
+...
+"llkVersionTag" : "jul27",
+"debug"         : 15
+"memoryMap"     : "memoryMap.inputcfg.json"
+"ttISAFileName" : "isa.inputcfg.yaml"
+...
+
+# execution
+$ PYTHONPATH="." python ttsim/back/tensix_neo/tneosim.py --inputcfg inputcfg.json
+$ PYTHONPATH="." python ttsim/back/tensix_neo/tneosim.py --inputcfg inputcfg.json --debug 63
+$ PYTHONPATH="." python ttsim/back/tensix_neo/tneosim.py --inputcfg inputcfg.json --memoryMap memoryMap.cli.json
+$ PYTHONPATH="." python ttsim/back/tensix_neo/tneosim.py --inputcfg inputcfg.json --cfg cfg.json
+$ PYTHONPATH="." python ttsim/back/tensix_neo/tneosim.py --inputcfg inputcfg.json --cfg cfg.json --risc.cpi 2
+$ PYTHONPATH="." python ttsim/back/tensix_neo/tneosim.py --inputcfg inputcfg.json --risc.cpi 2 --cfg cfg.json
+```
+
+The snapshot above shows custom `cfg` file called `cfg.json`
+where `risc.cpi` is set to a rather large value of 10. It also shows an
+`inputcfg` where debug flag, and paths for custom `memoryMap` and
+`ttISAFileName` are specified. The effect of commandline and inputcfg
+arguments on the simulator execution environment is summarised in the table below.
+
+| Execution                                                            | inputcfg        | cfg        | memoryMap                 | ttISAFileName       | debug | risc.cpi                  |
+|----------------------------------------------------------------------|-----------------|------------|---------------------------|---------------------|-------|---------------------------|
+| `tneosim.py --inputcfg inputcfg.json`                                | `inputcfg.json` | Default    | `memoryMap.inputcfg.json` | `isa.inputcfg.yaml` | 15    | 1 (from default cfg file) |
+| `tneosim.py --inputcfg inputcfg.json --debug 63`                     | `inputcfg.json` | Default    | `memoryMap.inputcfg.json` | `isa.inputcfg.yaml` | 63    | 1 (from default cfg file) |
+| `tneosim.py --inputcfg inputcfg.json --memoryMap memoryMap.cli.json` | `inputcfg.json` | Default    | `memoryMap.cli.json`      | `isa.inputcfg.yaml` | 15    | 1 (from default cfg file) |
+| `tneosim.py --inputcfg inputcfg.json --cfg cfg.json`                 | `inputcfg.json` | `cfg.json` | `memoryMap.inputcfg.json` | `isa.inputcfg.yaml` | 15    | 10 (from custom cfg file) |
+| `tneosim.py --inputcfg inputcfg.json --cfg cfg.json --risc.cpi 2`    | `inputcfg.json` | `cfg.json` | `memoryMap.inputcfg.json` | `isa.inputcfg.yaml` | 15    | 2 (from commandline)      |
+| `tneosim.py --inputcfg inputcfg.json --risc.cpi 2 --cfg cfg.json`    | `inputcfg.json` | `cfg.json` | `memoryMap.inputcfg.json` | `isa.inputcfg.yaml` | 15    | 2 (from commandline)      |
+
+The inputcfg arguments take precedence over defaults. The commandline arguments
+take precedence over both arguments from inputcfg and defaults. This
+precedence is absolute and does not depend upon sequence in which the
+arguments are provided.
+
+The output of test execution is same that described in section
+`Test output` in `Default execution mode`.
+
+### Managed execution mode.
+
+To further simplify the execution of RTL tests, enterprise and
+Tenstorrent users may use `tests/standalone/execute_test.py` script.
+
+#### Optional prerequisites
+
+The following steps are performed within the `execute_test.py` script
+(described next) as well, but can be carried out explicitly if required.
+1. **Network connectivity check**: Check that you are connected to
+  Tenstorrent Tailscale enabled network.
+   ```bash
+   cd polaris
+   bash ./tools/ci/check_behind_tailscale.sh
+   ```
+   If successful the script will print `Running behind Tailscale`. The
+   artifact download from the next step will succeed only if
+   this check passes.
+2. **RTL LLK test data download**: Download LLK test data for a
+  particular `llkVersionTag` (`jul27` in the example below) with
+   ```bash
+   cd polaris
+   bash ./tools/ci/lfc_downloader.sh --extract ext_rtl_test_data_set_jul27.tar.gz
+   ```
+   Please replace the tag with appropriate value of `llkVersionTag` to
+   download artifacts from other snapshots. Please see
+   `./doc/tools/ci/lfc_downloader_user_guide.md` for further details.
+
+##### Why explicit download of RTL test data:
+- To verify network connectivity before running multiple tests
+- To pre-download test data for offline use
+- To troubleshoot download issues
+
+In managed mode, the users are not required provide `inputcfg`, instead
+this script only requires LLK test name and `llkVersionTag`. The given
+test can be executed as follows.
+```bash
+python tests/standalone/execute_test.py --tag jul27 --test t6-quas-n1-ttx-Int32-upk-to-dest-llk
+```
+Here test `t6-quas-n1-ttx-Int32-upk-to-dest-llk` from RTL snapshot from
+Jul 27, 2025 will be executed. The test uses default `cfg`, `memoryMap`
+and `ttISA` files.
+
+If not present, the test data (ELF files, instruction set) for a given
+`llkVersionTag` is downloaded with help of `lfc_downloader.sh` as
+explained above.
+
+In addition to the test output specified earlier, the managed execution
+mode also provides comparison between number of cycles from RTL test
+execution and those estimated by the NeoSim model for given test.
+
+The comparison is printed in tabular format to the `stdout` and stored
+as a plot. The paths of the plots are printed to `stdout`.
+
+The managed mode also allows for additional execution options.
+1. `execute_test.py --test t6-quas-n1-ttx-elwadd-broadcast-col0-fp16-llk --tag jul27`
+   executes a test associated with `llkVersionTag` `jul27`.
+1. `execute_test.py --tag jul27 --test t6-quas-n1-ttx-Int32-upk-to-dest-llk t6-quas-n1-ttx-elwadd-broadcast-col0-fp16-llk`
+   executes both the tests associated with `llkVersionTag` `jul27`.
+1. `execute_test.py --tag sep23` executes _all_ LLK tests associated
+   with given `llkVersionTag` (`sep23` in this case). The execution of tests proceeds in serial manner, that is tests are executed in one after the other.
+1. `execute_test.py --tag sep23 --parallel 2` speeds up execution with
+   two processes running in parallel.
+1. `execute_test.py --tag jul1 sep23 --parallel 2` multiple
+   `llkVersionTag`s can be specified. This will execute all tests for
+   each `llkVersionTag`.
+
+## Configuration Guide
+
+### gitignore
+
+All files and directories starting with `__` are not staged for commits.
+Users may use this a gitignore character for files and directories that
+do not need to be committed and pushed.
 
 ### Debug Levels
 
 Debug levels are bitwise flags that can be combined:
 
-| Level | Component | Detail | Description |
-|-------|-----------|---------|-------------|
-| 1 | TRISC | Low | Basic RISC core activity |
-| 2 | Tensix | Low | Basic Tensix core activity |
-| 4 | TRISC | Medium | Detailed RISC instruction flow |
-| 8 | Tensix | Medium | Detailed pipeline activity |
-| 16 | TRISC | High | Full RISC debug output |
-| 32 | Tensix | High | Full pipeline and memory debug |
+| Level | Component | Detail | Description                    |
+|-------|-----------|--------|--------------------------------|
+| 1     | TRISC     |  Low   | Basic RISC core activity       |
+| 2     | Tensix    | Low    | Basic Tensix core activity     |
+| 4     | TRISC     | Medium | Detailed RISC instruction flow |
+| 8     | Tensix    | Medium | Detailed pipeline activity     |
+| 16    | TRISC     | High   | Full RISC debug output         |
+| 32    | Tensix    | High   | Full pipeline and memory debug |
 
 **Examples:**
-
 - `--debug 3`: TRISC + Tensix low detail (1 + 2)
 - `--debug 15`: All components medium detail (1 + 2 + 4 + 8)
 - `--debug 63`: Maximum debug output (all flags)
 
-## Quick Start
-
-- Follow the steps to install NeoSim at [Installation](#installation)
-- Follow steps to run NeoSim under [Execution](#execution)
-- Follow steps to view output at [Output and Analysis](#output-and-analysis)
-
-## Configuration Guide
-
-### Input Configuration Format
-
+### Multi-core input configuration file
+A multiple tensix cores and ELF files associated with them can be
+specified in `inputcfg` file as follows.
 ```json
 {
-  "llkVersionTag": "<llk tag>",
-  "cfg": "<Architecture Configuration JSON>",
-  "memoryMap": "<Memory Map JSON>",
-  "debug": "<debug level>",
-  "numTCores": "<Number of TRISC Cores>",
+  "llkVersionTag": "jul27",
+  "debug": 15,
+  "ttISAFileName": "path/to/instruction_set/assembly.yaml",
+  "numTCores": 4,
   "input": {
-    "name": "test_simulation",
+    "syn": 0,
+    "name": "t6-quas-n4-ttx-matmul-l1-acc-multicore-2d-matmul-4-tiles-llk",
     "tc0": {
-      "numThreads": "<Number of threads in TRISC Core 0>",
-      "startFunction": "<Entry Function in LLK (assumes same in each thread)>",
-      "th0Elf": "<ELF Filename of Thread0>",
-      "th0Path": "</path/to/elf/directory>",
-      "th1Elf": "<ELF Filename of Thread1>",
-      "th1Path": "</path/to/elf/directory>",
-      "th2Elf": "<ELF Filename of Thread2>",
-      "th2Path": "</path/to/elf/directory>",
+      "numThreads": 4,
+      "startFunction": "main",
+      "th0Elf": "thread_0.elf",
+      "th0Path": "path/to/elf/neo_0/thread_0/out",
+      "th1Elf": "thread_1.elf",
+      "th1Path": "path/to/elf/neo_0/thread_1/out",
+      "th2Elf": "thread_2.elf",
+      "th2Path": "path/to/elf/neo_0/thread_2/out",
+      "th3Elf": "",
+      "th3Path": ""
+    },
+    "tc1": {
+      "numThreads": 4,
+      "startFunction": "main",
+      "th0Elf": "thread_0.elf",
+      "th0Path": "path/to/elf/neo_1/thread_0/out",
+      "th1Elf": "thread_1.elf",
+      "th1Path": "path/to/elf/neo_1/thread_1/out",
+      "th2Elf": "thread_2.elf",
+      "th2Path": "path/to/elf/neo_1/thread_2/out",
+      "th3Elf": "",
+      "th3Path": ""
+    },
+    "tc2": {
+      "numThreads": 4,
+      "startFunction": "main",
+      "th0Elf": "thread_0.elf",
+      "th0Path": "path/to/elf/neo_2/thread_0/out",
+      "th1Elf": "thread_1.elf",
+      "th1Path": "path/to/elf/neo_2/thread_1/out",
+      "th2Elf": "thread_2.elf",
+      "th2Path": "path/to/elf/neo_2/thread_2/out",
+      "th3Elf": "",
+      "th3Path": ""
+    },
+    "tc3": {
+      "numThreads": 4,
+      "startFunction": "main",
+      "th0Elf": "thread_0.elf",
+      "th0Path": "path/to/elf/neo_3/thread_0/out",
+      "th1Elf": "thread_1.elf",
+      "th1Path": "path/to/elf/neo_3/thread_1/out",
+      "th2Elf": "thread_2.elf",
+      "th2Path": "path/to/elf/neo_3/thread_2/out",
+      "th3Elf": "",
+      "th3Path": ""
     }
   },
-  "description": {"<Description of the LLK>"}
+  "description": {}
 }
 ```
-
-### Key Configuration Parameters
-
-- **`llkVersionTag`**: Version identifier for LLK compatibility
-- **`numTCores`**: Number of Tensix cores to simulate
-- **`numThreads`**: Threads per core (1-4 supported)
-- **`startFunction`**: Entry point function name
-- **`th*Elf`**: ELF binary filename for each thread
-- **`th*Path`**: Directory path containing ELF binaries
 
 ### Engine Configuration
 
@@ -246,7 +515,7 @@ Edit `Architecture Configuration JSON file` to customize instruction to engine m
       "engineInstructions": ["unpacr"]
     },
     {
-      "engineName": "sfpu", 
+      "engineName": "sfpu",
       "engineInstructions": ["dotpv"]
     },
     {
@@ -262,6 +531,9 @@ Edit `Architecture Configuration JSON file` to customize instruction to engine m
 ```
 
 ## Output and Analysis
+
+This section further expands explanation of the output from tests
+described earlier ([Test output](#test-output)).
 
 ### Output Files
 
@@ -287,6 +559,7 @@ Key metrics available in simulation output:
 - **Pipeline utilization per engine**
 - **Memory access latencies**
 - **L1 cache hit/miss ratios**
+
 
 ## Troubleshooting
 
@@ -314,12 +587,11 @@ Key metrics available in simulation output:
 
 ## Support
 
-- **Documentation**: See `doc/` directory for detailed technical documentation
-- **Examples**: Check `tests/tensix_neo/` for test cases and examples
-- **Issues**: Report bugs through the project's issue tracking system
-- **Configuration**: Reference existing configurations in `config/tensix_neo/`
+- **Documentation**: See `doc/` directory for detailed technical documentation (to be updated).
+- **Issues**: Report bugs via Github (https://github.com/tenstorrent/polaris/issues).
+- **Configuration**: Reference existing configurations in `config/tensix_neo/`.
 
 ---
 
-**Version**: Compatible with Polaris v2024.x and later  
+**Version**: Compatible with Polaris v2024.x and later
 **Last Updated**: September 2025
