@@ -3,6 +3,16 @@
 # SPDX-License-Identifier: Apache-2.0
 # This script is used to download the models from the LFCache server to the local machine.
 # Supports both Linux and macOS with automatic dependency checking and helpful error messages.
+# 
+# Dependencies:
+#   - wget (automatically checked on macOS with installation help)
+#   - check_behind_tailscale.sh (must be in same directory, used for Tailscale connectivity)
+#
+# Tailscale Requirements:
+#   - When not running in CI mode, Tailscale connection is required to access LFC server
+#   - Uses check_behind_tailscale.sh script for connectivity detection
+#   - Provides installation and activation instructions if Tailscale is not available
+#
 # Usage: lfc_downloader.sh [-v|--verbose] [-n|--dryrun] [--type TYPE] [--extract] <server_path> [local_path]
 #   CI mode is automatically detected from GITHUB_ACTIONS environment variable
 #   -v, --verbose    Enable verbose output (optional, default is false)
@@ -44,6 +54,11 @@ show_usage() {
     echo "  --extract        Extract .tar.gz files after download and remove archive (optional, only valid for .tar.gz files)"
     echo "  server_path      Path on the LFCache server relative to simulators-ai-perf (required)"
     echo "  local_path       Local path to download models to (optional, default is the same as server_path)"
+    echo ""
+    echo "Requirements:"
+    echo "  - wget (automatically checked on macOS with installation help)"
+    echo "  - Tailscale connection (required when not in CI mode, with setup guidance)"
+    echo "  - check_behind_tailscale.sh (must be in same directory as this script)"
     echo ""
     echo "Examples:"
     echo "  $0 tests/models/                    # Downloads to tests/models/ (uses default local path)"
@@ -242,6 +257,51 @@ show_macos_wget_installation_help() {
     fi
 }
 
+# Function to show Tailscale installation instructions
+show_tailscale_installation_help() {
+    local os_type="$1"
+    echo "Error: Tailscale is not installed on this system." >&2
+    echo >&2
+    echo "Tailscale is required to access the LFC server when not running in CI mode." >&2
+    echo >&2
+    
+    if [[ "$os_type" == "macos" ]]; then
+        if command -v brew >/dev/null 2>&1; then
+            echo "To install Tailscale using Homebrew, run:" >&2
+            echo "    brew install --cask tailscale" >&2
+        else
+            echo "To install Tailscale on macOS:" >&2
+            echo "1. Download from: https://tailscale.com/download/mac" >&2
+            echo "2. Or install Homebrew first and use: brew install --cask tailscale" >&2
+        fi
+    else
+        echo "To install Tailscale on Linux:" >&2
+        echo "1. Visit: https://tailscale.com/download/linux" >&2
+        echo "2. Or use your package manager (e.g., apt, yum, pacman)" >&2
+        echo "3. For Ubuntu/Debian: curl -fsSL https://tailscale.com/install.sh | sh" >&2
+    fi
+    
+    echo >&2
+    echo "After installation, you need to authenticate and connect to the Tailnet." >&2
+}
+
+# Function to show Tailscale activation instructions
+show_tailscale_activation_help() {
+    echo "Error: Tailscale is installed but not active/connected." >&2
+    echo >&2
+    echo "To activate Tailscale:" >&2
+    echo "1. Start Tailscale:" >&2
+    echo "   sudo tailscale up" >&2
+    echo >&2
+    echo "2. Follow the authentication link that appears" >&2
+    echo "3. Complete the login process in your web browser" >&2
+    echo >&2
+    echo "You can check Tailscale status with:" >&2
+    echo "   tailscale status" >&2
+    echo >&2
+    echo "After connecting to Tailscale, retry running this script." >&2
+}
+
 # Platform-specific dependency checks
 if [[ "$(uname)" == "Darwin" ]]; then
     if ! command -v wget >/dev/null 2>&1; then
@@ -249,6 +309,54 @@ if [[ "$(uname)" == "Darwin" ]]; then
         exit 1
     elif [[ "$VERBOSE" == true ]]; then
         echo "Found wget at $(command -v wget)"
+    fi
+fi
+
+# Tailscale connectivity check (only when not in CI mode)
+if [[ "$CI" != true ]]; then
+    if [[ "$VERBOSE" == true ]]; then
+        echo "Checking Tailscale connectivity (required when not in CI mode)..."
+    fi
+    
+    # Determine OS type for error messages
+    OS_TYPE=""
+    case "$(uname -s)" in
+        Darwin*) OS_TYPE="macos" ;;
+        Linux*)  OS_TYPE="linux" ;;
+        *)       OS_TYPE="unknown" ;;
+    esac
+    
+    # Get the directory of the current script to find the tailscale checker
+    SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+    TAILSCALE_CHECKER="$SCRIPT_DIR/check_behind_tailscale.sh"
+    
+    # Check if the tailscale checker script exists
+    if [[ ! -f "$TAILSCALE_CHECKER" ]]; then
+        echo "Error: Cannot find Tailscale checker script at $TAILSCALE_CHECKER" >&2
+        echo "Please ensure check_behind_tailscale.sh is in the same directory as this script." >&2
+        exit 1
+    fi
+    
+    # Run the tailscale checker script, capturing stderr for verbose mode
+    TAILSCALE_CHECKER_ERR="$("$TAILSCALE_CHECKER" 2>&1 >/dev/null)"
+    if "$TAILSCALE_CHECKER" >/dev/null 2>&1; then
+        if [[ "$VERBOSE" == true ]]; then
+            echo "✅ Tailscale connectivity confirmed"
+        fi
+    else
+        if [[ "$VERBOSE" == true && -n "$TAILSCALE_CHECKER_ERR" ]]; then
+            echo "Tailscale checker error output:" >&2
+            echo "$TAILSCALE_CHECKER_ERR" >&2
+        fi
+        # Tailscale check failed - determine if it's installation or activation issue
+        if ! command -v tailscale >/dev/null 2>&1; then
+            # Tailscale not installed
+            show_tailscale_installation_help "$OS_TYPE"
+        else
+            # Tailscale installed but not connected
+            show_tailscale_activation_help
+        fi
+        exit 1
     fi
 fi
 

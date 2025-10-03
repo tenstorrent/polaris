@@ -24,7 +24,6 @@ The `ci/lfc_downloader.sh` script is a utility for downloading models and files 
 
 | Option | Long Form | Description | Default |
 |--------|-----------|-------------|---------|
-| `-c` | `--ci` | Enable CI mode (uses internal cluster URL) | `false` |
 | `-v` | `--verbose` | Enable verbose output with detailed logging | `false` |
 | `-n` | `--dryrun` | Dry run mode - shows commands without executing | `false` |
 | `-h` | `--help` | Show usage information and exit | - |
@@ -55,10 +54,13 @@ The script automatically detects whether you want to download a file or director
 ### Standard Mode (Default)
 - Uses external LFCache server: `http://aus2-lfcache.aus2.tenstorrent.com`
 - Suitable for general development use
+- **Requires Tailscale connection** when not in CI mode
 
-### CI Mode (`--ci`)
+### CI Mode (Automatically Detected)
 - Uses internal cluster URL: `http://large-file-cache.large-file-cache.svc.cluster.local`
+- Automatically activated when `GITHUB_ACTIONS=true` environment variable is set
 - Designed for Continuous Integration environments
+- **No Tailscale requirement** in CI mode
 
 ## Examples
 
@@ -94,8 +96,10 @@ The script automatically detects whether you want to download a file or director
 # Dry run to see what would be downloaded
 ./tools/ci/lfc_downloader.sh -n -v tests/models/
 
-# CI mode with verbose output
-./lfc_downloader.sh --ci -v tests/models/
+# CI mode (automatically detected when GITHUB_ACTIONS=true)
+# The following line sets GITHUB_ACTIONS manually for demonstration or local testing purposes.
+# In actual GitHub Actions CI runs, this variable is set automatically.
+GITHUB_ACTIONS=true ./tools/ci/lfc_downloader.sh -v tests/models/
 
 # Download file to specific directory and extract
 ./tools/ci/lfc_downloader.sh -v --type file --extract models/weights.tar.gz ./model_weights/weights.tar.gz
@@ -229,10 +233,10 @@ When using `--extract` with `.tar.gz` files:
    - The script detected you might want to download a file but defaulted to directory
    - Use `--type file` to override the auto-detection
 
-6. **"Warning: Tailscale check script not found"**
+5. **"Error: Cannot find Tailscale checker script"**
    - The companion script `tools/ci/check_behind_tailscale.sh` is missing
-   - The script will proceed with caution but may fail if not on Tailscale
-   - Ensure all repository files are present
+   - Ensure all repository files are present and the script is in the same directory
+   - This error occurs when the required dependency script is not found
 
 ### Best Practices
 
@@ -244,8 +248,10 @@ When using `--extract` with `.tar.gz` files:
 ## Dependencies
 
 - `bash` (version 3.0 or higher)
-- `wget` (for downloading files)
+- `wget` (for downloading files - automatically checked on macOS with installation help)
 - `tar` (required only when using `--extract`)
+- `check_behind_tailscale.sh` (must be in same directory as lfc_downloader.sh)
+- **Tailscale VPN** (required when not in CI mode for accessing LFC server)
 - Basic Unix utilities: `mkdir`, `find`, `rm`
 
 ## Exit Codes
