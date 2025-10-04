@@ -58,8 +58,8 @@ This convention provides several advantages:
 
 | Archive Name | Description | Extraction Path | Use Case |
 |--------------|-------------|-----------------|----------|
-| `test_onnx_models.tar.gz` | ONNX model files for testing | `tests/__models/` | Unit tests for ONNX path |
-| `llk_elf_files.tar.gz` | LLK front-end test files | `tests/__data_files/` | LLK front-end testing |
+| `ext_test_onnx_models.tar.gz` | ONNX model files for testing | `tests/__models/` | Unit tests for ONNX path |
+| `ext_llk_elf_files.tar.gz` | LLK front-end test files | `tests/__data_files/` | LLK front-end testing |
 
 ### Extraction Behavior
 
@@ -67,8 +67,8 @@ All archives are designed to be extracted in the repository root directory:
 
 ```bash
 # When extracted from repo root:
-test_onnx_models.tar.gz → tests/__models/
-llk_elf_files.tar.gz   → tests/__data_files/
+ext_test_onnx_models.tar.gz → tests/__models/
+ext_llk_elf_files.tar.gz   → tests/__data_files/
 ```
 
 ## Using the LFC Downloader
@@ -77,23 +77,23 @@ llk_elf_files.tar.gz   → tests/__data_files/
 
 ```bash
 # Download and extract ONNX models
-./tools/ci/lfc_downloader.sh --extract test_onnx_models.tar.gz
+./tools/ci/lfc_downloader.sh --extract ext_test_onnx_models.tar.gz
 
 # Download and extract LLK ELF files
-./tools/ci/lfc_downloader.sh --extract llk_elf_files.tar.gz
+./tools/ci/lfc_downloader.sh --extract ext_llk_elf_files.tar.gz
 ```
 
 ### Advanced Options
 
 ```bash
 # Dry run to see what would be downloaded
-./tools/ci/lfc_downloader.sh --dryrun --extract test_onnx_models.tar.gz
+./tools/ci/lfc_downloader.sh --dryrun --extract ext_test_onnx_models.tar.gz
 
 # Verbose output for debugging
-./tools/ci/lfc_downloader.sh --verbose --extract llk_elf_files.tar.gz
+./tools/ci/lfc_downloader.sh --verbose --extract ext_llk_elf_files.tar.gz
 
 # CI mode (automatically detected in GitHub Actions)
-./tools/ci/lfc_downloader.sh --extract test_onnx_models.tar.gz
+./tools/ci/lfc_downloader.sh --extract ext_test_onnx_models.tar.gz
 ```
 
 For complete documentation of the downloader script, see [lfc_downloader_user_guide.md](lfc_downloader_user_guide.md).
@@ -210,8 +210,8 @@ git clone <repository-url>
 cd <repository>
 
 # Download required test files
-./tools/ci/lfc_downloader.sh --extract test_onnx_models.tar.gz
-./tools/ci/lfc_downloader.sh --extract llk_elf_files.tar.gz
+./tools/ci/lfc_downloader.sh --extract ext_test_onnx_models.tar.gz
+./tools/ci/lfc_downloader.sh --extract ext_llk_elf_files.tar.gz
 
 # Run tests (files are now available)
 pytest tests/
@@ -223,8 +223,8 @@ pytest tests/
 # GitHub Actions example
 - name: Download LFC test files
   run: |
-    ./tools/ci/lfc_downloader.sh --extract test_onnx_models.tar.gz
-    ./tools/ci/lfc_downloader.sh --extract llk_elf_files.tar.gz
+    ./tools/ci/lfc_downloader.sh --extract ext_test_onnx_models.tar.gz
+    ./tools/ci/lfc_downloader.sh --extract ext_llk_elf_files.tar.gz
 
 - name: Run tests
   run: pytest tests/

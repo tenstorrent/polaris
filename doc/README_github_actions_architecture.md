@@ -102,8 +102,8 @@ outputs:
 - name: Run RTL Tests
   uses: ./.github/actions/run-rtl-tests
   with:
-    tag: jul27
-    lfc-files: 'ext_rtl_test_data_set_jul27.tar.gz'
+    tag: sep23
+    lfc-files: 'ext_rtl_test_data_set_sep23.tar.gz'
     results-file: 'rtl_test_results.txt'
 ```
 
@@ -112,9 +112,9 @@ outputs:
 - name: Run RTL Tests with Custom Settings
   uses: ./.github/actions/run-rtl-tests
   with:
-    tag: mar18
+    tag: sep23
     parallel: 8
-    lfc-files: 'ext_rtl_test_data_set_mar18.tar.gz'
+    lfc-files: 'ext_rtl_test_data_set_sep23.tar.gz'
     results-file: 'custom_rtl_results.txt'
 ```
 
@@ -308,7 +308,7 @@ inputs:
   files:
     description: 'Files to download, space separated list'
     required: false
-    default: 'test_onnx_models.tar.gz llk_elf_files.tar.gz ext_rtl_test_data_set_feb19.tar.gz ext_rtl_test_data_set_jul1.tar.gz ext_rtl_test_data_set_jul27.tar.gz ext_rtl_test_data_set_mar18.tar.gz'
+    default: 'ext_test_onnx_models.tar.gz ext_llk_elf_files.tar.gz ext_rtl_test_data_set_sep23.tar.gz'
 ```
 
 **Implementation**:
@@ -337,7 +337,7 @@ runs:
 - name: Download specific files from LFC
   uses: ./.github/actions/lfcdownload
   with:
-    files: 'test_onnx_models.tar.gz llk_elf_files.tar.gz'
+    files: 'ext_test_onnx_models.tar.gz ext_llk_elf_files.tar.gz ext_rtl_test_data_set_sep23.tar.gz'
 ```
 
 #### RTL Test Files Only
@@ -349,12 +349,9 @@ runs:
 ```
 
 **Default Files Downloaded**:
-- `test_onnx_models.tar.gz` → `tests/__models/`
-- `llk_elf_files.tar.gz` → `tests/__data_files/llk_elf_files/`
-- `ext_rtl_test_data_set_feb19.tar.gz` → RTL test data
-- `ext_rtl_test_data_set_jul1.tar.gz` → RTL test data
-- `ext_rtl_test_data_set_jul27.tar.gz` → RTL test data
-- `ext_rtl_test_data_set_mar18.tar.gz` → RTL test data
+- `ext_test_onnx_models.tar.gz` → `tests/__models/`
+- `ext_llk_elf_files.tar.gz` → `tests/__data_files/llk_elf_files/`
+- `ext_rtl_test_data_set_sep23.tar.gz` → RTL test data
 
 ### 2. setup_mamba Action
 
@@ -542,7 +539,7 @@ jobs:
     steps:
     - uses: ./.github/actions/lfcdownload
       with:
-        files: 'ext_rtl_test_data_set_jul27.tar.gz'
+        files: 'ext_rtl_test_data_set_sep23.tar.gz'
     - uses: ./.github/actions/setup_mamba
       with:
         environment-file: envdev.yaml
@@ -740,9 +737,9 @@ git push origin feature-branch
 
 - name: Download files
   run: |
-    bash tools/ci/lfc_downloader.sh --extract test_onnx_models.tar.gz
-    bash tools/ci/lfc_downloader.sh --extract llk_elf_files.tar.gz
-    bash tools/ci/lfc_downloader.sh --extract ext_rtl_test_data_set_jul27.tar.gz
+    bash tools/ci/lfc_downloader.sh --extract ext_test_onnx_models.tar.gz
+    bash tools/ci/lfc_downloader.sh --extract ext_llk_elf_files.tar.gz
+    bash tools/ci/lfc_downloader.sh --extract ext_rtl_test_data_set_sep23.tar.gz
 ```
 
 #### After: Reusable Actions
@@ -752,7 +749,7 @@ git push origin feature-branch
   uses: ./.github/actions/lfcdownload
   # Uses default files, or specify custom:
   # with:
-  #   files: 'test_onnx_models.tar.gz llk_elf_files.tar.gz'
+  #   files: 'ext_test_onnx_models.tar.gz ext_llk_elf_files.tar.gz ext_rtl_test_data_set_sep23.tar.gz'
 
 - name: Setup mamba - developer
   uses: ./.github/actions/setup_mamba

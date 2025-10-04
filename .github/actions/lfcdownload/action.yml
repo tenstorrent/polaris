@@ -7,7 +7,7 @@ inputs:
   files:  # id of input
     description: 'Files to download, space separated list'
     required: false
-    default: 'test_onnx_models.tar.gz llk_elf_files.tar.gz ext_rtl_test_data_set_feb19.tar.gz ext_rtl_test_data_set_jul1.tar.gz ext_rtl_test_data_set_jul27.tar.gz ext_rtl_test_data_set_mar18.tar.gz'
+    default: 'ext_test_onnx_models.tar.gz ext_llk_elf_files.tar.gz ext_rtl_test_data_set_sep23.tar.gz'
 runs:
   using: "composite"
   steps:

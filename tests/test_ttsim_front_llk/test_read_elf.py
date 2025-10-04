@@ -3,7 +3,6 @@
 # SPDX-License-Identifier: Apache-2.0
 
 import os
-import sys
 
 import elftools
 import fabric # type: ignore [import-untyped]
@@ -18,39 +17,69 @@ import ttsim.front.llk.ttbh as ttbh
 import ttsim.front.llk.ttqs as ttqs
 import ttsim.front.llk.ttwh as ttwh
 
+# Import LFC helper from helpers package
+from tests.helpers.lfc_helper import ensure_lfc_file_exists
+
 TEST_WITH_ELF_FILES = True
-LOCAL_ELF_TEST_DIR = "tests/__data_files/llk_elf_files"
+# Use new __ext directory structure for ELF test files
+LOCAL_ELF_TEST_DIR = "__ext/tests/data_files/llk_elf_files"
+
+
+def _ensure_elf_files_available():
+    """
+    Ensure ELF test files are available, downloading if necessary.
+    
+    Returns:
+        True if files are available, False otherwise
+    """
+    if not TEST_WITH_ELF_FILES:
+        return False
+    
+    # Try to ensure the ELF files directory exists
+    if ensure_lfc_file_exists(LOCAL_ELF_TEST_DIR, "ext_llk_elf_files.tar.gz"):
+        return True
+    
+    print(f"Warning: ELF test files not available at {LOCAL_ELF_TEST_DIR}")
+    print("Tried to download from ext_llk_elf_files.tar.gz but failed.")
+    print("Please check LFC connectivity and file availability.")
+    return False
 
 
 def test_get_riscv_attribute_from_elf_object():
-    if TEST_WITH_ELF_FILES:
-        kinds_attributes = decoded_instruction.get_instruction_kinds_rv32_tensix_attributes_dict()
-        for pwd, _, file_names in os.walk(LOCAL_ELF_TEST_DIR):
-            for file_name in file_names:
-                if file_name.endswith(".elf"):
-                    file_name_incl_path = os.path.join(pwd, file_name)
-                    with open(file_name_incl_path, 'rb') as file:
-                        elf = elftools.elf.elffile.ELFFile(file)
-                        attr = read_elf.get_riscv_attribute_from_elf_object(elf)
-                        for kind in decoded_instruction.instruction_kind:
-                            if kind.is_tensix() and (f"{kind}" in file_name_incl_path):
-                                kinds = (decoded_instruction.instruction_kind.rv32, kind)
-                                assert attr in kinds_attributes[kinds]
+    """Test getting RISC-V attributes from ELF objects with automatic LFC file management."""
+    if not _ensure_elf_files_available():
+        pytest.skip("ELF test files not available")
+    
+    kinds_attributes = decoded_instruction.get_instruction_kinds_rv32_tensix_attributes_dict()
+    for pwd, _, file_names in os.walk(LOCAL_ELF_TEST_DIR):
+        for file_name in file_names:
+            if file_name.endswith(".elf"):
+                file_name_incl_path = os.path.join(pwd, file_name)
+                with open(file_name_incl_path, 'rb') as file:
+                    elf = elftools.elf.elffile.ELFFile(file)
+                    attr = read_elf.get_riscv_attribute_from_elf_object(elf)
+                    for kind in decoded_instruction.instruction_kind:
+                        if kind.is_tensix() and (f"{kind}" in file_name_incl_path):
+                            kinds = (decoded_instruction.instruction_kind.rv32, kind)
+                            assert attr in kinds_attributes[kinds]
 
 def test_get_riscv_attribute():
-    if TEST_WITH_ELF_FILES:
-        kinds_attributes = decoded_instruction.get_instruction_kinds_rv32_tensix_attributes_dict()
-        for pwd, _, file_names in os.walk(LOCAL_ELF_TEST_DIR):
-            for file_name in file_names:
-                if file_name.endswith(".elf"):
-                    file_name_incl_path = os.path.join(pwd, file_name)
-                    with open(file_name_incl_path, 'rb') as file:
-                        elf = elftools.elf.elffile.ELFFile(file)
-                        attr = read_elf.get_riscv_attribute(elf)
-                        for kind in decoded_instruction.instruction_kind:
-                            if kind.is_tensix() and (f"{kind}" in file_name_incl_path):
-                                kinds = (decoded_instruction.instruction_kind.rv32, kind)
-                                assert attr in kinds_attributes[kinds]
+    """Test getting RISC-V attributes with automatic LFC file management."""
+    if not _ensure_elf_files_available():
+        pytest.skip("ELF test files not available")
+    
+    kinds_attributes = decoded_instruction.get_instruction_kinds_rv32_tensix_attributes_dict()
+    for pwd, _, file_names in os.walk(LOCAL_ELF_TEST_DIR):
+        for file_name in file_names:
+            if file_name.endswith(".elf"):
+                file_name_incl_path = os.path.join(pwd, file_name)
+                with open(file_name_incl_path, 'rb') as file:
+                    elf = elftools.elf.elffile.ELFFile(file)
+                    attr = read_elf.get_riscv_attribute(elf)
+                    for kind in decoded_instruction.instruction_kind:
+                        if kind.is_tensix() and (f"{kind}" in file_name_incl_path):
+                            kinds = (decoded_instruction.instruction_kind.rv32, kind)
+                            assert attr in kinds_attributes[kinds]
 
         for pwd, _, file_names in os.walk(LOCAL_ELF_TEST_DIR):
             for file_name in file_names:

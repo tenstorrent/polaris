@@ -364,10 +364,10 @@ The following steps are performed within the `execute_test.py` script
    artifact download from the next step will succeed only if
    this check passes.
 2. **RTL LLK test data download**: Download LLK test data for a
-  particular `llkVersionTag` (`jul27` in the example below) with
+  particular `llkVersionTag` (`sep23` in the example below) with
    ```bash
    cd polaris
-   bash ./tools/ci/lfc_downloader.sh --extract ext_rtl_test_data_set_jul27.tar.gz
+   bash ./tools/ci/lfc_downloader.sh --extract ext_rtl_test_data_set_sep23.tar.gz
    ```
    Please replace the tag with appropriate value of `llkVersionTag` to
    download artifacts from other snapshots. Please see
