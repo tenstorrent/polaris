@@ -318,7 +318,7 @@ def save_csv_file(test_results: List[SCurveTestResult], output_dir: str) -> None
     print(f"Saved CSV: {output_path}")
 
 
-def create_status_badge(repo: str, stats: Dict[str, Any], gist_id: str, output_dir: str, dryrun: bool = False) -> None:
+def create_status_badge(repo: str, stats: Dict[str, Any], gist_id: str, output_dir: str, is_main_branch: bool = True, dryrun: bool = False) -> None:
     """Create dynamic status badge gist."""
     label = "RTL Status"
     message = f"{stats['model_passed_tests']}/{stats['total_tests']}"
@@ -331,7 +331,10 @@ def create_status_badge(repo: str, stats: Dict[str, Any], gist_id: str, output_d
     else:
         color = "red"
     
-    filename = f"{repo}_rtl_scurve_status.json"
+    if is_main_branch:
+        filename = f"{repo}_rtl_scurve_status.json"
+    else:
+        filename = f"DELETEME_{repo}_rtl_scurve_status.json"
     
     # Use makegist.py to create the gist
     makegist_path = Path(__file__).parent / "makegist.py"
@@ -356,7 +359,7 @@ def create_status_badge(repo: str, stats: Dict[str, Any], gist_id: str, output_d
             print(f"stderr: {e.stderr}")
 
 
-def create_ratio_badge(repo: str, stats: Dict[str, Any], gist_id: str, output_dir: str, dryrun: bool = False) -> None:
+def create_ratio_badge(repo: str, stats: Dict[str, Any], gist_id: str, output_dir: str, is_main_branch: bool = True, dryrun: bool = False) -> None:
     """Create dynamic ratio geomean badge gist."""
     label = "RTL Ratio Geomean"
     geomean = stats['model_2_rtl_ratio_geomean']
@@ -365,7 +368,10 @@ def create_ratio_badge(repo: str, stats: Dict[str, Any], gist_id: str, output_di
     # Color is green if within 10% of 1.0, red otherwise
     color = "green" if 0.90 <= geomean <= 1.10 else "red"
     
-    filename = f"{repo}_rtl_scurve_ratio_geomean.json"
+    if is_main_branch:
+        filename = f"{repo}_rtl_scurve_ratio_geomean.json"
+    else:
+        filename = f"DELETEME_{repo}_rtl_scurve_ratio_geomean.json"
     
     # Use makegist.py to create the gist
     makegist_path = Path(__file__).parent / "makegist.py"
@@ -390,17 +396,24 @@ def create_ratio_badge(repo: str, stats: Dict[str, Any], gist_id: str, output_di
             print(f"stderr: {e.stderr}")
 
 
-def create_failure_badges(repo: str, gist_id: str, output_dir: str, dryrun: bool = False) -> None:
+def create_failure_badges(repo: str, gist_id: str, output_dir: str, is_main_branch: bool = True, dryrun: bool = False) -> None:
     """Create failure badges when runexitcode is non-zero."""
+    if is_main_branch:
+        status_filename = f"{repo}_rtl_scurve_status.json"
+        ratio_filename = f"{repo}_rtl_scurve_ratio_geomean.json"
+    else:
+        status_filename = f"DELETEME_{repo}_rtl_scurve_status.json"
+        ratio_filename = f"DELETEME_{repo}_rtl_scurve_ratio_geomean.json"
+    
     badges = [
         {
-            "filename": f"{repo}_rtl_scurve_status.json",
+            "filename": status_filename,
             "label": "RTL Status",
             "message": "Failed",
             "color": "red"
         },
         {
-            "filename": f"{repo}_rtl_scurve_ratio_geomean.json",
+            "filename": ratio_filename,
             "label": "RTL Ratio Geomean",
             "message": "Failed",
             "color": "red"
@@ -438,6 +451,7 @@ def main():
     parser.add_argument("--repo", required=True, help="Repository name")
     parser.add_argument("--gistid", required=True, help="Gist ID for badge storage")
     parser.add_argument("--input", required=True, help="Input file path")
+    parser.add_argument("--is-main-branch", action="store_true", help="Whether this is the main branch (affects filename)")
     parser.add_argument("--dryrun", action="store_true", help="Show gist commands without executing them")
     
     args = parser.parse_args()
@@ -453,7 +467,7 @@ def main():
         print("Creating failure badges...")
         
         # Use current directory as output for failure badges
-        create_failure_badges(args.repo, args.gistid, ".", args.dryrun)
+        create_failure_badges(args.repo, args.gistid, ".", args.is_main_branch, args.dryrun)
         print("Failure badges created. Exiting.")
         sys.exit(0)
     
@@ -506,8 +520,8 @@ def main():
     
     # Create badges
     try:
-        create_status_badge(args.repo, stats, args.gistid, output_dir, args.dryrun)
-        create_ratio_badge(args.repo, stats, args.gistid, output_dir, args.dryrun)
+        create_status_badge(args.repo, stats, args.gistid, output_dir, args.is_main_branch, args.dryrun)
+        create_ratio_badge(args.repo, stats, args.gistid, output_dir, args.is_main_branch, args.dryrun)
     except Exception as e:
         print(f"Error creating badges: {e}")
         sys.exit(1)

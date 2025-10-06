@@ -14,6 +14,9 @@ inputs:
   repo-name:
     description: 'Repository name for badge naming'
     required: true
+  is-main-branch:
+    description: 'Whether this is the main branch (affects gist file naming)'
+    required: true
   rtl-outcome:
     description: 'RTL test outcome (success/failure)'
     required: true
@@ -44,10 +47,17 @@ runs:
         fi
         
         # Generate RTL badges using the existing script
+        # Set IS_MAIN_BRANCH_FLAG if is-main-branch is 'true'
+        IS_MAIN_BRANCH_FLAG=""
+        if [[ "${{ inputs.is-main-branch }}" == "true" ]]; then
+          IS_MAIN_BRANCH_FLAG="--is-main-branch"
+        fi
+
         python tools/ci/rtl_scurve_badge.py \
           --runexitcode ${{ inputs.rtl-exit-code }} \
           --repo ${{ inputs.repo-name }} \
           --gistid ${{ inputs.gist-id }} \
-          --input ${{ inputs.results-file }}
-        
+          --input ${{ inputs.results-file }} \
+          $IS_MAIN_BRANCH_FLAG
+
         echo "✅ Successfully generated RTL badges"

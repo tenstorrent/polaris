@@ -43,6 +43,7 @@ python tools/ci/rtl_scurve_badge.py \
     --repo REPOSITORY_NAME \
     --gistid GIST_ID \
     --input INPUT_FILE \
+    [--is-main-branch] \
     [--dryrun]
 ```
 
@@ -54,6 +55,7 @@ python tools/ci/rtl_scurve_badge.py \
     --repo REPOSITORY_NAME \
     --gistid GIST_ID \
     --input INPUT_FILE \
+    [--is-main-branch] \
     [--dryrun]
 ```
 
@@ -65,7 +67,20 @@ python tools/ci/rtl_scurve_badge.py \
 | `--gistid` | Yes | GitHub Gist ID for storing badges |
 | `--input` | Yes | Path to input file containing s-curve test results |
 | `--runexitcode` | No | Exit code of previous command (triggers failure mode if non-zero) |
+| `--is-main-branch` | No | Whether this is the main branch (affects filename prefix) |
 | `--dryrun` | No | Show gist commands without executing them |
+
+### Branch-Aware Filename Behavior
+
+The script supports branch-aware filename generation for CI/CD environments:
+
+- **Main Branch**: Standard filenames (e.g., `polaris_rtl_scurve_status.json`)
+- **Non-Main Branch**: DELETEME_ prefix (e.g., `DELETEME_polaris_rtl_scurve_status.json`)
+
+This allows for:
+- **Testing**: Retry logic can be tested on all branches
+- **Cleanup**: Temporary files can be easily identified and removed
+- **Separation**: Clear distinction between permanent and temporary badges
 
 ## Input File Format
 
@@ -170,7 +185,8 @@ Contains per-test results with headers:
 $ python tools/ci/rtl_scurve_badge.py \
     --repo polaris \
     --gistid abc123def456 \
-    --input rtl_test_results.txt
+    --input rtl_test_results.txt \
+    --is-main-branch
 
 Extracted 25 configuration items
 Found s-curve section with 96 lines
@@ -191,6 +207,7 @@ $ python tools/ci/rtl_scurve_badge.py \
     --repo polaris \
     --gistid abc123def456 \
     --input rtl_test_results.txt \
+    --is-main-branch \
     --dryrun
 
 [DRYRUN] Would run: python3 makegist.py --gist-id abc123def456 --gist-filename polaris_rtl_scurve_status.json label=RTL Status message=95/96 color=orange
@@ -205,6 +222,7 @@ $ python tools/ci/rtl_scurve_badge.py \
     --repo polaris \
     --gistid abc123def456 \
     --input dummy.txt \
+    --is-main-branch \
     --dryrun
 
 Previous command failed with exit code 1
@@ -271,7 +289,8 @@ For detailed parsing information, you can modify the script to add debug prints 
       --runexitcode $EXIT_CODE \
       --repo $REPO_NAME \
       --gistid $GIST_ID \
-      --input rtl_test_results.txt
+      --input rtl_test_results.txt \
+      ${{ github.ref == 'refs/heads/main' && '--is-main-branch' || '' }}
 ```
 
 ## Related Documentation

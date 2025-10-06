@@ -14,6 +14,9 @@ inputs:
   repo-name:
     description: 'Repository name for badge naming'
     required: true
+  is-main-branch:
+    description: 'Whether this is the main branch (affects gist file naming)'
+    required: true
   results-dir:
     description: 'Directory containing test result files'
     required: false
@@ -66,8 +69,15 @@ runs:
         jq .totals ${{ inputs.results-dir }}/coverage.json > ${{ inputs.results-dir }}/coverage.totals.json
         
         # Upload summary data to gists
-        python tools/ci/makegist.py --gist-id ${{ inputs.gist-id }} --gist-filename ${{ inputs.repo-name }}_unittestssummary.json --input-file ${{ inputs.results-dir }}/pyunit.summary.json repo=$GITHUB_REPOSITORY branch=$GITHUB_REF sha=$GITHUB_SHA
-        python tools/ci/makegist.py --gist-id ${{ inputs.gist-id }} --gist-filename ${{ inputs.repo-name }}_unittestscoverage.json --input-file ${{ inputs.results-dir }}/coverage.totals.json repo=$GITHUB_REPOSITORY branch=$GITHUB_REF sha=$GITHUB_SHA
+        if [ "${{ inputs.is-main-branch }}" == "true" ]; then
+          SUMMARY_FILENAME="${{ inputs.repo-name }}_unittestssummary.json"
+          COVERAGE_FILENAME="${{ inputs.repo-name }}_unittestscoverage.json"
+        else
+          SUMMARY_FILENAME="DELETEME_${{ inputs.repo-name }}_unittestssummary.json"
+          COVERAGE_FILENAME="DELETEME_${{ inputs.repo-name }}_unittestscoverage.json"
+        fi
+        python tools/ci/makegist.py --gist-id ${{ inputs.gist-id }} --gist-filename $SUMMARY_FILENAME --input-file ${{ inputs.results-dir }}/pyunit.summary.json repo=$GITHUB_REPOSITORY branch=$GITHUB_REF sha=$GITHUB_SHA
+        python tools/ci/makegist.py --gist-id ${{ inputs.gist-id }} --gist-filename $COVERAGE_FILENAME --input-file ${{ inputs.results-dir }}/coverage.totals.json repo=$GITHUB_REPOSITORY branch=$GITHUB_REF sha=$GITHUB_SHA
         
         # Generate badge messages and colors
         COVERAGE_MESSAGE=$(printf "%.2f" $COVERAGE_PERCENTAGE)%
@@ -78,7 +88,14 @@ runs:
         TESTS_COLOR=$(python3 tools/ci/colorpicker.py --value $PASS_PERCENTAGE --highcolor brightgreen ${{ inputs.test-yellow-threshold }} red ${{ inputs.test-required-threshold }} yellow)
         
         # Create badge JSON files
-        python tools/ci/makegist.py --gist-id ${{ inputs.gist-id }} --gist-filename ${{ inputs.repo-name }}_tests_badge.json label="Unit Tests" message="$TESTS_MESSAGE" color="$TESTS_COLOR"
-        python tools/ci/makegist.py --gist-id ${{ inputs.gist-id }} --gist-filename ${{ inputs.repo-name }}_coverage_badge.json label="Coverage" message="$COVERAGE_MESSAGE" color="$COVERAGE_COLOR"
+        if [ "${{ inputs.is-main-branch }}" == "true" ]; then
+          TESTS_BADGE_FILENAME="${{ inputs.repo-name }}_tests_badge.json"
+          COVERAGE_BADGE_FILENAME="${{ inputs.repo-name }}_coverage_badge.json"
+        else
+          TESTS_BADGE_FILENAME="DELETEME_${{ inputs.repo-name }}_tests_badge.json"
+          COVERAGE_BADGE_FILENAME="DELETEME_${{ inputs.repo-name }}_coverage_badge.json"
+        fi
+        python tools/ci/makegist.py --gist-id ${{ inputs.gist-id }} --gist-filename $TESTS_BADGE_FILENAME label="Unit Tests" message="$TESTS_MESSAGE" color="$TESTS_COLOR"
+        python tools/ci/makegist.py --gist-id ${{ inputs.gist-id }} --gist-filename $COVERAGE_BADGE_FILENAME label="Coverage" message="$COVERAGE_MESSAGE" color="$COVERAGE_COLOR"
         
         echo "✅ Successfully generated test and coverage badges"

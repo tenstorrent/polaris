@@ -661,7 +661,8 @@ The project includes a specialized badge generator for RTL (Register Transfer Le
       --runexitcode $EXIT_CODE \
       --repo $REPO_NAME \
       --gistid $GIST_ID \
-      --input rtl_test_results.txt
+      --input rtl_test_results.txt \
+      ${{ github.ref == 'refs/heads/main' && '--is-main-branch' || '' }}
 ```
 
 **Features:**

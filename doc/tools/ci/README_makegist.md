@@ -10,6 +10,7 @@
 - **File Upload**: Upload any file directly to a gist using `--input-file`
 - **JSON Merging**: Combine a JSON file with additional key=value pairs
 - **GitHub Gist Integration**: Updates existing GitHub gists via REST API
+- **Retry Logic**: Automatic retry with exponential backoff for transient failures
 - **JSON Output**: Converts dictionary to properly formatted JSON
 - **Comprehensive Logging**: Uses Python's loguru module with timestamps
 - **Error Handling**: Detailed error messages for various failure scenarios
@@ -63,6 +64,7 @@ python3 tools/ci/makegist.py --gist-token <TOKEN> --gist-id <GIST_ID> --gist-fil
 |----------|-------------|
 | `--gist-token` | GitHub personal access token for gist access (defaults to `GIST_TOKEN` environment variable) |
 | `--input-file` | Path to a file to upload to the gist. If used with key=value pairs, must be a JSON file containing a dictionary |
+| `--max-retries` | Maximum number of retry attempts for API calls (default: 3, max: 7) |
 | `key=value pairs` | One or more key=value pairs to include in the dictionary. If used with --input-file, will be merged with the JSON dictionary |
 
 ## Examples
@@ -170,6 +172,54 @@ python3 tools/ci/makegist.py \
 ```
 
 This creates an empty dictionary `{}`.
+
+### Example 6: Retry Logic Configuration
+
+```bash
+export GIST_TOKEN="ghp_xxxxxxxxxxxxxxxxxxxx"
+python3 tools/ci/makegist.py \
+  --gist-id abc123def456 \
+  --gist-filename config.json \
+  --max-retries 5 \
+  name=John \
+  age=30
+```
+
+This configures the script to retry up to 5 times with exponential backoff (1s, 2s, 4s, 8s, 16s delays).
+
+## Retry Logic
+
+The script includes automatic retry logic with exponential backoff to handle transient failures:
+
+### Retry Behavior
+
+- **Default**: 3 retry attempts
+- **Maximum**: 7 retry attempts (prevents backoff > 130 seconds)
+- **Backoff Pattern**: 1s, 2s, 4s, 8s, 16s, 32s, 64s
+- **Retry Conditions**: HTTP 409 (Conflict), HTTP 403 (Rate Limited), URL errors, network issues
+
+### Retry Scenarios
+
+The script will automatically retry on:
+- **409 Conflict**: Concurrent access or rate limiting
+- **403 Forbidden**: Rate limiting from GitHub API
+- **URL Errors**: Network connectivity issues
+- **Unexpected Errors**: Transient system issues
+
+### Retry Logging
+
+When retries occur, you'll see messages like:
+```
+2025-10-06 15:39:05 | WARNING | HTTP 409 Conflict on attempt 1. Retrying in 1 seconds...
+2025-10-06 15:39:06 | WARNING | HTTP 409 Conflict on attempt 2. Retrying in 2 seconds...
+2025-10-06 15:39:08 | INFO    | Successfully updated gist on attempt 3
+```
+
+### Maximum Retry Limit
+
+The `--max-retries` parameter is limited to 7 to prevent excessive delays:
+- **7 retries**: ~127 seconds total backoff time
+- **8+ retries**: Rejected (would exceed 130 seconds)
 
 ## GitHub Setup
 
@@ -325,6 +375,45 @@ Output:
 ```
 2025-09-11 12:54:46,370 - ERROR - URL Error updating gist: [Errno 8] nodename nor servname provided, or not known
 2025-09-11 12:54:46,371 - ERROR - Failed to update gist
+```
+
+#### Retry Logic in Action
+```bash
+# When experiencing 409 conflicts (with retry logic)
+export GIST_TOKEN="ghp_xxxxxxxxxxxxxxxxxxxx"
+python3 tools/ci/makegist.py --gist-id id --gist-filename file.json --max-retries 3 name=John
+```
+Output (with retries):
+```
+2025-10-06 15:39:05 | WARNING | HTTP 409 Conflict on attempt 1. Retrying in 1 seconds...
+2025-10-06 15:39:06 | WARNING | HTTP 409 Conflict on attempt 2. Retrying in 2 seconds...
+2025-10-06 15:39:08 | INFO    | Successfully updated gist on attempt 3
+2025-10-06 15:39:08 | INFO    | Successfully updated gist abc123def456 with file file.json
+```
+
+#### Retry Limit Exceeded
+```bash
+# When all retries are exhausted
+export GIST_TOKEN="ghp_xxxxxxxxxxxxxxxxxxxx"
+python3 tools/ci/makegist.py --gist-id id --gist-filename file.json --max-retries 2 name=John
+```
+Output (after all retries fail):
+```
+2025-10-06 15:39:05 | WARNING | HTTP 409 Conflict on attempt 1. Retrying in 1 seconds...
+2025-10-06 15:39:06 | WARNING | HTTP 409 Conflict on attempt 2. Retrying in 2 seconds...
+2025-10-06 15:39:08 | ERROR   | HTTP 409 Conflict after 3 attempts. Gist may be locked or rate limited.
+2025-10-06 15:39:08 | ERROR   | Failed to update gist
+```
+
+#### Invalid Max Retries
+```bash
+# When max-retries exceeds limit
+export GIST_TOKEN="ghp_xxxxxxxxxxxxxxxxxxxx"
+python3 tools/ci/makegist.py --gist-id id --gist-filename file.json --max-retries 10 name=John
+```
+Output:
+```
+2025-10-06 15:39:05 | ERROR   | Error: --max-retries cannot exceed 7 (would result in backoff > 130 seconds)
 ```
 
 ## Logging

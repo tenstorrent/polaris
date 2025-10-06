@@ -7,11 +7,7 @@ on:
   workflow_dispatch:
   push:
   pull_request:
-    branches:
-      - main
   merge_group:
-    branches:
-    - main
 
 jobs:
   checkin-tests:
@@ -74,12 +70,13 @@ jobs:
 
     - id: generate-test-badges
       name: Generate Test and Coverage Badges
-      if: ${{ !cancelled() && github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+      if: ${{ !cancelled() && github.event_name == 'push' }}
       uses: ./.github/actions/generate-test-badges
       with:
         gist-id: ${{ env.GIST_ID }}
         gist-token: ${{ env.GIST_TOKEN }}
         repo-name: ${{ env.REPO_NAME }}
+        is-main-branch: ${{ github.ref == 'refs/heads/main' }}
         coverage-yellow-threshold: ${{ env.COVERAGE_YELLOW }}
         coverage-required-threshold: ${{ env.COVERAGE_REQUIRED }}
         test-yellow-threshold: ${{ env.PASS_YELLOW }}
@@ -87,23 +84,25 @@ jobs:
 
     - id: generate-status-badges
       name: Generate Status Badges
-      if: ${{ !cancelled() && github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+      if: ${{ !cancelled() && github.event_name == 'push' }}
       uses: ./.github/actions/generate-status-badges
       with:
         gist-id: ${{ env.GIST_ID }}
         gist-token: ${{ env.GIST_TOKEN }}
         repo-name: ${{ env.REPO_NAME }}
+        is-main-branch: ${{ github.ref == 'refs/heads/main' }}
         static-tests-outcome: ${{ steps.run-static-analysis.outputs.static-tests-outcome }}
         spdx-tests-outcome: ${{ steps.run-static-analysis.outputs.license-checks-outcome }}
 
     - id: generate-rtl-badges
       name: Generate RTL Badges
-      if: ${{ !cancelled() && github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+      if: ${{ !cancelled() && github.event_name == 'push' }}
       uses: ./.github/actions/generate-rtl-badges
       with:
         gist-id: ${{ env.GIST_ID }}
         gist-token: ${{ env.GIST_TOKEN }}
         repo-name: ${{ env.REPO_NAME }}
+        is-main-branch: ${{ github.ref == 'refs/heads/main' }}
         rtl-outcome: ${{ steps.run-rtl-tests.outputs.outcome }}
         rtl-exit-code: ${{ steps.run-rtl-tests.outputs.exit-code }}
         results-file: ${{ steps.run-rtl-tests.outputs.results-file }}

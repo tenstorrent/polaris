@@ -9,6 +9,7 @@ Create a dictionary from key=value pairs and write it to a GitHub gist.
 import argparse
 import json
 import os
+import time
 import urllib.request
 import urllib.parse
 import urllib.error
@@ -47,15 +48,16 @@ def parse_key_value_pairs(args: list) -> Dict[str, str]:
     return result
 
 
-def update_gist(token: str, gist_id: str, filename: str, content: str) -> bool:
+def update_gist(token: str, gist_id: str, filename: str, content: str, max_retries: int = 3) -> bool:
     """
-    Update a GitHub gist with new content.
+    Update a GitHub gist with new content with retry logic.
     
     Args:
         token: GitHub personal access token
         gist_id: The gist ID to update
         filename: The filename within the gist
         content: The content to write
+        max_retries: Maximum number of retry attempts (default: 3)
         
     Returns:
         True if successful, False otherwise
@@ -76,36 +78,79 @@ def update_gist(token: str, gist_id: str, filename: str, content: str) -> bool:
         }
     }
     
-    try:
-        # Convert data to JSON bytes
-        json_data = json.dumps(data).encode('utf-8')
-        
-        # Create request
-        req = urllib.request.Request(url, data=json_data, headers=headers, method='PATCH')
-        
-        # Make request
-        with urllib.request.urlopen(req) as response:
-            response_data = response.read()
-            if response.status == 200:
-                return True
+    json_data = json.dumps(data).encode('utf-8')
+    
+    for attempt in range(max_retries + 1):
+        try:
+            # Create request
+            req = urllib.request.Request(url, data=json_data, headers=headers, method='PATCH')
+            
+            # Make request
+            with urllib.request.urlopen(req) as response:
+                response_data = response.read()
+                if response.status == 200:
+                    logger.info(f"Successfully updated gist on attempt {attempt + 1}")
+                    return True
+                else:
+                    logger.warning(f"Unexpected status code: {response.status}")
+                    if attempt < max_retries:
+                        delay = 2 ** attempt  # Exponential backoff: 1s, 2s, 4s
+                        logger.info(f"Retrying in {delay} seconds... (attempt {attempt + 1}/{max_retries + 1})")
+                        time.sleep(delay)
+                        continue
+                    else:
+                        logger.error(f"Failed after {max_retries + 1} attempts")
+                        return False
+                    
+        except urllib.error.HTTPError as e:
+            if e.code == 409:  # Conflict - might be rate limiting or concurrent access
+                if attempt < max_retries:
+                    delay = 2 ** attempt
+                    logger.warning(f"HTTP 409 Conflict on attempt {attempt + 1}. Retrying in {delay} seconds...")
+                    time.sleep(delay)
+                    continue
+                else:
+                    logger.error(f"HTTP 409 Conflict after {max_retries + 1} attempts. Gist may be locked or rate limited.")
+                    return False
+            elif e.code == 403:  # Forbidden - likely rate limiting
+                if attempt < max_retries:
+                    delay = 2 ** attempt
+                    logger.warning(f"HTTP 403 Forbidden (rate limited) on attempt {attempt + 1}. Retrying in {delay} seconds...")
+                    time.sleep(delay)
+                    continue
+                else:
+                    logger.error(f"HTTP 403 Forbidden after {max_retries + 1} attempts. Rate limit exceeded.")
+                    return False
             else:
-                logger.error(f"Unexpected status code: {response.status}")
+                logger.error(f"HTTP Error updating gist: {e.code} - {e.reason}")
+                try:
+                    error_body = e.read().decode('utf-8')
+                    logger.error(f"Response: {error_body}")
+                except:
+                    pass
                 return False
                 
-    except urllib.error.HTTPError as e:
-        logger.error(f"HTTP Error updating gist: {e.code} - {e.reason}")
-        try:
-            error_body = e.read().decode('utf-8')
-            logger.error(f"Response: {error_body}")
-        except:
-            pass
-        return False
-    except urllib.error.URLError as e:
-        logger.error(f"URL Error updating gist: {e.reason}")
-        return False
-    except Exception as e:
-        logger.error(f"Error updating gist: {e}")
-        return False
+        except urllib.error.URLError as e:
+            if attempt < max_retries:
+                delay = 2 ** attempt
+                logger.warning(f"URL Error on attempt {attempt + 1}: {e.reason}. Retrying in {delay} seconds...")
+                time.sleep(delay)
+                continue
+            else:
+                logger.error(f"URL Error after {max_retries + 1} attempts: {e.reason}")
+                return False
+                
+        except Exception as e:
+            if attempt < max_retries:
+                delay = 2 ** attempt
+                logger.warning(f"Unexpected error on attempt {attempt + 1}: {e}. Retrying in {delay} seconds...")
+                time.sleep(delay)
+                continue
+            else:
+                logger.error(f"Unexpected error after {max_retries + 1} attempts: {e}")
+                return False
+    
+    return False
 
 
 def main():
@@ -126,6 +171,7 @@ Examples:
   %(prog)s --gist-id def456 --gist-filename config.json key1=value1 key2=value2  # Uses GIST_TOKEN env var
   %(prog)s --gist-id def456 --gist-filename data.txt --input-file /path/to/file.txt  # Upload file
   %(prog)s --gist-id def456 --gist-filename merged.json --input-file base.json name=John age=30  # Merge JSON + key=value
+  %(prog)s --gist-id def456 --gist-filename data.json --max-retries 5 name=John age=30  # Custom retry count (max: 7)
   GIST_TOKEN=abc123 %(prog)s --gist-id def456 --gist-filename data.json name=John age=30
         """
     )
@@ -154,6 +200,13 @@ Examples:
         help='Path to a file to upload to the gist. If used with key=value pairs, must be a JSON file containing a dictionary'
     )
     
+    parser.add_argument(
+        '--max-retries',
+        type=int,
+        default=3,
+        help='Maximum number of retry attempts for API calls (default: 3, max: 7)'
+    )
+    
     # Key=value pairs (remaining arguments)
     parser.add_argument(
         'key_value_pairs',
@@ -162,6 +215,14 @@ Examples:
     )
     
     args = parser.parse_args()
+    
+    # Validate max-retries argument
+    if args.max_retries > 7:
+        logger.error("Error: --max-retries cannot exceed 7 (would result in backoff > 130 seconds)")
+        sys.exit(1)
+    elif args.max_retries < 0:
+        logger.error("Error: --max-retries cannot be negative")
+        sys.exit(1)
     
     # Get gist token from args or environment variable
     gist_token = args.gist_token or os.getenv('GIST_TOKEN')
@@ -252,7 +313,7 @@ Examples:
             sys.exit(1)
     
     # Update the gist
-    if update_gist(gist_token, args.gist_id, args.gist_filename, content):
+    if update_gist(gist_token, args.gist_id, args.gist_filename, content, args.max_retries):
         logger.info(f"Successfully updated gist {args.gist_id} with file {args.gist_filename}")
         if args.input_file and args.key_value_pairs:
             logger.info(f"Merged JSON file {args.input_file} with key=value pairs")

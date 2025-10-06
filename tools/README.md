@@ -78,7 +78,7 @@ RTL S-curve test result processor that generates summary files, CSV exports, and
 
 **Usage:**
 ```bash
-python3 ./tools/ci/rtl_scurve_badge.py --repo REPO --gistid GIST_ID --input FILE [--dryrun]
+python3 ./tools/ci/rtl_scurve_badge.py --repo REPO --gistid GIST_ID --input FILE [--is-main-branch] [--dryrun]
 ```
 
 **Requirements:**
@@ -92,6 +92,25 @@ python3 ./tools/ci/rtl_scurve_badge.py --repo REPO --gistid GIST_ID --input FILE
 - Color-coded badges based on test pass rates and performance metrics
 
 See [doc/tools/ci/README_rtl_scurve_badge.md](../doc/tools/ci/README_rtl_scurve_badge.md) for complete documentation.
+
+### ci/cleanup_delme_files.py
+Python script for cleaning up temporary DELETEME_ prefixed files from GitHub gists.
+
+**Usage:**
+```bash
+python3 ./tools/ci/cleanup_delme_files.py
+```
+
+**Requirements:**
+- **GIST_ID environment variable** for target gist
+- **GIST_TOKEN environment variable** for GitHub API access
+
+**Features:**
+- Automatic detection of DELETEME_ prefixed files
+- Safe deletion of temporary files
+- Comprehensive logging and error handling
+
+See [doc/tools/ci/README_gist_cleanup.md](../doc/tools/ci/README_gist_cleanup.md) for complete documentation.
 
 ## Other Tools
 
