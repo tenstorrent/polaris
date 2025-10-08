@@ -3,6 +3,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 import argparse
+import csv
 import datetime
 import enum
 import filecmp
@@ -169,8 +170,10 @@ class Utils:
 
 
         for c, rev in reversed(list(zip(sort_by, descending))):
-            # tbl.sort(key = operator.itemgetter(c), c=c: (math.inf if row[c] is None else row[c]), reverse = rev)
-            tbl.sort(key = lambda row, c = c : (math.inf if row[c] is None else row[c]), reverse = rev)
+            def sort_key(row: typing.Any, col: int = c) -> typing.Any:
+                val = row[col]
+                return math.inf if val is None else val
+            tbl.sort(key = sort_key, reverse = rev)
 
         # for idx, c in enumerate(reversed(sort_by)):
         #     tbl.sort(key=operator.itemgetter(c), reverse=descending[len(descending) - 1 - idx])
@@ -231,37 +234,179 @@ class TestStatusUtils:
 
         return len(TestStatusUtils.get_failure_bins_as_str())
 
-class InputParams:
-    debug: int = 15
-    default_model_cfg_file_name_prefix: str = f"ttqs_neo4_"
-    default_model_cfg_file_name_suffix: str = f".json"
-    default_model_memory_map_file_name_prefix: str = f"ttqs_memory_map_"
-    default_model_memory_map_file_name_suffix: str = f".json"
-    force: bool                          = False
-    gitignore_prefix                     = GITIGNORE_PREFIX
-    instruction_kind: str                = "ttqs"
-    isa_file_name: str                   = "assembly.yaml"
-    max_num_threads_per_neo_core: int    = 4
-    model_cfg_dir_prefix: str            = f"{GITIGNORE_PREFIX}config_files"
-    model_inputcfg_file_prefix: str      = "inputcfg_"
-    model_instruction_sets_dir_path_prefix: str = "ttsim/config/llk/instruction_sets"
-    model_log_file_end: str              = "Simreport = "
-    model_log_file_suffix: str           = ".model_test.log"
-    model_odir_prefix: str               = f"{OUTPUT_PATH_ROOT}/llk"
-    model_simreport: str                 = "simreport_"
-    num_processes: int                   = 1
-    rtl_data_path_prefix: str            = f"{RTL_DATA_PATH_ROOT}/rtl_test_data_set"
-    rtl_status_file_name: str            = "sim_result.yml"
-    rtl_tags: list[str]                  = ["feb19", "mar18", "jul1", "jul27", "sep23"]
-    rtl_test_dir_path_suffix: str        = 'rsim/debug'
-    rtl_test_dir_suffix: str             = '_0'
-    rtl_tests: list[str]                 = []
-    start_function                       = "_start"
+class Run:
+    """Represents a single test run configuration"""
+    def __init__(self,
+                 name: str,
+                 tests: list[str] | str | None = None,
+                 tags: list[str] | str | None = None,
+                 parallel: int | None = None,
+                 debug: int | None = None,
+                 cfg: str | None = None,
+                 defCfg: str | None = None,
+                 exp: str | None = None,
+                 memoryMap: str | None = None,
+                 odir: str | None = None,
+                 risc_cpi: float | None = None,
+                 ttISAFileName: str | None = None):
+        if isinstance(tests, str):
+            tests = [tests]
 
-    def __init__(self, tags: list[str] | None, tests: list[str] | None, parallel: int | None):
+        if isinstance(tags, str):
+            tags = [tags]
+
+        self.name = str(name).strip() or "unnamed"
+        self.tests = tests or []
+        self.tags = tags or []
+        self.parallel = parallel
+        self.debug = debug
+        self.cfg = cfg
+        self.defCfg = defCfg
+        self.exp = exp
+        self.memoryMap = memoryMap
+        self.odir = odir
+        self.risc_cpi = risc_cpi
+        self.ttISAFileName = ttISAFileName
+
+    def __str__(self) -> str:
+        return f"Run(name={self.name}, tests={self.tests}, tags={self.tags}, parallel={self.parallel}, debug={self.debug}, cfg={self.cfg}, defCfg={self.defCfg}, exp={self.exp}, memoryMap={self.memoryMap}, odir={self.odir}, risc_cpi={self.risc_cpi}, ttISAFileName={self.ttISAFileName})"
+
+    def __repr__(self) -> str:
+        return self.__str__()
+
+class RunConfig:
+    """Handles loading and managing run configurations from YAML files"""
+    def __init__(self, config_file: str | None = None):
+        self.runs: list[Run] = []
+        if config_file:
+            self.load_from_yaml(config_file)
+
+    def append_run(self, run: Run) -> None:
+        existing_names = {r.name for r in self.runs}
+        if run.name in existing_names:
+            base_name = run.name.rstrip("_")
+            counter = 1
+            while f"{base_name}_{counter}" in existing_names:
+                counter += 1
+            run.name = f"{base_name}_{counter}"
+
+        self.runs.append(run)
+
+    def load_from_yaml(self, config_file: str) -> None:
+        """Load run configurations from a YAML file"""
+        if not os.path.isfile(config_file):
+            raise FileNotFoundError(f"Config file not found: {config_file}")
+
+        with open(config_file, 'r') as f:
+            config_data = yaml.safe_load(f)
+
+        if 'batch' not in config_data:
+            raise ValueError("Config file must contain 'batch' section")
+
+        for run_data in config_data['batch']:
+            run = Run(
+                name=run_data.get('name', "unnamed"),
+                tests=run_data.get('test', None),
+                tags=run_data.get('tag', None),
+                parallel=run_data.get('parallel', None),
+                debug=run_data.get('debug', None),
+                cfg=run_data.get('cfg', None),
+                defCfg=run_data.get('defCfg', None),
+                exp=run_data.get('exp', None),
+                memoryMap=run_data.get('memoryMap', None),
+                odir=run_data.get('odir', None),
+                risc_cpi=run_data.get('risc.cpi', None),
+                ttISAFileName=run_data.get('ttISAFileName', None)
+            )
+            self.append_run(run)
+
+    def add_cli_run(self,
+                    tests: list[str] | None = None,
+                    tags: list[str] | None = None,
+                    parallel: int | None = None,
+                    debug: int | None = None,
+                    cfg: str | None = None,
+                    defCfg: str | None = None,
+                    exp: str | None = None,
+                    memoryMap: str | None = None,
+                    odir: str | None = None,
+                    risc_cpi: float | None = None,
+                    ttISAFileName: str | None = None,
+                    name: str | None = None) -> None:
+        """Add a run from CLI arguments"""
+        cli_run = Run(
+            name=name or "baseline",
+            tests=tests,
+            tags=tags,
+            parallel=parallel,
+            debug=debug,
+            cfg=cfg,
+            defCfg=defCfg,
+            exp=exp,
+            memoryMap=memoryMap,
+            odir=odir,
+            risc_cpi=risc_cpi,
+            ttISAFileName=ttISAFileName
+        )
+        self.append_run(cli_run)
+
+class InputParams:
+    def __init__(self,
+                 run_name: str,
+                 tags: list[str] | None,
+                 tests: list[str] | None,
+                 parallel: int | None,
+                 cfg: str | None = None,
+                 debug: int | None = None,
+                 defCfg: str | None = None,
+                 exp: str | None = None,
+                 force: bool = False,
+                 memoryMap: str | None = None,
+                 odir: str | None = None,
+                 risc_cpi: float | None = None,
+                 ttISAFileName: str | None = None,
+                 ):
+
+        if risc_cpi is not None and risc_cpi <= 0:
+            raise ValueError(f"risc_cpi must be positive, got: {risc_cpi}, run name: {run_name}")
+
+        self.default_model_cfg_file_name_prefix: str = f"ttqs_neo4_"
+        self.default_model_cfg_file_name_suffix: str = f".json"
+        self.default_model_memory_map_file_name_prefix: str = f"ttqs_memory_map_"
+        self.default_model_memory_map_file_name_suffix: str = f".json"
+        self.force: bool                          = force or True
+        self.gitignore_prefix                     = GITIGNORE_PREFIX
+        self.instruction_kind: str                = "ttqs"
+        self.isa_file_name: str                   = "assembly.yaml"
+        self.max_num_threads_per_neo_core: int    = 4
+        self.model_cfg_dir_prefix: str            = f"{GITIGNORE_PREFIX}config_files"
+        self.model_inputcfg_file_prefix: str      = "inputcfg_"
+        self.model_instruction_sets_dir_path_prefix: str = "ttsim/config/llk/instruction_sets"
+        self.model_log_file_end: str              = "Simreport = "
+        self.model_log_file_suffix: str           = ".model_test.log"
+        self.model_odir_prefix: str               = f"{OUTPUT_PATH_ROOT}/llk"
+        self.model_simreport: str                 = "simreport_"
+        self.num_processes: int                   = 1
+        self.rtl_data_path_prefix: str            = f"{RTL_DATA_PATH_ROOT}/rtl_test_data_set"
+        self.rtl_status_file_name: str            = "sim_result.yml"
+        self.rtl_tags: list[str]                  = ["jul1", "jul27", "sep23"]
+        self.rtl_test_dir_path_suffix: str        = 'rsim/debug'
+        self.rtl_test_dir_suffix: str             = '_0'
+        self.rtl_tests: list[str]                 = []
+        self.start_function                       = "_start"
+        self.cfg: str | None                      = cfg or None
+        self.debug: int | None                    = debug if debug is not None else 15
+        self.experiment: str | None               = exp or None
+        self.memoryMap: str | None                = memoryMap or None
+        self.odir: str | None                     = odir or None
+        self.risc_cpi: float | None               = risc_cpi or None
+        self.ttISAFileName: str | None            = ttISAFileName or None
+        self.defCfg: str | None                   = defCfg or None
+        self.run_name: str                        = run_name or datetime.datetime.now(datetime.timezone.utc).strftime("%Y%m%d_%H%M%S_%f")
+
         if tags:
             if not all(tag in self.rtl_tags for tag in tags):
-                raise ValueError(f"Invalid RTL tags: {tags}")
+                raise ValueError(f"One or more invalid RTL tag(s): {[tag for tag in sorted(tags) if tag not in self.rtl_tags]}, accepted RTL tags: {self.rtl_tags}")
             self.rtl_tags = tags
 
         for tag in self.rtl_tags:
@@ -269,7 +414,10 @@ class InputParams:
 
             if not os.path.isdir(rtl_data_path):
                 rtl_data_tar_file_name = RTL_DATA_FILE_PREFIX + tag + RTL_DATA_FILE_SUFFIX
-                cmd = f"bash ./tools/ci/lfc_downloader.sh --extract {rtl_data_tar_file_name}"
+                lfc_downloader = os.path.relpath(os.path.normpath(os.path.join(os.path.dirname(__file__), 'ci/lfc_downloader.sh')))
+                if not os.path.isfile(lfc_downloader):
+                    raise FileNotFoundError(f"LFC downloader script not found: {lfc_downloader}")
+                cmd = f"bash {lfc_downloader} --extract {rtl_data_tar_file_name}"
                 print(f"- Downloading RTL test data with command: {cmd}")
                 subprocess.run(cmd, shell=True, check=True)
 
@@ -288,34 +436,46 @@ class InputParams:
         if not self.has_config_files(rtl_tag = None):
             raise ValueError(f"Configuration files not found for one or more RTL tags: {self.rtl_tags}")
 
-    def __str__(self: typing.Self) -> str:
+    def to_str(self: typing.Self, offset: int = 0) -> str:
+        indent = " " * offset
         msg = ""
-        msg += f"debug                                     = {self.debug}\n"
-        msg += f"default_model_cfg_file_name_prefix        = {self.default_model_cfg_file_name_prefix}\n"
-        msg += f"default_model_cfg_file_name_suffix        = {self.default_model_cfg_file_name_suffix}\n"
-        msg += f"default_model_memory_map_file_name_prefix = {self.default_model_memory_map_file_name_prefix}\n"
-        msg += f"default_model_memory_map_file_name_suffix = {self.default_model_memory_map_file_name_suffix}\n"
-        msg += f"force                                     = {self.force}\n"
-        msg += f"instruction_kind                          = {self.instruction_kind}\n"
-        msg += f"isa_file_name                             = {self.isa_file_name}\n"
-        msg += f"max_num_threads_per_neo_core              = {self.max_num_threads_per_neo_core}\n"
-        msg += f"model_cfg_dir_prefix                      = {self.model_cfg_dir_prefix}\n"
-        msg += f"model_inputcfg_file_prefix                = {self.model_inputcfg_file_prefix}\n"
-        msg += f"model_instruction_sets_dir_path_prefix    = {self.model_instruction_sets_dir_path_prefix}\n"
-        msg += f"model_log_file_end                        = {self.model_log_file_end}\n"
-        msg += f"model_log_file_suffix                     = {self.model_log_file_suffix}\n"
-        msg += f"model_odir_prefix                         = {self.model_odir_prefix}\n"
-        msg += f"model_simreport                           = {self.model_simreport}\n"
-        msg += f"num_processes                             = {self.num_processes}\n"
-        msg += f"rtl_data_path_prefix                      = {self.rtl_data_path_prefix}\n"
-        msg += f"rtl_status_file_name                      = {self.rtl_status_file_name}\n"
-        msg += f"rtl_tags                                  = {self.rtl_tags}\n"
-        msg += f"rtl_test_dir_path_suffix                  = {self.rtl_test_dir_path_suffix}\n"
-        msg += f"rtl_test_dir_suffix                       = {self.rtl_test_dir_suffix}\n"
-        msg += f"rtl_tests                                 = {self.rtl_tests}\n"
-        msg += f"start_function                            = {self.start_function}\n"
+        msg += f"{indent}debug                                     = {self.debug}\n"
+        msg += f"{indent}default_model_cfg_file_name_prefix        = {self.default_model_cfg_file_name_prefix}\n"
+        msg += f"{indent}default_model_cfg_file_name_suffix        = {self.default_model_cfg_file_name_suffix}\n"
+        msg += f"{indent}default_model_memory_map_file_name_prefix = {self.default_model_memory_map_file_name_prefix}\n"
+        msg += f"{indent}default_model_memory_map_file_name_suffix = {self.default_model_memory_map_file_name_suffix}\n"
+        msg += f"{indent}force                                     = {self.force}\n"
+        msg += f"{indent}instruction_kind                          = {self.instruction_kind}\n"
+        msg += f"{indent}isa_file_name                             = {self.isa_file_name}\n"
+        msg += f"{indent}max_num_threads_per_neo_core              = {self.max_num_threads_per_neo_core}\n"
+        msg += f"{indent}model_cfg_dir_prefix                      = {self.model_cfg_dir_prefix}\n"
+        msg += f"{indent}model_inputcfg_file_prefix                = {self.model_inputcfg_file_prefix}\n"
+        msg += f"{indent}model_instruction_sets_dir_path_prefix    = {self.model_instruction_sets_dir_path_prefix}\n"
+        msg += f"{indent}model_log_file_end                        = {self.model_log_file_end}\n"
+        msg += f"{indent}model_log_file_suffix                     = {self.model_log_file_suffix}\n"
+        msg += f"{indent}model_odir_prefix                         = {self.model_odir_prefix}\n"
+        msg += f"{indent}model_simreport                           = {self.model_simreport}\n"
+        msg += f"{indent}run_name                                  = {self.run_name}\n"
+        msg += f"{indent}num_processes                             = {self.num_processes}\n"
+        msg += f"{indent}rtl_data_path_prefix                      = {self.rtl_data_path_prefix}\n"
+        msg += f"{indent}rtl_status_file_name                      = {self.rtl_status_file_name}\n"
+        msg += f"{indent}rtl_tags                                  = {self.rtl_tags}\n"
+        msg += f"{indent}rtl_test_dir_path_suffix                  = {self.rtl_test_dir_path_suffix}\n"
+        msg += f"{indent}rtl_test_dir_suffix                       = {self.rtl_test_dir_suffix}\n"
+        msg += f"{indent}rtl_tests                                 = {self.rtl_tests}\n"
+        msg += f"{indent}start_function                            = {self.start_function}\n"
+        msg += f"{indent}cfg                                       = {self.cfg}\n"
+        msg += f"{indent}experiment (exp)                          = {self.experiment}\n"
+        msg += f"{indent}memoryMap                                 = {self.memoryMap}\n"
+        msg += f"{indent}odir                                      = {self.odir}\n"
+        msg += f"{indent}risc_cpi (risc.cpi)                       = {self.risc_cpi}\n"
+        msg += f"{indent}ttISAFileName                             = {self.ttISAFileName}\n"
+        msg += f"{indent}defCfg                                    = {self.defCfg}\n"
 
         return msg.rstrip()
+
+    def __str__(self: typing.Self) -> str:
+        return self.to_str()
 
     def __repr__(self: typing.Self) -> str:
         return self.__str__()
@@ -396,6 +556,9 @@ class InputParams:
         return memory_map_file_name
 
     def has_cfg_file(self: typing.Self, rtl_tag: str) -> bool:
+        if self.cfg:
+            return os.path.isfile(self.cfg)
+
         if rtl_tag not in self.rtl_tags:
             return False
 
@@ -407,6 +570,9 @@ class InputParams:
         return False
 
     def has_memory_map_file(self: typing.Self, rtl_tag: str) -> bool:
+        if self.memoryMap:
+            return os.path.isfile(self.memoryMap)
+
         if rtl_tag not in self.rtl_tags:
             return False
 
@@ -424,6 +590,9 @@ class InputParams:
         return all(self.has_memory_map_file(tag) for tag in self.rtl_tags)
 
     def has_isa_file(self: typing.Self, rtl_tag: str) -> bool:
+        if self.ttISAFileName:
+            return os.path.isfile(self.ttISAFileName)
+
         if rtl_tag not in self.rtl_tags:
             return False
 
@@ -440,6 +609,9 @@ class InputParams:
         return all(self.has_isa_file(tag) for tag in self.rtl_tags)
 
     def get_isa_file_path(self: typing.Self, rtl_tag: str) -> str:
+        if self.ttISAFileName:
+            return self.ttISAFileName
+
         if rtl_tag not in self.rtl_tags:
             return ""
 
@@ -450,6 +622,9 @@ class InputParams:
         return Utils.get_path_of_only_copy_of_file_in_dir(self.isa_file_name, path)
 
     def get_cfg_file_path(self: typing.Self, rtl_tag: str) -> str:
+        if self.cfg:
+            return self.cfg
+
         if rtl_tag not in self.rtl_tags:
             return ""
 
@@ -459,6 +634,9 @@ class InputParams:
         return Utils.get_path_of_only_copy_of_file_in_dir(cfg_file_name, path)
 
     def get_memory_map_file_path(self: typing.Self, rtl_tag: str) -> str:
+        if self.memoryMap:
+            return self.memoryMap
+
         if rtl_tag not in self.rtl_tags:
             return ""
 
@@ -486,17 +664,14 @@ class InputParams:
             self.has_memory_map_file(rtl_tag) and \
             self.has_isa_file(rtl_tag)
 
-    def __get_inputcfg_odir_path(self: typing.Self, prefix: str, rtl_tag: str) -> str:
+    def __get_inputcfg_odir_path(self: typing.Self, prefix: str, run_name: str, rtl_tag: str) -> str:
         if rtl_tag not in self.rtl_tags:
             return ""
 
         if not prefix.startswith(self.gitignore_prefix):
             prefix = self.gitignore_prefix + prefix
 
-        if not prefix.endswith("_"):
-            prefix += "_"
-
-        path = f"{prefix}{rtl_tag}"
+        path = os.path.join(prefix, run_name, rtl_tag)
         path = os.path.normpath(path)
 
         os.makedirs(path, exist_ok=True)
@@ -504,12 +679,22 @@ class InputParams:
         return path
 
     def get_inputcfg_dir_path(self: typing.Self, rtl_tag: str) -> str:
-        return self.__get_inputcfg_odir_path(self.model_cfg_dir_prefix, rtl_tag)
+        return self.__get_inputcfg_odir_path(self.model_cfg_dir_prefix, self.run_name, rtl_tag)
 
     def get_odir_path(self: typing.Self, rtl_tag: str) -> str:
-        return self.__get_inputcfg_odir_path(self.model_odir_prefix, rtl_tag)
+        if self.odir:
+            path = self.odir
+            path = os.path.normpath(path)
+            os.makedirs(path, exist_ok=True)
+            return path
+        return self.__get_inputcfg_odir_path(self.model_odir_prefix, self.run_name, rtl_tag)
 
     def get_isa_dir_path(self: typing.Self) -> str:
+        if self.ttISAFileName:
+            path = os.path.dirname(os.path.abspath(self.ttISAFileName))
+            path = os.path.normpath(path)
+            os.makedirs(path, exist_ok=True)
+            return path
         path = f"{self.model_instruction_sets_dir_path_prefix}/{self.instruction_kind}"
         path = os.path.normpath(path)
         os.makedirs(path, exist_ok=True)
@@ -541,6 +726,36 @@ class InputParams:
                 print(f"  - info: Existing ISA file renamed to: {renamed_path}")
 
         shutil.copy2(rtl_isa_path, isa_dir)
+
+    def write_run_config_to_inputcfg_dir(self: typing.Self) -> None:
+        run_params: dict[str, typing.Any] = dict()
+        run_params["name"] = self.run_name
+        run_params["tag"] = self.rtl_tags
+        run_params["test"] = self.get_rtl_test_names(rtl_tag = None)
+        run_params["parallel"] = self.num_processes
+        if self.debug:
+            run_params["debug"] = self.debug
+        if self.cfg:
+            run_params["cfg"] = self.cfg
+        if self.defCfg:
+            run_params["defCfg"] = self.defCfg
+        if self.experiment:
+            run_params["exp"] = self.experiment
+        if self.memoryMap:
+            run_params["memoryMap"] = self.memoryMap
+        if self.odir:
+            run_params["odir"] = self.odir
+        if self.risc_cpi:
+            run_params["risc.cpi"] = self.risc_cpi
+        if self.ttISAFileName:
+            run_params["ttISAFileName"] = self.ttISAFileName
+
+        odir = os.path.dirname(self.get_inputcfg_dir_path(self.rtl_tags[0]))
+        run_config_file = os.path.join(odir, f"batch_{self.run_name}.yaml")
+        print(f"  + Writing batch file to: {run_config_file}")
+        with open(run_config_file, 'w') as file:
+            yaml.dump({"batch": [run_params]}, file)
+
 
 class Inputcfg:
     @staticmethod
@@ -576,7 +791,23 @@ class Inputcfg:
         input_cfg_dict["llkVersionTag"]       = rtl_tag
         input_cfg_dict["debug"]               = input_params.debug
         input_cfg_dict["ttISAFileName"]       = input_params.get_isa_file_path(rtl_tag)
-        input_cfg_dict["numTCores"]           = Utils.get_num_neos(test_dir_incl_path)
+        input_cfg_dict["odir"]                = input_params.get_odir_path(rtl_tag)
+        if input_params.cfg:
+            input_cfg_dict["cfg"] = input_params.cfg
+
+        if input_params.defCfg:
+            input_cfg_dict["defCfg"] = input_params.defCfg
+
+        if input_params.experiment:
+            input_cfg_dict["exp"] = input_params.experiment
+
+        if input_params.memoryMap:
+            input_cfg_dict["memoryMap"] = input_params.memoryMap
+
+        if input_params.risc_cpi:
+            input_cfg_dict["risc.cpi"] = input_params.risc_cpi
+
+        input_cfg_dict["numTCores"] = Utils.get_num_neos(test_dir_incl_path)
         input_cfg_dict["input"] = dict[str, typing.Any]()
         input_cfg: dict[str, typing.Any] = input_cfg_dict["input"]
         input_cfg["syn"] = 0
@@ -654,14 +885,13 @@ class RTLTest:
         outdir_incl_path = os.path.relpath(input_params.get_odir_path(rtl_tag))
         log_file_name = os.path.join(outdir_incl_path, f"{test_name}{input_params.model_log_file_suffix}")
 
-        print(f"  - info: Running RTL test {test_id}. {test_name} for tag {rtl_tag}. The output data (including errors) would be written to: {log_file_name}")
+        print(f"    + Running RTL test {test_id}. {test_name} for tag {rtl_tag}. The output data (including errors) would be written to: {log_file_name}")
 
         # Build command as a list of arguments (safer than shell=True)
         cmd_args = [
             "python",
             "ttsim/back/tensix_neo/tneoSim.py",
             "--inputcfg", inputcfg_file_name,
-            "--odir", outdir_incl_path
         ]
 
         # Set up environment with PYTHONPATH
@@ -669,6 +899,7 @@ class RTLTest:
         env["PYTHONPATH"] = "."
 
         with open(log_file_name, "w") as log_file:
+            cmd_args = [str(a) if not isinstance(a, (str, bytes, os.PathLike)) else a for a in cmd_args]
             subprocess.run(
                 cmd_args,
                 stdout=log_file,
@@ -682,14 +913,14 @@ class RTLTests:
     def execute_with_tag(rtl_tag: str, input_params: InputParams):
         rtl_test_names = input_params.get_rtl_test_names(rtl_tag)
         num_processes = min([input_params.num_processes, len(rtl_test_names)])
-        print(f"- RTL tag:                                       {rtl_tag}")
-        print(f"- Number of tests to execute via model:          {len(rtl_test_names)}")
-        print(f"- Number of parallel processes to execute tests: {num_processes}")
+        print(f"  + RTL tag:                                         {rtl_tag}")
+        print(f"    + Number of tests to execute via model:          {len(rtl_test_names)}")
+        print(f"    + Number of parallel processes to execute tests: {num_processes}")
 
         RTLTest.prepare(rtl_tag, input_params)
 
         with multiprocessing.Pool(processes = num_processes) as pool:
-            _ = pool.starmap(RTLTest.execute, [(idx, test_name, rtl_tag, input_params, False) for idx, test_name in enumerate(rtl_test_names)])
+            _ = pool.starmap(RTLTest.execute, [(idx, test_name, rtl_tag, input_params, False) for idx, test_name in enumerate(rtl_test_names, 1)])
 
     @staticmethod
     def execute(input_params: InputParams):
@@ -791,6 +1022,8 @@ class TestStatus:
         self.set_failure_bin()
 
     def set_rtl_test_status(self: typing.Self, input_params: InputParams):
+        assert isinstance(self.name, str), "- error: test name is not set"
+        assert isinstance(self.rtl_tag, str), "- error: rtl_tag is not set"
         self.rtl_passed = False
         test_dir = input_params.get_rtl_test_dir_path(self.name, self.rtl_tag)
         sim_result_incl_path = Utils.get_path_of_only_copy_of_file_in_dir(input_params.rtl_status_file_name, test_dir)
@@ -802,6 +1035,7 @@ class TestStatus:
                     self.rtl_num_cycles = yml['total-cycles']
 
     def set_model_test_status(self: typing.Self, input_params: InputParams):
+        assert isinstance(self.rtl_tag, str), "- error: rtl_tag is not set"
         self.model_passed = False
         test_dir = input_params.get_odir_path(self.rtl_tag)
         log_file = os.path.join(test_dir, f"{self.name}{input_params.model_log_file_suffix}")
@@ -826,6 +1060,7 @@ class TestStatus:
                 self.num_cycles_model_by_rtl = float(self.model_num_cycles) / float(self.rtl_num_cycles)
 
     def set_test_class(self: typing.Self):
+        assert isinstance(self.name, str), "- error: test name is not set"
         classes = TestStatusUtils.get_test_classes()
         test_words = self.name.split("-")
         unclassified_class_prefix = "Unclassified test class: "
@@ -885,31 +1120,39 @@ class TestStatus:
 
 
 class SCurve:
-    rtl_tag: str = ""
-    s_curve: list[SCurveElem] = []
     def __init__(self: typing.Self, rtl_tag: str, s_curve: list[SCurveElem]| None = None) -> None:
         self.rtl_tag = rtl_tag
-        self.s_curve = []
+        self.s_curve: list[SCurveElem] = []
         if s_curve is not None:
             for elem in s_curve:
-                if isinstance(elem, SCurveElem):
-                    self.s_curve.append(elem)
-                else:
-                    self.s_curve.append(SCurveElem(elem))
+                assert isinstance(elem, SCurveElem), "- error: expect elem to be of type SCurveElem"
+                self.s_curve.append(elem)
 
         self.s_curve = SCurveUtils.sort(self.s_curve)
 
     def slower_than_RTL_tests(self: typing.Self) -> list[SCurveElem]:
-        return [elem for elem in self.s_curve if (elem.rtl_passed and elem.model_passed and (elem.model_num_cycles > elem.rtl_num_cycles))]
+        elems: list[SCurveElem] = []
+        for elem in self.s_curve:
+            if elem.rtl_passed and elem.model_passed and isinstance(elem.model_num_cycles, int) and isinstance(elem.rtl_num_cycles, int) and (elem.model_num_cycles > elem.rtl_num_cycles):
+                elems.append(elem)
+        return elems
+
 
     def get_num_slower_than_rtl_tests(self: typing.Self) -> int:
         return len(self.slower_than_RTL_tests())
+
+    def geometric_mean_of_model_by_rtl_ratios(self: typing.Self) -> float | None:
+        ratios = [elem.num_cycles_model_by_rtl for elem in self.s_curve if (elem.rtl_passed and elem.model_passed and isinstance(elem.num_cycles_model_by_rtl, float))]
+        if 0 == len(ratios):
+            return None
+
+        return math.e**(sum(math.log(ratio) for ratio in ratios) / len(ratios))
 
     def get_s_curve_str(self: typing.Self, num_white_chars_at_start: int = 0) -> str:
         prefix = f"{' ' * num_white_chars_at_start}"
         sr_num_max_len = int(math.ceil(math.log10(len(self.s_curve))) if len(self.s_curve) > 0 else 1)
         num_tests = len(self.s_curve)
-        widths = [None for _ in range(SCurveElemIndices.num_cycles_model_by_rtl + 1)]
+        widths = [0 for _ in range(SCurveElemIndices.num_cycles_model_by_rtl + 1)]
         widths[SCurveElemIndices.test_name]        = max(len(t.test_name) for t in self.s_curve)
         widths[SCurveElemIndices.class_name]       = max(len(t.class_name) for t in self.s_curve)
         widths[SCurveElemIndices.rtl_num_cycles]   = max(len(str(t.rtl_num_cycles)) for t in self.s_curve)
@@ -959,7 +1202,7 @@ class TagStatus:
         self.statuses = {test_name : TestStatus(test_name, self.rtl_tag, input_params) for test_name in self.tests}
 
     def set_s_curve(self: typing.Self, sort_by: None | int | list[int] = None, descending: None | bool | list[bool] = None) -> None:
-        s_curve_data: list[SCurveElem | None] = []
+        s_curve_data: list[SCurveElem] = []
         for test_name in self.tests:
             s_curve_data.append(self.statuses[test_name].get_s_curve_data())
         self.s_curve = SCurve(self.rtl_tag, s_curve_data)
@@ -976,10 +1219,6 @@ class TagStatus:
     def num_tests_passed_on_model(self: typing.Self):
         return sum(1 for status in self.statuses.values() if status.model_passed)
 
-    def failed_tests_to_str(self: typing.Self, num_white_chars_at_start: int = 0) -> str:
-        failed_tests = self.s_curve.failed_tests_on_model()
-        return failed_tests.get_s_curve_str(num_white_chars_at_start)
-
     def num_tests_status_to_str(self: typing.Self) -> str:
         num_tests = self.num_tests()
         num_rtl_passed = self.num_tests_passed_on_rtl()
@@ -992,7 +1231,7 @@ class TagStatus:
         assert num_tests == (num_model_passed + num_model_failed), f"- error: expected number of tests in summary {num_tests} to be equal to number of passed and failed model tests for RTL tag {self.rtl_tag}"
         assert num_slower_tests <= num_tests, f"- error: number of slower tests can not be greater than total number of RTL tests!"
 
-        msg = f"+ Status for RTL tag: {self.rtl_tag}. "
+        msg = f"  + Status for RTL tag: {self.rtl_tag}. "
         msg += f"Number of tests: {num_tests}, "
         msg += f"number of tests passing on RTL: {num_rtl_passed} ({(num_rtl_passed / num_tests * 100):.2f} %), "
         msg += f"number of tests passing on model: {num_model_passed} ({(num_model_passed / num_tests * 100):.2f} %), "
@@ -1031,7 +1270,7 @@ class TagStatus:
         if len(failed_tests_on_rtl):
             num_tests = len(failed_tests_on_rtl)
             sr_num_max_len = int(math.ceil(math.log10(num_tests))) if num_tests > 0 else 1
-            widths = [None for _ in range(SCurveElemIndices.num_cycles_model_by_rtl + 1)]
+            widths = [0 for _ in range(SCurveElemIndices.num_cycles_model_by_rtl + 1)]
             widths[SCurveElemIndices.test_name]        = max(len(t.test_name) for t in failed_tests_on_rtl)
             widths[SCurveElemIndices.class_name]       = max(len(t.class_name) for t in failed_tests_on_rtl)
             widths[SCurveElemIndices.rtl_num_cycles]   = max(len(str(t.rtl_num_cycles)) for t in failed_tests_on_rtl)
@@ -1054,17 +1293,19 @@ class TagStatus:
 
         return msg.rstrip()
 
-    def get_s_curve_str(self: typing.Self, num_white_chars_at_start: int = 0) -> str:
-        return self.s_curve.get_s_curve_str(num_white_chars_at_start)
+    def get_s_curve_geometric_mean(self: typing.Self) -> float | None:
+        return self.s_curve.geometric_mean_of_model_by_rtl_ratios()
 
     def status_to_str(self: typing.Self) -> str:
         msg = ""
         msg += self.num_tests_status_to_str() + "\n"
-        failed_test_msg = self.failed_tests_to_str(num_white_chars_at_start=2)
+        failed_test_msg = self.failed_tests_to_str(num_white_chars_at_start=4)
         if failed_test_msg:
             msg += failed_test_msg + "\n"
-        msg += "  + Test class s-curve:\n"
-        msg += self.get_s_curve_str(num_white_chars_at_start=4) + "\n"
+        msg += "    + Test class S-Curve:\n"
+        msg += self.get_s_curve_str(num_white_chars_at_start=6) + "\n"
+        geom_mean = self.get_s_curve_geometric_mean()
+        msg += f"    + S-Curve (Model/RTL) geometric mean: {f'{geom_mean:.2f}' if geom_mean is not None else 'N/A'}\n"
 
         return msg.rstrip()
 
@@ -1106,7 +1347,7 @@ class TagStatus:
         plt.xticks(rotation=90)
         plt.legend()
         plt.tight_layout()
-        print(f"  + Saving S-Curve plot to {output_file}")
+        print(f"    + Saving S-Curve plot to {output_file}")
         plt.savefig(output_file, dpi=300, bbox_inches='tight', format='png')
         plt.close()
 
@@ -1127,42 +1368,47 @@ class TagStatus:
         plt.xticks(rotation=90)
         plt.legend(loc='upper left')
         plt.tight_layout()
-        print(f"  + Saving test class wise S-Curve plot to {output_file}")
+        print(f"    + Saving test class wise S-Curve plot to {output_file}")
         plt.savefig(output_file, dpi=300, bbox_inches='tight', format='png')
         plt.close()
 
+    def write_s_curve_to_csv(self: typing.Self, output_file: str):
+        """Write S-curve data to CSV file with header"""
+        print(f"    + Saving S-Curve data to CSV file: {output_file}")
+
+        # Ensure output directory exists
+        os.makedirs(os.path.dirname(output_file), exist_ok=True)
+
+        with open(output_file, 'w', newline='', encoding='utf-8') as csvfile:
+            writer = csv.writer(csvfile)
+
+            # Write header
+            header = [
+                'Test Name',
+                'Test Class',
+                'RTL Passed',
+                'RTL Cycles',
+                'Model Passed',
+                'Model Cycles',
+                'Model/RTL Ratio'
+            ]
+            writer.writerow(header)
+
+            # Write data rows
+            for elem in self.s_curve.s_curve:
+                row = [
+                    elem.test_name,
+                    elem.class_name,
+                    'PASS' if elem.rtl_passed else 'FAIL',
+                    elem.rtl_num_cycles if elem.rtl_num_cycles is not None else '',
+                    'PASS' if elem.model_passed else 'FAIL',
+                    elem.model_num_cycles if elem.model_num_cycles is not None else '',
+                    f'{elem.num_cycles_model_by_rtl:.4f}' if elem.num_cycles_model_by_rtl is not None else ''
+                ]
+                writer.writerow(row)
+
     def __str__(self: typing.Self):
-        max_num_test_len: int = int(math.ceil(math.log10(self.overall.num_tests)) if self.overall.num_tests > 0 else 1)
-        msg  = f"+ Test status for RTL tag {self.rtl_tag}\n"
-        msg += f"  + Overall summary:\n"
-        msg += f"    + Number of tests:                    {self.overall.num_tests:>{max_num_test_len}}\n"
-        msg += f"    + Number of tests passing on RTL:     {self.overall.num_rtl_test_passed:>{max_num_test_len}}\n"
-        msg += f"    + Number of tests passing with model: {self.overall.num_model_test_passed:>{max_num_test_len}}\n"
-        msg += f"    + RTL test pass rate:                 {self.overall.rtl_test_pass_rate:.2%}\n"
-        msg += f"    + Model test pass rate:               {self.overall.model_test_pass_rate:.2%}\n"
-
-        msg += f"  + Test class breakdown:\n"
-        for class_name, status in self.classes_overall_statuses.items():
-            msg += f"    + Test class: {class_name}\n"
-            msg += f"      + Number of tests:                    {status.num_tests}\n"
-            msg += f"      + Number of tests passing on RTL:     {status.num_rtl_test_passed}\n"
-            msg += f"      + Number of tests passing with model: {status.num_model_test_passed}\n"
-            msg += f"      + RTL test pass rate:                 {status.rtl_test_pass_rate:.2%}\n"
-            msg += f"      + Model test pass rate:               {status.model_test_pass_rate:.2%}\n"
-
-        msg += f"  + Failures:\n"
-        for class_name, failures in self.classes_model_failures.items():
-            msg += f"    + Test class: {class_name}\n"
-            for failure_bin, tests in failures.items():
-                msg += f"      + Failure bin: {failure_bin}\n"
-                for test in tests:
-                    msg += f"        - {test}\n"
-
-        msg += f"  + Test class wise s-curve:\n"
-        msg += self.s_curve_as_str()
-        msg += "\n"
-
-        return msg
+        return self.status_to_str()
 
     def __repr__(self) -> str:
         return self.__str__()
@@ -1215,40 +1461,93 @@ class Status:
             tgs.print_status()
             tgs.plot_s_curve(output_file = os.path.join(input_params.get_odir_path(rtl_tag), f"s_curve.png"))
             tgs.plot_class_wise_s_curve(output_file = os.path.join(input_params.get_odir_path(rtl_tag), f"class_wise_s_curve.png"))
+            tgs.write_s_curve_to_csv(output_file = os.path.join(input_params.get_odir_path(rtl_tag), f"s_curve.csv"))
+
+        input_params.write_run_config_to_inputcfg_dir()
 
     @staticmethod
     def get_status(rtl_tag: str, input_params: InputParams):
         test_statuses = Status.get_test_statuses(rtl_tag, input_params)
-        return any(not status.model_passed for status in test_statuses.values())
+        return all((status.model_passed and status.rtl_passed) for status in test_statuses.values())
 
     @staticmethod
     def get_statuses(input_params: InputParams):
         return {rtl_tag : Status.get_status(rtl_tag, input_params) for rtl_tag in input_params.rtl_tags}
 
-def execute_tests_and_get_status(tags: list[str] | None = None, tests: list[str] | None = None, parallel: int | None = None) -> dict[str, bool]:
+def execute_tests_and_get_status(run: Run) -> dict[str, bool]:
+    """Execute tests for a single run and return status"""
     input_params = InputParams(
-        tags = tags,
-        tests = tests,
-        parallel = parallel
+        run_name = run.name,
+        tags = run.tags,
+        tests = run.tests,
+        parallel = run.parallel,
+        cfg = run.cfg,
+        debug = run.debug,
+        defCfg = run.defCfg,
+        exp = run.exp,
+        memoryMap = run.memoryMap,
+        odir = run.odir,
+        risc_cpi = run.risc_cpi,
+        ttISAFileName = run.ttISAFileName
     )
 
-    print(input_params)
-    print()
+    print(f"+ Executing run: {run.name}")
+    print(f"  + Input parameters:")
+    print(input_params.to_str(offset = 4))
     RTLTests.execute(input_params)
     Status.print_statuses(input_params)
     return Status.get_statuses(input_params)
+
+def execute_all_runs(run_config: RunConfig) -> dict[str, dict[str, bool]]:
+    """Execute all runs in the configuration and return results"""
+    results = {}
+    for run in run_config.runs:
+        results[run.name] = execute_tests_and_get_status(run)
+    return results
 
 if "__main__" == __name__:
     # Set up argument parser
     parser = argparse.ArgumentParser(description = 'Execute RTL tests via model')
     parser.add_argument('--tag', nargs = '+', default = None, help = 'Optional: RTL tags to execute tests with (e.g., feb19 mar18 jul1 jul27 sep23)')
     parser.add_argument('--test', nargs = '+', default = None, help = 'Optional: Specific test names to run (default: run all tests)')
-    parser.add_argument('--parallel', type = int, default = None, help = 'Optional: Number of parallel processes to use')
+    parser.add_argument('--parallel', '-j', '-np', type = int, default = None, help = 'Optional: Number of parallel processes to use')
+    parser.add_argument('--batch-file', type = str, default = None, help = 'Optional: YAML batch file with test runs configuration')
+    parser.add_argument('--debug', type = int, default = 15, help = 'Optional: Debug level (default: 15)')
+    parser.add_argument('--cfg', type = str, default = None, help = 'Optional: Configuration file path')
+    parser.add_argument('--defCfg', type = str, default = None, help = 'Optional: Default configuration file path')
+    parser.add_argument('--exp', type = str, default = None, help = 'Optional: Experiment name or identifier')
+    parser.add_argument('--memoryMap', type = str, default = None, help = 'Optional: Memory map file path')
+    parser.add_argument('--odir', type = str, default = None, help = 'Optional: Output directory path')
+    parser.add_argument('--risc.cpi', type = float, default = None, help = 'Optional: RISC CPI (cycles per instruction) value')
+    parser.add_argument('--ttISAFileName', type = str, default = None, help = 'Optional: TT ISA file name')
+    parser.add_argument('--batch-name', type = str, default = None, help = 'Optional: Name for the run')
 
     args = parser.parse_args()
 
-    status = execute_tests_and_get_status(
-        tags=args.tag,
-        tests=args.test,
-        parallel=args.parallel
-    )
+    # Create run configuration
+    run_config = RunConfig(args.batch_file)
+
+    # If any CLI arguments are provided, create a run from them
+    if (args.test or args.tag or args.parallel or args.debug != 15 or args.cfg or args.defCfg or args.exp or args.memoryMap or args.odir or getattr(args, 'risc.cpi', None) or args.ttISAFileName) or not run_config.runs:
+        run_config.add_cli_run(
+            tests=args.test,
+            tags=args.tag,
+            parallel=args.parallel,
+            debug=args.debug,
+            cfg=args.cfg,
+            defCfg=args.defCfg,
+            exp=args.exp,
+            memoryMap=args.memoryMap,
+            odir=args.odir,
+            risc_cpi=getattr(args, 'risc.cpi', None),
+            ttISAFileName=args.ttISAFileName,
+            name=args.batch_name
+        )
+
+    # Execute all runs
+    results = execute_all_runs(run_config)
+
+    # Print overall results summary
+    print("+ Overall results summary:")
+    for run_name, run_results in results.items():
+        print(f"  + Batch '{run_name}': {run_results}")

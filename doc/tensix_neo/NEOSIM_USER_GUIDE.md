@@ -23,6 +23,8 @@
    - [Custom execution mode](#custom-execution-mode)
    - [Managed execution mode](#managed-execution-mode)
      - [Optional prerequisites](#optional-prerequisites)
+   - [Additional command-line arguments](#additional-command-line-arguments)
+     - [Batch execution mode](#batch-execution-mode)
 6. [Configuration Guide](#configuration-guide)
    - [gitignore](#gitignore)
    - [Debug Levels](#debug-levels)
@@ -137,14 +139,14 @@ architecture.
 
 Available configuration sets by LLK version tag:
 
-- `feb19` : LLK tests from RTL snapshot taken on February 19, 2025
-- `mar18` : LLK tests from RTL snapshot taken on March 18, 2025
 - `jul1`  : LLK tests from RTL snapshot taken on July 1, 2025
 - `jul27` : LLK tests from RTL snapshot taken on July 27, 2025
 - `sep23` : LLK tests from RTL snapshot taken on September 23, 2025
 
 The NeoSim maintains 100% test pass rate for all the LLK tests in the
 snapshots above.
+
+RTL tags `feb19` and `mar18` have been deprecated.
 
 ## Execution
 
@@ -220,13 +222,13 @@ them is as follows.
 Once the input configuration file is prepared, the tests can be executed
 with
 ```bash
-PYTHONPATH="." python ttsim/back/tensix_neo/tneosim.py --inputcfg inputcfg.json
+PYTHONPATH="." python ttsim/back/tensix_neo/tneoSim.py --inputcfg inputcfg.json
 ```
 
 If the `polaris` directory is already present in `PYTHONPATH`, the
 initial `PYTHONPATH` can be omitted.
 ```bash
-python ttsim/back/tensix_neo/tneosim.py --inputcfg inputcfg.json
+python ttsim/back/tensix_neo/tneoSim.py --inputcfg inputcfg.json
 ```
 
 #### Test output
@@ -247,11 +249,11 @@ for more details.
 ### Custom execution mode
 
 The users can specify custom architecture configuration, memory map,
-instruction set, instruction throughput, etc. either via commandline
-options or via inputcfg. The commandline arguments supersede arguments
+instruction set, instruction throughput, etc. either via command-line
+options or via inputcfg. The command-line arguments supersede arguments
 from inputcfg which in turn supersede defaults.
 
-The commandline arguments are as follows:
+The command-line arguments are as follows:
 | Argument          | Type   | Required | Description                                      |
 |-------------------|--------|----------|--------------------------------------------------|
 | `--inputcfg`      | string | Yes      | Path to LLK configuration JSON file              |
@@ -290,11 +292,11 @@ are included in the new file.
 
 Arguments such as `risc.cpi` (number of cycles per instruction for
 RV32 instructions) can also be specified either via `cfg` file or via
-commandline. The commandline arguments overrides the value provided
+command-line. The command-line arguments overrides the value provided
 via cfg file.
 
 Arguments `debug`, `memoryMap`, `ttISAFileName` can also be specified
-via `inputcfg`. As before, commandline argument overrides any values
+via `inputcfg`. As before, command-line argument overrides any values
 provided via inputcfg file.
 
 The following example explains the overrides better. Consider
@@ -314,30 +316,30 @@ $ cat inputcfg.json
 ...
 
 # execution
-$ PYTHONPATH="." python ttsim/back/tensix_neo/tneosim.py --inputcfg inputcfg.json
-$ PYTHONPATH="." python ttsim/back/tensix_neo/tneosim.py --inputcfg inputcfg.json --debug 63
-$ PYTHONPATH="." python ttsim/back/tensix_neo/tneosim.py --inputcfg inputcfg.json --memoryMap memoryMap.cli.json
-$ PYTHONPATH="." python ttsim/back/tensix_neo/tneosim.py --inputcfg inputcfg.json --cfg cfg.json
-$ PYTHONPATH="." python ttsim/back/tensix_neo/tneosim.py --inputcfg inputcfg.json --cfg cfg.json --risc.cpi 2
-$ PYTHONPATH="." python ttsim/back/tensix_neo/tneosim.py --inputcfg inputcfg.json --risc.cpi 2 --cfg cfg.json
+$ PYTHONPATH="." python ttsim/back/tensix_neo/tneoSim.py --inputcfg inputcfg.json
+$ PYTHONPATH="." python ttsim/back/tensix_neo/tneoSim.py --inputcfg inputcfg.json --debug 63
+$ PYTHONPATH="." python ttsim/back/tensix_neo/tneoSim.py --inputcfg inputcfg.json --memoryMap memoryMap.cli.json
+$ PYTHONPATH="." python ttsim/back/tensix_neo/tneoSim.py --inputcfg inputcfg.json --cfg cfg.json
+$ PYTHONPATH="." python ttsim/back/tensix_neo/tneoSim.py --inputcfg inputcfg.json --cfg cfg.json --risc.cpi 2
+$ PYTHONPATH="." python ttsim/back/tensix_neo/tneoSim.py --inputcfg inputcfg.json --risc.cpi 2 --cfg cfg.json
 ```
 
 The snapshot above shows custom `cfg` file called `cfg.json`
 where `risc.cpi` is set to a rather large value of 10. It also shows an
 `inputcfg` where debug flag, and paths for custom `memoryMap` and
-`ttISAFileName` are specified. The effect of commandline and inputcfg
+`ttISAFileName` are specified. The effect of command-line and inputcfg
 arguments on the simulator execution environment is summarised in the table below.
 
 | Execution                                                            | inputcfg        | cfg        | memoryMap                 | ttISAFileName       | debug | risc.cpi                  |
 |----------------------------------------------------------------------|-----------------|------------|---------------------------|---------------------|-------|---------------------------|
-| `tneosim.py --inputcfg inputcfg.json`                                | `inputcfg.json` | Default    | `memoryMap.inputcfg.json` | `isa.inputcfg.yaml` | 15    | 1 (from default cfg file) |
-| `tneosim.py --inputcfg inputcfg.json --debug 63`                     | `inputcfg.json` | Default    | `memoryMap.inputcfg.json` | `isa.inputcfg.yaml` | 63    | 1 (from default cfg file) |
-| `tneosim.py --inputcfg inputcfg.json --memoryMap memoryMap.cli.json` | `inputcfg.json` | Default    | `memoryMap.cli.json`      | `isa.inputcfg.yaml` | 15    | 1 (from default cfg file) |
-| `tneosim.py --inputcfg inputcfg.json --cfg cfg.json`                 | `inputcfg.json` | `cfg.json` | `memoryMap.inputcfg.json` | `isa.inputcfg.yaml` | 15    | 10 (from custom cfg file) |
-| `tneosim.py --inputcfg inputcfg.json --cfg cfg.json --risc.cpi 2`    | `inputcfg.json` | `cfg.json` | `memoryMap.inputcfg.json` | `isa.inputcfg.yaml` | 15    | 2 (from commandline)      |
-| `tneosim.py --inputcfg inputcfg.json --risc.cpi 2 --cfg cfg.json`    | `inputcfg.json` | `cfg.json` | `memoryMap.inputcfg.json` | `isa.inputcfg.yaml` | 15    | 2 (from commandline)      |
+| `tneoSim.py --inputcfg inputcfg.json`                                | `inputcfg.json` | Default    | `memoryMap.inputcfg.json` | `isa.inputcfg.yaml` | 15    | 1 (from default cfg file) |
+| `tneoSim.py --inputcfg inputcfg.json --debug 63`                     | `inputcfg.json` | Default    | `memoryMap.inputcfg.json` | `isa.inputcfg.yaml` | 63    | 1 (from default cfg file) |
+| `tneoSim.py --inputcfg inputcfg.json --memoryMap memoryMap.cli.json` | `inputcfg.json` | Default    | `memoryMap.cli.json`      | `isa.inputcfg.yaml` | 15    | 1 (from default cfg file) |
+| `tneoSim.py --inputcfg inputcfg.json --cfg cfg.json`                 | `inputcfg.json` | `cfg.json` | `memoryMap.inputcfg.json` | `isa.inputcfg.yaml` | 15    | 10 (from custom cfg file) |
+| `tneoSim.py --inputcfg inputcfg.json --cfg cfg.json --risc.cpi 2`    | `inputcfg.json` | `cfg.json` | `memoryMap.inputcfg.json` | `isa.inputcfg.yaml` | 15    | 2 (from command-line)      |
+| `tneoSim.py --inputcfg inputcfg.json --risc.cpi 2 --cfg cfg.json`    | `inputcfg.json` | `cfg.json` | `memoryMap.inputcfg.json` | `isa.inputcfg.yaml` | 15    | 2 (from command-line)      |
 
-The inputcfg arguments take precedence over defaults. The commandline arguments
+The inputcfg arguments take precedence over defaults. The command-line arguments
 take precedence over both arguments from inputcfg and defaults. This
 precedence is absolute and does not depend upon sequence in which the
 arguments are provided.
@@ -348,11 +350,11 @@ The output of test execution is same that described in section
 ### Managed execution mode.
 
 To further simplify the execution of RTL tests, enterprise and
-Tenstorrent users may use `tests/standalone/execute_test.py` script.
+Tenstorrent users may use `tools/run_rtl_neosim_correlation.py` script.
 
 #### Optional prerequisites
 
-The following steps are performed within the `execute_test.py` script
+The following steps are performed within the `run_rtl_neosim_correlation.py` script
 (described next) as well, but can be carried out explicitly if required.
 1. **Network connectivity check**: Check that you are connected to
   Tenstorrent Tailscale enabled network.
@@ -382,7 +384,7 @@ In managed mode, the users are not required provide `inputcfg`, instead
 this script only requires LLK test name and `llkVersionTag`. The given
 test can be executed as follows.
 ```bash
-python tests/standalone/execute_test.py --tag jul27 --test t6-quas-n1-ttx-Int32-upk-to-dest-llk
+python tools/run_rtl_neosim_correlation.py --tag jul27 --test t6-quas-n1-ttx-Int32-upk-to-dest-llk
 ```
 Here test `t6-quas-n1-ttx-Int32-upk-to-dest-llk` from RTL snapshot from
 Jul 27, 2025 will be executed. The test uses default `cfg`, `memoryMap`
@@ -400,17 +402,162 @@ The comparison is printed in tabular format to the `stdout` and stored
 as a plot. The paths of the plots are printed to `stdout`.
 
 The managed mode also allows for additional execution options.
-1. `execute_test.py --test t6-quas-n1-ttx-elwadd-broadcast-col0-fp16-llk --tag jul27`
+1. `run_rtl_neosim_correlation.py --test t6-quas-n1-ttx-elwadd-broadcast-col0-fp16-llk --tag jul27`
    executes a test associated with `llkVersionTag` `jul27`.
-1. `execute_test.py --tag jul27 --test t6-quas-n1-ttx-Int32-upk-to-dest-llk t6-quas-n1-ttx-elwadd-broadcast-col0-fp16-llk`
+1. `run_rtl_neosim_correlation.py --tag jul27 --test t6-quas-n1-ttx-Int32-upk-to-dest-llk t6-quas-n1-ttx-elwadd-broadcast-col0-fp16-llk`
    executes both the tests associated with `llkVersionTag` `jul27`.
-1. `execute_test.py --tag sep23` executes _all_ LLK tests associated
+1. `run_rtl_neosim_correlation.py --tag sep23` executes _all_ LLK tests associated
    with given `llkVersionTag` (`sep23` in this case). The execution of tests proceeds in serial manner, that is tests are executed in one after the other.
-1. `execute_test.py --tag sep23 --parallel 2` speeds up execution with
+1. `run_rtl_neosim_correlation.py --tag sep23 --parallel 2` speeds up execution with
    two processes running in parallel.
-1. `execute_test.py --tag jul1 sep23 --parallel 2` multiple
+1. `run_rtl_neosim_correlation.py --tag jul1 sep23 --parallel 2` multiple
    `llkVersionTag`s can be specified. This will execute all tests for
    each `llkVersionTag`.
+
+#### Additional command-line arguments
+Except for `inputcfg`, the script `run_rtl_neosim_correlation.py` also supports
+all command line arguments listed in section `Custom execution mode`.
+
+An example of these arguments is as follows.
+```bash
+python tools/run_rtl_neosim_correlation.py \
+  --test t6-quas-n1-ttx-elwadd-broadcast-col0-fp16-llk \
+  --tag sep23 \
+  --debug 63 \
+  --cfg cfg.json \
+  --memoryMap mm.json \
+  --ttISAFileName ttisa.yaml \
+  --risc.cpi 2.0 \
+  --odir __elw_dir \
+  --batch-name my_run
+```
+This command will execute test `t6-quas-n1-ttx-elwadd-broadcast-col0-fp16-llk` from tag `sep23`.
+The debug flag for this execution is set to 63. Configuration file used will be `cfg.json`.
+Similarly memory map and tensix instruction set will be read from `mm.json` and `ttisa.yaml`
+respectively. `risc.cpi` has been set to 2. The results of the run will be stored in `__elw_dir`.
+The command line also accepts optional `batch-name` argument for the given run/execution.
+The default for `batch-name` is "baseline".
+
+The users are required to exercise caution when using `cfg`, `memoryMap` and `ttISAFileName`
+arguments across multiple tags as command line arguments override defaults. E.g.
+```bash
+python tools/run_rtl_neosim_correlation.py \
+  --parallel 10 \
+  --tag jul1 sep23 \
+  --debug 63 \
+  --cfg cfg.json \
+  --memoryMap mm.json \
+  --ttISAFileName ttisa.yaml \
+  --risc.cpi 2.0 \
+  --odir __elw_dir
+```
+This will use the same `cfg.json`, `mm.json` and `ttisa.yaml` for tests
+with tag `jul1` and for tests with tag `sep23`. This will most likely
+lead to errors as the memory map of these two tags is not the same
+(configuration registers are differ in both name and number).
+Differences can also be seen in `assembly.jul1.yaml` and
+`assembly.sep23.yaml`.
+
+#### Batch execution mode
+The `tools/run_rtl_neosim_correlation.py` script supports execution in
+batch mode via the following argument.
+```bash
+python run_rtl_neosim_correlation.py --batch-file batch_file.yaml
+```
+An example batch file is as follows.
+```yaml
+batch:
+  - name: run_sep23
+    tag: sep23
+    parallel: 10
+
+  - name: cpi1
+    test: t6-quas-n1-ttx-elwadd-broadcast-col0-fp16-llk
+    tag: sep23
+    debug: 15
+
+  - name: cpi2
+    test:
+    - t6-quas-n1-ttx-elwadd-broadcast-col0-fp16-llk
+    tag:
+    - sep23
+    risc.cpi: 2.0
+    debug: 15
+    cfg: cfg.json
+    ttISAFileName: ttisa.yaml
+    memoryMap: mm.json
+    odir: abc
+```
+The batch file introduces two additional keys namely `batch` and `name`.
+The `batch` is a mandatory key and has to be at the start of the file.
+`name` is optional for a given run/batch. If not specified a script
+generated name is assigned to the runs.
+
+If two runs/batches have the same name, appropriate counters are
+suffixed to the names of the repeat runs.
+
+In the script above, run `run_sep23` is equivalent to
+`run_rtl_neosim_correlation.py --tag sep23 --parallel 10`. This runs all the tests
+with tag `sep23` in parallel mode with 10 number of processes.
+
+Run `cpi1` is equivalent to
+```bash
+python tools/run_rtl_neosim_correlation.py \
+  --test t6-quas-n1-ttx-elwadd-broadcast-col0-fp16-llk \
+  --tag sep23 \
+  --debug 15 \
+  --batch-name cpi1
+```
+
+Run `cpi2` is equivalent to
+```bash
+python tools/run_rtl_neosim_correlation.py \
+  --test t6-quas-n1-ttx-elwadd-broadcast-col0-fp16-llk \
+  --tag sep23 \
+  --debug 15 \
+  --risc.cpi 2.0 \
+  --cfg cfg.json \
+  --ttISAFileName ttisa.yaml \
+  --memoryMap mm.json \
+  --odir abc \
+  --batch-name cpi2
+```
+The results of runs `run_sep23` and `cpi1` will be stored at default
+locations, whereas those for `cpi2` will be stored at `abc`.
+
+#### Config file generation.
+
+A config file is also written to file for a given run after execution
+is complete.  E.g. A config file for
+```bash
+python tools/run_rtl_neosim_correlation.py \
+  --test t6-quas-n1-ttx-elwadd-broadcast-col0-fp16-llk \
+  --tag sep23 \
+  --debug 15 \
+  --cfg cfg.json \
+  --memoryMap mm.json \
+  --ttISAFileName ttisa.yaml \
+  --risc.cpi 2.0 \
+  --odir abc
+```
+is written to `__config_files/baseline/batch_baseline.yaml`.
+`baseline` is the name assigned to the run in this case. `batch`
+is the prefix assigned to the file. The run config would be:
+```yaml
+batch:
+- cfg: cfg.json
+  debug: 15
+  memoryMap: mm.json
+  name: baseline
+  odir: abc
+  parallel: 1
+  risc.cpi: 2.0
+  tag:
+  - sep23
+  test:
+  - t6-quas-n1-ttx-elwadd-broadcast-col0-fp16-llk
+  ttISAFileName: ttisa.yaml
+```
 
 ## Configuration Guide
 
@@ -426,7 +573,7 @@ Debug levels are bitwise flags that can be combined:
 
 | Level | Component | Detail | Description                    |
 |-------|-----------|--------|--------------------------------|
-| 1     | TRISC     |  Low   | Basic RISC core activity       |
+| 1     | TRISC     | Low    | Basic RISC core activity       |
 | 2     | Tensix    | Low    | Basic Tensix core activity     |
 | 4     | TRISC     | Medium | Detailed RISC instruction flow |
 | 8     | Tensix    | Medium | Detailed pipeline activity     |
@@ -584,6 +731,11 @@ Key metrics available in simulation output:
    - Reduce debug level for faster simulation
    - Use smaller test cases for development
    - Monitor system memory usage during simulation
+
+5. **Could not find `tests/standalone/execute_test.py`**
+   The `execute_test.py` script has been renamed to `run_rtl_neosim_correlation.py` and also has been
+   moved from `polaris/tests/standalone` to `polaris/tools` directory. Please execute
+   `python tools/run_rtl_neosim_correlation.py` with the same command-line arguments.
 
 ## Support
 

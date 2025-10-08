@@ -3,10 +3,12 @@
 # SPDX-License-Identifier: Apache-2.0
 
 import argparse
+import collections
 import copy
 import json
 import os
 import simpy
+import typing
 
 import ttsim.back.tensix_neo.scratchpad as scratchpad
 import ttsim.back.tensix_neo.t3sim as t3sim
@@ -159,14 +161,47 @@ def get_llk_version_tag(args_dict):
 
     return None
 
-def get_cfg(args, args_dict):
-    if hasattr(args, 'cfg') and args.cfg:
-        assert os.path.exists(args.cfg), f"Configuration file {args.cfg} does not exist."
-        return args.cfg
+def get_value_from_args_dicts(key: str,
+              args: object | None = None,
+              /,
+              *,
+              dicts: collections.abc.Iterable[collections.abc.Mapping[str, typing.Any]] = (),
+              default: typing.Any = None) -> typing.Any:
+    # Highest priority: argparse Namespace (or any object with the attribute)
+    if args is not None:
+        val = getattr(args, key, None)
+        if val is not None:
+            return val
 
-    if 'cfg' in args_dict and args_dict['cfg']:
-        assert os.path.exists(args_dict['cfg']), f"Configuration file {args_dict['cfg']} does not exist."
-        return args_dict['cfg']
+    # Then check the dicts in the order provided
+    for d in dicts:
+        if not isinstance(d, collections.abc.Mapping):
+            raise ValueError(f"Expected a Mapping, but got {type(d)}, key: {key}, # dicts: {len(dicts)}")
+        val = d.get(key, None)
+        if val is not None:
+            return val
+
+    # Fallback
+    return default
+
+def get_file_path_from_args_dicts(
+        key: str,
+        args: object | None = None,
+        /,
+        *,
+        dicts: collections.abc.Iterable[collections.abc.Mapping[str, typing.Any]] = dict(),
+        default: typing.Any | None = None):
+    file_incl_path = get_value_from_args_dicts(key, args, dicts = dicts, default = default)
+    if file_incl_path is not None:
+        assert os.path.isfile(file_incl_path), f"{key} file {file_incl_path} does not exist."
+        return file_incl_path
+
+    return default
+
+def get_cfg(args, args_dict):
+    cfg_file_name = get_file_path_from_args_dicts('cfg', args, dicts = (args_dict,), default = None)
+    if cfg_file_name is not None:
+        return cfg_file_name
 
     assert "arch" in args_dict, "Architecture must be specified in args_dict to determine the default configuration file."
     arch = args_dict['arch']
@@ -183,13 +218,9 @@ def get_cfg(args, args_dict):
     return os.path.normpath(os.path.join(get_default_cfg_path(), f"{arch}_neo4_{llk_version_tag}.json"))
 
 def get_memory_map(args, args_dict):
-    if hasattr(args, 'memoryMap') and args.memoryMap:
-        assert os.path.exists(args.memoryMap), f"Memory map file {args.memoryMap} does not exist."
-        return args.memoryMap
-
-    if 'memoryMap' in args_dict and args_dict['memoryMap']:
-        assert os.path.exists(args_dict['memoryMap']), f"Memory map file {args_dict['memoryMap']} does not exist."
-        return args_dict['memoryMap']
+    memory_map_file_name = get_file_path_from_args_dicts('memoryMap', args, dicts = (args_dict,), default = None)
+    if memory_map_file_name is not None:
+        return memory_map_file_name
 
     assert "arch" in args_dict, "Architecture must be specified in args_dict to determine the default memory map file."
     arch = args_dict['arch']
@@ -202,28 +233,10 @@ def get_memory_map(args, args_dict):
 
     return os.path.normpath(os.path.join(get_default_cfg_path(), f"{arch}_memory_map_{llk_version_tag}.json"))
 
-def get_debug(args, args_dict):
-    if hasattr(args, 'debug') and args.debug is not None:
-        return args.debug
-
-    if 'debug' in args_dict and args_dict['debug'] is not None:
-        return args_dict['debug']
-
-    return 0  # Default debug level
-
-def get_risc_cpi(args, args_dict):
-    if hasattr(args, 'risc.cpi') and getattr(args, 'risc.cpi') is not None:
-        return getattr(args, 'risc.cpi')
-
-    if 'risc.cpi' in args_dict and args_dict['risc.cpi'] is not None:
-        return args_dict['risc.cpi']
-
-    return 2.0  # Default RISC CPI value
-
 def get_tt_isa_file_name(args, args_dict):
-    if hasattr(args, 'ttISAFileName') and args.ttISAFileName:
-        assert os.path.exists(args.ttISAFileName), f"Tensix ISA file {args.ttISAFileName} does not exist."
-        return args.ttISAFileName
+    tt_isa_file_name = get_file_path_from_args_dicts('ttISAFileName', args, dicts = (args_dict,), default = None)
+    if tt_isa_file_name is not None:
+        return tt_isa_file_name
 
     if 'ttISAFileName' in args_dict and args_dict['ttISAFileName']:
         assert os.path.exists(args_dict['ttISAFileName']), f"Tensix ISA file {args_dict['ttISAFileName']} does not exist."
@@ -253,12 +266,17 @@ def update_args_dict_with_inputcfg(args, args_dict):
         'arch',
         'cfg',
         'debug',
+        'defCfg',
         'description',
+        'exp',
         'input',
         'llkVersionTag',
         'memoryMap',
+        'numTCores',
+        'odir',
         'ttISAFileName',
-        'numTCores']
+        'risc.cpi',
+        ]
     with open(args.inputcfg, 'r') as file:
         inputcfg = json.load(file)
         if any(key not in accepted_inputcfg_keys for key in inputcfg.keys()):
@@ -269,10 +287,13 @@ def update_args_dict_with_inputcfg(args, args_dict):
 
     args_dict['arch']          = get_architecture(args_dict)
     args_dict['llkVersionTag'] = get_llk_version_tag(args_dict)
-    args_dict['memoryMap']     = get_memory_map(args, args_dict)
+    args_dict['debug']         = get_value_from_args_dicts('debug', args, dicts = (args_dict,), default = 0)
     args_dict['cfg']           = get_cfg(args, args_dict)
-    args_dict['debug']         = get_debug(args, args_dict)
+    args_dict['memoryMap']     = get_memory_map(args, args_dict)
     args_dict['ttISAFileName'] = get_tt_isa_file_name(args, args_dict)
+    args_dict['defCfg']        = get_file_path_from_args_dicts('defCfg', args, dicts = (args_dict,), default = None)
+    args_dict['exp']           = get_value_from_args_dicts('exp', args, dicts = (args_dict,), default = 'neo')
+    args_dict['odir']          = get_value_from_args_dicts('odir', args, dicts = (args_dict,), default = '__llk')
 
 def update_args_dict_with_cfg(args, args_dict):
     accepted_cfg_keys = [
@@ -306,8 +327,8 @@ def update_args_dict_with_cfg(args, args_dict):
         if any(key in args_dict for key in accepted_cfg_keys if key not in vars(args).keys()):
             raise ValueError(f"Some/all of the keys {accepted_cfg_keys} already present in args_dict. Please check the input script and commandline arguments")
 
+        cfg['risc.cpi'] = get_value_from_args_dicts('risc.cpi', args, dicts = (args_dict, cfg), default = 1.0)
         args_dict.update(cfg)
-        args_dict['risc.cpi'] = get_risc_cpi(args, args_dict)
 
 def get_memory_map_from_file(file_name: str):
 
@@ -415,8 +436,8 @@ def main():
                         help='Debug Mode. 0: No Debug Statement, 1: TRISC Low detail, 4: TRISC Med detail, 16: TRISC High detail, 2: Tensix Low Detail, 8: Tensix Med detail, 32: Tensix High detail, 3: TRISC + Tensix Low detail .....  ',
                         required=False)
     parser.add_argument('--risc.cpi', type=float, help='RISC IPC', required=False)
-    parser.add_argument('--odir', type=str, default ="__llk", help = "Output directory under logs")
-    parser.add_argument('--exp', type=str, default ="neo", help = "Prefix to demarcate different experiment logs")
+    parser.add_argument('--odir', type=str, help = "Output directory under logs", required = False)
+    parser.add_argument('--exp', type=str, help = "Prefix to demarcate different experiment logs", required = False)
 
     args = parser.parse_args()
     print("command line arguments: ", args)

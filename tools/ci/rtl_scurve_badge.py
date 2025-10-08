@@ -189,7 +189,7 @@ def extract_scurve_section(file_content: str) -> List[str]:
         file_content: Complete file content as string
         
     Returns:
-        List of lines between '+ Test class s-curve:' and '+ Saving' markers
+        List of lines between '+ Test class S-Curve:' and '+ Saving' markers
         (excluding the marker lines themselves)
     """
     lines = file_content.split('\n')
@@ -197,14 +197,14 @@ def extract_scurve_section(file_content: str) -> List[str]:
     end_idx = None
     
     for i, line in enumerate(lines):
-        if '+ Test class s-curve:' in line:
+        if '+ Test class S-Curve:' in line:
             start_idx = i + 1  # Start after the marker line
         elif start_idx is not None and '+ Saving' in line:
             end_idx = i  # End before the marker line
             break
     
     if start_idx is None:
-        raise ValueError("S-curve start marker '+ Test class s-curve:' not found")
+        raise ValueError("S-curve start marker '+ Test class S-Curve:' not found")
     if end_idx is None:
         raise ValueError("S-curve end marker '+ Saving' not found")
     
@@ -526,7 +526,7 @@ def main():
         print(f"Error creating badges: {e}")
         sys.exit(1)
     
-    print("S-curve badge generation completed successfully!")
+    print("S-Curve badge generation completed successfully!")
 
 
 if __name__ == "__main__":

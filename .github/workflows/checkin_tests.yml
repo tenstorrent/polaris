@@ -128,9 +128,9 @@ jobs:
         name: rtl_artifacts
         path: |
            ${{ steps.run-rtl-tests.outputs.results-file }}
-           __llk_out/*.json
-           __llk_out/*.csv
-           __llk_out/*.png
+           __llk_out/baseline/*.json
+           __llk_out/baseline/*.csv
+           __llk_out/baseline/*.png
 
     - id: check-overall-success
       name: Check Overall Success

@@ -187,12 +187,39 @@ See [tools/ttsi_corr/README.md](ttsi_corr/README.md) for complete package docume
 
 ## Other Tools
 
+### run_rtl_neosim_correlation.py
+Script for executing RTL NeoSim correlation tests. This tool runs LLK (Low Level Kernel) tests comparing NeoSim simulation results against RTL simulation results.
+
+**Usage:**
+```bash
+# Run tests for a specific tag
+python tools/run_rtl_neosim_correlation.py --tag sep23
+
+# Run specific tests
+python tools/run_rtl_neosim_correlation.py --tag jul27 --test t6-quas-n1-ttx-Int32-upk-to-dest-llk
+
+# Run tests in parallel
+python tools/run_rtl_neosim_correlation.py --tag sep23 --parallel 4
+
+# Run tests from a batch file
+python tools/run_rtl_neosim_correlation.py --batch-file batch_file.yaml
+```
+
+**Key Features:**
+- Executes LLK tests for various instruction set tags (jul1, jul27, sep23, etc.)
+- Supports parallel test execution for faster results
+- Batch file support for running multiple test configurations
+- Compares NeoSim and RTL simulation outputs for correlation verification
+
+See [doc/tensix_neo/NEOSIM_USER_GUIDE.md](../doc/tensix_neo/NEOSIM_USER_GUIDE.md) for complete documentation.
+
+**Note:** This script was previously located at `tests/standalone/execute_test.py` and has been moved to the `tools/` directory.
+
 ### compare_projections.py
 Python script for comparing projection results.
 
-
-### parse_nv_mlperf_results.py
-Parser for NVIDIA MLPerf benchmark results.
+### parse_metal_tensix_results.py
+Parser for Metal Tensix benchmark results.
 
 ### run_onnx_shape_inference.py
 ONNX model shape inference utility.

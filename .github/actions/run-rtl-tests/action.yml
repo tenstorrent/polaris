@@ -46,8 +46,8 @@ runs:
         echo "Running RTL tests with tag: ${{ inputs.tag }}, parallel: ${{ inputs.parallel }}"
         echo "Output file: ${{ inputs.results-file }}"
         set -o pipefail
-        python tests/standalone/execute_test.py --tag ${{ inputs.tag }} --parallel ${{ inputs.parallel }} 2>&1 | tee ${{ inputs.results-file }}
-        find __llk_out -mindepth 2 -maxdepth 2 -name "*.png" -exec mv {} __llk_out/ \; 2>/dev/null || true
+        python tools/run_rtl_neosim_correlation.py --tag ${{ inputs.tag }} --parallel ${{ inputs.parallel }} 2>&1 | tee ${{ inputs.results-file }}
+        find __llk_out -mindepth 3 -maxdepth 3 -name "*.png" -exec mv {} __llk_out/ \; 2>/dev/null || true
 
     - name: Set exit code for badge generation
       id: set-exit-code
