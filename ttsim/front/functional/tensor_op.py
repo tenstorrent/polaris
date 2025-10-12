@@ -563,6 +563,7 @@ SimTensor.__truediv__ = tensor_div         #type: ignore
 SimTensor.__pow__     = tensor_pow         #type: ignore
 SimTensor.__neg__     = tensor_neg         #type: ignore
 SimTensor.__getitem__ = tensor_getitem     #type: ignore
+SimTensor.__matmul__  = matmul             #type: ignore
 
 SimTensor.cos         = tensor_cos         #type: ignore
 SimTensor.sin         = tensor_sin         #type: ignore

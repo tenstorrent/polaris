@@ -9,7 +9,7 @@ from onnx import helper, numpy_helper, shape_inference
 import onnx.checker
 
 from ttsim.graph import WorkloadGraph
-from ttsim.ops import SimOpFactory, SimTensor
+from ttsim.ops import SimOp, SimTensor
 
 def get_io_errstr(xarg, xdim, xdim1, is_init, is_val, is_in, is_out, ginfo):
     errstr  = f"shape mismatch: {xarg} : {xdim} != {xdim1}\n"
@@ -342,8 +342,7 @@ def onnx2graph(_wlname, _wlpath):
         gg.add_tensor(SimTensor(tensor_info))
 
     for op_info in G['node']:
-        op_cls = SimOpFactory(op_info['optype'])
-        gg.add_op(op_cls(op_info))
+        gg.add_op(SimOp(op_info))
 
     gg.construct_graph()
 

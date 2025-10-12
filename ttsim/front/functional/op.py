@@ -7,7 +7,7 @@ from typing import Union, Iterator
 
 from loguru import logger
 from ttsim.graph import WorkloadGraph
-from ttsim.ops import SimOpFactory, SimTensor
+from ttsim.ops import SimOp, SimTensor
 import ttsim.utils.common as common
 from ttsim.config.wl2archmap import WL2ArchTypeSpec
 
@@ -57,12 +57,10 @@ def get_opinfo(name, optype, **kwargs):
 
 def get_sim_op(opinfo, default_dtype=None):
     optype: str = opinfo['optype']
-    opcls = SimOpFactory(optype)
-    opobj = opcls(opinfo)
-    try:
-        # Use WL2ArchTypeSpec directly
+    opobj = SimOp(opinfo)
+    if WL2ArchTypeSpec.has_instance():
         opobj.set_precision(WL2ArchTypeSpec.layer_2_datatype(optype.upper()))
-    except Exception:
+    else:
         if default_dtype is None:
             raise AssertionError(
                 f"Cannot determine data precision for {optype} as neither workload-arch map nor default precision is set. "

@@ -4,7 +4,7 @@
 import pytest
 
 import numpy as np
-from ttsim.ops.op import LayerNormalizationOp
+from ttsim.ops.op import SimOp
 from ttsim.ops.tensor import make_tensor
 import ttsim.front.functional.op as F
 
@@ -137,12 +137,12 @@ def test_layernorm():
             o_tensors = [ make_tensor('Y'), make_tensor('mean'), make_tensor('inv_std_dev')]
             op_info = {
                     'name'   : op_name,
-                    'optype' : 'LayerNorm',
+                    'optype' : 'LayerNormalization',
                     'inList' : [x.name for x in i_tensors],
                     'outList': [x.name for x in o_tensors],
                     'attrs'  : attrs,
                     }
-            op_obj = LayerNormalizationOp(op_info)
+            op_obj = SimOp(op_info)
             for x in i_tensors: x.op_in  = [op_name]
             for x in o_tensors: x.op_out = [op_name]
             op_perf = op_obj.get_perf_counts(i_tensors, o_tensors)

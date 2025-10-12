@@ -4,7 +4,7 @@
 import pytest
 
 import numpy as np
-from ttsim.ops.op import MatMulOp
+from ttsim.ops.op import SimOp
 from ttsim.ops.tensor import make_tensor
 import ttsim.front.functional.op as F
 
@@ -38,11 +38,11 @@ def test_matmul():
         o_tensors = [make_tensor('Y')]
         op_info = {
                 'name'   : op_name,
-                'optype' : 'matmul',
+                'optype' : 'MatMul',
                 'inList' : [x.name for x in i_tensors],
                 'outList': [x.name for x in o_tensors]
                 }
-        op_obj = MatMulOp(op_info)
+        op_obj = SimOp(op_info)
         for x in i_tensors: x.op_in  = [op_name]
         for x in o_tensors: x.op_out = [op_name]
 

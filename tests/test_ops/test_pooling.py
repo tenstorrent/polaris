@@ -7,7 +7,7 @@ import onnx
 from onnx import helper, TensorProto
 
 import numpy as np
-from ttsim.ops.op import MaxPoolOp, AveragePoolOp
+from ttsim.ops.op import SimOp
 from ttsim.ops.tensor import make_tensor
 import ttsim.front.functional.op as F
 
@@ -182,7 +182,7 @@ def check_pooltype(pooltype):
                 'outList': [x.name for x in o_tensors],
                 'attrs'  : attrs,
                 }
-        op_obj = MaxPoolOp(op_info) if pooltype == 'MaxPool' else AveragePoolOp(op_info)
+        op_obj = SimOp(op_info) if pooltype == 'MaxPool' else SimOp(op_info)
         for x in i_tensors: x.op_in  = [op_name]
         for x in o_tensors: x.op_out = [op_name]
         op_perf = op_obj.get_perf_counts(i_tensors, o_tensors)

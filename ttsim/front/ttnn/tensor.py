@@ -2,7 +2,7 @@
 # SPDX-FileCopyrightText: (C) 2025 Tenstorrent AI ULC
 # SPDX-License-Identifier: Apache-2.0
 
-from ttsim.ops.op import SimOpFactory
+from ttsim.ops.op import SimOp
 from ttsim.ops.tensor import SimTensor
 from .device import Device
 
@@ -180,8 +180,7 @@ class Tensor(SimTensor):
         outT   = Tensor(name=opname + '.out', op_out=[opname], device=self.device)
         opinfo['outList'] = [outT.name]
 
-        opcls  = SimOpFactory(optype)
-        opobj  = opcls(opinfo)
+        opobj  = SimOp(opinfo)
         pstats = opobj.get_perf_counts([self], [outT])
 
         self.device.add_op(opobj)
@@ -198,8 +197,7 @@ class Tensor(SimTensor):
         outT   = Tensor(name=opname + '.out', op_out=[opname], device=self.device)
         opinfo['outList'] = [outT.name]
 
-        opcls  = SimOpFactory(optype)
-        opobj  = opcls(opinfo)
+        opobj  = SimOp(opinfo)
         pstats = opobj.get_perf_counts([self, shapeT], [outT])
 
         self.device.add_op(opobj)

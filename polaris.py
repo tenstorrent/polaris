@@ -21,10 +21,10 @@ from ttsim.stats import HLMStats, OutputFormat, save_data
 
 """ Polaris top-level executable. """
 
-LOG   = logger
-INFO  = LOG.info
-DEBUG = LOG.debug
-ERROR = LOG.error
+LOG     = logger
+INFO    = LOG.info
+DEBUG   = LOG.debug
+ERROR   = LOG.error
 WARNING = LOG.warning
 
 class RangeArgument:

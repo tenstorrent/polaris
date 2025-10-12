@@ -2,7 +2,7 @@
 # SPDX-FileCopyrightText: (C) 2025 Tenstorrent AI ULC
 # SPDX-License-Identifier: Apache-2.0
 
-from ttsim.ops.op import SimOpFactory
+from ttsim.ops.op import SimOp
 from .tensor import Tensor, DataType
 from .memory import MemoryConfig
 
@@ -62,8 +62,7 @@ def single_output_immediate_op(optype, /, preprocess=None):
                 assert False, f"Unknown input type in ttnn.op({optype}) : {type(x)}"
         opinfo['outList'] = [C.name]
 
-        opcls      = SimOpFactory(optype)
-        opobj      = opcls(opinfo)
+        opobj      = SimOp(opinfo)
         perf_stats = opobj.get_perf_counts(new_args, [C])
         # print(f"{optype}:: {perf_stats}")
         opobj.update_tensor_counts(new_args, [C])
