@@ -2,16 +2,21 @@
 # SPDX-FileCopyrightText: (C) 2025 Tenstorrent AI ULC
 # SPDX-License-Identifier: Apache-2.0
 
+import os
+import sys
 import math
 from dataclasses import dataclass
 from typing import Optional, Tuple
 
-import os, sys
+from loguru import logger
+
 sys.path.append(os.path.join(os.path.dirname(__file__), '../..'))
+import numpy as np
+
 import ttsim.front.functional.op as F
 import ttsim.front.functional.sim_nn as SimNN
 import ttsim.front.functional.tensor_op as T
-import numpy as np
+
 
 @dataclass
 class ModelArgs:
@@ -271,7 +276,7 @@ class TransformerBlock(SimNN.Module):
 class Transformer(SimNN.Module):
     def __init__(self, objname: str, cfg):
         super().__init__()
-        print('Transformer config:', cfg)
+        logger.info('Transformer config: {}', cfg)
         self.name = objname
         self.params = ModelArgs(
             dim=cfg['dim'],

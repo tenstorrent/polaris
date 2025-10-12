@@ -4,11 +4,16 @@
 
 """ Full assembly of the parts to form the complete network """
 
-import os, sys
+import os
+import sys
+
 sys.path.append(os.path.join(os.path.dirname(__file__), '../..'))
+from loguru import logger
+
 import ttsim.front.functional.op as F
 import ttsim.front.functional.sim_nn as SimNN
 from workloads.UNet.unet_parts import *
+
 
 class UNet(SimNN.Module):
     def __init__(self, objname, cfg):
@@ -60,5 +65,5 @@ class UNet(SimNN.Module):
 
     def __call__(self, x=None):
         x = self.input_tensors['x_in'] if x is None else x
-        print(f'Input shape: {x.shape}')
+        logger.info(f'Input shape: {x.shape}')
         return self.forward(x)

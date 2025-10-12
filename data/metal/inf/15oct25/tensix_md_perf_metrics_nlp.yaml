@@ -1,0 +1,64 @@
+-   batch: 8
+    fps: null
+    gpu: Tensix
+    hardware: n150 (Wormhole)
+    id: metal
+    images_per_sec: null
+    input_dtype: bf8
+    model: BERT-Large
+    precision: bf8
+    release: null
+    sec_per_image: null
+    sentences_per_sec: 270.0
+    target_fps: null
+    target_images_per_sec: null
+    target_sec_per_image: null
+    target_sentences_per_sec: 400.0
+    target_tokens_per_sec_per_user: null
+    tokens_per_sec: null
+    tokens_per_sec_per_user: null
+    ttft_ms: null
+    vllm_repo_release: null
+-   batch: 8
+    fps: null
+    gpu: Tensix
+    hardware: n150 (Wormhole)
+    id: metal
+    images_per_sec: null
+    input_dtype: bf8
+    model: 'Sentence-Bert (backbone: bert-base)'
+    precision: bf8
+    release: null
+    sec_per_image: null
+    sentences_per_sec: 433.0
+    target_fps: null
+    target_images_per_sec: null
+    target_sec_per_image: null
+    target_sentences_per_sec: 550.0
+    target_tokens_per_sec_per_user: null
+    tokens_per_sec: null
+    tokens_per_sec_per_user: null
+    ttft_ms: null
+    vllm_repo_release: null
+-   batch: 16
+    fps: null
+    gpu: Tensix
+    hardware: n300 (Wormhole)
+    id: metal
+    images_per_sec: null
+    input_dtype: bf8
+    model: 'Sentence-Bert (backbone: bert-base) (DP=2)'
+    precision: bf8
+    release: null
+    sec_per_image: null
+    sentences_per_sec: 772.0
+    target_fps: null
+    target_images_per_sec: null
+    target_sec_per_image: null
+    target_sentences_per_sec: 1100.0
+    target_tokens_per_sec_per_user: null
+    tokens_per_sec: null
+    tokens_per_sec_per_user: null
+    ttft_ms: null
+    vllm_repo_release: null
+

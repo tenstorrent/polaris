@@ -64,10 +64,10 @@ def get_arspec_from_yaml(cfg_yaml_file):
                         raise ValueError(f'attribute {last_key} not defined in {base}')
                     if old_value == override_value:
                         logger.warning('device {} ipgroup {} overrode value of {} from {} to {} (NO DIFFERENCE)',
-                                        pkgentry['name'], ipgroup_base['ipname'], override_key, old_value, override_value)
+                                        pkgentry['name'], ipgroup_base['ipname'], override_key, old_value, override_value, once=True)
                     else:
                         logger.info('device {} ipgroup {} overrode value of {} from {} to {}',
-                                        pkgentry['name'], ipgroup_base['ipname'], override_key, old_value, override_value)
+                                        pkgentry['name'], ipgroup_base['ipname'], override_key, old_value, override_value, once=True)
                     base[last_key] = override_value
             pkginstance['ipgroups'] = ipgroups
             try:

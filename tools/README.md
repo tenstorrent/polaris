@@ -112,6 +112,73 @@ python3 ./tools/ci/cleanup_delme_files.py
 
 See [doc/tools/ci/README_gist_cleanup.md](../doc/tools/ci/README_gist_cleanup.md) for complete documentation.
 
+## Correlation and Analysis Tools
+
+### run_ttsi_corr.py
+Metal-Tensix correlation analysis tool with modular architecture.
+
+**Purpose**: Automated correlation between Polaris HLM projections and silicon performance measurements.
+
+**Key Features**:
+- Modular architecture via `ttsi_corr` package
+- Automated Polaris simulation execution
+- Multiple output formats (CSV, XLSX with S-curve charts, JSON)
+- Geometric mean calculation for aggregate accuracy
+- Support for HTML and Markdown data sources
+
+**Usage**:
+```bash
+python tools/run_ttsi_corr.py \
+    --tag 15oct25 \
+    --workloads-config config/ttsi_correlation_workloads.yaml \
+    --arch-config config/tt_wh.yaml
+```
+
+**Modular Components** (in `tools/ttsi_corr/` package):
+- `data_loader` - Load and validate reference metrics
+- `workload_processor` - Process workload configurations
+- `correlation` - Calculate correlation metrics
+- `excel_writer` - Generate Excel reports with formatting
+- `chart_builder` - Create S-curve visualization charts
+- `simulator` - Orchestrate Polaris simulation
+
+See [doc/tools/README_correlation.md](../doc/tools/README_correlation.md) for complete documentation.
+
+### parse_ttsi_perf_results.py
+Markdown and HTML metrics parser for extracting performance data.
+
+**Purpose**: Extract and categorize performance metrics from TT-Metal documentation.
+
+**Usage**:
+```bash
+python tools/parse_ttsi_perf_results.py \
+    --tag 15oct25 \
+    --input https://raw.githubusercontent.com/tenstorrent/tt-metal/main/models/README.md \
+    --output-dir data/metal/inf
+```
+
+See [doc/tools/README_correlation.md](../doc/tools/README_correlation.md) for complete workflow documentation.
+
+### ttsi_corr Package
+Modular Python package for correlation analysis (v0.1.0).
+
+**Location**: `tools/ttsi_corr/`
+
+**Public API**:
+```python
+from ttsi_corr import (
+    load_metrics_from_sources,  # Data loading
+    process_workload_configs,   # Workload processing
+    compare_scores,             # Correlation calculation
+    write_csv,                  # CSV export
+    add_scurve_chart,          # Chart generation
+)
+```
+
+**Architecture**: 6 specialized modules with single responsibility principle, full type annotations, and comprehensive documentation.
+
+See [tools/ttsi_corr/README.md](ttsi_corr/README.md) for complete package documentation.
+
 ## Other Tools
 
 ### compare_projections.py

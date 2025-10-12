@@ -7,22 +7,27 @@ import sys
 sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
 import argparse
 import re
+from datetime import datetime
 from pathlib import Path
-from typing import List, TypeAlias, Union
+from typing import List, TypeAlias
+from urllib.parse import urlparse
 
 import yaml
 from loguru import logger
 from lxml import html
 from pydantic import BaseModel, TypeAdapter
 
+from tools.parsers.md_parser import extract_table_from_md_link, save_md_metrics
+from tools.ttsi_corr.ttsi_corr_utils import TTSI_REF_VALID_TAGS
+from ttsim.utils.common import setup_logger
 from ttsim.utils.readfromurl import read_from_url
 
-DEFAULT_OUTPUTDIR = 'data/metal/inf'
+DEFAULT_OUTPUTDIR_BASE = 'data/metal/inf'
 
 
 class TensixNwPerfMetricModel(BaseModel):
     """
-    A Pydantic model for network performance metrics.
+    A Pydantic model for network performance metrics (HTML parsing).
     """
 
     benchmark: str
@@ -37,6 +42,7 @@ class TensixNwPerfMetricModel(BaseModel):
     precision: str = 'bf8'    # TODO: confirm if this is always bf8
     system: str
     target_perf: float
+    ttft_ms: float | None = None
 
     class Config:
         extra = 'forbid'  # Disallow extra fields not defined in the model
@@ -49,7 +55,7 @@ MetricListModel = TypeAdapter(MetricList)
 
 
 ATTRIBUTES = [
-    'time_to_first_token_ms',
+    'ttft_ms',
     'target_tokens_per_second_per_user',
     'tokens_per_second_per_user',
     'tokens_per_second',
@@ -62,7 +68,9 @@ ATTRIBUTES = [
 
 
 COLNAME_MAP: dict[str, str] = {
-    'ttft_(ms)': 'time_to_first_token_ms',
+    'ttft_(ms)': 'ttft_ms',
+    'ttft(ms)': 'ttft_ms',
+    'ttft': 'ttft_ms',
     'target_t/s/u': 'target_tokens_per_second_per_user',
     'targett/s/u': 'target_tokens_per_second_per_user',
     't/s/u': 'tokens_per_second_per_user',
@@ -84,6 +92,31 @@ COLNAME_MAP: dict[str, str] = {
 def get_colname_map(colname: str) -> str:
     c = colname.lower().strip().replace(' ', '_').replace('-', '_')
     return COLNAME_MAP.get(c, c).lower()
+
+
+def detect_content_format(content: str) -> str:
+    """
+    Detect if content is HTML or Markdown format.
+    
+    Args:
+        content (str): Content to analyze.
+        
+    Returns:
+        str: 'html' if HTML tags detected, 'md' if MD table syntax detected, 'unknown' otherwise.
+    """
+    # Check for HTML tags
+    html_patterns = [r'<table[^>]*>', r'<tr[^>]*>', r'<td[^>]*>', r'<th[^>]*>']
+    for pattern in html_patterns:
+        if re.search(pattern, content, re.IGNORECASE):
+            return 'html'
+    
+    # Check for MD table syntax
+    md_patterns = [r'\|.*\|.*\|', r'\|[-:]+\|']
+    for pattern in md_patterns:
+        if re.search(pattern, content):
+            return 'md'
+    
+    return 'unknown'
 
 
 type ValueType = str
@@ -152,7 +185,7 @@ def process_resnet_row(row: ValueDict) -> ValueDict:
     return row
 
 
-def extract_table_from_html_link(link: str, use_cache: bool = True) -> list[TensixNwPerfMetricModel]:
+def extract_table_from_html_link(link: str, use_cache: bool = True) -> List[TensixNwPerfMetricModel]:
     """
     Extracts a table from an HTML link.
 
@@ -162,13 +195,25 @@ def extract_table_from_html_link(link: str, use_cache: bool = True) -> list[Tens
         When set to False, it will always fetch the content from the URL.
 
     Returns:
-        list[TensixNwPerfMetricModel]: The extracted table as a list of TensixNWPerfMetricModel entries, one per row.
+        List[TensixNwPerfMetricModel]: The extracted table as a list of TensixNWPerfMetricModel entries, one per row.
     """
-    # Placeholder for actual implementation
+    # Read content
     html_content: str = read_from_url(link, use_cache=use_cache)
+    
+    # Verify it's actually HTML format
+    content_format = detect_content_format(html_content)
+    if content_format == 'md':
+        raise ValueError(f'Expected HTML format but found MD content in {link}')
+    elif content_format == 'unknown':
+        raise ValueError(f'Unable to detect valid HTML table format in {link}')
+    
     doc: html.HtmlElement = html.fromstring(html_content)
 
     all_tables = doc.findall('.//table')
+    
+    if not all_tables:
+        raise ValueError(f'No HTML tables found in {link}')
+    
     tablelines = [table.sourceline for table in doc.findall('.//table')]
     allh2_containing_tables = [h2 for h2 in doc.findall('.//h2') if h2.sourceline + 1 in tablelines]
     h2_line_text = {h2.sourceline: h2.text_content() for h2 in allh2_containing_tables}
@@ -186,14 +231,12 @@ def extract_table_from_html_link(link: str, use_cache: bool = True) -> list[Tens
 
         for row in rows:
             assert isinstance(row['benchmark'], str), f'Expected "benchmark" to be a string, got {type(row["benchmark"])}'
-            if 'bert-large' not in row['benchmark'].lower() and 'resnet' not in row['benchmark'].lower():
-                continue
             assert isinstance(row['system'], str), f"Expected 'system' to be a string, got {type(row['system'])}"
             if not re.search('[a-z][0-9][0-9][0-9]', row['system'].lower()):
                 continue
 
             trimmed_row: ValueDict = {k: v for k, v in row.items() if k != 'release' and v is not None}
-            for attr in ['perf', 'target_perf']:
+            for attr in ['perf', 'target_perf', 'ttft_ms']:
                 attr_value = trimmed_row.get(attr, '')
                 if isinstance(attr_value, str) and ',' in attr_value:
                     trimmed_row[attr] = trimmed_row[attr].replace(',', '')
@@ -211,12 +254,11 @@ def extract_table_from_html_link(link: str, use_cache: bool = True) -> list[Tens
                 logger.error(f'Error parsing row {trimmed_row}: {e}')
                 raise
             hw_data.append(metric)
+    
+    if not hw_data:
+        raise ValueError(f'No supported workloads found in HTML tables from {link}.')
+    
     return hw_data
-
-
-def setup_logger() -> None:
-    logger.remove()
-    logger.add(sys.stdout, format='{level}:{name}:{line:4}:{message}', level='INFO')
 
 
 def report_systems_of_interest(metrics: List[TensixNwPerfMetricModel]) -> None:
@@ -233,16 +275,16 @@ def report_systems_of_interest(metrics: List[TensixNwPerfMetricModel]) -> None:
     logger.debug('Systems of interest: {}', systems_of_interest)
 
 
-def save_metrics(metrics: List[TensixNwPerfMetricModel], output_dir: Path) -> None:
+def save_html_metrics(metrics: List[TensixNwPerfMetricModel], output_dir: Path) -> None:
     """
-    Saves the extracted metrics to a YAML file.
+    Saves the extracted HTML metrics to a YAML file.
 
     Args:
-        metrics (list): List of extracted metrics.
+        metrics (List[TensixNwPerfMetricModel]): List of extracted HTML metrics.
         output_dir (Path): Directory to save the metrics.
     """
     wl: str
-    metrics_by_wl: dict[str, list[TensixNwPerfMetricModel]] = {}
+    metrics_by_wl: dict[str, List[TensixNwPerfMetricModel]] = {}
     for metric in metrics:
         wl = metric.wlname.lower()
         if 'resnet-50' in wl:
@@ -254,7 +296,7 @@ def save_metrics(metrics: List[TensixNwPerfMetricModel], output_dir: Path) -> No
         if wl not in metrics_by_wl:
             metrics_by_wl[wl] = []
         metrics_by_wl[wl].append(metric)
-    wlentry: list[TensixNwPerfMetricModel]
+    wlentry: List[TensixNwPerfMetricModel]
     for wl, wlentry in metrics_by_wl.items():
         filename: str = f'tensix_perf_metrics_{wl}.yaml'
         filepath: Path = Path(output_dir) / filename
@@ -262,53 +304,140 @@ def save_metrics(metrics: List[TensixNwPerfMetricModel], output_dir: Path) -> No
         with open(filepath, 'w') as f:
             print(modeldump, file=f)
         logger.info('Saved {} metrics for workload {} to {}', len(wlentry), wl, filepath)
-    logger.info('Metrics saved to {}', output_dir)
+    logger.info('HTML metrics saved to {}', output_dir)
 
 
+def save_metadata(
+    output_dir: Path,
+    tag: str,
+    data_source: str,
+    input_url: str,
+    use_cache: bool
+) -> None:
+    """
+    Save metadata about the parsing operation to a YAML file.
+    
+    Args:
+        output_dir (Path): Directory where metadata file will be saved.
+        tag (str): Tag identifying this data snapshot.
+        data_source (str): Data source format used ('html' or 'md').
+        input_url (str): Source URL that was parsed.
+        use_cache (bool): Whether caching was enabled during parsing.
+    """
+    metadata = {
+        'tag': tag,
+        'data_source': data_source,
+        'input_url': input_url,
+        'parsed_date': datetime.now().isoformat(),
+        'use_cache': use_cache,
+    }
+    
+    metadata_file = output_dir / '_metadata.yaml'
+    with open(metadata_file, 'w') as f:
+        yaml.dump(metadata, f, default_flow_style=False, sort_keys=False)
+    
+    logger.info('Saved metadata to {}', metadata_file)
 
-def create_args(argv: list[str] | None = None) -> argparse.Namespace:
+
+def create_args(argv: List[str] | None = None) -> argparse.Namespace:
     """
     Creates command line arguments for the script.
 
     Args:
-        argv (list[str] | None): List of command line arguments. If None, uses sys.argv.
+        argv (List[str] | None): List of command line arguments. If None, uses sys.argv.
 
     Returns:
         argparse.Namespace: Parsed command line arguments.
     """
     parser = argparse.ArgumentParser(description='Parse and extract metrics from TT-Metal Tensix results.')
-    parser.add_argument('--output-dir', '-o', dest='output_dir', type=str, default=DEFAULT_OUTPUTDIR,
+    parser.add_argument('--input', '-i', dest='input_url', type=str, 
+                        default='https://raw.githubusercontent.com/tenstorrent/tt-metal/refs/heads/main/models/README.md',
+                        help='Input URL to parse (HTML or MD file). Defaults to TT-Metal models README.md raw content')
+    parser.add_argument('--output-dir', '-o', dest='output_dir', type=str, default=DEFAULT_OUTPUTDIR_BASE,
                         help='Directory to save the extracted metrics')
+    parser.add_argument('--tag', '-t', dest='tag', type=str, required=True, choices=TTSI_REF_VALID_TAGS,
+                        help=f'Tag for the output subdirectory (required). Valid values: {TTSI_REF_VALID_TAGS}')
     parser.add_argument('--use-cache', '-c', dest='use_cache', action=argparse.BooleanOptionalAction, default=True,
                         help='Use cache for fetching content. Defaults to True. When set to False, it will always fetch the content from the URL.')
     return parser.parse_args(argv)
 
 
-def parse_metal_tensix_results(argv: list[str] | None = None) -> int:
+def parse_ttsi_perf_results(argv: List[str] | None = None) -> int:
     """
-    Main function to parse and extract metrics from TT-Metal Tensix results.
+    Main function to parse and extract metrics from TTSI performance results.
 
     Args:
-        argv (list[str] | None): List of command line arguments. If None, uses sys.argv.
-        The arguments include options for output directory and caching behavior.
+        argv (List[str] | None): List of command line arguments. If None, uses sys.argv.
+        The arguments include options for output directory, tag (mandatory), and caching behavior.
 
     Returns:
         int: Exit code of the script.
     """
     args = create_args(argv)
     setup_logger()
-    link = 'https://github.com/tenstorrent/tt-metal/tree/main'
-    output_dir: Path = Path(args.output_dir)
+    link = args.input_url
+    output_dir: Path = Path(args.output_dir) / args.tag
     os.makedirs(output_dir, exist_ok=True)
-    metrics = extract_table_from_html_link(link, use_cache=args.use_cache)
-    report_systems_of_interest(metrics)
-    save_metrics(metrics, output_dir)
-    logger.info('Extracted {} metrics from {}', len(metrics), link)
-    return 0
+    
+    # Track which data source was actually used
+    actual_data_source = None
+    
+    try:
+        # Determine file format based on extension
+        parsed_url = urlparse(link)
+        path = parsed_url.path.lower()
+        
+        if path.endswith('.md'):
+            # MD file - parse as markdown
+            logger.debug('Detected MD file format from extension')
+            md_metrics = extract_table_from_md_link(link, use_cache=args.use_cache)
+            
+            # Check if any metrics were extracted
+            if not md_metrics:
+                logger.error('No metrics found in {}', link)
+                return 1
+            
+            save_md_metrics(md_metrics, output_dir)
+            logger.debug('Extracted {} MD metrics from {}', len(md_metrics), link)
+            actual_data_source = 'md'
+            
+        else:
+            # No extension or other - assume HTML, with MD fallback
+            logger.info('Assuming HTML file format (no .md extension)')
+            
+            try:
+                html_metrics = extract_table_from_html_link(link, use_cache=args.use_cache)
+                report_systems_of_interest(html_metrics)
+                save_html_metrics(html_metrics, output_dir)
+                logger.info('Extracted {} HTML metrics from {}', len(html_metrics), link)
+                actual_data_source = 'html'
+                
+            except (ValueError, Exception) as html_error:
+                logger.warning('HTML parsing failed: {}. Trying MD format as fallback...', html_error)
+                
+                try:
+                    md_metrics = extract_table_from_md_link(link, use_cache=args.use_cache)
+                    save_md_metrics(md_metrics, output_dir)
+                    logger.info('Successfully extracted {} MD metrics from {} using fallback', len(md_metrics), link)
+                    actual_data_source = 'md'
+                    
+                except Exception as md_error:
+                    logger.error('Both HTML and MD parsing failed. HTML error: {}. MD error: {}', html_error, md_error)
+                    return 1
+        
+        # Save metadata about this parsing operation
+        if actual_data_source:
+            save_metadata(output_dir, args.tag, actual_data_source, link, args.use_cache)
+        
+        return 0
+        
+    except Exception as e:
+        logger.error('Error processing {}: {}', link, e)
+        return 1
 
 
-def main(argv: list[str] | None = None) -> int:
-    return parse_metal_tensix_results(argv)
+def main(argv: List[str] | None = None) -> int:
+    return parse_ttsi_perf_results(argv)
 
 
 if __name__ == '__main__':

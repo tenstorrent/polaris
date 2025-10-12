@@ -4,6 +4,7 @@ markers = [
     "opunit: unit tests for operators",
     "slow: slow tests",
     "tools_secondary: Tests for secondary tools",
+    "integration: integration tests",
 ]
 pythonpath = "."
 addopts = "--durations=0"

@@ -14,7 +14,7 @@ from typing import Any, Set
 
 from ttsim.config import TTSimHLRunSummary, get_arspec_from_yaml, get_wlmapspec_from_yaml, get_wlspec_from_yaml
 from ttsim.front import onnx2graph
-from ttsim.utils.common import get_ttsim_functional_instance, print_csv, str_to_bool
+from ttsim.utils.common import get_ttsim_functional_instance, print_csv, str_to_bool, setup_logger
 import ttsim.config.runcfgmodel as runcfgmodel
 from ttsim.back.device import Device
 from ttsim.stats import HLMStats, OutputFormat, save_data
@@ -338,8 +338,7 @@ def execute_wl_on_dev(_wl, _dl, _wspec, _dspec, wlmapspec, _WLG,
 
 def polaris(args: argparse.Namespace | runcfgmodel.PolarisRunConfig) -> int:
     """Main entry point for the Polaris simulation."""
-    logger.remove()
-    logger.add(sys.stderr, level=args.log_level.upper())
+    setup_logger(level=args.log_level.upper())
 
     freqsweep = RangeArgument('frequency', args.frequency)
     batchsweep = RangeArgument('batchsize', args.batchsize, range_type='mul')

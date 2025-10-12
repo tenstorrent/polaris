@@ -33,6 +33,9 @@ Yet Another High Level AI Simulator
   - [Output and Analysis](#output-and-analysis)
   - [Best Practices](#best-practices)
   - [Troubleshooting](#troubleshooting)
+- [Performance Correlation Tools](#performance-correlation-tools)
+  - [Tensix-Metal Correlation](#tensix-metal-correlation)
+  - [Markdown Metrics Parser](#markdown-metrics-parser)
 - [Support](#support)
 
 ## Introduction
@@ -206,9 +209,57 @@ output_dir/
    - Use `--dryrun` to check configurations
    - Verify file paths and permissions
 
+## Performance Correlation Tools
+
+Polaris includes tools for correlating simulated performance with measured hardware performance.
+
+### Tensix-Metal Correlation
+
+The correlation tool compares Polaris simulation results with actual hardware measurements from TT-Metal.
+
+**Quick Start:**
+```bash
+# Step 1: Parse hardware metrics (creates metadata)
+python tools/parse_ttsi_perf_results.py --tag 15oct25
+
+# Step 2: Run correlation (reads data source from metadata)
+python tools/run_ttsi_corr.py \
+    --tag 15oct25 \
+    --workloads-config config/ttsi_correlation_workloads.yaml \
+    --arch-config config/tt_wh.yaml \
+    --output-dir __CORRELATION_OUTPUT
+```
+
+**Features:**
+- Automated correlation analysis between Polaris and TT-Metal
+- XLSX and CSV export with formulas and formatting
+- Geometric mean calculation for aggregate metrics
+- Support for multiple input formats (markdown, directories, URLs)
+
+**Documentation:** See [tools/parsers/](tools/parsers/) for detailed documentation.
+
+### Markdown Metrics Parser
+
+Extract performance metrics from TT-Metal markdown documentation:
+
+```bash
+python tools/parse_ttsi_perf_results.py \
+    --input https://raw.githubusercontent.com/tenstorrent/tt-metal/main/models/README.md \
+    --output-dir data/metal/inf
+```
+
+**Features:**
+- Standards-compliant markdown parsing (CommonMark via markdown-it-py)
+- Automatic categorization by model type (LLM, vision, detection, NLP, diffusion)
+- YAML output format compatible with correlation tools
+- Robust error handling and validation
+
+**Documentation:** 
+- [Parser README](tools/parsers/README.rst) - Architecture and API reference
+- [Usage Examples](tools/parsers/USAGE_EXAMPLE.rst) - Examples and troubleshooting
+
 ## Support
 For issues and questions:
 - Check the project repository: https://github.com/tenstorrent/polaris
 - Review existing issues or create new ones
 - Consult the development team for advanced support
-

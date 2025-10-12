@@ -1,6 +1,7 @@
 #!/usr/bin/env python
 # SPDX-FileCopyrightText: (C) 2025 Tenstorrent AI ULC
 # SPDX-License-Identifier: Apache-2.0
+import sys
 import yaml
 import csv
 import json
@@ -13,6 +14,7 @@ from functools import lru_cache, reduce
 import operator as op
 from collections.abc import KeysView
 from ttsim.utils.readfromurl import locator_handle
+
 
 openpyxl = None
 
@@ -240,9 +242,65 @@ def get_kwargs_with_defaults(opname: str, /,
     eff_args.update(args)
     return eff_args
 
-@lru_cache(128)
-def warnonce(msg, *args, **kwargs):
-    logger.warning(msg, *args, **kwargs)
 
 def prod_ints(L: Iterable[int]) -> int:
     return reduce(op.mul, L, 1)
+
+
+class CustomLogger:
+    """
+    Custom logger utility class for managing message filtering in loguru.
+
+    This class provides functionality to prevent duplicate log messages when the 'once' flag
+    is set in the log record's extra data. It maintains a static history of logged messages
+    to ensure that messages marked with 'once=True' are only logged once per unique
+    (level, message) combination.
+
+    Attributes:
+        _message_history (set): Static set that stores tuples of (level_name, message)
+                               for messages that have been logged with the 'once' flag.
+    """
+    _message_history: set = set()
+
+    @staticmethod
+    def filter_for_once(record):
+        """
+        Filter function for loguru that prevents duplicate messages when 'once' is True.
+
+        Args:
+            record: Loguru record object containing log information
+
+        Returns:
+            bool: False if message should be filtered out (already logged), True otherwise
+        """
+        if record.get('extra', {}).get('once', False):
+            message_key = (record['level'].name, record['message'])
+            if message_key in CustomLogger._message_history:
+                return False
+            CustomLogger._message_history.add(message_key)
+        return True
+
+
+def setup_logger(level: str = 'INFO') -> None:
+    """
+    Configure loguru logger with consistent format and level.
+    
+    This function removes all existing loguru handlers and adds a new stdout handler
+    with the specified log level. It also applies the CustomLogger.filter_for_once
+    filter to prevent duplicate messages when the 'once' flag is used in log records.
+
+    Args:
+        level (str): Log level to set. Defaults to 'INFO'.
+                     Valid values: 'TRACE', 'DEBUG', 'INFO', 'SUCCESS', 'WARNING', 'ERROR', 'CRITICAL'
+
+    Note:
+        The logger is configured with CustomLogger.filter_for_once filter, which prevents
+        duplicate messages for log records that have 'once=True' in their extra data.
+
+    Example:
+        >>> setup_logger('DEBUG')
+        >>> logger.info("This message will appear", extra={'once': True})
+        >>> logger.info("This message will appear", extra={'once': True})  # This won't be shown
+    """
+    logger.remove()
+    logger.add(sys.stdout, level=level, filter=CustomLogger.filter_for_once)

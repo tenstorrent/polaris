@@ -1,0 +1,90 @@
+# SPDX-FileCopyrightText: (C) 2025 Tenstorrent AI ULC
+# SPDX-License-Identifier: Apache-2.0
+workloads:
+  - api: TTSIM
+    name: YOLOv7
+    basedir: workloads
+    module : YOLO7@YOLO_v7.py
+    instances:
+      yolov7-tiny      : {yaml_cfg_path: 'https://raw.githubusercontent.com/WongKinYiu/yolov7/refs/heads/main/cfg/deploy/yolov7-tiny.yaml',      in_channels: 3, in_resolution: 640, bs: 1}
+      yolov7-tiny-silu : {yaml_cfg_path: 'https://raw.githubusercontent.com/WongKinYiu/yolov7/refs/heads/main/cfg/deploy/yolov7-tiny-silu.yaml', in_channels: 3, in_resolution: 640, bs: 1}
+      yolov7           : {yaml_cfg_path: 'https://raw.githubusercontent.com/WongKinYiu/yolov7/refs/heads/main/cfg/deploy/yolov7.yaml',           in_channels: 3, in_resolution: 640, bs: 1}
+      yolov7x          : {yaml_cfg_path: 'https://raw.githubusercontent.com/WongKinYiu/yolov7/refs/heads/main/cfg/deploy/yolov7x.yaml',          in_channels: 3, in_resolution: 640, bs: 1}
+
+  - api: TTSIM
+    name: YOLOv8
+    basedir: workloads
+    module : YOLO8@Yolo_v8.py
+    instances:
+      yolov8s          : {yaml_cfg_path: 'https://raw.githubusercontent.com/autogyro/yolo-V8/refs/heads/main/ultralytics/models/v8/yolov8s.yaml', in_channels: 3, in_resolution: 640, bs: 1}
+      yolov8n          : {yaml_cfg_path: 'https://raw.githubusercontent.com/autogyro/yolo-V8/refs/heads/main/ultralytics/models/v8/yolov8n.yaml', in_channels: 3, in_resolution: 640, bs: 1}
+      yolov8m          : {yaml_cfg_path: 'https://raw.githubusercontent.com/autogyro/yolo-V8/refs/heads/main/ultralytics/models/v8/yolov8m.yaml', in_channels: 3, in_resolution: 640, bs: 1}
+      # yolov8l          : {yaml_cfg_path: 'https://raw.githubusercontent.com/autogyro/yolo-V8/refs/heads/main/ultralytics/models/v8/yolov8l.yaml', in_channels: 3, in_resolution: 640, bs: 1}
+      # yolov8x          : {yaml_cfg_path: 'https://raw.githubusercontent.com/autogyro/yolo-V8/refs/heads/main/ultralytics/models/v8/yolov8x.yaml', in_channels: 3, in_resolution: 640, bs: 1}
+      # yolov8x6         : {yaml_cfg_path: 'https://raw.githubusercontent.com/autogyro/yolo-V8/refs/heads/main/ultralytics/models/v8/yolov8x6.yaml', in_channels: 3, in_resolution: 640, bs: 1}
+
+  - api: TTSIM
+    name: RESNET50
+    basedir: workloads
+    module : ResNet@basicresnet.py
+    params : {layers: [3,4,6,3], num_classes: 1000, num_channels: 3, bs: 1}
+    instances:
+      rn50_b1_hd : { img_height: 1024, img_width: 1024, }
+      rn50_b1_uhd: { img_height: 2828, img_width: 2828, }
+      corr: { }
+
+  - api: TTSIM
+    name: BEVDepth
+    basedir: workloads/bevdepth
+    module : BaseBEVDepth@BEVDepth.py
+    params :
+      is_train_depth    : false
+      training          : false
+      num_cameras       : 1
+      num_sweeps        : 2
+      head_conf_yaml    : config/bevdepth_cfgs/bevdepth_head.yaml
+      backbone_conf_yaml: config/bevdepth_cfgs/bevdepth_backbone.yaml
+    instances:
+      bevdepth_s : { img_height:   32, img_width:   32, img_channels: 3, bs: 1 }
+      bevdepth_m : { img_height:  256, img_width:  256, img_channels: 3, bs: 1 }
+      bevdepth_l : { img_height: 1024, img_width: 1024, img_channels: 3, bs: 1 }
+
+  - api: TTSIM
+    name: UNet
+    basedir: workloads/UNet
+    module : UNet@unet_model.py
+    instances:
+      unet_b1 : {'n_channels': 3, 'n_classes': 2, 'img_size': 256, 'bilinear': False, 'bs': 1}
+
+  - api: TTSIM
+    name: llama2
+    basedir: workloads/llama2
+    module : Transformer@model.py
+    instances:
+      input_small: {'dim': 32, 'n_layers': 2, 'n_heads': 2, 'vocab_size': 256, 'max_batch_size': 2, 'max_seq_len': 8, 'seq_len': 1, 'bs': 1}
+      input_standard: {'dim': 4096, 'n_layers': 32, 'n_heads': 32, 'vocab_size': 32000, 'max_batch_size': 2, 'max_seq_len': 8, 'seq_len': 1, 'bs': 1}
+
+  - api: TTSIM
+    name: SwinTransformer
+    basedir: workloads/Swin-Transformer
+    module : SwinTransformer@SwinTransformer.py
+    instances:
+      input_1: {'img_size': 224, 'in_chans': 3, 'bs': 3, 'num_classes': 3000}
+
+  - api: TTSIM
+    name: BERT
+    basedir: workloads
+    module : BasicLLM.py
+    params :
+      vocab_sz             : 30522
+      drop_prob            : 0.1
+      attn_type            : bidir
+      norm_type            : layer
+      positional_encoding  : learned
+      use_segment_embedding: True
+      bs                   : 1
+    instances:
+      bert_base : { nL: 12, nH: 12, dE:  768, nW:  512}
+      bert_large: { nL: 24, nH: 16, dE: 1024, nW:  512}
+      corr:    { nL: 24, nH: 16, dE: 1024, nW:  384}
+

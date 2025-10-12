@@ -95,6 +95,192 @@ The workload mapping specification file (`wlmapspec`) defines:
 - Operator fusion rules
 - Null operations
 
+## Performance Correlation Workflow
+
+### Overview
+Polaris includes tools to correlate simulation results with actual hardware measurements from TT-Metal, enabling validation and calibration of simulation accuracy.
+
+### Workflow Steps
+
+#### 1. Extract Hardware Metrics
+Extract performance metrics from TT-Metal documentation or measurement data:
+
+```bash
+# Parse TT-Metal README to extract metrics
+python tools/parse_ttsi_perf_results.py \
+    --input https://raw.githubusercontent.com/tenstorrent/tt-metal/main/models/README.md \
+    --output-dir __tmp/data/metal/inf
+```
+
+This will create categorized YAML files in `__tmp/data/metal/inf/`:
+- `tensix_md_perf_metrics_llm.yaml` - LLM models
+- `tensix_md_perf_metrics_vision.yaml` - Vision models
+- `tensix_md_perf_metrics_detection.yaml` - Object detection models
+- `tensix_md_perf_metrics_nlp.yaml` - NLP models
+- `tensix_md_perf_metrics_diffusion.yaml` - Diffusion models
+
+#### 2. Configure Workloads for Correlation
+Create a workload configuration file (e.g., `config/ttsi_correlation_workloads.yaml`) defining the models to correlate:
+
+```yaml
+workloads:
+  - api: TTSIM
+    name: resnet50
+    basedir: workloads
+    module: BasicResNet@basicresnet.py
+    instances:
+      corr:  # Special instance for correlation
+        bs: 32
+        layers: 50
+        # Additional parameters...
+```
+
+#### 3. Run Correlation Analysis
+Execute the correlation tool to compare Polaris simulation with hardware measurements:
+
+```bash
+python tools/run_ttsi_corr.py \
+    --tag 15oct25 \
+    --workloads-config config/ttsi_correlation_workloads.yaml \
+    --arch-config config/tt_wh.yaml \
+    --output-dir __CORRELATION_OUTPUT
+```
+
+**Key Options:**
+- `--tag`: Tag identifying the parsed metrics dataset (required)
+- `--input-dir`: Base directory containing tagged metrics (default: `data/metal/inf`)
+- `--workloads-config`: Workload configuration for Polaris simulation
+- `--arch-config`: Architecture specification (e.g., Wormhole)
+- `--workload-filter`: Filter specific workloads by name
+- `--precision`: Override precision for all workloads (e.g., bf8, bf16, fp32)
+- `--output-dir`: Directory for correlation results
+- `--dry-run`: Preview actions without executing
+
+**Note:** The data source format (html/md) is automatically detected from metadata created by `parse_ttsi_perf_results.py`.
+
+#### 4. Analyze Results
+The correlation tool generates:
+
+**CSV Output** (`correlation_result.csv`):
+- Side-by-side comparison of hardware vs. simulation
+- Calculated ratios and differences
+- Easy to import into spreadsheets
+
+**XLSX Output** (`correlation_result.xlsx`):
+- Formatted tables with color coding
+- Excel formulas for ratios
+- Conditional formatting for quick visual analysis
+- Frozen panes for easier navigation
+
+**JSON Output** (`correlation_geomean.json`):
+- Geometric mean of correlation ratios
+- Aggregate accuracy metrics
+- Machine-readable format for automation
+
+**Example Results Structure:**
+```
+__CORRELATION_OUTPUT/
+├── correlation_result.csv         # CSV format
+├── correlation_result.xlsx        # Excel format with formatting
+├── correlation_geomean.json       # Geometric mean metrics
+├── inputs/                        # Saved configuration
+│   ├── runinfo.json
+│   ├── tensix_workloads.yaml
+│   └── tensix_runcfg.yaml
+├── SIMPLE/                        # Polaris simulation results
+│   ├── CONFIG/
+│   ├── STATS/
+│   └── SUMMARY/
+```
+
+### Understanding Correlation Metrics
+
+**Key Metrics in Results:**
+- **Reference Performance**: Measured hardware performance (from TT-Metal)
+- **Actual Performance**: Polaris simulation performance
+- **Ratio**: Simulation / Hardware (ideally close to 1.0)
+- **Score-to-Ref**: Ratio expressed as percentage
+- **Geometric Mean**: Aggregate accuracy across all workloads
+
+**Interpretation:**
+- Ratio ≈ 1.0: Excellent correlation
+- Ratio > 1.0: Simulation overestimates performance
+- Ratio < 1.0: Simulation underestimates performance
+- Geometric Mean: Overall simulation accuracy
+
+### Advanced Usage
+
+#### Custom Metric Parsing
+For custom hardware data formats:
+
+```python
+from tools.parsers.md_parser import extract_table_from_md_link, TensixMdPerfMetricModel
+
+# Extract from custom source
+metrics = extract_table_from_md_link(custom_url)
+
+# Filter or transform as needed
+filtered_metrics = [m for m in metrics if m.hardware == 'n150']
+
+# Save for correlation
+from tools.parsers.md_parser import save_md_metrics
+from pathlib import Path
+save_md_metrics(filtered_metrics, Path('data/custom'))
+```
+
+#### Selective Correlation
+Run correlation for specific models:
+
+```bash
+# Only correlate specific workloads using workload filter
+python tools/run_ttsi_corr.py \
+    --tag 15oct25 \
+    --workloads-config config/ttsi_correlation_workloads.yaml \
+    --arch-config config/tt_wh.yaml \
+    --workload-filter bert,llama,resnet50 \
+    --output-dir __CORRELATION_OUTPUT
+```
+
+#### Programmatic Access
+Use correlation tools in Python scripts:
+
+```python
+from tools.run_ttsi_corr import main
+
+# Run correlation programmatically
+result = main([
+    'run_ttsi_corr',
+    '--tag', '15oct25',
+    '--workloads-config', 'config/ttsi_correlation_workloads.yaml',
+    '--arch-config', 'config/tt_wh.yaml',
+    '--output-dir', 'output'
+])
+```
+
+### Troubleshooting Correlation
+
+**Issue: No metrics extracted**
+- Verify URL accessibility and format
+- Check that tables have required columns (model, batch, hardware)
+- Enable debug logging: Add at start of script:
+  ```python
+  from loguru import logger
+  import sys
+  logger.remove()
+  logger.add(sys.stdout, level='DEBUG')
+  ```
+
+**Issue: Workload not found in configuration**
+- Ensure workload name matches between hardware data and config file
+- Check for `corr` instance in workload configuration
+- Verify workload module exists and is importable
+
+**Issue: Large correlation discrepancies**
+- Review workload parameters (batch size, model size, etc.)
+- Verify architecture configuration matches hardware
+- Check data types and precision settings
+- Consider hardware-specific optimizations not modeled
+
 ## Output and Analysis
 
 ### Output Formats

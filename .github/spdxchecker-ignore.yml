@@ -5,6 +5,7 @@ ignore:
   - '*.json'
   - '*.elf'
   - '*.xlsx'
+  - '*.rst'
   - '*.csv'
   - '*.md'
   - '*.mdc'
