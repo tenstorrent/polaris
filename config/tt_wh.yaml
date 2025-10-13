@@ -31,6 +31,7 @@ ipblocks:
             -   {name: cmp,   tpt: { int32: 32., fp32: 32. }}
             -   {name: mov,   tpt: { int32: 32., fp32: 32. }}
             -   {name: max,   tpt: { int32: 32., fp32: 32. }}
+            -   {name: sqrt, tpt: { int32: 32., fp32: 32. }}
 
     -   name: gddr6
         iptype: memory
