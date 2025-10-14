@@ -256,7 +256,7 @@ class InputParams:
     rtl_test_dir_path_suffix: str        = 'rsim/debug'
     rtl_test_dir_suffix: str             = '_0'
     rtl_tests: list[str]                 = []
-    start_function                       = "main"
+    start_function                       = "_start"
 
     def __init__(self, tags: list[str] | None, tests: list[str] | None, parallel: int | None):
         if tags:

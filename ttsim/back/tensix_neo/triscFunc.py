@@ -1175,11 +1175,15 @@ class triscFunc:
             self.triscRegs.__writeReg__(ins.getDstInt()[0], ins.getRelAddr() + 4)
             nextRelAddr = ins.getRelAddr() + ins.getImm()[0]
             if(self.debug & 0x10):
-                print(f"\tAddr:{ins.getRelAddr()}: {ins.getOp()}: {hex(self.triscRegs.__readReg__(ins.getDstInt()[0]))} !=0 JMP {hex(nextRelAddr)}")
+                print(f"\tAddr:{hex(ins.getRelAddr())}: {ins.getOp()}: {hex(self.triscRegs.__readReg__(ins.getDstInt()[0]))} !=0 JMP {hex(nextRelAddr)}")
         else:
-            nextRelAddr = ins.getRelAddr() + ins.getImm()[0]
+            if (ins.getImm()[0] == 0):
+                print(f"WARNING: JAL with x0 as destination and 0 offset at addr {hex(ins.getRelAddr())}. Treating this as End of Kernel.")
+                nextRelAddr = 0x0
+            else:
+                nextRelAddr = ins.getRelAddr() + ins.getImm()[0]
             if(self.debug & 0x10):
-                print(f"\tAddr:{ins.getRelAddr()}: {ins.getOp()}: {hex(self.triscRegs.__readReg__(ins.getDstInt()[0]))} !=0 JMP[PCINCR] {hex(nextRelAddr)}")
+                print(f"\tAddr:{hex(ins.getRelAddr())}: {ins.getOp()}: {hex(self.triscRegs.__readReg__(ins.getDstInt()[0]))} ==0 JMP[PCINCR] {hex(nextRelAddr)}")
 
         return nextRelAddr
 

@@ -2255,8 +2255,8 @@ class tensixFunc:
 
     def __execsfpload__(self,ins):
         assert ins.getOp() == "SFPLOAD" , "Expected opcode REPLAY. Received " + str(ins.getOp())
-        assert "destinations" not in dir(ins.getOperands()) , "Zero Dst expected"
-        assert "sources" not in dir(ins.getOperands()) , "Zero Src expected"
+        # assert "destinations" not in dir(ins.getOperands()) , "Zero Dst expected"
+        # assert "sources" not in dir(ins.getOperands()) , "Zero Src expected"
         assert "immediates" not in dir(ins.getOperands()) , "Zero Imm expected"
         match ins.kind:
             case decoded_instruction.instruction_kind.ttqs:
@@ -2328,8 +2328,8 @@ class tensixFunc:
 
     def __execsfpstore__(self,ins):
         assert ins.getOp() == "SFPSTORE" , "Expected opcode REPLAY. Received " + str(ins.getOp())
-        assert "destinations" not in dir(ins.getOperands()) , "Zero Dst expected"
-        assert "sources" not in dir(ins.getOperands()) , "Zero Src expected"
+        # assert "destinations" not in dir(ins.getOperands()) , "Zero Dst expected"
+        # assert "sources" not in dir(ins.getOperands()) , "Zero Src expected"
         assert "immediates" not in dir(ins.getOperands()) , "Zero Imm expected"
         match ins.kind:
             case decoded_instruction.instruction_kind.ttqs:

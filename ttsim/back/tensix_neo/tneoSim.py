@@ -378,6 +378,15 @@ def update_args_dict_with_tt_isa(args, args_dict):
         binutils_tensix.decoded_instruction.to_instruction_kind(arch) : tt_isa,
         binutils_rv32.instruction_kind() : binutils_rv32.get_default_instruction_set()}
 
+def update_args_dict_with_enableAutoLoop(args, args_dict):
+    key_enable_auto_loop = 'enableAutoLoop'
+
+    if key_enable_auto_loop in args:
+        args_dict[key_enable_auto_loop] = args.enableAutoLoop
+    else:
+        args_dict[key_enable_auto_loop] = True
+    print(f"AutoLoop in TCore = {args_dict[key_enable_auto_loop]}")
+
 def check_max_num_threads_per_neo_core(args_dict):
     archs_max_num_threads = {
         "ttqs": 4,
@@ -412,6 +421,7 @@ def main():
     update_args_dict_with_memory_map(args, args_dict)
     update_args_dict_with_tt_isa(args, args_dict)
     check_max_num_threads_per_neo_core(args_dict)
+    update_args_dict_with_enableAutoLoop(args, args_dict)
 
     ### ARGS END
     return execute_test(args_dict)
