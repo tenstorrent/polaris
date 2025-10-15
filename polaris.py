@@ -4,28 +4,20 @@
 import os
 import sys
 import argparse
-import copy
 import cProfile
 from loguru import logger
-import pickle
 import time
 import tracemalloc
-from collections import defaultdict
-from enum import Enum, auto
-from functools import lru_cache
 from itertools import product
 from pathlib import Path
-from typing import Any
+from typing import Any, Set
 
-import yaml
-from pydantic import BaseModel
-
-from ttsim.config import TTSimHLWlDevRunPerfStats, TTSimHLRunSummary, get_arspec_from_yaml, get_wlmapspec_from_yaml, get_wlspec_from_yaml, TypeWorkload
+from ttsim.config import TTSimHLRunSummary, get_arspec_from_yaml, get_wlmapspec_from_yaml, get_wlspec_from_yaml
 from ttsim.front import onnx2graph
 from ttsim.utils.common import get_ttsim_functional_instance, print_csv, str_to_bool
-from ttsim.utils.types import get_sim_dtype, get_bpe
 import ttsim.config.runcfgmodel as runcfgmodel
 from ttsim.back.device import Device
+from ttsim.stats import HLMStats, OutputFormat, save_data
 
 """ Polaris top-level executable. """
 
@@ -34,109 +26,6 @@ INFO  = LOG.info
 DEBUG = LOG.debug
 ERROR = LOG.error
 WARNING = LOG.warning
-
-class OutputFormat(Enum):
-    FMT_NONE = auto()
-    FMT_YAML = auto()
-    FMT_JSON = auto()
-    FMT_PICKLE = auto()
-
-    @classmethod
-    def enumvalue(cls, s:str):
-        return OutputFormat['FMT_' + s.upper()]
-
-    @property
-    @lru_cache(4)
-    def cname(self)->str:
-        return self.name.replace('FMT_', '').lower()
-
-class ReducedStats:
-    # Type hints for instance attributes
-    rsrc_bound: dict[Any, int]
-
-    def __init__(self, _devname, _wlcls, _wlname, _wlinstance, _dev):
-        self.devname      = _devname
-        self.wlcls        = _wlcls
-        self.wlname       = _wlname
-        self.wlinstance   = _wlinstance
-        self.device       = _dev
-
-    def summarize(self, _stats, _guardband=0.25):
-        self.freq_Mhz= _stats[0]['freq_MHz']
-        self.bs      = _stats[0]['batch']
-
-        #F1 : fields that scale with op repeat count
-        #F2 : fields that are independent of op repeat count
-        F1 = ['op_rpt_count', 'cycles', 'msecs', 'inParamCount', 'precision', 'rsrc_bnck']
-        F2 = ['inActCount', 'outActCount', 'precision']
-
-        L1 = [tuple([s[f] for f in F1]) for s in _stats]
-        L2 = [tuple([s[f] for f in F2]) for s in _stats if not (s['removed'] or s['fused'])]
-        BPE_TBL = {
-                'FP64'  : 8,
-                'FP32'  : 4,
-                'TF32'  : 4,
-                'FP16'  : 2,
-                'BF16'  : 2,
-                'FP8'   : 1,
-                'INT32' : 4,
-                'INT8'  : 1,
-                }
-
-
-        self.tot_cycles   = sum([r*c for r,c,m,p,b,rb in L1])
-        self.tot_msecs    = sum([r*m for r,c,m,p,b,rb in L1])
-        self.inParamCount = sum([r*p for r,c,m,p,b,rb in L1])
-        self.inParamBytes = sum([r*p*BPE_TBL[b] for r,c,m,p,b,rb in L1])
-        self.inActCount   = sum([ia                 for ia,oa,p in L2])
-        self.outActCount  = sum([oa                 for ia,oa,p in L2])
-        self.maxActCount  = max([ia+oa              for ia,oa,p in L2])
-        self.inActBytes   = sum([ia*BPE_TBL[p]      for ia,oa,p in L2])
-        self.outActBytes  = sum([oa*BPE_TBL[p]      for ia,oa,p in L2])
-        self.maxActBytes  = max([(ia+oa)*BPE_TBL[p] for ia,oa,p in L2])
-
-        #check if fits device memory...
-        self.mem_size_GB   = (self.inParamBytes + self.maxActBytes) / 1024 / 1024 / 1024
-        self.device_mem_GB = self.device.mem_size(units='GB')
-        self.fits_device   = self.mem_size_GB <= self.device_mem_GB
-
-        self.rsrc_bound   = defaultdict(int)
-        for r,c,m,p,b,rb in L1:
-            if rb != 'NA':
-                self.rsrc_bound['rsrc_' + rb] += r*c
-
-        #arch resource bottleneck stats...
-        for r in ['COMP', 'MEM']:
-            self.rsrc_bound['rsrc_' + r.lower()] /= self.tot_cycles
-
-        sxrec = {
-                'devname'      : self.devname,
-                'freq_Mhz'     : self.freq_Mhz,
-                'wlcls'        : self.wlcls,
-                'wlname'       : self.wlname,
-                'wlinstance'   : self.wlinstance,
-                'bs'           : self.bs,
-                'inParams'     : self.inParamCount,
-                'inActs'       : self.inActCount,
-                'outActs'      : self.outActCount,
-                'maxActs'      : self.maxActCount,
-                'inParamBytes' : self.inParamBytes,
-                'inActBytes'   : self.inActBytes,
-                'outActBytes'  : self.outActBytes,
-                'maxActBytes'  : self.maxActBytes,
-                'tot_cycles'   : self.tot_cycles,
-                'tot_msecs'    : self.tot_msecs,
-                'ideal_throughput'   : self.bs * 1000 / self.tot_msecs,
-                'mem_size_GB'  : self.mem_size_GB,
-                'device_memsize_GB': self.device_mem_GB,
-                'fits_device'  : self.fits_device,
-                'device_peak_bw_GBps': self.device.peak_bandwidth(),
-                'device_peak_fp8_tflops': self.device.peak_flops('matrix', 'mac', 'fp8', mul_factor=2),
-                }
-        sxrec['perf_projection'] = (1 - _guardband) * sxrec['ideal_throughput'] #25% guardband for SW/Host overhead
-        sxrec.update(self.rsrc_bound)
-
-        return sxrec
 
 class RangeArgument:
     def __init__(self, name, arg, range_type='add'):
@@ -304,7 +193,6 @@ def setup_cmdline_args(argv: list[str] | None = None) -> argparse.Namespace:
 
     return args
 
-
 def dump_ttsim_onnx(TBL, _odir):
     onnx_dir = _odir / 'ONNX'
     os.makedirs(onnx_dir, exist_ok=True)
@@ -386,19 +274,6 @@ def do_dryrun(_wl, _dl):
 
     return
 
-def save_data(model: BaseModel, filename, outputfmt: OutputFormat)->None:
-    if outputfmt == OutputFormat.FMT_NONE:
-        return
-    elif outputfmt == OutputFormat.FMT_YAML:
-        with open(filename, 'w') as fout:
-            yaml.dump(model.model_dump, fout, indent=4, Dumper=yaml.CDumper)
-    elif outputfmt == OutputFormat.FMT_JSON:
-        with open(filename, 'w') as fout:
-            print(model.model_dump_json(indent=4), file=fout)
-    elif outputfmt == OutputFormat.FMT_PICKLE:
-        with open(filename, 'wb') as foutbin:
-            pickle.dump(model, foutbin)
-
 def execute_wl_on_dev(_wl, _dl, _wspec, _dspec, wlmapspec, _WLG,
                       _odir, study, _enable_memalloc, outputfmt, flag_dump_stats_csv):
     # TODO: Reduce number of arguments to this function
@@ -407,7 +282,7 @@ def execute_wl_on_dev(_wl, _dl, _wspec, _dspec, wlmapspec, _WLG,
     config_dir  = study_dir / 'CONFIG'
     os.makedirs(stat_dir,    exist_ok=True)
     os.makedirs(config_dir, exist_ok=True)
-    saved_devices = set()
+    saved_devices: Set[str] = set()
     _summary_stats = []
     num_failures = 0
     job_summaries: list[Any] = []
@@ -434,130 +309,32 @@ def execute_wl_on_dev(_wl, _dl, _wspec, _dspec, wlmapspec, _WLG,
             raise
 
         try:
+            #TODO: wlgroup, wlname, wlins_name == should be attributes of wlgraph, since these
+            #      don't change w/ batchsize sweeps etc.
+            wlinfo = dict(wlg=wlgroup, wln=wlname, wli=wlins_name, wlb=wlcfg['bs'])
+            stats_info = {
+                    'flag_dump_stats_csv'  : flag_dump_stats_csv,
+                    'outputfmt'            : outputfmt,
+                    'stat_dir'             : stat_dir,
+                    'saved_devices'        : saved_devices,
+                    'config_dir'           : config_dir,
+                    'odir'                 : _odir,
+                    }
             cur_device = Device(dev_obj)
             cur_device.execute_graph(wlgraph, wlmapspec)
+
+            hlm_stats = HLMStats(cur_device, wlgraph, wlinfo, stats_info)
+            summary_dict = hlm_stats.dump_stats(devfreq)
+            _summary_stats.append(summary_dict)
+
         except Exception as e:
             num_failures += 1
             ERROR('workload {} failed with {}', exp_wl, e)
             continue
 
-        #publish stats
-        rows   = []
-        model_rows = []
-        for i,x in enumerate(wlgraph.get_ordered_nodes()):
-            is_inode = x in wlgraph._input_nodes
-            is_onode = x in wlgraph._output_nodes
-            fwd_op   = wlgraph._ops[x]
-            dev_freq_MHz = dev_obj.frequency(fwd_op.uses_compute_pipe, units='MHz')
-            val    = {
-                    'devname'       : devname,
-                    'freq_MHz'      : dev_freq_MHz,
-                    'pipe'          : fwd_op.uses_compute_pipe.upper(),
-                    'precision'     : fwd_op.precision.upper(),
-                    'wlgroup'       : wlgroup,
-                    'wlname'        : wlname,
-                    'wlinstance'    : wlins_name,
-                    'batch'         : wlcfg['bs'],
-                    'opnum'         : i,
-                    'opname'        : x,
-                    'is_input_node' : is_inode,
-                    'is_output_node': is_onode,
-                    'optype'        : fwd_op.optype,
-                    'op_rpt_count'  : fwd_op.repeat_count,
-                    'attrs'         : fwd_op.attrs,
-                    'inList'        : fwd_op.inList,
-                    'outList'       : fwd_op.outList,
-                    'domain'        : fwd_op.domain,
-                    'opclass'       : fwd_op.opclass_str,
-                    'removed'       : fwd_op.removed_in_optimization,
-                    'fused'         : fwd_op.fused_in_optimization,
-                    'fused_with_op' : 'NA' if fwd_op.fused_with_op is None else fwd_op.fused_with_op
-                    }
-            val.update(fwd_op.perf_stats)
-            val_in_bpe = val['inBytes'] // val['inElems']
-            if (not fwd_op.removed_in_optimization) and val_in_bpe != get_bpe(get_sim_dtype(fwd_op.precision)):
-                WARNING("device={} workload={} instance={} op={} opclass={} input bpe mismatch: bytes/elems {}  != operator precision {} bpe {}",
-                                devname, wlname, wlins_name, fwd_op.name, fwd_op.opclass_str, val_in_bpe, fwd_op.precision, get_bpe(get_sim_dtype(fwd_op.precision)))
-            val_out_bpe = val['outBytes'] // val['outElems']
-            if (not fwd_op.removed_in_optimization) and val_out_bpe != get_bpe(get_sim_dtype(fwd_op.precision)):
-                WARNING("device={} workload={} instance={} op={} opclass={} output bpe mismatch: bytes/elems {}  != operator precision {} bpe {}",
-                                devname, wlname, wlins_name, fwd_op.name, fwd_op.opclass_str, val_out_bpe, fwd_op.precision, get_bpe(get_sim_dtype(fwd_op.precision)))
-            TOT_INSTR_COUNT = sum([v for k,v in fwd_op.perf_stats['instrs'].items()])
-            val.update({
-                'instr_count'   : TOT_INSTR_COUNT,
-                'compute_cycles': fwd_op.compute_cycles,
-                'mem_rd_cycles' : fwd_op.mem_rd_cycles,
-                'mem_wr_cycles' : fwd_op.mem_wr_cycles,
-                'ramp_penalty'  : dev_obj.ramp_penalty()
-                })
-
-            if fwd_op.fused_op_cycles is None:
-                compute_cycles = fwd_op.compute_cycles
-                mem_cycles     = fwd_op.mem_rd_cycles + fwd_op.mem_wr_cycles
-            else:
-                compute_cycles = fwd_op.fused_op_cycles['compute_cycles']
-                mem_cycles     = fwd_op.fused_op_cycles['mem_rd_cycles'] + fwd_op.fused_op_cycles['mem_wr_cycles']
-            cycles = max(compute_cycles, mem_cycles) + dev_obj.ramp_penalty()
-            msecs  = cycles / dev_freq_MHz / 1e3
-
-            if fwd_op.removed_in_optimization or fwd_op.fused_in_optimization:
-                rsrc_bnck = 'NA'
-                cycles    = 0
-                msecs     = 0.0
-            elif compute_cycles >= mem_cycles:
-                rsrc_bnck = 'COMP'.lower()
-            else:
-                rsrc_bnck = 'MEM'.lower()
-            val.update({
-                'rsrc_bnck' : rsrc_bnck,
-                'cycles'    : cycles,
-                'msecs'     : msecs
-                })
-
-            rows.append(val)
-            opval = copy.deepcopy(val)
-            for tmp in ['devname', 'freq_MHz', 'wlgroup', 'wlname', 'wlinstance', 'batch']:
-                del opval[tmp]
-            model_rows.append(opval)
-
-        model_dict = {
-            'devname': devname,
-            'freq_MHz': dev_freq_MHz,
-            'wlgroup': wlgroup,
-            'wlname': wlname,
-            'wlinstance': wlins_name,
-            'batch': wlcfg['bs'],
-            'operatorstats': model_rows
-        }
-        model = TTSimHLWlDevRunPerfStats(**model_dict)
-        statF_parts  = [f"{devname}"]
-        statF_parts += [] if devfreq is None else [f"f{devfreq}"]
-        statF_parts += [f"{wlgroup}", f"{wlname}", f"{wlins_name}"]
-        statF_parts += [] if wlbatch is None else [f"b{wlbatch}"]
-        statF = "-".join(statF_parts) + '-opstats.csv'
-        statP = stat_dir / statF
-        if flag_dump_stats_csv:
-            print_csv(rows[0].keys(), rows, statP)
-        if outputfmt != OutputFormat.FMT_NONE:
-            statyamlP = stat_dir / (statP.stem + '.' + outputfmt.cname)
-            save_data(model, statyamlP, outputfmt)
-
-            if devname not in saved_devices:
-                devF = config_dir / f'{devname}.{outputfmt.cname}'
-                save_data(dev_obj, devF, outputfmt)
-                saved_devices.add(devname)
-
-        reduced_stat  = ReducedStats(devname, wlgroup, wlname, wlins_name, dev_obj)
-        summary_dict = reduced_stat.summarize(rows)
-        if outputfmt != OutputFormat.FMT_NONE:
-            summary_dict['stat_filename'] = statyamlP.relative_to(_odir).as_posix()
-        else:
-            summary_dict['stat_filename'] = ''
-        _summary_stats.append(summary_dict)
         INFO('ran job #{} instance={} device={} frequency={}', exp_no, wlins_name, devname, devfreq)
 
     return num_failures, _summary_stats
-
 
 def polaris(args: argparse.Namespace | runcfgmodel.PolarisRunConfig) -> int:
     """Main entry point for the Polaris simulation."""
@@ -624,13 +401,10 @@ def polaris(args: argparse.Namespace | runcfgmodel.PolarisRunConfig) -> int:
     INFO("Polaris run completed with {} experiments.", tot_exp_run)
     return 0 if num_failures == 0 else 1
 
-
 def main(argv: list[str] | None = None) -> int:
     # args, freqsweep, batchsweep = setup_cmdline_args()
     args = setup_cmdline_args(argv)
     return polaris(args)
-
-
 
 if __name__ == '__main__':
     start_time = time.perf_counter()

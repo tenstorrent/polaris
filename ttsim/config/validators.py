@@ -219,11 +219,35 @@ class TTSimHLWlDevRunOpCSVPerfStats(BaseModel, extra='forbid'):
     rsrc_bnck: TypeResourceName = Field(
         description = 'Bottleneck resource for this operator; among all resources, the operator required most cycles in this resource'
     )
+    ideal_cycles: float = Field(
+        description = 'Number of cycles required to execute the operator without SW/Host overhead guardband'
+    )
+    ideal_msecs: float = Field(
+        description = 'Time (msec) required to execute the operator without SW/Host overhead guardband'
+    )
     cycles: float = Field(
         description = 'Number of cycles required to execute the operator'
     )
+    matrix_cycles: float = Field(
+        description = 'Number of cycles required to execute the operator on MATRIX pipe'
+    )
+    vector_cycles: float = Field(
+        description = 'Number of cycles required to execute the operator on VECTOR pipe'
+    )
     msecs: float = Field(
         description = 'Time (msec) required to execute the operator'
+    )
+    matrix_pipe_util: float = Field(
+        description = 'Matrix Pipe Utilization'
+    )
+    vector_pipe_util: float = Field(
+        description = 'Vector Pipe Utilization'
+    )
+    mem_rd_util: float = Field(
+        description = 'Memory Rd Utilization'
+    )
+    mem_wr_util: float = Field(
+        description = 'Memory Wr Utilization'
     )
 
 # Option 2 - Structured Stats
@@ -259,8 +283,16 @@ class TTSimHLWlDevRunOperatorPerfStats(BaseModel, extra='forbid'):
     mem_wr_cycles: float
     ramp_penalty: float
     rsrc_bnck: TypeResourceName
+    ideal_cycles: float
+    ideal_msecs: float
     cycles: float
+    matrix_cycles: float
+    vector_cycles: float
     msecs: float
+    matrix_pipe_util: float
+    vector_pipe_util: float
+    mem_rd_util: float
+    mem_wr_util: float
 
 class TTSimHLWlDevRunPerfStats(BaseModel, extra='forbid'):
     """
@@ -279,32 +311,42 @@ class TTSimHLWlDevRunPerfStats(BaseModel, extra='forbid'):
     operatorstats: list[TTSimHLWlDevRunOperatorPerfStats]
 
 class TTSimHLRunSummaryRow(BaseModel, extra='forbid'):
-    devname      : str
-    freq_Mhz     : TypeFrequency
-    wlcls        : str
-    wlname       : str
-    wlinstance   : str
-    bs           : int
-    inParams     : int
-    inActs       : int
-    outActs      : int
-    maxActs      : int
-    inParamBytes : int
-    inActBytes   : int
-    outActBytes  : int
-    maxActBytes  : int
-    tot_cycles   : int
-    tot_msecs    : TypeTimeMS
-    ideal_throughput   : float
-    perf_projection   : float
-    mem_size_GB  : TypeMemsizeGB
-    device_memsize_GB: int
-    device_peak_bw_GBps: float
+    devname               : str
+    freq_Mhz              : TypeFrequency
+    wlgroup               : str
+    wlname                : str
+    wlinstance            : str
+    bs                    : int
+    inParams              : int
+    inActs                : int
+    outActs               : int
+    maxActs               : int
+    inParamBytes          : int
+    inActBytes            : int
+    outActBytes           : int
+    maxActBytes           : int
+    tot_cycles            : int
+    tot_ideal_cycles      : int
+    tot_msecs             : TypeTimeMS
+    tot_ideal_msecs       : TypeTimeMS
+    ideal_throughput      : float
+    perf_projection       : float
+    mem_size_GB           : TypeMemsizeGB
+    device_memsize_GB     : int
+    device_peak_bw_GBps   : float
     device_peak_fp8_tflops: float
-    fits_device  : bool
-    rsrc_mem     : float
-    rsrc_comp    : float
-    stat_filename: str
+    fits_device           : bool
+    rsrc_mem              : float
+    rsrc_comp             : float
+    stat_filename         : str
+    tot_matrix_cycles     : int
+    tot_vector_cycles     : int
+    tot_mem_rd_cycles     : int
+    tot_mem_wr_cycles     : int
+    tot_matrix_pipe_util  : float
+    tot_vector_pipe_util  : float
+    tot_mem_rd_util       : float
+    tot_mem_wr_util       : float
 
 class TTSimHLRunSummary(BaseModel, extra='forbid'):
     summary: list[TTSimHLRunSummaryRow]

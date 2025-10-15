@@ -30,7 +30,7 @@ def read_scores(filepath: Path, default_precision) -> ScoreDict:
     with open(filepath) as fin:
         actual_results = json.load(fin)['summary']
         for actual_res in actual_results:
-            actual_key = tuple([actual_res['wlname'], actual_res['devname'], actual_res['wlcls'], actual_res['wlinstance']])
+            actual_key = tuple([actual_res['wlname'], actual_res['devname'], actual_res['wlgroup'], actual_res['wlinstance']])
             actual_scores[actual_key] = {'ideal projection': actual_res['ideal_throughput'],
                                          'projection': actual_res['perf_projection'],
                                          'precision': default_precision

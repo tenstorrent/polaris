@@ -234,6 +234,7 @@ class SimOp:
         self.mem_rd_cycles           = None
         self.mem_wr_cycles           = None
         self.fused_op_cycles         = None
+        self.exec_stats              = None
         self._kw_args_defaults       = {}
 
     def __str__(self):

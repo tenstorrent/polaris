@@ -45,6 +45,9 @@ class WorkloadGraph():
     def get_output_tensors(self) : return self._output_tensors
     def get_ordered_nodes(self)  : return list(nx.topological_sort(self._graph))
 
+    def is_input_node(self, opname): return opname in self._input_nodes
+    def is_output_node(self, opname): return opname in self._output_nodes
+
     def add_hdr_info(self, hdr_info):
         self._hdr_info = hdr_info
 
