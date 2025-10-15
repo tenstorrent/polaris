@@ -604,7 +604,11 @@ def polaris(args: argparse.Namespace | runcfgmodel.PolarisRunConfig) -> int:
         save_data(TTSimHLRunSummary(**{'summary': summary_stats}), summary_stat_filename, outputformat)
         if args.dump_stats_csv:
             summary_stat_csv_filename = summary_dir / (summary_stat_filename.stem + '.csv')
-            print_csv(summary_stats[0].keys(), summary_stats, summary_stat_csv_filename)
+            if summary_stats:
+                print_csv(summary_stats[0].keys(), summary_stats, summary_stat_csv_filename)
+            else:
+                WARNING(f"No summary stats to dump to CSV file: {summary_stat_csv_filename} - creating empty file")
+                print_csv([], [], summary_stat_csv_filename)
 
 
         if args.instr_profile:
