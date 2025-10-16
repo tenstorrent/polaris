@@ -30,8 +30,6 @@ FEATURES:
 - Comprehensive error handling and retry logic
 - Validation of generated results
 
-Author: AI Assistant (Staff Engineer)
-Created: October 2025
 """
 
 import argparse

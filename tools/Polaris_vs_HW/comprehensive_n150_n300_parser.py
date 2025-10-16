@@ -5,7 +5,6 @@ Comprehensive n150/n300 Hardware Metrics Parser
 Extracts ALL available performance metrics and model support data
 from TT-Metal repository for n150 and n300 targets.
 
-Author: Polaris Automation Script
 """
 
 import os

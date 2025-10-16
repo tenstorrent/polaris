@@ -8,8 +8,6 @@ This script automates the process of:
 3. Collecting and aggregating metrics
 4. Generating comprehensive Excel reports
 
-Author: AI Assistant (Staff Engineer)
-Created: October 2025
 """
 
 import argparse
