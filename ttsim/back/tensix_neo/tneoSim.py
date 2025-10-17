@@ -285,6 +285,9 @@ def update_args_dict_with_cfg(args, args_dict):
         'numTriscCores',
         'orderScheme',
         'risc.cpi',
+        'enableRiscPM',
+        'riscPipeDepth',
+        'branchMisPredictPenalty',
         'stack']
 
     key_cfg = 'cfg'

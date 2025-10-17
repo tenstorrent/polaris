@@ -18,7 +18,9 @@
     ],
     []
   ],
-  "risc.cpi": 1.0,
+  "enableRiscPM": 1,
+  "riscPipeDepth": 4,
+  "branchMisPredictPenalty": 3,
   "latency_l1": 10.0,
   "enableSharedL1": 1,
   "engines": [

@@ -1033,7 +1033,7 @@ class triscFunc:
 
         self.triscRegs.__writeReg__(ins.getDstInt()[0], ins.getRelAddr() + (ins.getImm()[0] << 12))
         if(self.debug & 0x10):
-            print("{4}: {0}: {1} + {2} << 12  = {3}".format(ins.getOp(), ins.getRelAddr(),  (hex(ins.getImm()[0]) ), hex(self.triscRegs.__readReg__(ins.getDstInt()[0])),self.threadId) )
+            print(f'\t{ins.getOp()}: Reg[{hex(ins.getDstInt()[0])}] {hex(ins.getRelAddr())} + {hex(ins.getImm()[0])} << 12 = {hex(self.triscRegs.__readReg__(ins.getDstInt()[0]))}')
 
         nextRelAddr = ins.getRelAddr() + 4
 
@@ -1150,11 +1150,11 @@ class triscFunc:
         if(self.triscRegs.__readReg__(ins.getSrcInt()[0], 'riscgpr') >= self.triscRegs.__readReg__(ins.getSrcInt()[1],'riscgpr')):
             nextRelAddr = ins.getRelAddr() + ins.getImm()[0]
             if(self.debug & 0x10):
-                print(f"\tAddr:{ins.getRelAddr()} {ins.getOp()}: {hex(self.triscRegs.__readReg__(ins.getSrcInt()[0]))} >= {hex(self.triscRegs.__readReg__(ins.getSrcInt()[1]))}. JMP {hex(nextRelAddr)}")
+                print(f"\tAddr:{hex(ins.getRelAddr())} {ins.getOp()}: {hex(self.triscRegs.__readReg__(ins.getSrcInt()[0]))} >= {hex(self.triscRegs.__readReg__(ins.getSrcInt()[1]))}. JMP {hex(nextRelAddr)}")
         else:
             nextRelAddr = ins.getRelAddr() + 4
             if(self.debug & 0x10):
-                print(f"\tAddr:{ins.getRelAddr()} {ins.getOp()}: {hex(self.triscRegs.__readReg__(ins.getSrcInt()[0]))} !>= {hex(self.triscRegs.__readReg__(ins.getSrcInt()[1]))}. JMP[PCINCR] {hex(nextRelAddr)}")
+                print(f"\tAddr:{hex(ins.getRelAddr())} {ins.getOp()}: {hex(self.triscRegs.__readReg__(ins.getSrcInt()[0]))} !>= {hex(self.triscRegs.__readReg__(ins.getSrcInt()[1]))}. JMP[PCINCR] {hex(nextRelAddr)}")
 
         return nextRelAddr
 
@@ -1193,13 +1193,19 @@ class triscFunc:
         assert len(ins.getSrcInt()) == 1, "One Src expected"
         assert len(ins.getImm()) == 1, "One  Imm expected"
 
+        if(self.debug & 0x10):
+            print(f"Addr:{hex(ins.getRelAddr())}: {ins.getOp()}: Jump Target Address calculated from SrcReg[{hex(ins.getSrcInt()[0])}]={hex(self.triscRegs.__readReg__(ins.getSrcInt()[0], 'riscgpr'))}, Imm={hex(ins.getImm()[0])}, Target={hex(self.triscRegs.__readReg__(ins.getSrcInt()[0], 'riscgpr') + ins.getImm()[0])}")
+
         #TODO: Destination register of jalr is sometimes x0, the zero register which should be read-only
+        # Step 1: Calculate next address = srcReg + imm
+        nextRelAddr = self.triscRegs.__readReg__(ins.getSrcInt()[0], 'riscgpr') + ins.getImm()[0]
+        # Step 2: Write return address to dstReg 
         if(ins.getDstInt()[0] != 0):
             self.triscRegs.__writeReg__(ins.getDstInt()[0], ins.getRelAddr() + 4)
 
-        nextRelAddr = self.triscRegs.__readReg__(ins.getSrcInt()[0], 'riscgpr') + ins.getImm()[0]
         if(self.debug & 0x10):
-            print(f"\tAddr:{ins.getRelAddr()}: {ins.getOp()}: {hex(self.triscRegs.__readReg__(ins.getDstInt()[0]))} !=0 RET {hex(nextRelAddr)}")
+            print(f"\tAddr:{ins.getRelAddr()}: {ins.getOp()}: {hex(self.triscRegs.__readReg__(ins.getDstInt()[0]))} !=0 RET {hex(self.triscRegs.__readReg__(ins.getSrcInt()[0], 'riscgpr'))} + {hex(ins.getImm()[0])} = {hex(nextRelAddr)}")
+            print(f"\tAddr:{hex(ins.getRelAddr())}: {ins.getOp()}: Next Address at DstReg[{hex(ins.getDstInt()[0])}]={hex(self.triscRegs.__readReg__(ins.getDstInt()[0], 'riscgpr'))}")
 
         return nextRelAddr
 

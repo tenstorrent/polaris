@@ -30,12 +30,13 @@ enableStallWait = True
 enableReplay    = True
 if(enableSync):
     enablePipeStall = True
-skipValidCheckOps          = ["CLEARDVALID", "STALLWAIT", "SETRWC"]
+skipValidCheckOps          = ["STALLWAIT", "SETRWC"]
 skipValidandInUseCheckOps  = ["REPLAY"]
 skipValidCheckforRegs      = []
 doNotFreeDstPipesforInstrs = ["SEMWAIT"]
 freeDstPipesforInstrs      = ["SEMGET", "SEMINIT", "SEMPOST"]
 enableThreadwisePipeStates = True
+branchInstructions        = ["JAL", "JALR", "BEQ", "BNE", "BLT", "BGE", "BLTU", "BGEU"]
 ROBBarrierInsMnemonicContain = [] # ["SETRWC", "INCRWC"]
 
 MAXTIMER_HIGH    = 25000
@@ -167,11 +168,10 @@ class ttReg:
                     if(self.inUse[r][self.peekCurrBankId(r,t)] == 0):       print("WARNING: Trying to reset a register that's not in use: " + str(r) + "," + str(self.peekCurrBankId(r,t)) + ",1")
                 else:
                     assert self.inUse[r][self.peekCurrBankId(r,t)] == 1 , "WARNING: Trying to reset a register that's not in use: " + str(r) + "," + str(self.peekCurrBankId(r,t)) + ",1"
-                if(debug & DEBUG_TENSIX_MED_LEVEL):       print("Cycle: ", str(self.env.now), " Thread[",t,"], Reset inUse threads[", t, ",", self.accThId[r][self.peekCurrBankId(r,t)], "] for Reg[",r,"][",self.peekCurrBankId(r,t),"] - Valid already set to ",val, sep='')
+                if(debug & DEBUG_TENSIX_MED_LEVEL):       print(f"Cycle:{str(self.env.now)} Thread[{t}], Reset inUse threads[{t}, {self.accThId[r][self.peekCurrBankId(r,t)]}] for Reg[{r}][{self.peekCurrBankId(r,t)}] - Valid already set to {val}")
                 self.inUse[r][self.peekCurrBankId(r,t)] = 0
             else:
-                if(debug & DEBUG_TENSIX_MED_LEVEL):       print("Cycle: ", str(self.env.now), " Thread[",t,"], Skip Valids threads[", t, ",", self.accThId[r][self.peekCurrBankId(r,t)],
-                                             "] for Reg[",r,"][",self.peekCurrBankId(r,t),"] - Valid already set to ",val, sep='')
+                if(debug & DEBUG_TENSIX_MED_LEVEL):       print(f"Cycle:{str(self.env.now)} Thread[{t}], Skip Valids threads[{t}, {self.accThId[r][self.peekCurrBankId(r,t)]}] for Reg[{r}][{self.peekCurrBankId(r,t)}] - Valid already set to {val}")
 
             self.accThId[r][self.peekCurrBankId(r,t)]= t
             if(not vMask and not bMask):
@@ -179,8 +179,7 @@ class ttReg:
             else:
                 self.accCntToValid[r][self.peekCurrBankId(r,t)]= 0
 
-            if(debug & DEBUG_TENSIX_MED_LEVEL):       print("Cycle: ", str(self.env.now), " Thread[",t,"], Valids Update threads[", t, ",", self.accThId[r][self.peekCurrBankId(r,t)],
-                                            "] for Reg[",r,"][",self.peekCurrBankId(r,t),"] - Valid already set to ",val, sep='')
+            if(debug & DEBUG_TENSIX_MED_LEVEL):       print(f"Cycle:{str(self.env.now)} Thread[{t}], Valids Update threads[{t}, {self.accThId[r][self.peekCurrBankId(r,t)]}] for Reg[{r}][{self.peekCurrBankId(r,t)}] - Valid already set to {val}")
             return True
 
         if(not vMask and not bMask):
@@ -189,19 +188,14 @@ class ttReg:
                     if(self.inUse[r][self.peekCurrBankId(r,t)] == 0):       print("WARNING: Trying to reset a register that's not in use: " + str(r) + "," + str(self.peekCurrBankId(r,t)) + ",1")
                 else:
                     assert self.inUse[r][self.peekCurrBankId(r,t)] == 1 , "WARNING: Trying to reset a register that's not in use: " + str(r) + "," + str(self.peekCurrBankId(r,t)) + ",1"
-                if(debug & DEBUG_TENSIX_MED_LEVEL):       print("Cycle: ", str(self.env.now), " Thread[",t,"], Reset inUse threads[", t, ",", self.accThId[r][self.peekCurrBankId(r,t)],
-                                             "] for Reg[",r,"][",self.peekCurrBankId(r,t),"] - Current valid val = ",self.valids[r][self.peekCurrBankId(r,t)], " vMask=", vMask, ", bMask=", bMask, sep='')
+                if(debug & DEBUG_TENSIX_MED_LEVEL):       print(f"Cycle:{str(self.env.now)} Thread[{t}], Reset inUse threads[{t}, {self.accThId[r][self.peekCurrBankId(r,t)]}] for Reg[{r}][{self.peekCurrBankId(r,t)}] - Current valid val = {self.valids[r][self.peekCurrBankId(r,t)]} vMask={vMask}, bMask={bMask}")
                 self.inUse[r][self.peekCurrBankId(r,t)] = 0
             else:
-                if(debug & DEBUG_TENSIX_MED_LEVEL):       print("Cycle: ", str(self.env.now), " Thread[",t,"], Skip Valids threads[", t, ",", self.accThId[r][self.peekCurrBankId(r,t)],
-                                             "] for Reg[",r,"][",self.peekCurrBankId(r,t),"] - Current valid val = ",self.valids[r][self.peekCurrBankId(r,t)], " vMask=", vMask, ", bMask=", bMask, sep='')
-
+                if(debug & DEBUG_TENSIX_MED_LEVEL):       print(f"Cycle:{str(self.env.now)} Thread[{t}], Skip Valids threads[{t}, {self.accThId[r][self.peekCurrBankId(r,t)]}] for Reg[{r}][{self.peekCurrBankId(r,t)}] - Current valid val = {self.valids[r][self.peekCurrBankId(r,t)]} vMask={vMask}, bMask={bMask}")
             self.accThId[r][self.peekCurrBankId(r,t)]       = t
             self.accCntToValid[r][self.peekCurrBankId(r,t)]+= 1
 
-            if(debug & DEBUG_TENSIX_MED_LEVEL):       print("Cycle: ", str(self.env.now), " Thread[",t,"], Valids Update threads[", t, ",", self.accThId[r][self.peekCurrBankId(r,t)],
-                                            "] for Reg[",r,"][",self.peekCurrBankId(r,t),"] - Current valid val = ",self.valids[r][self.peekCurrBankId(r,t)], " vMask=", vMask, ", bMask=", bMask,
-                                            " accCntToValid=", self.accCntToValid[r][self.peekCurrBankId(r,t)], sep='')
+            if(debug & DEBUG_TENSIX_MED_LEVEL):       print(f"Cycle:{str(self.env.now)} Thread[{t}], Valids Update threads[{t}, {self.accThId[r][self.peekCurrBankId(r,t)]}] for Reg[{r}][{self.peekCurrBankId(r,t)}] - Current valid val = {self.valids[r][self.peekCurrBankId(r,t)]} vMask={vMask}, bMask={bMask} accCntToValid={self.accCntToValid[r][self.peekCurrBankId(r,t)]}")
             return True
 
         rsrc    = self.regRsrcs[r][self.peekCurrBankId(r,t)]
@@ -209,15 +203,13 @@ class ttReg:
             yield req
             match mode:
                 case 0: #Skip Valids / Skip InUse
-                    if(debug & DEBUG_TENSIX_LOW_LEVEL) or (debug & DEBUG_TENSIX_MED_LEVEL) or (debug & DEBUG_TENSIX_HIGH_LEVEL):                 print("Cycle: ", str(self.env.now), " Thread[",t,"], Skip all updates for [",r,"][",self.peekCurrBankId(r,t),"] ",
-                                                                                              " accCntToValid=", self.accCntToValid[r][self.peekCurrBankId(r,t)], sep='')
+                    if(debug & DEBUG_TENSIX_LOW_LEVEL) or (debug & DEBUG_TENSIX_MED_LEVEL) or (debug & DEBUG_TENSIX_HIGH_LEVEL):                 print(f"Cycle:{str(self.env.now)} Thread[{t}], Skip all updates for [{r}][{self.peekCurrBankId(r,t)}] accCntToValid={self.accCntToValid[r][self.peekCurrBankId(r,t)]}")
                     self.accThId[r][self.peekCurrBankId(r,t)]       = t
                     self.accCntToValid[r][self.peekCurrBankId(r,t)]+= 1
 
                     return True
                 case 1: #Update Valids / Skip InUse
-                    if(debug & DEBUG_TENSIX_LOW_LEVEL) or (debug & DEBUG_TENSIX_MED_LEVEL) or (debug & DEBUG_TENSIX_HIGH_LEVEL):                 print("Cycle: ", str(self.env.now), " Thread[",t,"], Set Valids threads[",
-                                                                                               t, ",", self.accThId[r][self.peekCurrBankId(r,t)], "] for Reg[",r,"][",self.peekCurrBankId(r,t),"]= ", val, " accCntToValid=0",sep='')
+                    if(debug & DEBUG_TENSIX_LOW_LEVEL) or (debug & DEBUG_TENSIX_MED_LEVEL) or (debug & DEBUG_TENSIX_HIGH_LEVEL):                 print(f"Cycle:{str(self.env.now)} Thread[{t}], Set Valids threads[{t}, {self.accThId[r][self.peekCurrBankId(r,t)]}] for Reg[{r}][{self.peekCurrBankId(r,t)}] = {val} accCntToValid=0")
                     self.accThId[r][self.peekCurrBankId(r,t)]       = t
                     self.accCntToValid[r][self.peekCurrBankId(r,t)] = 0
 
@@ -226,13 +218,12 @@ class ttReg:
                     return True
                 case 2: #Skip Valids / Update InUse
                     if(debug & DEBUG_TENSIX_LOW_LEVEL) or (debug & DEBUG_TENSIX_MED_LEVEL) or (debug & DEBUG_TENSIX_HIGH_LEVEL):
-                        if(self.inUse[r][self.peekCurrBankId(r,t)] == 0):               print("Cycle: ", str(self.env.now)," WARNING: Trying to reset a register that's not in use: " + str(r) + "," + str(self.peekCurrBankId(r,t)) + ",1")
+                        if(self.inUse[r][self.peekCurrBankId(r,t)] == 0):               print(f"Cycle:{str(self.env.now)} WARNING: Trying to reset a register that's not in use: {r}, {self.peekCurrBankId(r,t)}, 1")
                     else:
-                        assert self.inUse[r][self.peekCurrBankId(r,t)] != 0, "Trying to reset a register in use that's already in use: " + str(r) + "," + str(self.peekCurrBankId(r,t)) + ",1"
+                        assert self.inUse[r][self.peekCurrBankId(r,t)] != 0, f"Trying to reset a register in use that's already in use: {r}, {self.peekCurrBankId(r,t)}, 1"
 
-                    if(debug & DEBUG_TENSIX_LOW_LEVEL) or (debug & DEBUG_TENSIX_MED_LEVEL) or (debug & DEBUG_TENSIX_HIGH_LEVEL):                 print("Cycle: ", str(self.env.now), " Thread[",t,"], Reset inUse threads[", t, ",", self.accThId[r][self.peekCurrBankId(r,t)],
-                                                                                              "] for Reg[",r,"][",self.peekCurrBankId(r,t),"] - Current valid val = ",self.valids[r][self.peekCurrBankId(r,t)],
-                                                                                              " accCntToValid=", self.accCntToValid[r][self.peekCurrBankId(r,t)], sep='')
+                    if(debug & DEBUG_TENSIX_LOW_LEVEL) or (debug & DEBUG_TENSIX_MED_LEVEL) or (debug & DEBUG_TENSIX_HIGH_LEVEL):
+                        print(f"Cycle:{str(self.env.now)} Thread[{t}], Reset inUse threads[{t}, {self.accThId[r][self.peekCurrBankId(r,t)]}] for Reg[{r}][{self.peekCurrBankId(r,t)}] - Current valid val = {self.valids[r][self.peekCurrBankId(r,t)]} accCntToValid={self.accCntToValid[r][self.peekCurrBankId(r,t)]}")
 
                     self.accThId[r][self.peekCurrBankId(r,t)]       = t
                     self.accCntToValid[r][self.peekCurrBankId(r,t)]+= 1
@@ -242,7 +233,7 @@ class ttReg:
                     return True
                 case 3: #Update Valids / Update InUse
                     if(debug & DEBUG_TENSIX_LOW_LEVEL) or (debug & DEBUG_TENSIX_MED_LEVEL) or (debug & DEBUG_TENSIX_HIGH_LEVEL):
-                        if(self.inUse[r][self.peekCurrBankId(r,t)] == 0):               print("Cycle:", str(self.env.now)," WARNING: Trying to reset a register that's not in use: " + str(r) + "," + str(self.peekCurrBankId(r,t)) + ",1")
+                        if(self.inUse[r][self.peekCurrBankId(r,t)] == 0):               print(f"Cycle:{str(self.env.now)} WARNING: Trying to reset a register that's not in use: {r}, {self.peekCurrBankId(r,t)}, 1")
                     else:
                         assert self.inUse[r][self.peekCurrBankId(r,t)] != 0, "Trying to reset a register in use that's already in use: " + str(r) + "," + str(self.peekCurrBankId(r,t)) + ",1"
 
@@ -250,8 +241,7 @@ class ttReg:
                     self.accCntToValid[r][self.peekCurrBankId(r,t)] = 0
 
                     if(debug & DEBUG_TENSIX_LOW_LEVEL) or (debug & DEBUG_TENSIX_MED_LEVEL) or (debug & DEBUG_TENSIX_HIGH_LEVEL):
-                        print("Cycle: ", str(self.env.now), " Thread[",t,"], Set Valids and Reset inUse threads[", t, ",", self.accThId[r][self.peekCurrBankId(r,t)], "] for Reg[",r,"][",self.peekCurrBankId(r,t),
-                              "] - Current valid val = ",self.valids[r][self.peekCurrBankId(r,t)]," New valid val=", val, " accCntToValid=0", sep='')
+                        print(f"Cycle:{str(self.env.now)} Thread[{t}], Set Valids and Reset inUse threads[{t}, {self.accThId[r][self.peekCurrBankId(r,t)]}] for Reg[{r}][{self.peekCurrBankId(r,t)}] - Current valid val = {self.valids[r][self.peekCurrBankId(r,t)]} New valid val={val} accCntToValid=0")
 
                     self.inUse[r][self.peekCurrBankId(r,t)]         = 0
                     self.valids[r][self.getNextBankId(r,t)]         = val
@@ -270,46 +260,38 @@ class ttReg:
                 yield req
                 match mode:
                     case 0: #Skip Valids / Skip InUse
-                        if(debug & DEBUG_TENSIX_MED_LEVEL):                        print("Cycle: ", str(self.env.now), " Thread[",t,"], Skip all checks for [",r,"][",self.peekCurrBankId(r,t),
-                                                                      "] mode=", mode, " checkValue=", v, sep='')
+                        if(debug & DEBUG_TENSIX_MED_LEVEL):                        print(f"Cycle:{str(self.env.now)} Thread[{t}], Skip all checks for [{r}][{self.peekCurrBankId(r,t)}] mode={mode} checkValue={v}")
                         return True
                     case 1: #Update Valids / Skip InUse
                         if(self.valids[r][self.peekCurrBankId(r,t)] == v) and (self.inUse[r][self.peekCurrBankId(r,t)] == 0):
-                            if(debug & DEBUG_TENSIX_MED_LEVEL):                    print("Cycle: ", str(self.env.now)," Thread[",t,"], Valids (inter thread=[",t,",",self.accThId[r][self.peekCurrBankId(r,t)],"]) condition for [",r,"][",self.peekCurrBankId(r,t),"] met, mode=",mode, sep='')
+                            if(debug & DEBUG_TENSIX_MED_LEVEL):                    print(f"Cycle:{str(self.env.now)} Thread[{t}], Valids (inter thread=[{t},{self.accThId[r][self.peekCurrBankId(r,t)]}]) condition for [{r}][{self.peekCurrBankId(r,t)}] met, mode={mode}")
 
                             return True
                         else:
                             if(debug & DEBUG_TENSIX_MED_LEVEL):
-                                print("Cycle: ", str(self.env.now)," Thread[",t,"], Valids condition for [",r,"][",self.peekCurrBankId(r,t),"] NOT met yet, valid=",
-                                    self.valids[r][self.peekCurrBankId(r,t)], ", inUse=", self.inUse[r][self.peekCurrBankId(r,t)], ", inter thread=[",t,",", self.accThId[r][self.peekCurrBankId(r,t)],
-                                    "] mode=", mode, " checkValue=",v, f". instr info = {instr_info}", sep='')
+                                print(f"DEBUG INFO: Cycle:{str(self.env.now)} Thread[{t}], Reg[{r}][{self.peekCurrBankId(r,t)}] valid={self.valids[r][self.peekCurrBankId(r,t)]}, inUse={self.inUse[r][self.peekCurrBankId(r,t)]}, mode={mode}, checkValue={v}, instr_info={instr_info}")
 
                     case 2: #Skip Valids / Update InUse
                         if(self.inUse[r][self.peekCurrBankId(r,t)] != 1 ):
-                            if(debug & DEBUG_TENSIX_MED_LEVEL):                        print("Cycle: ", str(self.env.now), " Thread[",t,"], set inUse  (inter thread=[",t,",",self.accThId[r][self.peekCurrBankId(r,t)],"]) for [",r,"][",self.peekCurrBankId(r,t),"] mode=", mode , sep='')
+                            if(debug & DEBUG_TENSIX_MED_LEVEL):                        print(f"Cycle:{str(self.env.now)} Thread[{t}], set inUse  (inter thread=[{t},{self.accThId[r][self.peekCurrBankId(r,t)]}]) for [{r}][{self.peekCurrBankId(r,t)}] mode={mode}")
                             self.inUse[r][self.peekCurrBankId(r,t)] = 1
 
                             return True
                         else:
                             if(debug & DEBUG_TENSIX_MED_LEVEL):
-                                print("Cycle: ", str(self.env.now)," Thread[",t,"], Valids condition for [",r,"][",self.peekCurrBankId(r,t),"] NOT met yet, valid=",
-                                    self.valids[r][self.peekCurrBankId(r,t)], ", inUse=", self.inUse[r][self.peekCurrBankId(r,t)], ", inter thread=[",t,",", self.accThId[r][self.peekCurrBankId(r,t)],
-                                    "] mode=", mode, " checkValue=",v,sep='')
+                                print(f"DEBUG INFO: Cycle:{str(self.env.now)} Thread[{t}], Reg[{r}][{self.peekCurrBankId(r,t)}] valid={self.valids[r][self.peekCurrBankId(r,t)]}, inUse={self.inUse[r][self.peekCurrBankId(r,t)]}, mode={mode}, checkValue={v}, instr_info={instr_info}")
 
                     case 3: #Update Valids / Update InUse
                         if(self.valids[r][self.peekCurrBankId(r,t)] == v) and (self.inUse[r][self.peekCurrBankId(r,t)] == 0):
                             if(debug & DEBUG_TENSIX_MED_LEVEL):
-                                print("Cycle: ", str(self.env.now)," Thread[",t,"], Valids (inter thread=[",t,",",self.accThId[r][self.peekCurrBankId(r,t)],"]) condition for [",r,"][",
-                                      self.peekCurrBankId(r,t),"] met, mode=",mode, sep='')
+                                print(f"Cycle:{str(self.env.now)} Thread[{t}], Valids (inter thread=[{t},{self.accThId[r][self.peekCurrBankId(r,t)]}]) condition for [{r}][{self.peekCurrBankId(r,t)}] met, mode={mode}")
                             self.inUse[r][self.peekCurrBankId(r,t)] = 1
 
-                            if(debug & DEBUG_TENSIX_MED_LEVEL):                    print("Cycle: ", str(self.env.now), " Thread[",t,"], set inUse  (inter thread=[",t,",",self.accThId[r][self.peekCurrBankId(r,t)],"]) for [",r,"][",self.peekCurrBankId(r,t),"] mode=",mode, sep='')
+                            if(debug & DEBUG_TENSIX_MED_LEVEL):                    print(f"Cycle:{str(self.env.now)} Thread[{t}], set inUse  (inter thread=[{t},{self.accThId[r][self.peekCurrBankId(r,t)]}]) for [{r}][{self.peekCurrBankId(r,t)}] mode={mode}")
                             return True
                         else:
                             if(debug & DEBUG_TENSIX_MED_LEVEL):
-                                print("Cycle: ", str(self.env.now)," Thread[",t,"], Valids condition for [",r,"][",self.peekCurrBankId(r,t),"] NOT met yet, valid=",
-                                    self.valids[r][self.peekCurrBankId(r,t)], ", inUse=", self.inUse[r][self.peekCurrBankId(r,t)], ", inter thread=[",t,",", self.accThId[r][self.peekCurrBankId(r,t)],
-                                    "] mode=", mode, " checkValue=",v,sep='')
+                                print(f"Cycle:{str(self.env.now)} Thread[{t}], Valids condition for [{r}][{self.peekCurrBankId(r,t)}] NOT met yet, valid={self.valids[r][self.peekCurrBankId(r,t)]}, inUse={self.inUse[r][self.peekCurrBankId(r,t)]}, inter thread=[{t},{self.accThId[r][self.peekCurrBankId(r,t)]}] mode={mode}, checkValue={v}") 
                     case _:
                         assert False, "Unknown mode for checkValid"
 
@@ -348,8 +330,69 @@ class ttReg:
         print(self.valids)
 
 class riscRegState:
-    def __init__(self):
-        self.valid = 0
+    def __init__(self, env, coreId, args_dict, numThreads):
+        self.env = env
+        self.coreId = coreId
+        self.args_dict = args_dict
+
+        self.inUse= []
+        self.valid= []
+        self.regRsrc = []
+        for t in range(numThreads):
+            self.inUse.append([False for _ in range(32)])
+            self.valid.append([0 for _ in range(32)])
+            self.regRsrc.append([simpy.Resource(env) for _ in range(32)])
+
+    def setInUse(self, t, r, v):
+        assert r>=0 and r<32, "Invalid risc reg number"
+        assert v==0 or v==1, "Invalid inUse value"
+        rsrc        = self.regRsrc[t][r]
+        while(True):
+            with rsrc.request() as req:
+                yield req
+                assert self.inUse[t][r] != v, f"Trying to set a register Thread[{t}] Reg[{r}] to {v} but it's already {v}"
+                self.inUse[t][r] = v
+                return
+
+    def setValid(self, t, r, v):
+        assert r>=0 and r<32, "Invalid risc reg number"
+        assert v>=0 , "Invalid valid value"
+        self.valid[t][r] = v
+
+    def checkInUse(self, t, r):
+        assert r>=0 and r<32, "Invalid risc reg number"
+        rsrc        = self.regRsrc[t][r]
+        while(True):
+            with rsrc.request() as req:
+                yield req
+                if(self.inUse[t][r] == False):
+                    return False
+                else:
+                    yield self.env.timeout(1)
+
+    def checkValid(self, t, r):
+        assert r>=0 and r<32, "Invalid risc reg number"
+        return self.valid[t][r]
+
+    """
+    def resetInUse(self, t, r):
+        assert r>=0 and r<32, "Invalid risc reg number"
+        assert self.inUse[t][r] == True, f"Trying to reset a register Thread[{t}] Reg[{r}] that's not in use"
+        rsrc        = self.regRsrc[t][r]
+        while(True):
+            with rsrc.request() as req:
+                print(f'Cycle:{self.env.now} Thread[{t}], Reset inUse (inprogress) threads[{t},] for Reg[{r}] ')
+                yield req
+                self.inUse[t][r] = False
+                print(f'Cycle:{self.env.now} Thread[{t}], Reset inUse (done) threads[{t},] for Reg[{r}] ')
+                return
+    """
+
+    def resetValid(self, t, r, v):
+        assert r>=0 and r<32, "Invalid risc reg number"
+        assert v>=0 , "Invalid valid value"
+        assert self.valid[t][r] == v, "Trying to reset a register that's not valid"
+        self.valid[t][r] = 0
 
 class pipeResource:
     def __init__(self, env, args, coreId):
@@ -648,21 +691,32 @@ class rob:
         return self.idRob.index(val)
 
 class thread:
-    def __init__(self,args_dict, env, kernelName, coreId, threadId, threadFunc, tensixFunc, ttFifo, ttBuffer, rState, ttReg, pipes, replayState, insROB, traceEventList):
+    def __init__(self,args_dict, env, kernelName, coreId, threadId, threadFunc, tensixFunc, ttFifo, ttBuffer, rState, ttReg, riscReg, pipes, replayState, insROB, traceEventList):
         self.env = env
         self.args_dict  = args_dict
         self.coreId     = coreId
 
-        self.procThread = self.env.process(self.execThread())
-        self.procIns    = self.env.process(self.execIns())
-        self.procMop    = self.env.process(self.mopDecode())
-        self.procArb    = self.env.process(self.tArbiter(ttFifo, ttBuffer, replayState, insROB, traceEventList))
+        self.riscPipeDepth = 3 if('riscPipeDepth' not in args_dict) else args_dict['riscPipeDepth'] - 1
+        self.branchMisPredictLat = 3 if('branchMisPredictPenalty' not in args_dict) else args_dict['branchMisPredictPenalty']
+        self.enableRiscPM  = True if('enableRiscPM' not in args_dict) else args_dict['enableRiscPM']
 
         self.inputBuff  = simpy.Store(self.env, capacity=2)
         self.mopBuff    = simpy.Store(self.env, capacity=1)
         self.instrBuff  = simpy.Store(self.env, capacity=2)
         self.kernelsToExecute = simpy.Store(self.env, capacity=1)
         self.pcLock           = simpy.Resource(self.env, capacity=1)
+
+        self.riscCheckRegBuff  = simpy.Store(self.env, capacity=1)
+        self.riscExecBuff = simpy.Store(self.env, capacity=1)
+        self.riscExecTrkBuff = simpy.Store(self.env, capacity=self.riscPipeDepth)
+        self.riscResetRegBuff = simpy.Store(self.env, capacity=1)
+
+        self.procThread = self.env.process(self.execThread())
+        self.procIns    = self.env.process(self.execIns())
+        self.procRIns1  = self.env.process(self.execCheckAndSetRiscReg(self.riscPipeDepth))
+        self.procRIns2  = self.env.process(self.execResetRiscReg())
+        self.procMop    = self.env.process(self.mopDecode())
+        self.procArb    = self.env.process(self.tArbiter(ttFifo, ttBuffer, replayState, insROB, traceEventList))
 
         self.debug      = args_dict['debug']
 
@@ -752,6 +806,7 @@ class thread:
 
         self.rState   = rState
         self.ttThreadReg= ttReg
+        self.riscReg   = riscReg
         self.pipes      = pipes
 
         # Per Thread Register
@@ -761,6 +816,8 @@ class thread:
         #Stats
         self.rInstructions         = 0
         self.ttInstructions        = 0
+        self.sumRiscLatency       = 0
+        self.sumRiscStallLatency  = 0
 
         self.addrHist               = {}
 
@@ -819,10 +876,10 @@ class thread:
         while( self.pc != 0 ):                     # Last Ret, PC is set to zero
             if(self.pc != self.prevPC):
                 ins     = self.findIns(self.pc)
-                if(self.debug & DEBUG_RISC_HIGH_LEVEL) and ( self.pc- self.prevPC != 4) and (self.prevPC != 0):                print("Cycle: ", self.env.now," Thread[",self.threadId, "] Jump Instruction executed ", hex(self.prevPC), ",", hex(self.pc), ",", self.pc - self.prevPC, sep='')
+                if(self.debug & DEBUG_RISC_HIGH_LEVEL) and ( self.pc- self.prevPC != 4) and (self.prevPC != 0):                print("Cycle:", self.env.now," Thread[",self.threadId, "] Jump Instruction executed ", hex(self.prevPC), ",", hex(self.pc), ",", self.pc - self.prevPC, sep='')
                 self.prevPC = self.pc
                 if self.debug & DEBUG_TENSIX_HIGH_LEVEL:
-                    print(f"Cycle {self.env.now} Addr:{hex(ins.getRelAddr())} TCore{self.coreId} Thread{self.threadId} ObjectId:{hex(id(ins))} Fetched Instruction:{ins.mnemonic} from Program Counter")
+                    print(f"Cycle:{self.env.now} Addr:{hex(ins.getRelAddr())} TCore{self.coreId} Thread{self.threadId} ObjectId:{hex(id(ins))} Fetched Instruction:{ins.mnemonic} from Program Counter")
                 yield self.inputBuff.put(ins)
             else:
                 yield self.env.timeout(1)
@@ -884,14 +941,14 @@ class thread:
         while(True):
             ins = yield self.inputBuff.get()
             if self.debug & DEBUG_TENSIX_HIGH_LEVEL:
-                print(f"Cycle {self.env.now} Addr:{hex(ins.getRelAddr())} TCore{self.coreId} Thread{self.threadId} ObjectId:{hex(id(ins))} Fetched Instruction:{ins.mnemonic} from Input Buffer")
+                print(f"Cycle:{self.env.now} Addr:{hex(ins.getRelAddr())} TCore{self.coreId} Thread{self.threadId} ObjectId:{hex(id(ins))} Fetched Instruction:{ins.mnemonic} from Input Buffer")
             if(ins.isMop() or ins.isTT()):
                 yield self.mopBuff.put(ins)
             else:
+                if(self.enableRiscPM):
+                    yield self.riscCheckRegBuff.put(ins)
+
                 nextAddr = self.tFunc.execRIns(ins, self.env.now)
-                # self.prevPC = self.pc
-                # self.pc = nextAddr
-                # self.rInstructions += 1
 
                 ### Handle all writeCfg ##
                 # TODO: Change to a condition on write to CFG
@@ -968,7 +1025,82 @@ class thread:
                     self.pc = nextAddr
                     self.rInstructions += 1
 
-            yield self.env.timeout(round(self.args_dict['risc.cpi'],0))
+            yield self.env.timeout(1)
+
+    def execCheckAndSetRiscReg(self, execLatency):
+        while(True):
+            ins = yield self.riscCheckRegBuff.get()
+            startTime = self.env.now
+
+            if ins.getOp() in branchInstructions:
+                yield self.env.timeout(self.branchMisPredictLat)   # Branch Delay
+
+            # Check Scoreboard for source and destination registers
+            # TODO: Implement forwarding to reduce stalls
+            scoreBoardCheck = []
+            if(len(ins.getSrcInt()) != 0):
+                srcList = ins.getSrcInt()
+                for i in range(len(srcList)):
+                    if srcList[i] !=0:
+                        scoreBoardCheck.append(self.env.process(self.riscReg.checkInUse(self.threadId, srcList[i])))
+            if(len(ins.getDstInt()) != 0):
+                dstList = ins.getDstInt()
+                for i in range(len(dstList)):
+                    if dstList[i] !=0:
+                        scoreBoardCheck.append(self.env.process(self.riscReg.checkInUse(self.threadId, dstList[i])))
+            if(len(scoreBoardCheck) >0 ):    yield simpy.events.AllOf(self.env, scoreBoardCheck)
+
+            if self.debug & DEBUG_TENSIX_HIGH_LEVEL:
+                print(f"Cycle:{self.env.now} Addr:{hex(ins.getRelAddr())} TCore{self.coreId} Thread{self.threadId} Instruction:{ins.getOp()} ObjectId:{hex(id(ins))} CheckInUse-RISC (done):{ins.mnemonic}. Stall Time:{self.env.now - startTime} ")
+
+            #Set Scoreboard for destination registers
+            scoreBoardSet = []
+            if(len(ins.getDstInt()) != 0):
+                dstList = ins.getDstInt()
+                for i in range(len(dstList)):
+                    if dstList[i] !=0:
+                        scoreBoardSet.append(self.env.process(self.riscReg.setInUse(self.threadId, dstList[i], 1)))
+            if(len(scoreBoardSet) >0 ):    yield simpy.events.AllOf(self.env, scoreBoardSet)
+
+            yield self.env.timeout(1)
+            if self.debug & DEBUG_TENSIX_MED_LEVEL:
+                print(f"Cycle:{self.env.now} Addr:{hex(ins.getRelAddr())} TCore{self.coreId} Thread{self.threadId} Instruction:{ins.getOp()} ObjectId:{hex(id(ins))} SetInUse-RISC (done):{ins.mnemonic} srcList={ins.getSrcInt()} dstList={ins.getDstInt()}: Stall Time:{self.env.now - startTime} ")
+
+            yield self.riscExecTrkBuff.put(ins)
+            self.sumRiscStallLatency += (self.env.now - startTime)
+            self.env.process(self.executeRiscInstruction(ins, execLatency, startTime))
+
+    def executeRiscInstruction(self, ins, latency, startTime):
+        if self.debug & DEBUG_TENSIX_HIGH_LEVEL:
+            print(f"Cycle:{self.env.now} Addr:{hex(ins.getRelAddr())} TCore{self.coreId} Thread{self.threadId} Instruction:{ins.getOp()} ObjectId:{hex(id(ins))} Execution-RISC (inprogress):{ins.mnemonic}")
+
+        yield self.env.timeout(latency)
+        ins = yield self.riscExecTrkBuff.get()
+        yield self.riscResetRegBuff.put(ins)
+
+        self.sumRiscLatency += (self.env.now - startTime + 1)
+        if self.debug & DEBUG_TENSIX_MED_LEVEL:
+            print(f"Cycle:{self.env.now} Addr:{hex(ins.getRelAddr())} TCore{self.coreId} Thread{self.threadId} Instruction:{ins.getOp()} ObjectId:{hex(id(ins))} Execution-RISC (done):{ins.mnemonic}. Latency:{self.env.now - startTime} ")
+
+        return
+
+    def execResetRiscReg(self):
+        while(True):
+            ins = yield self.riscResetRegBuff.get()
+            if self.debug & DEBUG_TENSIX_HIGH_LEVEL:
+                print(f"Cycle:{self.env.now} Addr:{hex(ins.getRelAddr())} TCore{self.coreId} Thread{self.threadId} Instruction:{ins.getOp()} ObjectId:{hex(id(ins))} ResetInUse-RISC (inprogress):{ins.mnemonic} srcList={ins.getSrcInt()} dstList={ins.getDstInt()}")
+
+            scoreBoardSet = []
+            if(len(ins.getDstInt()) != 0):
+                dstList = ins.getDstInt()
+                for i in range(len(dstList)):
+                    if dstList[i] !=0:  # Skip x0
+                        scoreBoardSet.append(self.env.process(self.riscReg.setInUse(self.threadId, dstList[i], 0)))
+
+            if(len(scoreBoardSet) >0 ):    yield simpy.events.AllOf(self.env, scoreBoardSet)
+            yield self.env.timeout(1)
+            if self.debug & DEBUG_TENSIX_MED_LEVEL:
+                print(f"Cycle:{self.env.now} Addr:{hex(ins.getRelAddr())} TCore{self.coreId} Thread{self.threadId} Instruction:{ins.getOp()} ObjectId:{hex(id(ins))} ResetInUse-RISC (done):{ins.mnemonic} from Instruction Buffer srcList={ins.getSrcInt()} dstList={ins.getDstInt()}")
 
     def mopDecode(self):
         while(True):
@@ -1003,7 +1135,8 @@ class thread:
                         self.instrBuff.put(decodedIns)
                         yield self.env.timeout(1)
                     i += 1
-                if(self.debug & DEBUG_TENSIX_MED_LEVEL):      print("Cycle: ", self.env.now, " Thread[", self.threadId, "] MOP Decode completed", sep='')
+                if(self.debug & DEBUG_TENSIX_MED_LEVEL):
+                    print(f"Cycle:{self.env.now} Addr:{hex(ins.getRelAddr())} TCore{self.coreId} Thread{ins.getThread()} MOP Decode completed. Total TT Instructions generated={i} from MOP Instruction")
             elif(ins.isTT()):
                 self.instrBuff.put(ins)
             else:
@@ -1030,12 +1163,11 @@ class thread:
                     self.rState.setRsrcState(pipeIns.getDstPipes()[i], pipeIns.getPipesThreadId(), 1, self.debug, instr_info = f"@tensiPipe. cycle: {self.env.now}. set dst pipe (i = {i}, pipe id = {pipeIns.getDstPipes()[i]}) busy for instruction: {pipeIns}"))
                     )
                 if(self.debug & DEBUG_RISC_HIGH_LEVEL):
-                    # print(f"Cycle:{self.env.now}                                     Thread[{0}]:                 Trying to stall pipe[{1}] thread [{6}] as part of {2}, Len of pipeCondCheck0={4}, Len of dstPipes={5}".format(pipeIns.getThread(), self.pipes[pipeIns.getDstPipes()[i]],  pipeIns.mnemonic, self.env.now, len(pipeCondCheck0), len(pipeIns.getDstPipes()), pipeIns.getPipesThreadId()))
                     print(f"Cycle:{self.env.now}, Addr: {hex(pipeIns.getRelAddr())}, Thread{pipeIns.getThread()}: Trying to stall pipe[{pipeIns.getDstPipes()[i]}] on pipe thread ID = {pipeIns.getPipesThreadId()} as part of {pipeIns.mnemonic}, Len of pipeCondCheck0 = {len(pipeCondCheck0)}, Len of dstPipes = {len(pipeIns.getDstPipes())}. pipeInstr_info: {pipeIns}")
 
         yield simpy.events.AllOf(self.env, pipeCondCheck0)
         if (self.debug & DEBUG_TENSIX_MED_LEVEL) and (len(pipeIns.getDstPipes()) > 0):
-            print("Cycle: {2} Thread[{0}]: StallPipe set for {1} , Val={3}".format(pipeIns.getThread(), pipeIns.mnemonic, self.env.now, self.rState.readRsrcState(pipeIns.getDstPipes()[0], pipeIns.getPipesThreadId())))
+            print("Cycle:{2} Thread[{0}]: StallPipe set for {1} , Val={3}".format(pipeIns.getThread(), pipeIns.mnemonic, self.env.now, self.rState.readRsrcState(pipeIns.getDstPipes()[0], pipeIns.getPipesThreadId())))
 
     def _check_src_pipes(self, pipeIns):
         # Check source pipes are free
@@ -1317,6 +1449,7 @@ class tensixCore:
 
         self.memData    = triscFunc.triscMemFunc(self.args_dict)
         self.ttReg      = ttReg(self.env, args_dict, self.coreId, self.numThreads)
+        self.riscReg    = riscRegState(self.env, args_dict, self.coreId, self.numThreads)
         self.insROB     = []
 
         self.tensixReplayState = []
@@ -1369,7 +1502,7 @@ class tensixCore:
                 # thread --> threadData[len(self.threadData)-1] , thread is mapped to the most recently created functional object to handle skipping of threads
                 self.triscRegs.append(triscFunc.triscRegs(self.coreId, i, self.args_dict))
                 self.threadData.append(triscFunc.triscFunc(self.coreId, i, self.memData, self.args_dict, self.tensixSplRegs, self.triscRegs[len(self.triscRegs)-1]))
-                self.thread.append(thread(self.args_dict, self.env,  self.args_dict['input']['tc' + str(self.coreId)]['startFunction'], self.coreId, i , self.threadData[len(self.threadData)-1], self.tensixData, self.ttFifo, self.ttBuffer, self.rState, self.ttReg, self.pipes, self.tensixReplayState, self.insROB, self.trace_event_list))
+                self.thread.append(thread(self.args_dict, self.env,  self.args_dict['input']['tc' + str(self.coreId)]['startFunction'], self.coreId, i , self.threadData[len(self.threadData)-1], self.tensixData, self.ttFifo, self.ttBuffer, self.rState, self.ttReg, self.riscReg, self.pipes, self.tensixReplayState, self.insROB, self.trace_event_list))
 
         # Pipes - Process
         self.tensixPipeTrk = []
@@ -1429,12 +1562,11 @@ class tensixCore:
                     self.rState.setRsrcState(pipeIns.getDstPipes()[i], pipeIns.getPipesThreadId(), 1, self.debug, instr_info = f"@tensiPipe. cycle: {self.env.now}. set dst pipe (i = {i}, pipe id = {pipeIns.getDstPipes()[i]}) busy for instruction: {pipeIns}"))
                     )
                 if(self.debug & DEBUG_RISC_HIGH_LEVEL):
-                    # print(f"Cycle:{self.env.now}                                     Thread[{0}]:                 Trying to stall pipe[{1}] thread [{6}] as part of {2}, Len of pipeCondCheck0={4}, Len of dstPipes={5}".format(pipeIns.getThread(), self.pipes[pipeIns.getDstPipes()[i]],  pipeIns.mnemonic, self.env.now, len(pipeCondCheck0), len(pipeIns.getDstPipes()), pipeIns.getPipesThreadId()))
                     print(f"Cycle:{self.env.now}, Addr: {hex(pipeIns.getRelAddr())}, Thread{pipeIns.getThread()}: Trying to stall pipe[{pipeIns.getDstPipes()[i]}] on pipe thread ID = {pipeIns.getPipesThreadId()} as part of {pipeIns.mnemonic}, Len of pipeCondCheck0 = {len(pipeCondCheck0)}, Len of dstPipes = {len(pipeIns.getDstPipes())}. pipeInstr_info: {pipeIns}")
 
         yield simpy.events.AllOf(self.env, pipeCondCheck0)
         if (self.debug & DEBUG_TENSIX_MED_LEVEL) and (len(pipeIns.getDstPipes()) > 0):
-            print("Cycle: {2} Thread[{0}]: StallPipe set for {1} , Val={3}".format(pipeIns.getThread(), pipeIns.mnemonic, self.env.now, self.rState.readRsrcState(pipeIns.getDstPipes()[0], pipeIns.getPipesThreadId())))
+            print(f"Cycle:{self.env.now} Addr:{hex(pipeIns.getRelAddr())} Thread{pipeIns.getThread()}: StallPipe completed for {pipeIns.mnemonic}")
 
     def _check_src_pipes(self, pipeIns):
         # Check source pipes are free
@@ -1952,7 +2084,7 @@ class tensixCore:
                         if(self.args_dict['debug'] & DEBUG_RISC_HIGH_LEVEL):                      print(f"Cycle:{self.env.now} Thread[{0}]: Trying to set free pipe[{1}] as part of {2}".format(pipeIns.getThread(), pipeIns.getDstPipes()[i],  pipeIns.mnemonic, self.env.now))
                     yield simpy.events.AllOf(self.env, pipeCondCheck2)
                     if (self.debug & DEBUG_RISC_HIGH_LEVEL) and (len(pipeIns.getDstPipes()) > 0):
-                        print("Cycle: {2} Thread[{0}]: StallPipe reset for {1}, Val={3}".format(pipeIns.getThread(), pipeIns.mnemonic, self.env.now, self.rState.readRsrcState(pipeIns.getDstPipes()[0], pipeIns.getThread())))
+                        print("Cycle:{2} Thread[{0}]: StallPipe reset for {1}, Val={3}".format(pipeIns.getThread(), pipeIns.mnemonic, self.env.now, self.rState.readRsrcState(pipeIns.getDstPipes()[0], pipeIns.getThread())))
 
     def _free_execution_pipe(self, pipeIns, pipeId):
         # Frees execution pipe if needed
@@ -2017,13 +2149,13 @@ class tensixCore:
         while(True):
             pipeIns = yield self.ttBuffer[pipe].get()
             if self.debug & DEBUG_TENSIX_MED_LEVEL:
-                print(f"Cycle: {self.env.now}, ttBuffer: pipe = {pipe} Instruction:{pipeIns.getOp()} InsId{pipeIns.getInsId()} Number of items in ttBuffer[{pipe}]={len(self.ttBuffer[pipe].items)}")
+                print(f"Cycle:{self.env.now}, ttBuffer: pipe = {pipe} Instruction:{pipeIns.getOp()} InsId{pipeIns.getInsId()} Number of items in ttBuffer[{pipe}]={len(self.ttBuffer[pipe].items)}")
             tmp_ins = copy.deepcopy(pipeIns)
             tmp_ins.setInsId(-1)  # Reset insId for the copy
             yield self.ttAutoloopBuffer[pipe].put(pipeIns)
             yield self.env.timeout(1)
             if self.debug & DEBUG_TENSIX_MED_LEVEL:
-                print(f"Cycle: {self.env.now}, ttAutoLoopBuffer: pipe = {pipe} Instruction:{pipeIns.getOp()} InsId{pipeIns.getInsId()} Number of items in ttAutoLoopBuffer[{pipe}]={len(self.ttAutoloopBuffer[pipe].items) }")
+                print(f"Cycle:{self.env.now}, ttAutoLoopBuffer: pipe = {pipe} Instruction:{pipeIns.getOp()} InsId{pipeIns.getInsId()} Number of items in ttAutoLoopBuffer[{pipe}]={len(self.ttAutoloopBuffer[pipe].items) }")
 
             if pipe in self.ttAutoloopPipes:
                 instr_count = self.tensixSplRegs.readCfgReg(f"THCON_{pipe}_REG0_INSTRN_COUNT") + 1
@@ -2452,9 +2584,11 @@ class tensixCore:
                 if self.debug & DEBUG_TENSIX_MED_LEVEL: print(f"Skipping Thread[{str(i)}]")
             else:
                 print("TensixCore[",self.coreId, "] Thread[",self.thread[tIndex].threadId, "] Instructions Count(R/T) = ", self.thread[tIndex].rInstructions, " " , self.thread[tIndex].ttInstructions, sep='')
+                print(f"TCore{self.coreId} Thread{self.thread[tIndex].threadId} Avg RISC Latency = {self.thread[tIndex].sumRiscLatency/self.thread[tIndex].rInstructions if self.thread[tIndex].rInstructions > 0 else 0}")
+                print(f"TCore{self.coreId} Thread{self.thread[tIndex].threadId} Avg RISC Stall Latency = {self.thread[tIndex].sumRiscStallLatency/self.thread[tIndex].rInstructions if self.thread[tIndex].rInstructions > 0 else 0}")
                 # print(self.triscRegs[i].__printReg__())
                 tIndex += 1
-
+        
 
         print(f"TensixCore[{self.coreId}] Instructions by Engine")
         for i in range(len(self.pipes)):
@@ -2522,7 +2656,7 @@ def main():
                         help='Debug Mode. 0: No Debug Statement, 1: TRISC Low detail, 4: TRISC Med detail, 16: TRISC High detail, 2: Tensix Low Detail, 8: Tensix Med detail, 32: Tensix High detail, 3: TRISC + Tensix Low detail .....  ',
                         default=0,
                         required=False)
-    parser.add_argument('--risc.cpi', type=float, help='RISC IPC', default=2, required=False)
+    parser.add_argument('--risc.cpi', type=float, help='RISC IPC. No longer used', default=2, required=False)
     parser.add_argument('--odir', type=str, default ="__llk", help = "Output directory under logs")
     parser.add_argument('--exp', type=str, default ="tcore", help = "Prefix to demarcate different experiment logs")
 
