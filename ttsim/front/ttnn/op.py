@@ -237,6 +237,39 @@ def rms_norm(input_tensor, weight_tensor=None, bias_tensor=None, epsilon=1e-6, m
         normalized = add(normalized, bias_tensor)
     return normalized
 
+def max_pool2d_pp(args_list, kwargs_dict):
+    input_tensor = kwargs_dict['input_tensor']
+    kernel_size  = kwargs_dict['kernel_size']
+    stride       = kwargs_dict.get('stride', kernel_size)
+    padding      = kwargs_dict.get('padding', 0)
+    dilation     = kwargs_dict.get('dilation', 1)
+    ceil_mode    = kwargs_dict.get('ceil_mode', False)
+
+    kwargs_dict = {
+        'kernel_shape': list(kernel_size),
+        'strides': list(stride),
+        'pads': [padding[0], padding[0], padding[1], padding[1]], # [pad_top, pad_left, pad_bottom, pad_right]
+        'dilations': list(dilation),
+        'ceil_mode': ceil_mode
+    }
+    return (input_tensor,), kwargs_dict
+
+def conv_transpose2d_pp(args_list, kwargs_dict):
+    input_tensor  = kwargs_dict['input_tensor']
+    weight_tensor = kwargs_dict['weight_tensor']
+    bias_tensor   = kwargs_dict['bias_tensor']
+    padding_size  = kwargs_dict['padding'][0]
+    pads = [padding_size for i in range(4)]
+    output_padding = kwargs_dict.get('output_padding', (0,0))
+    strides = kwargs_dict.get('stride', (1,1))
+    kwargs_dict = {
+        'padding': pads,
+        'kernel_size': list(kwargs_dict['kernel_size']),
+        'output_padding': list(output_padding),
+        'strides': list(strides)
+    }
+    return (input_tensor, weight_tensor, bias_tensor), kwargs_dict
+
 class transformer:
     def __init__(self, config):
         pass
@@ -293,10 +326,11 @@ batch_norm  = single_output_immediate_op('BatchNormalization')
 
 #Convolution
 conv2d      = single_output_immediate_op('Conv', preprocess=conv2d_pp)
+conv_transpose2d = single_output_immediate_op('ConvTranspose', preprocess=conv_transpose2d_pp)
 
 #Pooling
 global_avg_pool2d = single_output_immediate_op('GlobalAveragePool')
-max_pool2d        = single_output_immediate_op('MaxPool')
+max_pool2d        = single_output_immediate_op('MaxPool', preprocess=max_pool2d_pp)
 
 #Matrix Multiplication
 matmul      = single_output_immediate_op('MatMul')

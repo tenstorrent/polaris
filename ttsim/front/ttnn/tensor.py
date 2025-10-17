@@ -108,6 +108,7 @@ class DataType(Enum):
 
 class Layout(Enum):
     ROW_MAJOR_LAYOUT = auto()
+    ROW_MAJOR = auto()
     TILE_LAYOUT      = auto()
 
     @classmethod
@@ -332,6 +333,7 @@ class Tensor(SimTensor):
 class ShardStrategy(Enum):
     HEIGHT = auto()
     WIDTH = auto()
+    BLOCK = auto()
 
     @classmethod
     def enumvalue(cls, s:str):
