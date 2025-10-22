@@ -44,5 +44,5 @@ op_rsrc_spec:
              Flatten, ReduceMax, ArgMax, Cast, NonMaxSuppression, Add, Sub, Mul, Div,
              Dropout, Split, Softmax, LayerNormalization, Identity, Constant, Where,
              Pow, Tanh, MaxPool, BatchNormalization, Concat, Unsqueeze, Squeeze, Trilu,
-             AveragePool, Tile, VoxelPooling, Mean, Sqrt, Reciprocal, Pad,
+             AveragePool, Tile, VoxelPooling, Hardswish, ReduceSum, Mean, Sqrt, Reciprocal, Pad
             ]
