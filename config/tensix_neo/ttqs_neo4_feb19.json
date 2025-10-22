@@ -21,6 +21,8 @@
   "enableRiscPM": 1,
   "riscPipeDepth": 4,
   "branchMisPredictPenalty": 3,
+  "enableScoreboardCheckforRegs": 1,
+  "enableForwardingforRegs": 1,
   "latency_l1": 10.0,
   "enableSharedL1": 1,
   "engines": [

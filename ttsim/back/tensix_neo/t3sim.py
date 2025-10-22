@@ -36,7 +36,8 @@ skipValidCheckforRegs      = []
 doNotFreeDstPipesforInstrs = ["SEMWAIT"]
 freeDstPipesforInstrs      = ["SEMGET", "SEMINIT", "SEMPOST"]
 enableThreadwisePipeStates = True
-branchInstructions        = ["JAL", "JALR", "BEQ", "BNE", "BLT", "BGE", "BLTU", "BGEU"]
+BRANCH_OPS                 = ["JAL", "JALR", "BEQ", "BNE", "BLT", "BGE", "BLTU", "BGEU"]
+MEMORY_LOAD_OPS            = ["LB", "LH", "LW", "LBU", "LHU", "LD", "FLW", "FLD"]
 ROBBarrierInsMnemonicContain = [] # ["SETRWC", "INCRWC"]
 
 MAXTIMER_HIGH    = 25000
@@ -699,6 +700,8 @@ class thread:
         self.riscPipeDepth = 3 if('riscPipeDepth' not in args_dict) else args_dict['riscPipeDepth'] - 1
         self.branchMisPredictLat = 3 if('branchMisPredictPenalty' not in args_dict) else args_dict['branchMisPredictPenalty']
         self.enableRiscPM  = True if('enableRiscPM' not in args_dict) else args_dict['enableRiscPM']
+        self.enableScoreboardCheckforRegs = True if('enableScoreboardCheckforRegs' not in args_dict) else args_dict['enableScoreboardCheckforRegs']
+        self.enableForwardingforRegs = True if('enableForwardingforRegs' not in args_dict) else args_dict['enableForwardingforRegs']
 
         self.inputBuff  = simpy.Store(self.env, capacity=2)
         self.mopBuff    = simpy.Store(self.env, capacity=1)
@@ -842,7 +845,7 @@ class thread:
                 raise Exception(msg)
 
             instruction = copy.deepcopy(self.threadListofListsWithAddr[self.startKernel][targetAddr])
-            if self.debug & DEBUG_TENSIX_HIGH_LEVEL:   print(f'TCore{self.coreId} Thread{self.threadId} Address:{hex(targetAddr)} ObjectId:{hex(id(instruction))} Found Instruction in kernel {self.startKernel}: {instruction.mnemonic} ')
+            if self.debug & DEBUG_TENSIX_HIGH_LEVEL:   print(f'Cycle:{self.env.now} TCore{self.coreId} Thread{self.threadId} Address:{hex(targetAddr)} ObjectId:{hex(id(instruction))} Found Instruction in kernel {self.startKernel}: {instruction.mnemonic} ')
             return(instruction)
         else:
             for i in range(len(self.allFnsRanges)):
@@ -859,7 +862,7 @@ class thread:
                     else:                               self.addrHist[targetAddr] = 1
 
                     instruction = copy.deepcopy(self.threadListofListsWithAddr[kernel][targetAddr])
-                    if self.debug & DEBUG_TENSIX_HIGH_LEVEL:   print(f'TCore{self.coreId} Thread{self.threadId} Address:{hex(targetAddr)} ObjectId:{hex(id(instruction))} Found Instruction in kernel {kernel}: {instruction.mnemonic} ')
+                    if self.debug & DEBUG_TENSIX_HIGH_LEVEL:   print(f'Cycle:{self.env.now} TCore{self.coreId} Thread{self.threadId} Address:{hex(targetAddr)} ObjectId:{hex(id(instruction))} Found Instruction in kernel {kernel}: {instruction.mnemonic} ')
                     return(instruction)
 
         print("Could not find instruction at ", hex(targetAddr))
@@ -1032,21 +1035,20 @@ class thread:
             ins = yield self.riscCheckRegBuff.get()
             startTime = self.env.now
 
-            if ins.getOp() in branchInstructions:
+            if ins.getOp() in BRANCH_OPS:
                 yield self.env.timeout(self.branchMisPredictLat)   # Branch Delay
 
             # Check Scoreboard for source and destination registers
-            # TODO: Implement forwarding to reduce stalls
             scoreBoardCheck = []
             if(len(ins.getSrcInt()) != 0):
                 srcList = ins.getSrcInt()
                 for i in range(len(srcList)):
-                    if srcList[i] !=0:
+                    if (srcList[i] != 0 and self.enableScoreboardCheckforRegs):
                         scoreBoardCheck.append(self.env.process(self.riscReg.checkInUse(self.threadId, srcList[i])))
             if(len(ins.getDstInt()) != 0):
                 dstList = ins.getDstInt()
                 for i in range(len(dstList)):
-                    if dstList[i] !=0:
+                    if (dstList[i] != 0 and self.enableScoreboardCheckforRegs):
                         scoreBoardCheck.append(self.env.process(self.riscReg.checkInUse(self.threadId, dstList[i])))
             if(len(scoreBoardCheck) >0 ):    yield simpy.events.AllOf(self.env, scoreBoardCheck)
 
@@ -1058,7 +1060,12 @@ class thread:
             if(len(ins.getDstInt()) != 0):
                 dstList = ins.getDstInt()
                 for i in range(len(dstList)):
-                    if dstList[i] !=0:
+                    #1. Skip register 0
+                    #2. If forwarding enabled, enable scoreboard only for loads
+                    #3. If scoreboard disabled, skip
+                    if (dstList[i] != 0 and
+                        (not self.enableForwardingforRegs or (self.enableForwardingforRegs and ins.getOp() in MEMORY_LOAD_OPS)) and
+                        self.enableScoreboardCheckforRegs):
                         scoreBoardSet.append(self.env.process(self.riscReg.setInUse(self.threadId, dstList[i], 1)))
             if(len(scoreBoardSet) >0 ):    yield simpy.events.AllOf(self.env, scoreBoardSet)
 
@@ -1094,10 +1101,15 @@ class thread:
             if(len(ins.getDstInt()) != 0):
                 dstList = ins.getDstInt()
                 for i in range(len(dstList)):
-                    if dstList[i] !=0:  # Skip x0
+                    #1. Skip register 0
+                    #2. If forwarding enabled, enable scoreboard only for loads
+                    #3. If scoreboard disabled, skip
+                    if (dstList[i] != 0 and
+                        (not self.enableForwardingforRegs or (self.enableForwardingforRegs and ins.getOp() in MEMORY_LOAD_OPS)) and
+                        self.enableScoreboardCheckforRegs):
                         scoreBoardSet.append(self.env.process(self.riscReg.setInUse(self.threadId, dstList[i], 0)))
 
-            if(len(scoreBoardSet) >0 ):    yield simpy.events.AllOf(self.env, scoreBoardSet)
+            if(len(scoreBoardSet) > 0 ):    yield simpy.events.AllOf(self.env, scoreBoardSet)
             yield self.env.timeout(1)
             if self.debug & DEBUG_TENSIX_MED_LEVEL:
                 print(f"Cycle:{self.env.now} Addr:{hex(ins.getRelAddr())} TCore{self.coreId} Thread{self.threadId} Instruction:{ins.getOp()} ObjectId:{hex(id(ins))} ResetInUse-RISC (done):{ins.mnemonic} from Instruction Buffer srcList={ins.getSrcInt()} dstList={ins.getDstInt()}")
@@ -1283,7 +1295,8 @@ class thread:
                         if(self.debug & DEBUG_TENSIX_MED_LEVEL):    print(f"Cycle:{self.env.now} Addr:{hex(ins.getRelAddr())} TCore{self.coreId} Thread{ins.getThread()} Ins:{ins.getOp()}")
 
                         #Commit Replay Instruction
-                        yield self.env.timeout(1)
+                        # Removing latency after Replay
+                        # yield self.env.timeout(1)
                         continue
                     else:
                         nextAddr  = self.tensixFunc.execTTIns(ins, self.env.now)
@@ -1309,7 +1322,8 @@ class thread:
                         if(self.debug & DEBUG_TENSIX_MED_LEVEL):    print(f"Cycle:{self.env.now} Addr:{hex(ins.getRelAddr())} TCore{self.coreId} Thread{self.threadId} Ins:{ins.mnemonic} (Load+Execute) ")
                     elif(currRMode == 1): #Skip Valids Check and fwd it directly
                         if(self.debug & DEBUG_TENSIX_MED_LEVEL):    print(f"Cycle:{self.env.now} Addr:{hex(ins.getRelAddr())} TCore{self.coreId} Thread{self.threadId} Ins:{ins.mnemonic} (Load) ")
-                        yield self.env.timeout(1)
+                        # Removing latency after Replay
+                        # yield self.env.timeout(1)
                         continue
 
                 case 3:
@@ -1334,7 +1348,8 @@ class thread:
             insId = yield self.env.process(insROB[ins.getThread()].appendRob(ins, self.debug))
             ins.setInsId(insId)
 
-            yield self.env.timeout(1)
+            # Removing latency for insertion into ROB
+            # yield self.env.timeout(1)
 
             # Stall Remove from ROB - Barrier instructions
             if(not enableInOrderIssue and

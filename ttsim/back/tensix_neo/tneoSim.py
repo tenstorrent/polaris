@@ -288,6 +288,8 @@ def update_args_dict_with_cfg(args, args_dict):
         'enableRiscPM',
         'riscPipeDepth',
         'branchMisPredictPenalty',
+        'enableScoreboardCheckforRegs',
+        'enableForwardingforRegs',
         'stack']
 
     key_cfg = 'cfg'
