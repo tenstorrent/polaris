@@ -2502,39 +2502,48 @@ class ReduceSumOp(SimOp):
         if self.perf_stats is not None:
             return self.perf_stats
 
-        is_backprop = kwargs.get('is_backprop', False)
-        assert is_backprop == True, f"ReduceSumOp currently only supported as a backward op!!"
-
-        keepdims             = self.attrs.get('keepdims', 1)
+        # Allow forward and backward use.
+        keepdims = self.attrs.get('keepdims', 1)
         noop_with_empty_axes = self.attrs.get('noop_with_empty_axes', 0)
+        axis_attr = self.attrs.get('axis', None)
 
-
+        # Input tensor
         T = clone_tensor_by_shape(inT[0])
         inElems = T.nelems()
         inBytes = T.nbytes(self.precision)
+
+        # Determine axes from second input or attrs['axis']
         if len(inT) == 2:
-            axes = clone_tensor_by_shape(inT[1])
-            inElems += axes.nelems()
-            inBytes += axes.nbytes(self.precision)
-            np_out = np.sum(T.data, axis=tuple(axes.data.tolist()), keepdims=keepdims==1)
+            axesT = clone_tensor_by_shape(inT[1], data_maybe_missing=False)
+            inElems += axesT.nelems()
+            inBytes += axesT.nbytes(self.precision)
+            axes_tuple = tuple(int(a) for a in axesT.data.tolist())
         else:
-            np_out = np.sum(T.data, axis=None, keepdims=keepdims==1)
+            if axis_attr is None:
+                axes_tuple = None
+            elif isinstance(axis_attr, int):
+                axes_tuple = (axis_attr,)
+            else:
+                axes_tuple = tuple(int(a) for a in axis_attr)
 
-        print(np_out)
+        # NumPy reduction
+        np_out = np.sum(T.data, axis=axes_tuple, keepdims=(keepdims == 1))
 
+        # Update output tensor
         tmp_outT = build_tmp_data_tensor(np_out, self.name + '__tmp_out__')
         update_output_tensor(self, tmp_outT, outT[0])
+
         outElems = outT[0].nelems()
         outBytes = outT[0].nbytes(self.precision)
 
+        # Simple perf model
         self.perf_stats = {
-                'inElems' : inElems,
-                'inBytes' : inBytes,
-                'outElems': outElems,
-                'outBytes': outBytes,
-                'instrs'  : {}
-                }
-
+            'inElems': int(inElems),
+            'inBytes': int(inBytes),
+            'outElems': int(outElems),
+            'outBytes': int(outBytes),
+            'instrs': {'add': int(T.nelems())}
+        }
         return self.perf_stats
 
 class ReduceOp(SimOp):
@@ -2547,58 +2556,48 @@ class ReduceOp(SimOp):
         if self.perf_stats is not None:
             return self.perf_stats
 
+        # Allow forward and backward use.
         keepdims = self.attrs.get('keepdims', 1)
-        noop     = self.attrs.get('noop_with_empty_axes', 0)
-        dataT    = clone_tensor_by_shape(inT[0])
-        axesT    = clone_tensor_by_shape(inT[1], data_maybe_missing=False) if len(inT) == 2 else None
-        rank     = dataT.rank()
-        if axesT is None:
-            if noop:
-                outShape = dataT.shape
-                reduce_axes = None
-            else:
-                reduce_axes = [i for i in range(rank)]
+        noop_with_empty_axes = self.attrs.get('noop_with_empty_axes', 0)  # kept for completeness
+        axis_attr = self.attrs.get('axis', None)
+
+        # Input tensor
+        T = clone_tensor_by_shape(inT[0])
+        inElems = T.nelems()
+        inBytes = T.nbytes(self.precision)
+
+        # Determine axes from second input (if present) or from attrs['axis']
+        if len(inT) == 2:
+            axesT = clone_tensor_by_shape(inT[1], data_maybe_missing=False)
+            inElems += axesT.nelems()
+            inBytes += axesT.nbytes(self.precision)
+            axes_tuple = tuple(int(a) for a in axesT.data.tolist())
         else:
-            reduce_axes = [i for i in axesT.data]
-
-        if reduce_axes:
-            normalized_axes = []
-            for a in reduce_axes:
-                if a < 0: a += rank
-                assert (0 <= a < rank), f"reduce axis {a} out of range for rank {rank}"
-                normalized_axes.append(a)
-            axes_set = sorted(set(normalized_axes))
-
-            if keepdims:
-                outShape = [1 if i in axes_set else d for i,d in enumerate(dataT.shape)]
+            if axis_attr is None:
+                axes_tuple = None
+            elif isinstance(axis_attr, int):
+                axes_tuple = (axis_attr,)
             else:
-                outShape = [d for i,d in enumerate(dataT.shape) if i not in axes_set]
+                axes_tuple = tuple(int(a) for a in axis_attr)
 
+        # Perform reduction using NumPy to infer shape and dtype consistently
+        np_out = np.sum(T.data, axis=axes_tuple, keepdims=(keepdims == 1))
 
-        inelems = dataT.nelems()
-        instr_profile = {
-                'ReduceL1'        : {'abs': inelems, 'sum': inelems},
-                'ReduceL2'        : {'mul': inelems, 'sum': inelems, 'sqrt': 1},
-                'ReduceLogSum'    : {'log': inelems, 'sum': inelems},
-                'ReduceLogSumExp' : {'log': inelems, 'sum': inelems, 'exp': 1},
-                'ReduceMax'       : {'cmp': inelems},
-                'ReduceMean'      : {'sum': inelems, 'div': 1},
-                'ReduceMin'       : {'cmp': inelems},
-                'ReduceProd'      : {'mul': inelems},
-                'ReduceSum'       : {'sum': inelems},
-                'ReduceSumSquare' : {'mul': inelems, 'sum': inelems},
-                }
+        # Update output tensor (shape and dtype)
+        tmp_outT = build_tmp_data_tensor(np_out, self.name + '__tmp_out__')
+        update_output_tensor(self, tmp_outT, outT[0])
 
-        outT[0].shape = outShape
-        outT[0].dtype = dataT.dtype
+        outElems = outT[0].nelems()
+        outBytes = outT[0].nbytes(self.precision)
+
+        # Simple perf model: count additions proportional to input elements
         self.perf_stats = {
-                'inElems' : sum([x.nelems() for x in inT]),
-                'inBytes' : sum([x.nbytes(self.precision) for x in inT]),
-                'outElems': outT[0].nelems(),
-                'outBytes': outT[0].nbytes(self.precision),
-                'instrs'  : instr_profile[self.optype]
-                }
-
+            'inElems': int(inElems),
+            'inBytes': int(inBytes),
+            'outElems': int(outElems),
+            'outBytes': int(outBytes),
+            'instrs': {'add': int(T.nelems())}
+        }
         return self.perf_stats
 
 class ArgMaxMinOp(SimOp):
@@ -2637,7 +2636,6 @@ class ArgMaxMinOp(SimOp):
                 'outBytes': outT[0].nbytes(self.precision),
                 'instrs'  : {'cmp': dataT.nelems()}
                 }
-
         return self.perf_stats
 
 class NonMaxSuppressionOp(SimOp):
@@ -3107,6 +3105,53 @@ class AssignOp(SimOp):
         }
         return self.perf_stats
 
+class HardswishOp(SimOp):
+    def __init__(self, opinfo):
+        super().__init__(opinfo)
+        self.opclass_str: str = 'Hardswish'
+        # One input, one output
+        check_io_counts(self, in_counts=[1, 1], out_counts=[1, 1])
+
+    def get_perf_counts(self, inT, outT, **kwargs):
+        # Return cached if already computed
+        if self.perf_stats is not None:
+            return self.perf_stats
+
+        X = inT[0]
+        # Validate input shape is known
+        assert X.check_shape(), f"Illegal Shape for {X}"
+
+        # Elementwise op: output shape and dtype match input
+        outT[0].shape = X.shape
+        outT[0].dtype = X.dtype
+
+        # Estimate instruction counts for: y = x * clamp(x + 3, 0, 6) / 6
+        # If Clip exists, model as: add (+3), clip [0,6], mul (*1/6), mul (x * t) => 4 stages
+        # Else: add, min(.,6), max(.,0), mul, mul => 5 stages
+        try:
+            SimOpFactory("Clip")
+            used_clip = True
+        except RuntimeError:
+            used_clip = False
+
+        nElem = X.nelems()
+        instrs = {
+            'add': nElem,          # x + 3
+            'mul': 2 * nElem,      # scale by 1/6 and final multiply
+        }
+        if used_clip:
+            instrs['cmp'] = nElem  # approximate compares inside clip
+        else:
+            instrs['cmp'] = 2 * nElem  # min + max comparisons
+
+        self.perf_stats = {
+            'inElems': nElem,
+            'inBytes': X.nbytes(self.precision),
+            'outElems': outT[0].nelems(),
+            'outBytes': outT[0].nbytes(self.precision),
+            'instrs': instrs
+        }
+        return self.perf_stats
 
 ######################  CONCRETE OP IMPLEMENTATION END ##################
 
@@ -3170,7 +3215,7 @@ def SimOpFactory(optype: str) -> type[SimOp]:
             ClipOp               : ['Clip'], #Mamba2
             ReduceOp             : ['ReduceL1', 'ReduceL2', 'ReduceLogSum', 'ReduceLogSumExp',
                                     'ReduceMax', 'ReduceMean', 'ReduceMin', 'ReduceProd',
-                                    'ReduceSum', 'ReduceSumSquare'],
+                                    'ReduceSumSquare'],
             ArgMaxMinOp          : ['ArgMax', 'ArgMin'],
             LeakyReluOp          : ['LeakyRelu'], #Yolo-v7
             SigmoidOp            : ['Sigmoid'], #Yolo-v7
@@ -3187,6 +3232,8 @@ def SimOpFactory(optype: str) -> type[SimOp]:
             MaxPoolOp            : ['MaxPool'],
             BatchNormalizationOp : ['BatchNormalization'],
             AveragePoolOp        : ['AveragePool', 'GlobalAveragePool'],
+            ReduceSumOp          : ['ReduceSum'],
+            HardswishOp          : ['Hardswish'], #levit
           }
     optype2cls: dict[str, type[SimOp]] = {}
     for tmp in cls2optype:

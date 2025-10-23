@@ -59,9 +59,10 @@ def get_sim_op(opinfo, default_dtype=None):
     optype: str = opinfo['optype']
     opcls = SimOpFactory(optype)
     opobj = opcls(opinfo)
-    if WL2ArchTypeSpec.has_instance():
+    try:
+        # Use WL2ArchTypeSpec directly
         opobj.set_precision(WL2ArchTypeSpec.layer_2_datatype(optype.upper()))
-    else:
+    except Exception:
         if default_dtype is None:
             raise AssertionError(
                 f"Cannot determine data precision for {optype} as neither workload-arch map nor default precision is set. "
@@ -566,6 +567,9 @@ AveragePool2d = partial(UnaryOperator, optype='AveragePool')
 Sum           = partial(UnaryOperator, optype='Sum')
 Mean          = partial(UnaryOperator, optype='Mean')
 Reciprocal    = partial(UnaryOperator, optype='Reciprocal')
+Hardswish     = partial(UnaryOperator, optype='Hardswish')
+ReduceSum     = partial(UniversalOperator, optype='ReduceSum', params=[], ipos=[0])
+
 
 #Binary Operators
 BinaryOperator = partial(UniversalOperator, params=[], ipos=[0,1])
