@@ -317,6 +317,9 @@ def save_metadata(
     """
     Save metadata about the parsing operation to a YAML file.
     
+    Only writes the file if tag, data_source, or input_url have changed.
+    The file is preserved if only parsed_date or use_cache differ.
+    
     Args:
         output_dir (Path): Directory where metadata file will be saved.
         tag (str): Tag identifying this data snapshot.
@@ -333,6 +336,29 @@ def save_metadata(
     }
     
     metadata_file = output_dir / '_metadata.yaml'
+    
+    # Check if metadata file already exists
+    if metadata_file.exists():
+        try:
+            with open(metadata_file, 'r') as f:
+                existing_metadata = yaml.safe_load(f)
+            
+            # Compare only the fields that should trigger an overwrite: tag, data_source, input_url
+            # Exclude parsed_date and use_cache from comparison
+            significant_fields = ['tag', 'data_source', 'input_url']
+            
+            # Significant fields is a subset of metadata fields, so do not need to check for missing keys
+            metadata_significant = {k: metadata[k] for k in significant_fields}
+            # Existing metadata may have additional fields, so use get() to avoid KeyError
+            existing_significant = {k: existing_metadata.get(k) for k in significant_fields}
+            
+            if metadata_significant == existing_significant:
+                logger.info('Metadata unchanged (tag, data_source, input_url), preserving existing file: {}', metadata_file)
+                return
+        except Exception as e:
+            logger.warning('Could not read existing metadata file: {}. Will overwrite.', e)
+    
+    # Write metadata if it doesn't exist or has changed
     with open(metadata_file, 'w') as f:
         yaml.dump(metadata, f, default_flow_style=False, sort_keys=False)
     
