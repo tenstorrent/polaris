@@ -171,7 +171,7 @@ class WorkloadTTSIM(WorkloadCfgBlk):
     params: dict
     module: str
     basedir: str
-    # Class attributex
+    # Class attributes
     required_fields = ['basedir', 'instances', 'module']
     optional_fields: dict[str, Any] = {'params': {}}
 
@@ -192,11 +192,38 @@ class WorkloadTTSIM(WorkloadCfgBlk):
         return result
 
 
+class WorkloadTTNN(WorkloadCfgBlk):
+    # Type declarations for INSTANCE attributes
+    instances: dict
+    params: dict
+    module: str
+    basedir: str
+    # Class attributes
+    required_fields = ['basedir', 'instances', 'module']
+    optional_fields: dict[str, Any] = {'params': {}}
+
+    def __init__(self, wlname, **kwargs):
+        super().__init__(wlname, **kwargs)
+        self.api = 'TTNN'
+
+    def get_instances(self):
+        result = {}
+        for iname, icfg in self.instances.items():
+            xcfg = {}
+            if self.params:
+                xcfg.update(self.params)
+            for xx,xv in icfg.items():
+                xcfg[xx] = xv
+            result[iname] = {'group': self.name, 'module': self.module, 'cfg': xcfg}
+            result[iname]['path'] = os.path.join(self.basedir, self.module)
+        return result
+
+
 class WorkloadONNX(WorkloadCfgBlk):
     # Type declarations for INSTANCE attributes
     instances: dict
     basedir: str
-    # Class attributex
+    # Class attributes
     required_fields = ['basedir', 'instances']
 
     def __init__(self, wlname, **kwargs):
@@ -212,12 +239,12 @@ class WorkloadONNX(WorkloadCfgBlk):
         return result
 
 
-TypeWorkloadClass = Type[WorkloadTTSIM] | Type[WorkloadONNX]
-TypeWorkload = WorkloadTTSIM | WorkloadONNX
+TypeWorkloadClass = Type[WorkloadTTSIM] | Type[WorkloadONNX] | Type[WorkloadTTNN]
+TypeWorkload = WorkloadTTSIM | WorkloadONNX | WorkloadTTNN
 
 
 class AWorkload:
-    WLCLS_TBL: dict[str, TypeWorkloadClass] = {'TTSIM': WorkloadTTSIM, 'ONNX': WorkloadONNX}
+    WLCLS_TBL: dict[str, TypeWorkloadClass] = {'TTSIM': WorkloadTTSIM, 'ONNX': WorkloadONNX, 'TTNN': WorkloadTTNN}
 
     @staticmethod
     def create_workload(apiname: str, **kwargs) -> TypeWorkload:
@@ -229,7 +256,7 @@ class WorkloadGroup(WorkloadCfgBlk):
     # Type hints for instance attributes
     workloads: dict[str, WorkloadCfgBlk]
     # Class attributes
-    WLCLS_TBL = {'TTSIM': WorkloadTTSIM, 'ONNX': WorkloadONNX}
+    WLCLS_TBL = {'TTSIM': WorkloadTTSIM, 'ONNX': WorkloadONNX, 'TTNN': WorkloadTTNN}
 
     def __init__(self, apiname, **kwargs):
         WLCLS = self.WLCLS_TBL[apiname]

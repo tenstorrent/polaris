@@ -14,7 +14,8 @@ from typing import Any, Set
 
 from ttsim.config import TTSimHLRunSummary, get_arspec_from_yaml, get_wlmapspec_from_yaml, get_wlspec_from_yaml
 from ttsim.front import onnx2graph
-from ttsim.utils.common import get_ttsim_functional_instance, print_csv, str_to_bool, setup_logger
+from ttsim.front.ttnn import open_device, close_device
+from ttsim.utils.common import get_ttsim_functional_instance, get_ttnn_functional_instance, print_csv, str_to_bool, setup_logger
 import ttsim.config.runcfgmodel as runcfgmodel
 from ttsim.back.device import Device
 from ttsim.stats import HLMStats, OutputFormat, save_data
@@ -107,21 +108,37 @@ def get_wlgraph(TBL, wlg, wln, wli, gcfg, wpath, enable_memalloc):
             TBL[(wlg,wln,wli,wlb)] = (ttsim_wl, ttsim_wl_graph)
             DEBUG(">>ttsim-wl analytical parameter count {}.{}.{}.b{}= {:,d}", wlg, wln, wli, wlb,
                     ttsim_wl.analytical_param_count())
+        elif wlg == 'TTNN':
+            logger.info(">>ttnn-wl = {}.{}.{}.b{} = {}", wlg, wln, wli, wlb, wpath)
+            ttnn_func = get_ttnn_functional_instance(wpath, wln, gcfg)
+            ttnn_device = open_device(device_id=0)
+            try:
+                # Call TTNN workload with standard signature: (wlname, device, cfg)
+                # wln: workload name from spec YAML (e.g., "Resnet50")
+                # ttnn_device: device instance for execution
+                # gcfg: merged configuration (instance cfg + runtime overrides)
+                ttnn_res = ttnn_func(wln, ttnn_device, gcfg)
+                ttnn_wl_graph = ttnn_device.get_graph()
+                TBL[(wlg,wln,wli,wlb)] = (ttnn_res, ttnn_wl_graph)
+                DEBUG(">>ttnn-wl analytical parameter count {}.{}.{}.b{}= {:,d}", wlg, wln, wli, wlb,
+                        0)
+            finally:
+                close_device(ttnn_device)
         elif wlg == 'ONNX':
-            print(f">>onnx-wl = {wlg}.{wln}.{wli}.b{wlb} = {wpath}")
+            logger.info(">>onnx-wl = {}.{}.{}.b{} = {}", wlg, wln, wli, wlb, wpath)
             onnx_graph = onnx2graph(wli, wpath)
             TBL[(wlg,wln,wli,wlb)] = (None, onnx_graph)
             for _,op in onnx_graph._ops.items():
                 itensors = [onnx_graph._tensors[x] for x in op.inList]
                 otensors = [onnx_graph._tensors[x] for x in op.outList]
-                print("CALLING get_perf_counts for:", op.name)
+                logger.info("CALLING get_perf_counts for: {}", op.name)
                 #for x in itensors: print(x)
                 #for x in otensors: print(x)
                 op.get_perf_counts(itensors, otensors)
                 op.update_tensor_counts(itensors,otensors)
-                #print(op.perf_stats)
+                #logger.info(op.perf_stats)
         else:
-            assert False, f"Workload Group: {wlg} is not supported; Current Support only for (TTSIM,ONNX)"
+            assert False, f"Workload Group: {wlg} is not supported; Current Support only for (TTSIM,TTNN,ONNX)"
 
     return TBL[(wlg,wln,wli,wlb)]
 
@@ -330,7 +347,9 @@ def execute_wl_on_dev(_wl, _dl, _wspec, _dspec, wlmapspec, _WLG,
         except Exception as e:
             num_failures += 1
             ERROR('workload {} failed with {}', exp_wl, e)
-            continue
+            # TODO: Support CLI knob to continue or not on failure (--keep-going or -k)
+            raise e
+            # continue
 
         INFO('ran job #{} instance={} device={} frequency={}', exp_no, wlins_name, devname, devfreq)
 
@@ -412,6 +431,6 @@ if __name__ == '__main__':
     del_time   = end_time - start_time
 
     if num_exps > 0:
-        print(f"Completed {num_exps} jobs in {del_time:0.2f} seconds @ {num_exps/del_time:.0f} jobs per sec")
+        logger.info(f"Completed {num_exps} jobs in {del_time:0.2f} seconds @ {num_exps/del_time:.0f} jobs per sec")
     else:
-        print()
+        logger.info('')

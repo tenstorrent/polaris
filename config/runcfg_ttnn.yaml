@@ -1,0 +1,11 @@
+# SPDX-FileCopyrightText: (C) 2025 Tenstorrent AI ULC
+# SPDX-License-Identifier: Apache-2.0
+# Run Configuration yaml file, to be used with polproj.py
+title: Run TTNN workloads
+study: runttnn
+odir: __runttnn
+wlspec: config/all_workloads.yaml
+archspec: config/tt_wh.yaml
+wlmapspec: config/wl2archmapping.yaml
+filterwlg: TTNN
+dump_stats_csv: true

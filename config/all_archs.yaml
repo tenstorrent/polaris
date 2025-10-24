@@ -33,7 +33,8 @@ ipblocks:
             -   {name: cmp,   tpt: {int8: 128.,  int32: 32., fp32: 32. }}
             -   {name: mov,   tpt: {int8: 128.,  int32: 32., fp32: 32. }}
             -   {name: max,   tpt: {int8: 128.,  int32: 32., fp32: 32. }}
-
+            -   {name: sin, tpt: { int32: 32., fp32: 32. }}
+            -   {name: cos, tpt: { int32: 32., fp32: 32. }}
 
     -   name: gddr6
         iptype: memory

@@ -33,7 +33,7 @@ def test_model_inference(model_name: str = "llama3-8B"):
     instruct = True
 
     paged_attention_config = None
-    
+
     # Load TTNN model
     logger.info(f"Loading TT model...")
 
@@ -49,7 +49,7 @@ def test_model_inference(model_name: str = "llama3-8B"):
 
     from typing import Dict
     state_dict: Dict[str, int] = {}
- 
+
     model = Transformer(
         args=tt_model_args,
         mesh_device=mesh_device,
@@ -64,7 +64,7 @@ def test_model_inference(model_name: str = "llama3-8B"):
     # tt_prefill_input = encoded_prompt_tensor.unsqueeze(0)
     tt_prefill_input = encoded_prompt_tensor
     tt_prefill_input = ttnn.reshape(tt_prefill_input, (1, 1, 1, -1))
-    
+
     bsz, head_dim, _, last_dim = model.rope_setup.cos_matrix.shape
     S = tt_prefill_input.shape[-1]
     model.rope_setup.cos_matrix = ttnn._rand(shape=[bsz, head_dim, S, last_dim], device=mesh_device, dtype=ttnn.float32)

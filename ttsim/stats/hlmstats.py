@@ -189,8 +189,9 @@ class HLMStats:
             if (not op.removed_in_optimization) and val_in_bpe != get_bpe(get_sim_dtype(op.precision)):
                 WARNING(
                         f"device={self.devname} workload={self.wlname} instance={self.wlinstance}" + \
-                                f" op={op.name} opclass={op.opclass_str} input bpe mismatch:"      + \
+                                f" optype={op.optype} opclass={op.opclass_str} input bpe mismatch:" + \
                                 f" bytes/elems {val_in_bpe}  != operator precision {op.precision}" + \
-                                f" bpe {get_bpe(get_sim_dtype(op.precision))}"
-                                )
+                                f" bpe {get_bpe(get_sim_dtype(op.precision))}",
+                    once=True
+                )
         return

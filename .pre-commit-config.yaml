@@ -28,5 +28,6 @@ repos:
             name: Run unit tests
             description: Run unit tests
             language: python
-            entry: pytest -m unit
+            entry: pytest
+            args: [-m, 'unit and not slow and not tools_secondary']
             pass_filenames: false

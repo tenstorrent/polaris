@@ -8,6 +8,7 @@ import ttsim.front.ttnn as ttnn
 from workloads.ttnn.llama3.attention import Attention
 from workloads.ttnn.llama3.rope import get_prefill_rot_mat, get_rot_transformation_mat
 from workloads.ttnn.llama3.model_config import ModelArgs
+from loguru import logger
 
 def test_attention_inference():
     mesh_device = ttnn.open_device(device_id=0)#, device_type="ttnn", device_name=None)
@@ -69,22 +70,22 @@ def test_attention_inference():
         mode="prefill",
         page_table=page_table_tt,
     )
-    print(f"TT Output Shape: {tt_out.shape}, dtype: {tt_out.dtype}")
+    logger.info(f"TT Output Shape: {tt_out.shape}, dtype: {tt_out.dtype}")
     tt_out = ttnn.to_torch(
         tt_out,# mesh_composer=ttnn.ConcatMesh2dToTensor(mesh_device, dims=(1, 3), mesh_shape=model_args.cluster_shape)
     )
 
     if (tt_out.shape == [1, 1, 256, model_args.dim]):
-        print(f"TT Output shape matches expected: {tt_out.shape} == [1, 1, 256, {model_args.dim}]")
+        logger.info(f"TT Output shape matches expected: {tt_out.shape} == [1, 1, 256, {model_args.dim}]")
     else:
-        print(f"TT Output shape mismatch: {tt_out.shape} != [1, 1, 256, {model_args.dim}]")
+        logger.info(f"TT Output shape mismatch: {tt_out.shape} != [1, 1, 256, {model_args.dim}]")
 
     check_kv_cache = False  # set to false for simulation
 
-    # print("\nGenerating computation graph...")
+    # logger.info("\nGenerating computation graph...")
     # g = mesh_device.get_graph()
     # g.graph2onnx('test_attn_prefill.onnx', do_model_check=False)
 
 if __name__ == "__main__":
     test_attention_inference()
-    print("\n Attention test completed!")
+    logger.info("\n Attention test completed!")

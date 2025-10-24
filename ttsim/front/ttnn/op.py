@@ -64,7 +64,6 @@ def single_output_immediate_op(optype, /, preprocess=None):
 
         opobj      = SimOp(opinfo)
         perf_stats = opobj.get_perf_counts(new_args, [C])
-        # print(f"{optype}:: {perf_stats}")
         opobj.update_tensor_counts(new_args, [C])
 
         device.add_op(opobj)

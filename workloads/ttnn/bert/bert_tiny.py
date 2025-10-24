@@ -5,9 +5,9 @@
 import os, sys
 sys.path.append(os.path.join(os.path.dirname(__file__), '../../..'))
 
-#from models.experimental.functional_common.attention_mask_functions import get_extended_attention_mask
-
 import ttsim.front.ttnn as ttnn
+
+from loguru import logger
 
 
 def bert_attention(
@@ -333,7 +333,7 @@ if __name__ == '__main__':
     batch_size       = 8
     sequence_size    = 128
     for cfg_name, cfg_dict in configs.items():
-        print(cfg_name)
+        logger.info('Running config {}', cfg_name)
 
         cfg_obj          = dict2obj(cfg_dict)
         device           = ttnn.open_device(l1_small_size=24576, device_id=0)
@@ -341,7 +341,7 @@ if __name__ == '__main__':
         ttnn_bert_inputs = create_bert_inputs(batch_size, sequence_size, device)
         ttnn_output      = bert_for_question_answering(cfg_obj, **ttnn_bert_inputs, parameters=parameters, device=device,)
 
-        print("    ttnn_output=", ttnn_output.shape)
+        logger.info("    ttnn_output={}", ttnn_output.shape)
 
         #check graph via onnx dump
         onnxfilename = cfg_name.replace('/', '_') + '.onnx'

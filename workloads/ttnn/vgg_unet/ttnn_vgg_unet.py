@@ -5,7 +5,10 @@
 import os, sys
 sys.path.append(os.path.join(os.path.dirname(__file__), '../../..'))
 import ttsim.front.ttnn as ttnn
+from ttsim.front.ttnn.device import Device as TTNNDevice
 from workloads.ttnn.vgg_unet.model_preprocessing import create_vgg_unet_model_parameters
+from loguru import logger
+from ttsim.utils.common import setup_logger
 
 # shard concat function
 def sharded_concat(input_tensors, num_cores=64, dim=1):
@@ -307,14 +310,16 @@ class Tt_vgg_unet:
         x = self.out(x)
         return x
 
-def test_vgg_unet(device):
+def test_vgg_unet(wlname: str, device: TTNNDevice, gcfg: dict):
     input_tensor = ttnn._rand(shape=[1, 3, 256, 256], device=device, dtype=ttnn.float32)
     parameters = create_vgg_unet_model_parameters(device)
     ttnn_model = Tt_vgg_unet(device, parameters, parameters.conv_args)
     result = ttnn_model(input_tensor)
-    print("Input shape:", input_tensor.shape)
-    print("VGG UNet output shape:", result.shape)
+    logger.info("VGG UNet input shape: {}", input_tensor.shape)
+    logger.info("VGG UNet output shape: {}", result.shape)
+    return result
 
 if __name__ == "__main__":
+    setup_logger(level='INFO')
     device = ttnn.open_device(device_id=0)
-    test_vgg_unet(device)
+    test_vgg_unet('vgg_unet', device, {})

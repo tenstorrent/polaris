@@ -6,6 +6,7 @@ markers = [
     "tools_secondary: Tests for secondary tools",
     "integration: integration tests",
 ]
+testpaths = ["tests"]
 pythonpath = "."
 addopts = "--durations=0"
 

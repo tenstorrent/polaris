@@ -5,6 +5,7 @@
 import os, sys
 import typing
 from numpy import shape
+from loguru import logger
 sys.path.append(os.path.join(os.path.dirname(__file__), '../../..'))
 import ttsim.front.ttnn as ttnn
 from workloads.ttnn.llama3.attention import Attention
@@ -130,9 +131,9 @@ def test_attention_inference():
             page_table=page_table_tt,
         )
         if (tt_out.shape[0] != batch_size) or (tt_out.shape[1] != seq_len) or (tt_out.shape[2] != 1) or (tt_out.shape[3] != (model_args.head_dim * model_args.n_heads)):
-            print(f"tt_out shape: {tt_out.shape}, Tests Failed!")
+            logger.info(f"tt_out shape: {tt_out.shape}, Tests Failed!")
         else:
-            print(f"tt_out shape: {tt_out.shape}, Tests Passed!")
+            logger.info(f"tt_out shape: {tt_out.shape}, Tests Passed!")
 
         current_pos = ttnn.Tensor(shape=(batch_size,), device=mesh_device, dtype=ttnn.uint32)
         current_pos_tensor = ttnn.from_torch(
@@ -205,11 +206,11 @@ def test_attention_inference():
         #             all_tests_pass = False
 
     # Graph generation failed - TypeError(f"'{value}' is not an accepted attribute value.")
-    # print("\nGenerating computation graph...")
+    # logger.info("\nGenerating computation graph...")
     # g = mesh_device.get_graph()
     # g.graph2onnx('test_attn.onnx', do_model_check=False,
     #             filter_op_attrs=filter_ttnn_attrs)
 
 if __name__ == "__main__":
     test_attention_inference()
-    print("\n All tests completed!")
+    logger.info("All tests completed!")

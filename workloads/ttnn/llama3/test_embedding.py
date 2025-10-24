@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # SPDX-FileCopyrightText: (C) 2025 Tenstorrent AI ULC
 # SPDX-License-Identifier: Apache-2.0
- 
+
 import os, sys
 sys.path.append(os.path.join(os.path.dirname(__file__), '../../..'))
 import ttsim.front.ttnn as ttnn
@@ -22,7 +22,7 @@ def test_embedding():
         layer_name = "text_model.tok_embeddings.weight"
     else:
         layer_name = "tok_embeddings.weight"
-    
+
     tt_emb = Embedding(
         mesh_device=mesh_device,
         args=model_args,

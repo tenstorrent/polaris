@@ -32,6 +32,15 @@ L1_WIDTH_SHARDED_MEMORY_CONFIG = 0
 
 #placeholders
 
+def name_to_datatype(dtype_name: str) -> DataType:
+    try:
+        return DataType[dtype_name.upper()]
+    except KeyError:
+        valid_dtypes = [dt.name.lower() for dt in DataType]
+        raise ValueError(
+            f"Invalid dtype name '{dtype_name}'. Valid options are: {', '.join(valid_dtypes)}"
+        )
+
 def get_arch_name():
     return ARCH.WORMHOLE_B0.cname
 
