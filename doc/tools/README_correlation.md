@@ -226,8 +226,10 @@ graph TD
 ### CSV Format
 
 Columns:
+- `archname` - Architecture package name (e.g., Grendel, Wormhole)
+- `devname` - Device instance name (e.g., Q1_A1, n150)
 - `wl` - Workload name
-- `bs` - Batch size  
+- `bs` - Batch size
 - `system` - Hardware platform
 - `reference_perf` - Hardware measured performance
 - `reference_metric` - Metric name from hardware
@@ -235,6 +237,8 @@ Columns:
 - `actual_metric` - Metric name from simulation
 - `ratio` - actual/reference ratio
 - `score_to_ref` - Ratio as percentage
+
+**Note**: The `archname` field distinguishes architecture packages from device instances (`devname`), enabling easier filtering and analysis by architecture family.
 
 ### XLSX Format
 
@@ -261,7 +265,9 @@ Features:
 ### YAML Format (Metrics)
 
 ```yaml
-- batch: 32
+- archname: Wormhole
+  devname: n150
+  batch: 32
   hardware: n150 (Wormhole)
   model: Llama 3.1 8B
   release: v0.55.0
@@ -271,6 +277,8 @@ Features:
   gpu: Tensix
   id: metal
 ```
+
+**Note**: The `archname` field represents the architecture package name (e.g., Wormhole, Grendel), while `devname` represents the specific device instance (e.g., n150, n300).
 
 ## Configuration Files
 

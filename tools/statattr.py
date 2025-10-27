@@ -43,6 +43,7 @@ class StatAttributeDescriptors:
     @classmethod
     def setup_job_attribute_descriptors(cls) -> None:
         tmp_job_attributes_list: list[dict[str, Any]] = [
+            {'name': 'archname', 'catg':'key', 'prio':0, 'attrtype': 'str', 'is_filter': True, 'label': 'Architecture'},
             {'name': 'devname', 'catg':'key', 'prio':0, 'attrtype': 'str', 'is_filter': True, 'label': 'Device'},
             {'name': 'freq_Mhz', 'catg':'info', 'prio':0, 'attrtype': 'float', 'label': 'Freq'},
             {'name': 'wlgroup', 'catg':'info', 'prio':0, 'attrtype': 'str', 'is_filter': True, 'label': 'API'},

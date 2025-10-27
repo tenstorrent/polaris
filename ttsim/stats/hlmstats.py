@@ -54,7 +54,10 @@ def save_data(model: BaseModel, filename, outputfmt: OutputFormat)->None:
 class HLMStats:
     def __init__(self, _dev, _wlgraph, _wlinfo, _sinfo):
         self.device                  = _dev
-        self.devname                 = _dev.name
+        # Note: For backward compatibility, Device stores architecture package name in 'devname'
+        # and device instance name in 'name'. Here we map them to their output field names:
+        self.archname                = _dev.devname  # Architecture package name (e.g., "Grendel", "Wormhole")
+        self.devname                 = _dev.name     # Device instance name (e.g., "Q1_A1", "n150")
         self.devFreqMHz              = _dev.freqMHZ
         self.wlgraph                 = _wlgraph
         self.wlgroup                 = _wlinfo['wlg']
@@ -81,6 +84,7 @@ class HLMStats:
         for opnum,opname in enumerate(graph_ordered_nodes):
             op  = self.wlgraph.get_op(opname)
             val = {
+                    'archname'         : self.archname,
                     'devname'          : self.devname,
                     'freq_MHz'         : self.devFreqMHz,
                     'pipe'             : op.uses_compute_pipe.upper(),
@@ -121,10 +125,11 @@ class HLMStats:
 
         model_rows = copy.deepcopy(opstats_tbl)
         for rec in model_rows:
-            for tmp in ['devname', 'freq_MHz', 'wlgroup', 'wlname', 'wlinstance', 'batch']:
+            for tmp in ['archname', 'devname', 'freq_MHz', 'wlgroup', 'wlname', 'wlinstance', 'batch']:
                 del rec[tmp]
 
         model_dict = {
+                'archname'     : self.archname,
                 'devname'      : self.devname,
                 'freq_MHz'     : self.devFreqMHz,
                 'wlgroup'      : self.wlgroup,
@@ -159,6 +164,7 @@ class HLMStats:
 
         #collect and return dump summary stats
         final_summary_dict = {
+                'archname'     : self.archname,
                 'devname'      : self.devname,
                 'freq_Mhz'     : self.devFreqMHz,
                 'wlgroup'      : self.wlgroup,

@@ -111,6 +111,9 @@ type TypeInstrName = str
 
 # Option 1 : Direct representation of output CSV
 class TTSimHLWlDevRunOpCSVPerfStats(BaseModel, extra='forbid'):
+    archname: str = Field(
+        description = 'Architecture Package Name (e.g., Grendel, Wormhole)'
+    )
     devname: TypeDeviceName = Field(
         description = 'Device Name'
     )
@@ -302,6 +305,7 @@ class TTSimHLWlDevRunPerfStats(BaseModel, extra='forbid'):
 
         The performance metrics of individual operators comprising the workload appear as a list in this model
     """
+    archname: str
     devname: TypeDeviceName
     freq_MHz: float
     wlgroup: str
@@ -311,6 +315,7 @@ class TTSimHLWlDevRunPerfStats(BaseModel, extra='forbid'):
     operatorstats: list[TTSimHLWlDevRunOperatorPerfStats]
 
 class TTSimHLRunSummaryRow(BaseModel, extra='forbid'):
+    archname              : str
     devname               : str
     freq_Mhz              : TypeFrequency
     wlgroup               : str

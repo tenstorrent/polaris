@@ -292,6 +292,8 @@ Polaris supports multiple output formats:
 
 ### Key Metrics
 The simulation provides various performance metrics including:
+- Architecture package name (`archname`) - Identifies the architecture family (e.g., Grendel, Wormhole)
+- Device instance name (`devname`) - Specific device instance (e.g., Q1_A1, n150)
 - Execution cycles and time
 - Memory usage and requirements
 - Resource bottlenecks
@@ -303,11 +305,13 @@ The simulation provides various performance metrics including:
 output_dir/
 ├── study_name/
 │   ├── SUMMARY/
-│   │   └── study-summary.csv
+│   │   └── study-summary.csv       # Includes archname and devname columns
 │   └── stats/
 │       ├── device-workload-stats.csv
 │       └── device-workload-opstats.[yaml|json|pickle]
 ```
+
+**Note**: The `archname` field distinguishes architecture packages (e.g., Wormhole, Grendel) from device instances (`devname` field, e.g., n150, n300). This enables easier grouping and filtering of results by architecture family.
 
 ## Best Practices
 1. Start with a dry run using `--dryrun` to validate configurations

@@ -123,6 +123,7 @@ Metal-Tensix correlation analysis tool with modular architecture.
 - Modular architecture via `ttsi_corr` package
 - Automated Polaris simulation execution
 - Multiple output formats (CSV, XLSX with S-curve charts, JSON)
+- Includes architecture package name (`archname`) to distinguish architecture families
 - Geometric mean calculation for aggregate accuracy
 - Support for HTML and Markdown data sources
 
@@ -143,6 +144,11 @@ python tools/run_ttsi_corr.py \
 - `simulator` - Orchestrate Polaris simulation
 
 See [doc/tools/README_correlation.md](../doc/tools/README_correlation.md) for complete documentation.
+
+**Output Formats**:
+- CSV files include `archname` column representing the architecture package name (e.g., Wormhole, Grendel)
+- `devname` column represents the specific device instance (e.g., n150, n300)
+- This distinction enables filtering and aggregation by architecture family
 
 ### parse_ttsi_perf_results.py
 Markdown and HTML metrics parser for extracting performance data.

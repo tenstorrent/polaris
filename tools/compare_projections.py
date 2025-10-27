@@ -67,6 +67,8 @@ def flatten_dict_as_str(d: dict[str, Any], param_sep: str = '_') -> dict[str, An
     return _flatten(d, parent_key='', param_sep=param_sep)
 
 
+# JobKey uses devname to uniquely identify runs. Note: archname is not included
+# since devname already uniquely identifies device instances across architectures.
 JobKey = namedtuple('JobKey', ['devname', 'wlgroup', 'wlname', 'wlinstance', 'bs'])
 
 

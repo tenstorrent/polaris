@@ -103,8 +103,11 @@ class Device:
         assert len(memory_ips)  == 1, "ERR-2"
 
         self.simconfig_obj  = simcfg_obj
-        self.devname        = simcfg_obj.devname
-        self.name           = simcfg_obj.name
+        # Note: For backward compatibility, architecture package name is stored in 'devname'
+        # and device instance name is stored in 'name'. In output, these are mapped to
+        # 'archname' and 'devname' respectively.
+        self.devname        = simcfg_obj.devname  # Architecture package name (e.g., "Grendel", "Wormhole")
+        self.name           = simcfg_obj.name     # Device instance name (e.g., "Q1_A1", "n150")
         self.freqMHZ        = simcfg_obj.frequency('matrix', units='MHz')
         self.compute_ip     = compute_ips[0]
         self.memory_ip      = memory_ips[0]
