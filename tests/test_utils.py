@@ -5,7 +5,7 @@ import os
 import pytest
 from itertools import product
 import ttsim.utils.common as common
-
+import ttsim.utils.prime_factorization as pf
 
 @pytest.mark.unit
 def test_util_convert_units():
@@ -108,3 +108,20 @@ def test_writers(tmp_path_factory):
                       },
                       jsonfile
     )
+
+@pytest.mark.unit
+@pytest.mark.parametrize("N, check_primes, verbose",[(int(1e5), False, False)])
+def test_prime_factorization(N: int, check_primes: bool, verbose: bool) -> None:
+    SMALL_PRIMES = pf.sieve_of_eratosthenes(N) if check_primes else []
+
+    for n in range(1,N):
+        f = pf.PrimeFactorization(n)
+
+        if verbose:
+            print(n, '=', f)
+
+        if check_primes:
+            for p,e in f.factors.items():
+                assert p in SMALL_PRIMES, f"p={p} is not prime!!"
+    return
+

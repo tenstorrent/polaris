@@ -1,0 +1,5356 @@
+LUI:
+  instruction_type: 
+  opcode: 0b0110111
+  encodings: 
+  arguments: 
+    - name: uimm[31:12]
+      start_bit: 12
+      size: 20
+    - name: rd
+      start_bit: 7
+      size: 5
+  description: uimm[31:12] rd 0110111 LUI
+AUIPC:
+  instruction_type: 
+  opcode: 0b0010111
+  encodings: 
+  arguments: 
+    - name: uimm[31:12]
+      start_bit: 12
+      size: 20
+    - name: rd
+      start_bit: 7
+      size: 5
+  description: uimm[31:12] rd 0010111 AUIPC
+JAL:
+  instruction_type: 
+  opcode: 0b1101111
+  encodings: 
+  arguments: 
+    - name: imm[20|10:1|11|19:12]
+      start_bit: 12
+      size: 20
+    - name: rd
+      start_bit: 7
+      size: 5
+  description: imm[20|10:1|11|19:12] rd 1101111 JAL
+JALR:
+  instruction_type: 
+  opcode: 0b1100111
+  encodings: 
+    - name: funct3[12]
+      opcode: 0b000
+      start_bit: 12
+      size: 3
+  arguments: 
+    - name: imm[11:0]
+      start_bit: 20
+      size: 12
+    - name: rs1
+      start_bit: 15
+      size: 5
+    - name: rd
+      start_bit: 7
+      size: 5
+  description: imm[11:0] rs1 000 rd 1100111 JALR
+BEQ:
+  instruction_type: 
+  opcode: 0b1100011
+  encodings: 
+    - name: funct3[12]
+      opcode: 0b000
+      start_bit: 12
+      size: 3
+  arguments: 
+    - name: imm[12|10:5]
+      start_bit: 25
+      size: 7
+    - name: rs2
+      start_bit: 20
+      size: 5
+    - name: rs1
+      start_bit: 15
+      size: 5
+    - name: imm[4:1|11]
+      start_bit: 7
+      size: 5
+  description: imm[12|10:5] rs2 rs1 000 imm[4:1|11] 1100011 BEQ
+BNE:
+  instruction_type: 
+  opcode: 0b1100011
+  encodings: 
+    - name: funct3[12]
+      opcode: 0b001
+      start_bit: 12
+      size: 3
+  arguments: 
+    - name: imm[12|10:5]
+      start_bit: 25
+      size: 7
+    - name: rs2
+      start_bit: 20
+      size: 5
+    - name: rs1
+      start_bit: 15
+      size: 5
+    - name: imm[4:1|11]
+      start_bit: 7
+      size: 5
+  description: imm[12|10:5] rs2 rs1 001 imm[4:1|11] 1100011 BNE
+BLT:
+  instruction_type: 
+  opcode: 0b1100011
+  encodings: 
+    - name: funct3[12]
+      opcode: 0b100
+      start_bit: 12
+      size: 3
+  arguments: 
+    - name: imm[12|10:5]
+      start_bit: 25
+      size: 7
+    - name: rs2
+      start_bit: 20
+      size: 5
+    - name: rs1
+      start_bit: 15
+      size: 5
+    - name: imm[4:1|11]
+      start_bit: 7
+      size: 5
+  description: imm[12|10:5] rs2 rs1 100 imm[4:1|11] 1100011 BLT
+BGE:
+  instruction_type: 
+  opcode: 0b1100011
+  encodings: 
+    - name: funct3[12]
+      opcode: 0b101
+      start_bit: 12
+      size: 3
+  arguments: 
+    - name: imm[12|10:5]
+      start_bit: 25
+      size: 7
+    - name: rs2
+      start_bit: 20
+      size: 5
+    - name: rs1
+      start_bit: 15
+      size: 5
+    - name: imm[4:1|11]
+      start_bit: 7
+      size: 5
+  description: imm[12|10:5] rs2 rs1 101 imm[4:1|11] 1100011 BGE
+BLTU:
+  instruction_type: 
+  opcode: 0b1100011
+  encodings: 
+    - name: funct3[12]
+      opcode: 0b110
+      start_bit: 12
+      size: 3
+  arguments: 
+    - name: imm[12|10:5]
+      start_bit: 25
+      size: 7
+    - name: rs2
+      start_bit: 20
+      size: 5
+    - name: rs1
+      start_bit: 15
+      size: 5
+    - name: imm[4:1|11]
+      start_bit: 7
+      size: 5
+  description: imm[12|10:5] rs2 rs1 110 imm[4:1|11] 1100011 BLTU
+BGEU:
+  instruction_type: 
+  opcode: 0b1100011
+  encodings: 
+    - name: funct3[12]
+      opcode: 0b111
+      start_bit: 12
+      size: 3
+  arguments: 
+    - name: imm[12|10:5]
+      start_bit: 25
+      size: 7
+    - name: rs2
+      start_bit: 20
+      size: 5
+    - name: rs1
+      start_bit: 15
+      size: 5
+    - name: imm[4:1|11]
+      start_bit: 7
+      size: 5
+  description: imm[12|10:5] rs2 rs1 111 imm[4:1|11] 1100011 BGEU
+LB:
+  instruction_type: 
+  opcode: 0b0000011
+  encodings: 
+    - name: funct3[12]
+      opcode: 0b000
+      start_bit: 12
+      size: 3
+  arguments: 
+    - name: imm[11:0]
+      start_bit: 20
+      size: 12
+    - name: rs1
+      start_bit: 15
+      size: 5
+    - name: rd
+      start_bit: 7
+      size: 5
+  description: imm[11:0] rs1 000 rd 0000011 LB
+LH:
+  instruction_type: 
+  opcode: 0b0000011
+  encodings: 
+    - name: funct3[12]
+      opcode: 0b001
+      start_bit: 12
+      size: 3
+  arguments: 
+    - name: imm[11:0]
+      start_bit: 20
+      size: 12
+    - name: rs1
+      start_bit: 15
+      size: 5
+    - name: rd
+      start_bit: 7
+      size: 5
+  description: imm[11:0] rs1 001 rd 0000011 LH
+LW:
+  instruction_type: 
+  opcode: 0b0000011
+  encodings: 
+    - name: funct3[12]
+      opcode: 0b010
+      start_bit: 12
+      size: 3
+  arguments: 
+    - name: imm[11:0]
+      start_bit: 20
+      size: 12
+    - name: rs1
+      start_bit: 15
+      size: 5
+    - name: rd
+      start_bit: 7
+      size: 5
+  description: imm[11:0] rs1 010 rd 0000011 LW
+LBU:
+  instruction_type: 
+  opcode: 0b0000011
+  encodings: 
+    - name: funct3[12]
+      opcode: 0b100
+      start_bit: 12
+      size: 3
+  arguments: 
+    - name: imm[11:0]
+      start_bit: 20
+      size: 12
+    - name: rs1
+      start_bit: 15
+      size: 5
+    - name: rd
+      start_bit: 7
+      size: 5
+  description: imm[11:0] rs1 100 rd 0000011 LBU
+LHU:
+  instruction_type: 
+  opcode: 0b0000011
+  encodings: 
+    - name: funct3[12]
+      opcode: 0b101
+      start_bit: 12
+      size: 3
+  arguments: 
+    - name: imm[11:0]
+      start_bit: 20
+      size: 12
+    - name: rs1
+      start_bit: 15
+      size: 5
+    - name: rd
+      start_bit: 7
+      size: 5
+  description: imm[11:0] rs1 101 rd 0000011 LHU
+SB:
+  instruction_type: 
+  opcode: 0b0100011
+  encodings: 
+    - name: funct3[12]
+      opcode: 0b000
+      start_bit: 12
+      size: 3
+  arguments: 
+    - name: imm[11:5]
+      start_bit: 25
+      size: 7
+    - name: rs2
+      start_bit: 20
+      size: 5
+    - name: rs1
+      start_bit: 15
+      size: 5
+    - name: imm[4:0]
+      start_bit: 7
+      size: 5
+  description: imm[11:5] rs2 rs1 000 imm[4:0] 0100011 SB
+SH:
+  instruction_type: 
+  opcode: 0b0100011
+  encodings: 
+    - name: funct3[12]
+      opcode: 0b001
+      start_bit: 12
+      size: 3
+  arguments: 
+    - name: imm[11:5]
+      start_bit: 25
+      size: 7
+    - name: rs2
+      start_bit: 20
+      size: 5
+    - name: rs1
+      start_bit: 15
+      size: 5
+    - name: imm[4:0]
+      start_bit: 7
+      size: 5
+  description: imm[11:5] rs2 rs1 001 imm[4:0] 0100011 SH
+SW:
+  instruction_type: 
+  opcode: 0b0100011
+  encodings: 
+    - name: funct3[12]
+      opcode: 0b010
+      start_bit: 12
+      size: 3
+  arguments: 
+    - name: imm[11:5]
+      start_bit: 25
+      size: 7
+    - name: rs2
+      start_bit: 20
+      size: 5
+    - name: rs1
+      start_bit: 15
+      size: 5
+    - name: imm[4:0]
+      start_bit: 7
+      size: 5
+  description: imm[11:5] rs2 rs1 010 imm[4:0] 0100011 SW
+ADDI:
+  instruction_type: 
+  opcode: 0b0010011
+  encodings: 
+    - name: funct3[12]
+      opcode: 0b000
+      start_bit: 12
+      size: 3
+  arguments: 
+    - name: imm[11:0]
+      start_bit: 20
+      size: 12
+    - name: rs1
+      start_bit: 15
+      size: 5
+    - name: rd
+      start_bit: 7
+      size: 5
+  description: imm[11:0] rs1 000 rd 0010011 ADDI
+SLTI:
+  instruction_type: 
+  opcode: 0b0010011
+  encodings: 
+    - name: funct3[12]
+      opcode: 0b010
+      start_bit: 12
+      size: 3
+  arguments: 
+    - name: imm[11:0]
+      start_bit: 20
+      size: 12
+    - name: rs1
+      start_bit: 15
+      size: 5
+    - name: rd
+      start_bit: 7
+      size: 5
+  description: imm[11:0] rs1 010 rd 0010011 SLTI
+SLTIU:
+  instruction_type: 
+  opcode: 0b0010011
+  encodings: 
+    - name: funct3[12]
+      opcode: 0b011
+      start_bit: 12
+      size: 3
+  arguments: 
+    - name: imm[11:0]
+      start_bit: 20
+      size: 12
+    - name: rs1
+      start_bit: 15
+      size: 5
+    - name: rd
+      start_bit: 7
+      size: 5
+  description: imm[11:0] rs1 011 rd 0010011 SLTIU
+XORI:
+  instruction_type: 
+  opcode: 0b0010011
+  encodings: 
+    - name: funct3[12]
+      opcode: 0b100
+      start_bit: 12
+      size: 3
+  arguments: 
+    - name: imm[11:0]
+      start_bit: 20
+      size: 12
+    - name: rs1
+      start_bit: 15
+      size: 5
+    - name: rd
+      start_bit: 7
+      size: 5
+  description: imm[11:0] rs1 100 rd 0010011 XORI
+ORI:
+  instruction_type: 
+  opcode: 0b0010011
+  encodings: 
+    - name: funct3[12]
+      opcode: 0b110
+      start_bit: 12
+      size: 3
+  arguments: 
+    - name: imm[11:0]
+      start_bit: 20
+      size: 12
+    - name: rs1
+      start_bit: 15
+      size: 5
+    - name: rd
+      start_bit: 7
+      size: 5
+  description: imm[11:0] rs1 110 rd 0010011 ORI
+ANDI:
+  instruction_type: 
+  opcode: 0b0010011
+  encodings: 
+    - name: funct3[12]
+      opcode: 0b111
+      start_bit: 12
+      size: 3
+  arguments: 
+    - name: imm[11:0]
+      start_bit: 20
+      size: 12
+    - name: rs1
+      start_bit: 15
+      size: 5
+    - name: rd
+      start_bit: 7
+      size: 5
+  description: imm[11:0] rs1 111 rd 0010011 ANDI
+SLLI:
+  instruction_type: 
+  opcode: 0b0010011
+  encodings: 
+    - name: funct7[25]
+      opcode: 0b0000000
+      start_bit: 25
+      size: 7
+    - name: funct3[12]
+      opcode: 0b001
+      start_bit: 12
+      size: 3
+  arguments: 
+    - name: shamt
+      start_bit: 20
+      size: 5
+    - name: rs1
+      start_bit: 15
+      size: 5
+    - name: rd
+      start_bit: 7
+      size: 5
+  description: 0000000 shamt rs1 001 rd 0010011 SLLI
+SRLI:
+  instruction_type: 
+  opcode: 0b0010011
+  encodings: 
+    - name: funct7[25]
+      opcode: 0b0000000
+      start_bit: 25
+      size: 7
+    - name: funct3[12]
+      opcode: 0b101
+      start_bit: 12
+      size: 3
+  arguments: 
+    - name: shamt
+      start_bit: 20
+      size: 5
+    - name: rs1
+      start_bit: 15
+      size: 5
+    - name: rd
+      start_bit: 7
+      size: 5
+  description: 0000000 shamt rs1 101 rd 0010011 SRLI
+SRAI:
+  instruction_type: 
+  opcode: 0b0010011
+  encodings: 
+    - name: funct7[25]
+      opcode: 0b0100000
+      start_bit: 25
+      size: 7
+    - name: funct3[12]
+      opcode: 0b101
+      start_bit: 12
+      size: 3
+  arguments: 
+    - name: shamt
+      start_bit: 20
+      size: 5
+    - name: rs1
+      start_bit: 15
+      size: 5
+    - name: rd
+      start_bit: 7
+      size: 5
+  description: 0100000 shamt rs1 101 rd 0010011 SRAI
+ADD:
+  instruction_type: 
+  opcode: 0b0110011
+  encodings: 
+    - name: funct7[25]
+      opcode: 0b0000000
+      start_bit: 25
+      size: 7
+    - name: funct3[12]
+      opcode: 0b000
+      start_bit: 12
+      size: 3
+  arguments: 
+    - name: rs2
+      start_bit: 20
+      size: 5
+    - name: rs1
+      start_bit: 15
+      size: 5
+    - name: rd
+      start_bit: 7
+      size: 5
+  description: 0000000 rs2 rs1 000 rd 0110011 ADD
+SUB:
+  instruction_type: 
+  opcode: 0b0110011
+  encodings: 
+    - name: funct7[25]
+      opcode: 0b0100000
+      start_bit: 25
+      size: 7
+    - name: funct3[12]
+      opcode: 0b000
+      start_bit: 12
+      size: 3
+  arguments: 
+    - name: rs2
+      start_bit: 20
+      size: 5
+    - name: rs1
+      start_bit: 15
+      size: 5
+    - name: rd
+      start_bit: 7
+      size: 5
+  description: 0100000 rs2 rs1 000 rd 0110011 SUB
+SLL:
+  instruction_type: 
+  opcode: 0b0110011
+  encodings: 
+    - name: funct7[25]
+      opcode: 0b0000000
+      start_bit: 25
+      size: 7
+    - name: funct3[12]
+      opcode: 0b001
+      start_bit: 12
+      size: 3
+  arguments: 
+    - name: rs2
+      start_bit: 20
+      size: 5
+    - name: rs1
+      start_bit: 15
+      size: 5
+    - name: rd
+      start_bit: 7
+      size: 5
+  description: 0000000 rs2 rs1 001 rd 0110011 SLL
+SLT:
+  instruction_type: 
+  opcode: 0b0110011
+  encodings: 
+    - name: funct7[25]
+      opcode: 0b0000000
+      start_bit: 25
+      size: 7
+    - name: funct3[12]
+      opcode: 0b010
+      start_bit: 12
+      size: 3
+  arguments: 
+    - name: rs2
+      start_bit: 20
+      size: 5
+    - name: rs1
+      start_bit: 15
+      size: 5
+    - name: rd
+      start_bit: 7
+      size: 5
+  description: 0000000 rs2 rs1 010 rd 0110011 SLT
+SLTU:
+  instruction_type: 
+  opcode: 0b0110011
+  encodings: 
+    - name: funct7[25]
+      opcode: 0b0000000
+      start_bit: 25
+      size: 7
+    - name: funct3[12]
+      opcode: 0b011
+      start_bit: 12
+      size: 3
+  arguments: 
+    - name: rs2
+      start_bit: 20
+      size: 5
+    - name: rs1
+      start_bit: 15
+      size: 5
+    - name: rd
+      start_bit: 7
+      size: 5
+  description: 0000000 rs2 rs1 011 rd 0110011 SLTU
+XOR:
+  instruction_type: 
+  opcode: 0b0110011
+  encodings: 
+    - name: funct7[25]
+      opcode: 0b0000000
+      start_bit: 25
+      size: 7
+    - name: funct3[12]
+      opcode: 0b100
+      start_bit: 12
+      size: 3
+  arguments: 
+    - name: rs2
+      start_bit: 20
+      size: 5
+    - name: rs1
+      start_bit: 15
+      size: 5
+    - name: rd
+      start_bit: 7
+      size: 5
+  description: 0000000 rs2 rs1 100 rd 0110011 XOR
+SRL:
+  instruction_type: 
+  opcode: 0b0110011
+  encodings: 
+    - name: funct7[25]
+      opcode: 0b0000000
+      start_bit: 25
+      size: 7
+    - name: funct3[12]
+      opcode: 0b101
+      start_bit: 12
+      size: 3
+  arguments: 
+    - name: rs2
+      start_bit: 20
+      size: 5
+    - name: rs1
+      start_bit: 15
+      size: 5
+    - name: rd
+      start_bit: 7
+      size: 5
+  description: 0000000 rs2 rs1 101 rd 0110011 SRL
+SRA:
+  instruction_type: 
+  opcode: 0b0110011
+  encodings: 
+    - name: funct7[25]
+      opcode: 0b0100000
+      start_bit: 25
+      size: 7
+    - name: funct3[12]
+      opcode: 0b101
+      start_bit: 12
+      size: 3
+  arguments: 
+    - name: rs2
+      start_bit: 20
+      size: 5
+    - name: rs1
+      start_bit: 15
+      size: 5
+    - name: rd
+      start_bit: 7
+      size: 5
+  description: 0100000 rs2 rs1 101 rd 0110011 SRA
+OR:
+  instruction_type: 
+  opcode: 0b0110011
+  encodings: 
+    - name: funct7[25]
+      opcode: 0b0000000
+      start_bit: 25
+      size: 7
+    - name: funct3[12]
+      opcode: 0b110
+      start_bit: 12
+      size: 3
+  arguments: 
+    - name: rs2
+      start_bit: 20
+      size: 5
+    - name: rs1
+      start_bit: 15
+      size: 5
+    - name: rd
+      start_bit: 7
+      size: 5
+  description: 0000000 rs2 rs1 110 rd 0110011 OR
+AND:
+  instruction_type: 
+  opcode: 0b0110011
+  encodings: 
+    - name: funct7[25]
+      opcode: 0b0000000
+      start_bit: 25
+      size: 7
+    - name: funct3[12]
+      opcode: 0b111
+      start_bit: 12
+      size: 3
+  arguments: 
+    - name: rs2
+      start_bit: 20
+      size: 5
+    - name: rs1
+      start_bit: 15
+      size: 5
+    - name: rd
+      start_bit: 7
+      size: 5
+  description: 0000000 rs2 rs1 111 rd 0110011 AND
+FENCE:
+  instruction_type: 
+  opcode: 0b0001111
+  encodings: 
+    - name: funct3[12]
+      opcode: 0b000
+      start_bit: 12
+      size: 3
+  arguments: 
+    - name: fm
+      start_bit: 28
+      size: 4
+    - name: pred
+      start_bit: 24
+      size: 4
+    - name: succ
+      start_bit: 20
+      size: 4
+    - name: rs1
+      start_bit: 15
+      size: 5
+    - name: rd
+      start_bit: 7
+      size: 5
+  description: fm pred succ rs1 000 rd 0001111 FENCE
+FENCE.TSO:
+  instruction_type: 
+  opcode: 0b0001111
+  encodings: 
+    - name: funct4[28]
+      opcode: 0b1000
+      start_bit: 28
+      size: 4
+    - name: funct4[24]
+      opcode: 0b0011
+      start_bit: 24
+      size: 4
+    - name: funct4[20]
+      opcode: 0b0011
+      start_bit: 20
+      size: 4
+    - name: funct5[15]
+      opcode: 0b00000
+      start_bit: 15
+      size: 5
+    - name: funct3[12]
+      opcode: 0b000
+      start_bit: 12
+      size: 3
+    - name: funct5[7]
+      opcode: 0b00000
+      start_bit: 7
+      size: 5
+  arguments: 
+  description: 1000 0011 0011 00000 000 00000 0001111 FENCE.TSO
+PAUSE:
+  instruction_type: 
+  opcode: 0b0001111
+  encodings: 
+    - name: funct4[28]
+      opcode: 0b0000
+      start_bit: 28
+      size: 4
+    - name: funct4[24]
+      opcode: 0b0001
+      start_bit: 24
+      size: 4
+    - name: funct4[20]
+      opcode: 0b0000
+      start_bit: 20
+      size: 4
+    - name: funct5[15]
+      opcode: 0b00000
+      start_bit: 15
+      size: 5
+    - name: funct3[12]
+      opcode: 0b000
+      start_bit: 12
+      size: 3
+    - name: funct5[7]
+      opcode: 0b00000
+      start_bit: 7
+      size: 5
+  arguments: 
+  description: 0000 0001 0000 00000 000 00000 0001111 PAUSE
+ECALL:
+  instruction_type: 
+  opcode: 0b1110011
+  encodings: 
+    - name: funct12[20]
+      opcode: 0b000000000000
+      start_bit: 20
+      size: 12
+    - name: funct5[15]
+      opcode: 0b00000
+      start_bit: 15
+      size: 5
+    - name: funct3[12]
+      opcode: 0b000
+      start_bit: 12
+      size: 3
+    - name: funct5[7]
+      opcode: 0b00000
+      start_bit: 7
+      size: 5
+  arguments: 
+  description: 000000000000 00000 000 00000 1110011 ECALL
+EBREAK:
+  instruction_type: 
+  opcode: 0b1110011
+  encodings: 
+    - name: funct12[20]
+      opcode: 0b000000000001
+      start_bit: 20
+      size: 12
+    - name: funct5[15]
+      opcode: 0b00000
+      start_bit: 15
+      size: 5
+    - name: funct3[12]
+      opcode: 0b000
+      start_bit: 12
+      size: 3
+    - name: funct5[7]
+      opcode: 0b00000
+      start_bit: 7
+      size: 5
+  arguments: 
+  description: 000000000001 00000 000 00000 1110011 EBREAK
+MRET:
+  instruction_type: 
+  opcode: 0b1110011
+  encodings: 
+    - name: funct12[20]
+      opcode: 0b001100000010
+      start_bit: 20
+      size: 12
+    - name: funct5[15]
+      opcode: 0b00000
+      start_bit: 15
+      size: 5
+    - name: funct3[12]
+      opcode: 0b000
+      start_bit: 12
+      size: 3
+    - name: funct5[7]
+      opcode: 0b00000
+      start_bit: 7
+      size: 5
+  arguments: 
+  description: 001100000010 00000 000 00000 1110011 MRET
+LWU:
+  instruction_type: 
+  opcode: 0b0000011
+  encodings: 
+    - name: funct3[12]
+      opcode: 0b110
+      start_bit: 12
+      size: 3
+  arguments: 
+    - name: imm[11:0]
+      start_bit: 20
+      size: 12
+    - name: rs1
+      start_bit: 15
+      size: 5
+    - name: rd
+      start_bit: 7
+      size: 5
+  description: imm[11:0] rs1 110 rd 0000011 LWU
+LD:
+  instruction_type: 
+  opcode: 0b0000011
+  encodings: 
+    - name: funct3[12]
+      opcode: 0b011
+      start_bit: 12
+      size: 3
+  arguments: 
+    - name: imm[11:0]
+      start_bit: 20
+      size: 12
+    - name: rs1
+      start_bit: 15
+      size: 5
+    - name: rd
+      start_bit: 7
+      size: 5
+  description: imm[11:0] rs1 011 rd 0000011 LD
+SD:
+  instruction_type: 
+  opcode: 0b0100011
+  encodings: 
+    - name: funct3[12]
+      opcode: 0b011
+      start_bit: 12
+      size: 3
+  arguments: 
+    - name: imm[11:5]
+      start_bit: 25
+      size: 7
+    - name: rs2
+      start_bit: 20
+      size: 5
+    - name: rs1
+      start_bit: 15
+      size: 5
+    - name: imm[4:0]
+      start_bit: 7
+      size: 5
+  description: imm[11:5] rs2 rs1 011 imm[4:0] 0100011 SD
+SLLI.R1:
+  instruction_type: 
+  opcode: 0b0010011
+  encodings: 
+    - name: funct6[26]
+      opcode: 0b000000
+      start_bit: 26
+      size: 6
+    - name: funct3[12]
+      opcode: 0b001
+      start_bit: 12
+      size: 3
+  arguments: 
+    - name: shamt
+      start_bit: 20
+      size: 6
+    - name: rs1
+      start_bit: 15
+      size: 5
+    - name: rd
+      start_bit: 7
+      size: 5
+  description: 000000 shamt rs1 001 rd 0010011 SLLI.R1
+SRLI.R1:
+  instruction_type: 
+  opcode: 0b0010011
+  encodings: 
+    - name: funct6[26]
+      opcode: 0b000000
+      start_bit: 26
+      size: 6
+    - name: funct3[12]
+      opcode: 0b101
+      start_bit: 12
+      size: 3
+  arguments: 
+    - name: shamt
+      start_bit: 20
+      size: 6
+    - name: rs1
+      start_bit: 15
+      size: 5
+    - name: rd
+      start_bit: 7
+      size: 5
+  description: 000000 shamt rs1 101 rd 0010011 SRLI.R1
+SRAI.R1:
+  instruction_type: 
+  opcode: 0b0010011
+  encodings: 
+    - name: funct6[26]
+      opcode: 0b010000
+      start_bit: 26
+      size: 6
+    - name: funct3[12]
+      opcode: 0b101
+      start_bit: 12
+      size: 3
+  arguments: 
+    - name: shamt
+      start_bit: 20
+      size: 6
+    - name: rs1
+      start_bit: 15
+      size: 5
+    - name: rd
+      start_bit: 7
+      size: 5
+  description: 010000 shamt rs1 101 rd 0010011 SRAI.R1
+ADDIW:
+  instruction_type: 
+  opcode: 0b0011011
+  encodings: 
+    - name: funct3[12]
+      opcode: 0b000
+      start_bit: 12
+      size: 3
+  arguments: 
+    - name: imm[11:0]
+      start_bit: 20
+      size: 12
+    - name: rs1
+      start_bit: 15
+      size: 5
+    - name: rd
+      start_bit: 7
+      size: 5
+  description: imm[11:0] rs1 000 rd 0011011 ADDIW
+SLLIW:
+  instruction_type: 
+  opcode: 0b0011011
+  encodings: 
+    - name: funct7[25]
+      opcode: 0b0000000
+      start_bit: 25
+      size: 7
+    - name: funct3[12]
+      opcode: 0b001
+      start_bit: 12
+      size: 3
+  arguments: 
+    - name: shamt
+      start_bit: 20
+      size: 5
+    - name: rs1
+      start_bit: 15
+      size: 5
+    - name: rd
+      start_bit: 7
+      size: 5
+  description: 0000000 shamt rs1 001 rd 0011011 SLLIW
+SRLIW:
+  instruction_type: 
+  opcode: 0b0011011
+  encodings: 
+    - name: funct7[25]
+      opcode: 0b0000000
+      start_bit: 25
+      size: 7
+    - name: funct3[12]
+      opcode: 0b101
+      start_bit: 12
+      size: 3
+  arguments: 
+    - name: shamt
+      start_bit: 20
+      size: 5
+    - name: rs1
+      start_bit: 15
+      size: 5
+    - name: rd
+      start_bit: 7
+      size: 5
+  description: 0000000 shamt rs1 101 rd 0011011 SRLIW
+SRAIW:
+  instruction_type: 
+  opcode: 0b0011011
+  encodings: 
+    - name: funct7[25]
+      opcode: 0b0100000
+      start_bit: 25
+      size: 7
+    - name: funct3[12]
+      opcode: 0b101
+      start_bit: 12
+      size: 3
+  arguments: 
+    - name: shamt
+      start_bit: 20
+      size: 5
+    - name: rs1
+      start_bit: 15
+      size: 5
+    - name: rd
+      start_bit: 7
+      size: 5
+  description: 0100000 shamt rs1 101 rd 0011011 SRAIW
+ADDW:
+  instruction_type: 
+  opcode: 0b0111011
+  encodings: 
+    - name: funct7[25]
+      opcode: 0b0000000
+      start_bit: 25
+      size: 7
+    - name: funct3[12]
+      opcode: 0b000
+      start_bit: 12
+      size: 3
+  arguments: 
+    - name: rs2
+      start_bit: 20
+      size: 5
+    - name: rs1
+      start_bit: 15
+      size: 5
+    - name: rd
+      start_bit: 7
+      size: 5
+  description: 0000000 rs2 rs1 000 rd 0111011 ADDW
+SUBW:
+  instruction_type: 
+  opcode: 0b0111011
+  encodings: 
+    - name: funct7[25]
+      opcode: 0b0100000
+      start_bit: 25
+      size: 7
+    - name: funct3[12]
+      opcode: 0b000
+      start_bit: 12
+      size: 3
+  arguments: 
+    - name: rs2
+      start_bit: 20
+      size: 5
+    - name: rs1
+      start_bit: 15
+      size: 5
+    - name: rd
+      start_bit: 7
+      size: 5
+  description: 0100000 rs2 rs1 000 rd 0111011 SUBW
+SLLW:
+  instruction_type: 
+  opcode: 0b0111011
+  encodings: 
+    - name: funct7[25]
+      opcode: 0b0000000
+      start_bit: 25
+      size: 7
+    - name: funct3[12]
+      opcode: 0b001
+      start_bit: 12
+      size: 3
+  arguments: 
+    - name: rs2
+      start_bit: 20
+      size: 5
+    - name: rs1
+      start_bit: 15
+      size: 5
+    - name: rd
+      start_bit: 7
+      size: 5
+  description: 0000000 rs2 rs1 001 rd 0111011 SLLW
+SRLW:
+  instruction_type: 
+  opcode: 0b0111011
+  encodings: 
+    - name: funct7[25]
+      opcode: 0b0000000
+      start_bit: 25
+      size: 7
+    - name: funct3[12]
+      opcode: 0b101
+      start_bit: 12
+      size: 3
+  arguments: 
+    - name: rs2
+      start_bit: 20
+      size: 5
+    - name: rs1
+      start_bit: 15
+      size: 5
+    - name: rd
+      start_bit: 7
+      size: 5
+  description: 0000000 rs2 rs1 101 rd 0111011 SRLW
+SRAW:
+  instruction_type: 
+  opcode: 0b0111011
+  encodings: 
+    - name: funct7[25]
+      opcode: 0b0100000
+      start_bit: 25
+      size: 7
+    - name: funct3[12]
+      opcode: 0b101
+      start_bit: 12
+      size: 3
+  arguments: 
+    - name: rs2
+      start_bit: 20
+      size: 5
+    - name: rs1
+      start_bit: 15
+      size: 5
+    - name: rd
+      start_bit: 7
+      size: 5
+  description: 0100000 rs2 rs1 101 rd 0111011 SRAW
+FENCE.I:
+  instruction_type: 
+  opcode: 0b0001111
+  encodings: 
+    - name: funct3[12]
+      opcode: 0b001
+      start_bit: 12
+      size: 3
+  arguments: 
+    - name: imm[11:0]
+      start_bit: 20
+      size: 12
+    - name: rs1
+      start_bit: 15
+      size: 5
+    - name: rd
+      start_bit: 7
+      size: 5
+  description: imm[11:0] rs1 001 rd 0001111 FENCE.I
+CSRRW:
+  instruction_type: 
+  opcode: 0b1110011
+  encodings: 
+    - name: funct3[12]
+      opcode: 0b001
+      start_bit: 12
+      size: 3
+  arguments: 
+    - name: csr
+      start_bit: 20
+      size: 12
+    - name: rs1
+      start_bit: 15
+      size: 5
+    - name: rd
+      start_bit: 7
+      size: 5
+  description: csr rs1 001 rd 1110011 CSRRW
+CSRRS:
+  instruction_type: 
+  opcode: 0b1110011
+  encodings: 
+    - name: funct3[12]
+      opcode: 0b010
+      start_bit: 12
+      size: 3
+  arguments: 
+    - name: csr
+      start_bit: 20
+      size: 12
+    - name: rs1
+      start_bit: 15
+      size: 5
+    - name: rd
+      start_bit: 7
+      size: 5
+  description: csr rs1 010 rd 1110011 CSRRS
+CSRRC:
+  instruction_type: 
+  opcode: 0b1110011
+  encodings: 
+    - name: funct3[12]
+      opcode: 0b011
+      start_bit: 12
+      size: 3
+  arguments: 
+    - name: csr
+      start_bit: 20
+      size: 12
+    - name: rs1
+      start_bit: 15
+      size: 5
+    - name: rd
+      start_bit: 7
+      size: 5
+  description: csr rs1 011 rd 1110011 CSRRC
+CSRRWI:
+  instruction_type: 
+  opcode: 0b1110011
+  encodings: 
+    - name: funct3[12]
+      opcode: 0b101
+      start_bit: 12
+      size: 3
+  arguments: 
+    - name: csr
+      start_bit: 20
+      size: 12
+    - name: uimm
+      start_bit: 15
+      size: 5
+    - name: rd
+      start_bit: 7
+      size: 5
+  description: csr uimm 101 rd 1110011 CSRRWI
+CSRRSI:
+  instruction_type: 
+  opcode: 0b1110011
+  encodings: 
+    - name: funct3[12]
+      opcode: 0b110
+      start_bit: 12
+      size: 3
+  arguments: 
+    - name: csr
+      start_bit: 20
+      size: 12
+    - name: uimm
+      start_bit: 15
+      size: 5
+    - name: rd
+      start_bit: 7
+      size: 5
+  description: csr uimm 110 rd 1110011 CSRRSI
+CSRRCI:
+  instruction_type: 
+  opcode: 0b1110011
+  encodings: 
+    - name: funct3[12]
+      opcode: 0b111
+      start_bit: 12
+      size: 3
+  arguments: 
+    - name: csr
+      start_bit: 20
+      size: 12
+    - name: uimm
+      start_bit: 15
+      size: 5
+    - name: rd
+      start_bit: 7
+      size: 5
+  description: csr uimm 111 rd 1110011 CSRRCI
+MUL:
+  instruction_type: 
+  opcode: 0b0110011
+  encodings: 
+    - name: funct7[25]
+      opcode: 0b0000001
+      start_bit: 25
+      size: 7
+    - name: funct3[12]
+      opcode: 0b000
+      start_bit: 12
+      size: 3
+  arguments: 
+    - name: rs2
+      start_bit: 20
+      size: 5
+    - name: rs1
+      start_bit: 15
+      size: 5
+    - name: rd
+      start_bit: 7
+      size: 5
+  description: 0000001 rs2 rs1 000 rd 0110011 MUL
+MULH:
+  instruction_type: 
+  opcode: 0b0110011
+  encodings: 
+    - name: funct7[25]
+      opcode: 0b0000001
+      start_bit: 25
+      size: 7
+    - name: funct3[12]
+      opcode: 0b001
+      start_bit: 12
+      size: 3
+  arguments: 
+    - name: rs2
+      start_bit: 20
+      size: 5
+    - name: rs1
+      start_bit: 15
+      size: 5
+    - name: rd
+      start_bit: 7
+      size: 5
+  description: 0000001 rs2 rs1 001 rd 0110011 MULH
+MULHSU:
+  instruction_type: 
+  opcode: 0b0110011
+  encodings: 
+    - name: funct7[25]
+      opcode: 0b0000001
+      start_bit: 25
+      size: 7
+    - name: funct3[12]
+      opcode: 0b010
+      start_bit: 12
+      size: 3
+  arguments: 
+    - name: rs2
+      start_bit: 20
+      size: 5
+    - name: rs1
+      start_bit: 15
+      size: 5
+    - name: rd
+      start_bit: 7
+      size: 5
+  description: 0000001 rs2 rs1 010 rd 0110011 MULHSU
+MULHU:
+  instruction_type: 
+  opcode: 0b0110011
+  encodings: 
+    - name: funct7[25]
+      opcode: 0b0000001
+      start_bit: 25
+      size: 7
+    - name: funct3[12]
+      opcode: 0b011
+      start_bit: 12
+      size: 3
+  arguments: 
+    - name: rs2
+      start_bit: 20
+      size: 5
+    - name: rs1
+      start_bit: 15
+      size: 5
+    - name: rd
+      start_bit: 7
+      size: 5
+  description: 0000001 rs2 rs1 011 rd 0110011 MULHU
+DIV:
+  instruction_type: 
+  opcode: 0b0110011
+  encodings: 
+    - name: funct7[25]
+      opcode: 0b0000001
+      start_bit: 25
+      size: 7
+    - name: funct3[12]
+      opcode: 0b100
+      start_bit: 12
+      size: 3
+  arguments: 
+    - name: rs2
+      start_bit: 20
+      size: 5
+    - name: rs1
+      start_bit: 15
+      size: 5
+    - name: rd
+      start_bit: 7
+      size: 5
+  description: 0000001 rs2 rs1 100 rd 0110011 DIV
+DIVU:
+  instruction_type: 
+  opcode: 0b0110011
+  encodings: 
+    - name: funct7[25]
+      opcode: 0b0000001
+      start_bit: 25
+      size: 7
+    - name: funct3[12]
+      opcode: 0b101
+      start_bit: 12
+      size: 3
+  arguments: 
+    - name: rs2
+      start_bit: 20
+      size: 5
+    - name: rs1
+      start_bit: 15
+      size: 5
+    - name: rd
+      start_bit: 7
+      size: 5
+  description: 0000001 rs2 rs1 101 rd 0110011 DIVU
+REM:
+  instruction_type: 
+  opcode: 0b0110011
+  encodings: 
+    - name: funct7[25]
+      opcode: 0b0000001
+      start_bit: 25
+      size: 7
+    - name: funct3[12]
+      opcode: 0b110
+      start_bit: 12
+      size: 3
+  arguments: 
+    - name: rs2
+      start_bit: 20
+      size: 5
+    - name: rs1
+      start_bit: 15
+      size: 5
+    - name: rd
+      start_bit: 7
+      size: 5
+  description: 0000001 rs2 rs1 110 rd 0110011 REM
+REMU:
+  instruction_type: 
+  opcode: 0b0110011
+  encodings: 
+    - name: funct7[25]
+      opcode: 0b0000001
+      start_bit: 25
+      size: 7
+    - name: funct3[12]
+      opcode: 0b111
+      start_bit: 12
+      size: 3
+  arguments: 
+    - name: rs2
+      start_bit: 20
+      size: 5
+    - name: rs1
+      start_bit: 15
+      size: 5
+    - name: rd
+      start_bit: 7
+      size: 5
+  description: 0000001 rs2 rs1 111 rd 0110011 REMU
+MULW:
+  instruction_type: 
+  opcode: 0b0111011
+  encodings: 
+    - name: funct7[25]
+      opcode: 0b0000001
+      start_bit: 25
+      size: 7
+    - name: funct3[12]
+      opcode: 0b000
+      start_bit: 12
+      size: 3
+  arguments: 
+    - name: rs2
+      start_bit: 20
+      size: 5
+    - name: rs1
+      start_bit: 15
+      size: 5
+    - name: rd
+      start_bit: 7
+      size: 5
+  description: 0000001 rs2 rs1 000 rd 0111011 MULW
+DIVW:
+  instruction_type: 
+  opcode: 0b0111011
+  encodings: 
+    - name: funct7[25]
+      opcode: 0b0000001
+      start_bit: 25
+      size: 7
+    - name: funct3[12]
+      opcode: 0b100
+      start_bit: 12
+      size: 3
+  arguments: 
+    - name: rs2
+      start_bit: 20
+      size: 5
+    - name: rs1
+      start_bit: 15
+      size: 5
+    - name: rd
+      start_bit: 7
+      size: 5
+  description: 0000001 rs2 rs1 100 rd 0111011 DIVW
+DIVUW:
+  instruction_type: 
+  opcode: 0b0111011
+  encodings: 
+    - name: funct7[25]
+      opcode: 0b0000001
+      start_bit: 25
+      size: 7
+    - name: funct3[12]
+      opcode: 0b101
+      start_bit: 12
+      size: 3
+  arguments: 
+    - name: rs2
+      start_bit: 20
+      size: 5
+    - name: rs1
+      start_bit: 15
+      size: 5
+    - name: rd
+      start_bit: 7
+      size: 5
+  description: 0000001 rs2 rs1 101 rd 0111011 DIVUW
+REMW:
+  instruction_type: 
+  opcode: 0b0111011
+  encodings: 
+    - name: funct7[25]
+      opcode: 0b0000001
+      start_bit: 25
+      size: 7
+    - name: funct3[12]
+      opcode: 0b110
+      start_bit: 12
+      size: 3
+  arguments: 
+    - name: rs2
+      start_bit: 20
+      size: 5
+    - name: rs1
+      start_bit: 15
+      size: 5
+    - name: rd
+      start_bit: 7
+      size: 5
+  description: 0000001 rs2 rs1 110 rd 0111011 REMW
+REMUW:
+  instruction_type: 
+  opcode: 0b0111011
+  encodings: 
+    - name: funct7[25]
+      opcode: 0b0000001
+      start_bit: 25
+      size: 7
+    - name: funct3[12]
+      opcode: 0b111
+      start_bit: 12
+      size: 3
+  arguments: 
+    - name: rs2
+      start_bit: 20
+      size: 5
+    - name: rs1
+      start_bit: 15
+      size: 5
+    - name: rd
+      start_bit: 7
+      size: 5
+  description: 0000001 rs2 rs1 111 rd 0111011 REMUW
+LR.W:
+  instruction_type: 
+  opcode: 0b0101111
+  encodings: 
+    - name: funct5[27]
+      opcode: 0b00010
+      start_bit: 27
+      size: 5
+    - name: funct5[20]
+      opcode: 0b00000
+      start_bit: 20
+      size: 5
+    - name: funct3[12]
+      opcode: 0b010
+      start_bit: 12
+      size: 3
+  arguments: 
+    - name: aq
+      start_bit: 26
+      size: 1
+    - name: rl
+      start_bit: 25
+      size: 1
+    - name: rs1
+      start_bit: 15
+      size: 5
+    - name: rd
+      start_bit: 7
+      size: 5
+  description: 00010 aq rl 00000 rs1 010 rd 0101111 LR.W
+SC.W:
+  instruction_type: 
+  opcode: 0b0101111
+  encodings: 
+    - name: funct5[27]
+      opcode: 0b00011
+      start_bit: 27
+      size: 5
+    - name: funct3[12]
+      opcode: 0b010
+      start_bit: 12
+      size: 3
+  arguments: 
+    - name: aq
+      start_bit: 26
+      size: 1
+    - name: rl
+      start_bit: 25
+      size: 1
+    - name: rs2
+      start_bit: 20
+      size: 5
+    - name: rs1
+      start_bit: 15
+      size: 5
+    - name: rd
+      start_bit: 7
+      size: 5
+  description: 00011 aq rl rs2 rs1 010 rd 0101111 SC.W
+AMOSWAP.W:
+  instruction_type: 
+  opcode: 0b0101111
+  encodings: 
+    - name: funct5[27]
+      opcode: 0b00001
+      start_bit: 27
+      size: 5
+    - name: funct3[12]
+      opcode: 0b010
+      start_bit: 12
+      size: 3
+  arguments: 
+    - name: aq
+      start_bit: 26
+      size: 1
+    - name: rl
+      start_bit: 25
+      size: 1
+    - name: rs2
+      start_bit: 20
+      size: 5
+    - name: rs1
+      start_bit: 15
+      size: 5
+    - name: rd
+      start_bit: 7
+      size: 5
+  description: 00001 aq rl rs2 rs1 010 rd 0101111 AMOSWAP.W
+AMOADD.W:
+  instruction_type: 
+  opcode: 0b0101111
+  encodings: 
+    - name: funct5[27]
+      opcode: 0b00000
+      start_bit: 27
+      size: 5
+    - name: funct3[12]
+      opcode: 0b010
+      start_bit: 12
+      size: 3
+  arguments: 
+    - name: aq
+      start_bit: 26
+      size: 1
+    - name: rl
+      start_bit: 25
+      size: 1
+    - name: rs2
+      start_bit: 20
+      size: 5
+    - name: rs1
+      start_bit: 15
+      size: 5
+    - name: rd
+      start_bit: 7
+      size: 5
+  description: 00000 aq rl rs2 rs1 010 rd 0101111 AMOADD.W
+AMOXOR.W:
+  instruction_type: 
+  opcode: 0b0101111
+  encodings: 
+    - name: funct5[27]
+      opcode: 0b00100
+      start_bit: 27
+      size: 5
+    - name: funct3[12]
+      opcode: 0b010
+      start_bit: 12
+      size: 3
+  arguments: 
+    - name: aq
+      start_bit: 26
+      size: 1
+    - name: rl
+      start_bit: 25
+      size: 1
+    - name: rs2
+      start_bit: 20
+      size: 5
+    - name: rs1
+      start_bit: 15
+      size: 5
+    - name: rd
+      start_bit: 7
+      size: 5
+  description: 00100 aq rl rs2 rs1 010 rd 0101111 AMOXOR.W
+AMOAND.W:
+  instruction_type: 
+  opcode: 0b0101111
+  encodings: 
+    - name: funct5[27]
+      opcode: 0b01100
+      start_bit: 27
+      size: 5
+    - name: funct3[12]
+      opcode: 0b010
+      start_bit: 12
+      size: 3
+  arguments: 
+    - name: aq
+      start_bit: 26
+      size: 1
+    - name: rl
+      start_bit: 25
+      size: 1
+    - name: rs2
+      start_bit: 20
+      size: 5
+    - name: rs1
+      start_bit: 15
+      size: 5
+    - name: rd
+      start_bit: 7
+      size: 5
+  description: 01100 aq rl rs2 rs1 010 rd 0101111 AMOAND.W
+AMOOR.W:
+  instruction_type: 
+  opcode: 0b0101111
+  encodings: 
+    - name: funct5[27]
+      opcode: 0b01000
+      start_bit: 27
+      size: 5
+    - name: funct3[12]
+      opcode: 0b010
+      start_bit: 12
+      size: 3
+  arguments: 
+    - name: aq
+      start_bit: 26
+      size: 1
+    - name: rl
+      start_bit: 25
+      size: 1
+    - name: rs2
+      start_bit: 20
+      size: 5
+    - name: rs1
+      start_bit: 15
+      size: 5
+    - name: rd
+      start_bit: 7
+      size: 5
+  description: 01000 aq rl rs2 rs1 010 rd 0101111 AMOOR.W
+AMOMIN.W:
+  instruction_type: 
+  opcode: 0b0101111
+  encodings: 
+    - name: funct5[27]
+      opcode: 0b10000
+      start_bit: 27
+      size: 5
+    - name: funct3[12]
+      opcode: 0b010
+      start_bit: 12
+      size: 3
+  arguments: 
+    - name: aq
+      start_bit: 26
+      size: 1
+    - name: rl
+      start_bit: 25
+      size: 1
+    - name: rs2
+      start_bit: 20
+      size: 5
+    - name: rs1
+      start_bit: 15
+      size: 5
+    - name: rd
+      start_bit: 7
+      size: 5
+  description: 10000 aq rl rs2 rs1 010 rd 0101111 AMOMIN.W
+AMOMAX.W:
+  instruction_type: 
+  opcode: 0b0101111
+  encodings: 
+    - name: funct5[27]
+      opcode: 0b10100
+      start_bit: 27
+      size: 5
+    - name: funct3[12]
+      opcode: 0b010
+      start_bit: 12
+      size: 3
+  arguments: 
+    - name: aq
+      start_bit: 26
+      size: 1
+    - name: rl
+      start_bit: 25
+      size: 1
+    - name: rs2
+      start_bit: 20
+      size: 5
+    - name: rs1
+      start_bit: 15
+      size: 5
+    - name: rd
+      start_bit: 7
+      size: 5
+  description: 10100 aq rl rs2 rs1 010 rd 0101111 AMOMAX.W
+AMOMINU.W:
+  instruction_type: 
+  opcode: 0b0101111
+  encodings: 
+    - name: funct5[27]
+      opcode: 0b11000
+      start_bit: 27
+      size: 5
+    - name: funct3[12]
+      opcode: 0b010
+      start_bit: 12
+      size: 3
+  arguments: 
+    - name: aq
+      start_bit: 26
+      size: 1
+    - name: rl
+      start_bit: 25
+      size: 1
+    - name: rs2
+      start_bit: 20
+      size: 5
+    - name: rs1
+      start_bit: 15
+      size: 5
+    - name: rd
+      start_bit: 7
+      size: 5
+  description: 11000 aq rl rs2 rs1 010 rd 0101111 AMOMINU.W
+AMOMAXU.W:
+  instruction_type: 
+  opcode: 0b0101111
+  encodings: 
+    - name: funct5[27]
+      opcode: 0b11100
+      start_bit: 27
+      size: 5
+    - name: funct3[12]
+      opcode: 0b010
+      start_bit: 12
+      size: 3
+  arguments: 
+    - name: aq
+      start_bit: 26
+      size: 1
+    - name: rl
+      start_bit: 25
+      size: 1
+    - name: rs2
+      start_bit: 20
+      size: 5
+    - name: rs1
+      start_bit: 15
+      size: 5
+    - name: rd
+      start_bit: 7
+      size: 5
+  description: 11100 aq rl rs2 rs1 010 rd 0101111 AMOMAXU.W
+LR.D:
+  instruction_type: 
+  opcode: 0b0101111
+  encodings: 
+    - name: funct5[27]
+      opcode: 0b00010
+      start_bit: 27
+      size: 5
+    - name: funct5[20]
+      opcode: 0b00000
+      start_bit: 20
+      size: 5
+    - name: funct3[12]
+      opcode: 0b011
+      start_bit: 12
+      size: 3
+  arguments: 
+    - name: aq
+      start_bit: 26
+      size: 1
+    - name: rl
+      start_bit: 25
+      size: 1
+    - name: rs1
+      start_bit: 15
+      size: 5
+    - name: rd
+      start_bit: 7
+      size: 5
+  description: 00010 aq rl 00000 rs1 011 rd 0101111 LR.D
+SC.D:
+  instruction_type: 
+  opcode: 0b0101111
+  encodings: 
+    - name: funct5[27]
+      opcode: 0b00011
+      start_bit: 27
+      size: 5
+    - name: funct3[12]
+      opcode: 0b011
+      start_bit: 12
+      size: 3
+  arguments: 
+    - name: aq
+      start_bit: 26
+      size: 1
+    - name: rl
+      start_bit: 25
+      size: 1
+    - name: rs2
+      start_bit: 20
+      size: 5
+    - name: rs1
+      start_bit: 15
+      size: 5
+    - name: rd
+      start_bit: 7
+      size: 5
+  description: 00011 aq rl rs2 rs1 011 rd 0101111 SC.D
+AMOSWAP.D:
+  instruction_type: 
+  opcode: 0b0101111
+  encodings: 
+    - name: funct5[27]
+      opcode: 0b00001
+      start_bit: 27
+      size: 5
+    - name: funct3[12]
+      opcode: 0b011
+      start_bit: 12
+      size: 3
+  arguments: 
+    - name: aq
+      start_bit: 26
+      size: 1
+    - name: rl
+      start_bit: 25
+      size: 1
+    - name: rs2
+      start_bit: 20
+      size: 5
+    - name: rs1
+      start_bit: 15
+      size: 5
+    - name: rd
+      start_bit: 7
+      size: 5
+  description: 00001 aq rl rs2 rs1 011 rd 0101111 AMOSWAP.D
+AMOADD.D:
+  instruction_type: 
+  opcode: 0b0101111
+  encodings: 
+    - name: funct5[27]
+      opcode: 0b00000
+      start_bit: 27
+      size: 5
+    - name: funct3[12]
+      opcode: 0b011
+      start_bit: 12
+      size: 3
+  arguments: 
+    - name: aq
+      start_bit: 26
+      size: 1
+    - name: rl
+      start_bit: 25
+      size: 1
+    - name: rs2
+      start_bit: 20
+      size: 5
+    - name: rs1
+      start_bit: 15
+      size: 5
+    - name: rd
+      start_bit: 7
+      size: 5
+  description: 00000 aq rl rs2 rs1 011 rd 0101111 AMOADD.D
+AMOXOR.D:
+  instruction_type: 
+  opcode: 0b0101111
+  encodings: 
+    - name: funct5[27]
+      opcode: 0b00100
+      start_bit: 27
+      size: 5
+    - name: funct3[12]
+      opcode: 0b011
+      start_bit: 12
+      size: 3
+  arguments: 
+    - name: aq
+      start_bit: 26
+      size: 1
+    - name: rl
+      start_bit: 25
+      size: 1
+    - name: rs2
+      start_bit: 20
+      size: 5
+    - name: rs1
+      start_bit: 15
+      size: 5
+    - name: rd
+      start_bit: 7
+      size: 5
+  description: 00100 aq rl rs2 rs1 011 rd 0101111 AMOXOR.D
+AMOAND.D:
+  instruction_type: 
+  opcode: 0b0101111
+  encodings: 
+    - name: funct5[27]
+      opcode: 0b01100
+      start_bit: 27
+      size: 5
+    - name: funct3[12]
+      opcode: 0b011
+      start_bit: 12
+      size: 3
+  arguments: 
+    - name: aq
+      start_bit: 26
+      size: 1
+    - name: rl
+      start_bit: 25
+      size: 1
+    - name: rs2
+      start_bit: 20
+      size: 5
+    - name: rs1
+      start_bit: 15
+      size: 5
+    - name: rd
+      start_bit: 7
+      size: 5
+  description: 01100 aq rl rs2 rs1 011 rd 0101111 AMOAND.D
+AMOOR.D:
+  instruction_type: 
+  opcode: 0b0101111
+  encodings: 
+    - name: funct5[27]
+      opcode: 0b01000
+      start_bit: 27
+      size: 5
+    - name: funct3[12]
+      opcode: 0b011
+      start_bit: 12
+      size: 3
+  arguments: 
+    - name: aq
+      start_bit: 26
+      size: 1
+    - name: rl
+      start_bit: 25
+      size: 1
+    - name: rs2
+      start_bit: 20
+      size: 5
+    - name: rs1
+      start_bit: 15
+      size: 5
+    - name: rd
+      start_bit: 7
+      size: 5
+  description: 01000 aq rl rs2 rs1 011 rd 0101111 AMOOR.D
+AMOMIN.D:
+  instruction_type: 
+  opcode: 0b0101111
+  encodings: 
+    - name: funct5[27]
+      opcode: 0b10000
+      start_bit: 27
+      size: 5
+    - name: funct3[12]
+      opcode: 0b011
+      start_bit: 12
+      size: 3
+  arguments: 
+    - name: aq
+      start_bit: 26
+      size: 1
+    - name: rl
+      start_bit: 25
+      size: 1
+    - name: rs2
+      start_bit: 20
+      size: 5
+    - name: rs1
+      start_bit: 15
+      size: 5
+    - name: rd
+      start_bit: 7
+      size: 5
+  description: 10000 aq rl rs2 rs1 011 rd 0101111 AMOMIN.D
+AMOMAX.D:
+  instruction_type: 
+  opcode: 0b0101111
+  encodings: 
+    - name: funct5[27]
+      opcode: 0b10100
+      start_bit: 27
+      size: 5
+    - name: funct3[12]
+      opcode: 0b011
+      start_bit: 12
+      size: 3
+  arguments: 
+    - name: aq
+      start_bit: 26
+      size: 1
+    - name: rl
+      start_bit: 25
+      size: 1
+    - name: rs2
+      start_bit: 20
+      size: 5
+    - name: rs1
+      start_bit: 15
+      size: 5
+    - name: rd
+      start_bit: 7
+      size: 5
+  description: 10100 aq rl rs2 rs1 011 rd 0101111 AMOMAX.D
+AMOMINU.D:
+  instruction_type: 
+  opcode: 0b0101111
+  encodings: 
+    - name: funct5[27]
+      opcode: 0b11000
+      start_bit: 27
+      size: 5
+    - name: funct3[12]
+      opcode: 0b011
+      start_bit: 12
+      size: 3
+  arguments: 
+    - name: aq
+      start_bit: 26
+      size: 1
+    - name: rl
+      start_bit: 25
+      size: 1
+    - name: rs2
+      start_bit: 20
+      size: 5
+    - name: rs1
+      start_bit: 15
+      size: 5
+    - name: rd
+      start_bit: 7
+      size: 5
+  description: 11000 aq rl rs2 rs1 011 rd 0101111 AMOMINU.D
+AMOMAXU.D:
+  instruction_type: 
+  opcode: 0b0101111
+  encodings: 
+    - name: funct5[27]
+      opcode: 0b11100
+      start_bit: 27
+      size: 5
+    - name: funct3[12]
+      opcode: 0b011
+      start_bit: 12
+      size: 3
+  arguments: 
+    - name: aq
+      start_bit: 26
+      size: 1
+    - name: rl
+      start_bit: 25
+      size: 1
+    - name: rs2
+      start_bit: 20
+      size: 5
+    - name: rs1
+      start_bit: 15
+      size: 5
+    - name: rd
+      start_bit: 7
+      size: 5
+  description: 11100 aq rl rs2 rs1 011 rd 0101111 AMOMAXU.D
+FLW:
+  instruction_type: 
+  opcode: 0b0000111
+  encodings: 
+    - name: funct3[12]
+      opcode: 0b010
+      start_bit: 12
+      size: 3
+  arguments: 
+    - name: imm[11:0]
+      start_bit: 20
+      size: 12
+    - name: rs1
+      start_bit: 15
+      size: 5
+    - name: frd
+      start_bit: 7
+      size: 5
+  description: imm[11:0] rs1 010 frd 0000111 FLW
+FSW:
+  instruction_type: 
+  opcode: 0b0100111
+  encodings: 
+    - name: funct3[12]
+      opcode: 0b010
+      start_bit: 12
+      size: 3
+  arguments: 
+    - name: imm[11:5]
+      start_bit: 25
+      size: 7
+    - name: frs2
+      start_bit: 20
+      size: 5
+    - name: rs1
+      start_bit: 15
+      size: 5
+    - name: imm[4:0]
+      start_bit: 7
+      size: 5
+  description: imm[11:5] frs2 rs1 010 imm[4:0] 0100111 FSW
+FMADD.S:
+  instruction_type: 
+  opcode: 0b1000011
+  encodings: 
+    - name: funct2[25]
+      opcode: 0b00
+      start_bit: 25
+      size: 2
+  arguments: 
+    - name: frs3
+      start_bit: 27
+      size: 5
+    - name: frs2
+      start_bit: 20
+      size: 5
+    - name: frs1
+      start_bit: 15
+      size: 5
+    - name: rm
+      start_bit: 12
+      size: 3
+    - name: frd
+      start_bit: 7
+      size: 5
+  description: frs3 00 frs2 frs1 rm frd 1000011 FMADD.S
+FMSUB.S:
+  instruction_type: 
+  opcode: 0b1000111
+  encodings: 
+    - name: funct2[25]
+      opcode: 0b00
+      start_bit: 25
+      size: 2
+  arguments: 
+    - name: frs3
+      start_bit: 27
+      size: 5
+    - name: frs2
+      start_bit: 20
+      size: 5
+    - name: frs1
+      start_bit: 15
+      size: 5
+    - name: rm
+      start_bit: 12
+      size: 3
+    - name: frd
+      start_bit: 7
+      size: 5
+  description: frs3 00 frs2 frs1 rm frd 1000111 FMSUB.S
+FNMSUB.S:
+  instruction_type: 
+  opcode: 0b1001011
+  encodings: 
+    - name: funct2[25]
+      opcode: 0b00
+      start_bit: 25
+      size: 2
+  arguments: 
+    - name: frs3
+      start_bit: 27
+      size: 5
+    - name: frs2
+      start_bit: 20
+      size: 5
+    - name: frs1
+      start_bit: 15
+      size: 5
+    - name: rm
+      start_bit: 12
+      size: 3
+    - name: frd
+      start_bit: 7
+      size: 5
+  description: frs3 00 frs2 frs1 rm frd 1001011 FNMSUB.S
+FNMADD.S:
+  instruction_type: 
+  opcode: 0b1001111
+  encodings: 
+    - name: funct2[25]
+      opcode: 0b00
+      start_bit: 25
+      size: 2
+  arguments: 
+    - name: frs3
+      start_bit: 27
+      size: 5
+    - name: frs2
+      start_bit: 20
+      size: 5
+    - name: frs1
+      start_bit: 15
+      size: 5
+    - name: rm
+      start_bit: 12
+      size: 3
+    - name: frd
+      start_bit: 7
+      size: 5
+  description: frs3 00 frs2 frs1 rm frd 1001111 FNMADD.S
+FADD.S:
+  instruction_type: 
+  opcode: 0b1010011
+  encodings: 
+    - name: funct7[25]
+      opcode: 0b0000000
+      start_bit: 25
+      size: 7
+  arguments: 
+    - name: frs2
+      start_bit: 20
+      size: 5
+    - name: frs1
+      start_bit: 15
+      size: 5
+    - name: rm
+      start_bit: 12
+      size: 3
+    - name: frd
+      start_bit: 7
+      size: 5
+  description: 0000000 frs2 frs1 rm frd 1010011 FADD.S
+FSUB.S:
+  instruction_type: 
+  opcode: 0b1010011
+  encodings: 
+    - name: funct7[25]
+      opcode: 0b0000100
+      start_bit: 25
+      size: 7
+  arguments: 
+    - name: frs2
+      start_bit: 20
+      size: 5
+    - name: frs1
+      start_bit: 15
+      size: 5
+    - name: rm
+      start_bit: 12
+      size: 3
+    - name: frd
+      start_bit: 7
+      size: 5
+  description: 0000100 frs2 frs1 rm frd 1010011 FSUB.S
+FMUL.S:
+  instruction_type: 
+  opcode: 0b1010011
+  encodings: 
+    - name: funct7[25]
+      opcode: 0b0001000
+      start_bit: 25
+      size: 7
+  arguments: 
+    - name: frs2
+      start_bit: 20
+      size: 5
+    - name: frs1
+      start_bit: 15
+      size: 5
+    - name: rm
+      start_bit: 12
+      size: 3
+    - name: frd
+      start_bit: 7
+      size: 5
+  description: 0001000 frs2 frs1 rm frd 1010011 FMUL.S
+FDIV.S:
+  instruction_type: 
+  opcode: 0b1010011
+  encodings: 
+    - name: funct7[25]
+      opcode: 0b0001100
+      start_bit: 25
+      size: 7
+  arguments: 
+    - name: frs2
+      start_bit: 20
+      size: 5
+    - name: frs1
+      start_bit: 15
+      size: 5
+    - name: rm
+      start_bit: 12
+      size: 3
+    - name: frd
+      start_bit: 7
+      size: 5
+  description: 0001100 frs2 frs1 rm frd 1010011 FDIV.S
+FSQRT.S:
+  instruction_type: 
+  opcode: 0b1010011
+  encodings: 
+    - name: funct7[25]
+      opcode: 0b0101100
+      start_bit: 25
+      size: 7
+    - name: funct5[20]
+      opcode: 0b00000
+      start_bit: 20
+      size: 5
+  arguments: 
+    - name: frs1
+      start_bit: 15
+      size: 5
+    - name: rm
+      start_bit: 12
+      size: 3
+    - name: frd
+      start_bit: 7
+      size: 5
+  description: 0101100 00000 frs1 rm frd 1010011 FSQRT.S
+FSGNJ.S:
+  instruction_type: 
+  opcode: 0b1010011
+  encodings: 
+    - name: funct7[25]
+      opcode: 0b0010000
+      start_bit: 25
+      size: 7
+    - name: funct3[12]
+      opcode: 0b000
+      start_bit: 12
+      size: 3
+  arguments: 
+    - name: frs2
+      start_bit: 20
+      size: 5
+    - name: frs1
+      start_bit: 15
+      size: 5
+    - name: frd
+      start_bit: 7
+      size: 5
+  description: 0010000 frs2 frs1 000 frd 1010011 FSGNJ.S
+FSGNJN.S:
+  instruction_type: 
+  opcode: 0b1010011
+  encodings: 
+    - name: funct7[25]
+      opcode: 0b0010000
+      start_bit: 25
+      size: 7
+    - name: funct3[12]
+      opcode: 0b001
+      start_bit: 12
+      size: 3
+  arguments: 
+    - name: frs2
+      start_bit: 20
+      size: 5
+    - name: frs1
+      start_bit: 15
+      size: 5
+    - name: frd
+      start_bit: 7
+      size: 5
+  description: 0010000 frs2 frs1 001 frd 1010011 FSGNJN.S
+FSGNJX.S:
+  instruction_type: 
+  opcode: 0b1010011
+  encodings: 
+    - name: funct7[25]
+      opcode: 0b0010000
+      start_bit: 25
+      size: 7
+    - name: funct3[12]
+      opcode: 0b010
+      start_bit: 12
+      size: 3
+  arguments: 
+    - name: frs2
+      start_bit: 20
+      size: 5
+    - name: frs1
+      start_bit: 15
+      size: 5
+    - name: frd
+      start_bit: 7
+      size: 5
+  description: 0010000 frs2 frs1 010 frd 1010011 FSGNJX.S
+FMIN.S:
+  instruction_type: 
+  opcode: 0b1010011
+  encodings: 
+    - name: funct7[25]
+      opcode: 0b0010100
+      start_bit: 25
+      size: 7
+    - name: funct3[12]
+      opcode: 0b000
+      start_bit: 12
+      size: 3
+  arguments: 
+    - name: frs2
+      start_bit: 20
+      size: 5
+    - name: frs1
+      start_bit: 15
+      size: 5
+    - name: frd
+      start_bit: 7
+      size: 5
+  description: 0010100 frs2 frs1 000 frd 1010011 FMIN.S
+FMAX.S:
+  instruction_type: 
+  opcode: 0b1010011
+  encodings: 
+    - name: funct7[25]
+      opcode: 0b0010100
+      start_bit: 25
+      size: 7
+    - name: funct3[12]
+      opcode: 0b001
+      start_bit: 12
+      size: 3
+  arguments: 
+    - name: frs2
+      start_bit: 20
+      size: 5
+    - name: frs1
+      start_bit: 15
+      size: 5
+    - name: frd
+      start_bit: 7
+      size: 5
+  description: 0010100 frs2 frs1 001 frd 1010011 FMAX.S
+FCVT.W.S:
+  instruction_type: 
+  opcode: 0b1010011
+  encodings: 
+    - name: funct7[25]
+      opcode: 0b1100000
+      start_bit: 25
+      size: 7
+    - name: funct5[20]
+      opcode: 0b00000
+      start_bit: 20
+      size: 5
+  arguments: 
+    - name: frs1
+      start_bit: 15
+      size: 5
+    - name: rm
+      start_bit: 12
+      size: 3
+    - name: rd
+      start_bit: 7
+      size: 5
+  description: 1100000 00000 frs1 rm rd 1010011 FCVT.W.S
+FCVT.WU.S:
+  instruction_type: 
+  opcode: 0b1010011
+  encodings: 
+    - name: funct7[25]
+      opcode: 0b1100000
+      start_bit: 25
+      size: 7
+    - name: funct5[20]
+      opcode: 0b00001
+      start_bit: 20
+      size: 5
+  arguments: 
+    - name: frs1
+      start_bit: 15
+      size: 5
+    - name: rm
+      start_bit: 12
+      size: 3
+    - name: rd
+      start_bit: 7
+      size: 5
+  description: 1100000 00001 frs1 rm rd 1010011 FCVT.WU.S
+FMV.X.W:
+  instruction_type: 
+  opcode: 0b1010011
+  encodings: 
+    - name: funct7[25]
+      opcode: 0b1110000
+      start_bit: 25
+      size: 7
+    - name: funct5[20]
+      opcode: 0b00000
+      start_bit: 20
+      size: 5
+    - name: funct3[12]
+      opcode: 0b000
+      start_bit: 12
+      size: 3
+  arguments: 
+    - name: frs1
+      start_bit: 15
+      size: 5
+    - name: rd
+      start_bit: 7
+      size: 5
+  description: 1110000 00000 frs1 000 rd 1010011 FMV.X.W
+FEQ.S:
+  instruction_type: 
+  opcode: 0b1010011
+  encodings: 
+    - name: funct7[25]
+      opcode: 0b1010000
+      start_bit: 25
+      size: 7
+    - name: funct3[12]
+      opcode: 0b010
+      start_bit: 12
+      size: 3
+  arguments: 
+    - name: frs2
+      start_bit: 20
+      size: 5
+    - name: frs1
+      start_bit: 15
+      size: 5
+    - name: rd
+      start_bit: 7
+      size: 5
+  description: 1010000 frs2 frs1 010 rd 1010011 FEQ.S
+FLT.S:
+  instruction_type: 
+  opcode: 0b1010011
+  encodings: 
+    - name: funct7[25]
+      opcode: 0b1010000
+      start_bit: 25
+      size: 7
+    - name: funct3[12]
+      opcode: 0b001
+      start_bit: 12
+      size: 3
+  arguments: 
+    - name: frs2
+      start_bit: 20
+      size: 5
+    - name: frs1
+      start_bit: 15
+      size: 5
+    - name: rd
+      start_bit: 7
+      size: 5
+  description: 1010000 frs2 frs1 001 rd 1010011 FLT.S
+FLE.S:
+  instruction_type: 
+  opcode: 0b1010011
+  encodings: 
+    - name: funct7[25]
+      opcode: 0b1010000
+      start_bit: 25
+      size: 7
+    - name: funct3[12]
+      opcode: 0b000
+      start_bit: 12
+      size: 3
+  arguments: 
+    - name: frs2
+      start_bit: 20
+      size: 5
+    - name: frs1
+      start_bit: 15
+      size: 5
+    - name: rd
+      start_bit: 7
+      size: 5
+  description: 1010000 frs2 frs1 000 rd 1010011 FLE.S
+FCLASS.S:
+  instruction_type: 
+  opcode: 0b1010011
+  encodings: 
+    - name: funct7[25]
+      opcode: 0b1110000
+      start_bit: 25
+      size: 7
+    - name: funct5[20]
+      opcode: 0b00000
+      start_bit: 20
+      size: 5
+    - name: funct3[12]
+      opcode: 0b001
+      start_bit: 12
+      size: 3
+  arguments: 
+    - name: frs1
+      start_bit: 15
+      size: 5
+    - name: rd
+      start_bit: 7
+      size: 5
+  description: 1110000 00000 frs1 001 rd 1010011 FCLASS.S
+FCVT.S.W:
+  instruction_type: 
+  opcode: 0b1010011
+  encodings: 
+    - name: funct7[25]
+      opcode: 0b1101000
+      start_bit: 25
+      size: 7
+    - name: funct5[20]
+      opcode: 0b00000
+      start_bit: 20
+      size: 5
+  arguments: 
+    - name: rs1
+      start_bit: 15
+      size: 5
+    - name: rm
+      start_bit: 12
+      size: 3
+    - name: frd
+      start_bit: 7
+      size: 5
+  description: 1101000 00000 rs1 rm frd 1010011 FCVT.S.W
+FCVT.S.WU:
+  instruction_type: 
+  opcode: 0b1010011
+  encodings: 
+    - name: funct7[25]
+      opcode: 0b1101000
+      start_bit: 25
+      size: 7
+    - name: funct5[20]
+      opcode: 0b00001
+      start_bit: 20
+      size: 5
+  arguments: 
+    - name: rs1
+      start_bit: 15
+      size: 5
+    - name: rm
+      start_bit: 12
+      size: 3
+    - name: frd
+      start_bit: 7
+      size: 5
+  description: 1101000 00001 rs1 rm frd 1010011 FCVT.S.WU
+FMV.W.X:
+  instruction_type: 
+  opcode: 0b1010011
+  encodings: 
+    - name: funct7[25]
+      opcode: 0b1111000
+      start_bit: 25
+      size: 7
+    - name: funct5[20]
+      opcode: 0b00000
+      start_bit: 20
+      size: 5
+    - name: funct3[12]
+      opcode: 0b000
+      start_bit: 12
+      size: 3
+  arguments: 
+    - name: rs1
+      start_bit: 15
+      size: 5
+    - name: frd
+      start_bit: 7
+      size: 5
+  description: 1111000 00000 rs1 000 frd 1010011 FMV.W.X
+FCVT.L.S:
+  instruction_type: 
+  opcode: 0b1010011
+  encodings: 
+    - name: funct7[25]
+      opcode: 0b1100000
+      start_bit: 25
+      size: 7
+    - name: funct5[20]
+      opcode: 0b00010
+      start_bit: 20
+      size: 5
+  arguments: 
+    - name: frs1
+      start_bit: 15
+      size: 5
+    - name: rm
+      start_bit: 12
+      size: 3
+    - name: rd
+      start_bit: 7
+      size: 5
+  description: 1100000 00010 frs1 rm rd 1010011 FCVT.L.S
+FCVT.LU.S:
+  instruction_type: 
+  opcode: 0b1010011
+  encodings: 
+    - name: funct7[25]
+      opcode: 0b1100000
+      start_bit: 25
+      size: 7
+    - name: funct5[20]
+      opcode: 0b00011
+      start_bit: 20
+      size: 5
+  arguments: 
+    - name: frs1
+      start_bit: 15
+      size: 5
+    - name: rm
+      start_bit: 12
+      size: 3
+    - name: rd
+      start_bit: 7
+      size: 5
+  description: 1100000 00011 frs1 rm rd 1010011 FCVT.LU.S
+FCVT.S.L:
+  instruction_type: 
+  opcode: 0b1010011
+  encodings: 
+    - name: funct7[25]
+      opcode: 0b1101000
+      start_bit: 25
+      size: 7
+    - name: funct5[20]
+      opcode: 0b00010
+      start_bit: 20
+      size: 5
+  arguments: 
+    - name: rs1
+      start_bit: 15
+      size: 5
+    - name: rm
+      start_bit: 12
+      size: 3
+    - name: frd
+      start_bit: 7
+      size: 5
+  description: 1101000 00010 rs1 rm frd 1010011 FCVT.S.L
+FCVT.S.LU:
+  instruction_type: 
+  opcode: 0b1010011
+  encodings: 
+    - name: funct7[25]
+      opcode: 0b1101000
+      start_bit: 25
+      size: 7
+    - name: funct5[20]
+      opcode: 0b00011
+      start_bit: 20
+      size: 5
+  arguments: 
+    - name: rs1
+      start_bit: 15
+      size: 5
+    - name: rm
+      start_bit: 12
+      size: 3
+    - name: frd
+      start_bit: 7
+      size: 5
+  description: 1101000 00011 rs1 rm frd 1010011 FCVT.S.LU
+FLD:
+  instruction_type: 
+  opcode: 0b0000111
+  encodings: 
+    - name: funct3[12]
+      opcode: 0b011
+      start_bit: 12
+      size: 3
+  arguments: 
+    - name: imm[11:0]
+      start_bit: 20
+      size: 12
+    - name: rs1
+      start_bit: 15
+      size: 5
+    - name: frd
+      start_bit: 7
+      size: 5
+  description: imm[11:0] rs1 011 frd 0000111 FLD
+FSD:
+  instruction_type: 
+  opcode: 0b0100111
+  encodings: 
+    - name: funct3[12]
+      opcode: 0b011
+      start_bit: 12
+      size: 3
+  arguments: 
+    - name: imm[11:5]
+      start_bit: 25
+      size: 7
+    - name: frs2
+      start_bit: 20
+      size: 5
+    - name: rs1
+      start_bit: 15
+      size: 5
+    - name: imm[4:0]
+      start_bit: 7
+      size: 5
+  description: imm[11:5] frs2 rs1 011 imm[4:0] 0100111 FSD
+FMADD.D:
+  instruction_type: 
+  opcode: 0b1000011
+  encodings: 
+    - name: funct2[25]
+      opcode: 0b01
+      start_bit: 25
+      size: 2
+  arguments: 
+    - name: frs3
+      start_bit: 27
+      size: 5
+    - name: frs2
+      start_bit: 20
+      size: 5
+    - name: frs1
+      start_bit: 15
+      size: 5
+    - name: rm
+      start_bit: 12
+      size: 3
+    - name: frd
+      start_bit: 7
+      size: 5
+  description: frs3 01 frs2 frs1 rm frd 1000011 FMADD.D
+FMSUB.D:
+  instruction_type: 
+  opcode: 0b1000111
+  encodings: 
+    - name: funct2[25]
+      opcode: 0b01
+      start_bit: 25
+      size: 2
+  arguments: 
+    - name: frs3
+      start_bit: 27
+      size: 5
+    - name: frs2
+      start_bit: 20
+      size: 5
+    - name: frs1
+      start_bit: 15
+      size: 5
+    - name: rm
+      start_bit: 12
+      size: 3
+    - name: frd
+      start_bit: 7
+      size: 5
+  description: frs3 01 frs2 frs1 rm frd 1000111 FMSUB.D
+FNMSUB.D:
+  instruction_type: 
+  opcode: 0b1001011
+  encodings: 
+    - name: funct2[25]
+      opcode: 0b01
+      start_bit: 25
+      size: 2
+  arguments: 
+    - name: frs3
+      start_bit: 27
+      size: 5
+    - name: frs2
+      start_bit: 20
+      size: 5
+    - name: frs1
+      start_bit: 15
+      size: 5
+    - name: rm
+      start_bit: 12
+      size: 3
+    - name: frd
+      start_bit: 7
+      size: 5
+  description: frs3 01 frs2 frs1 rm frd 1001011 FNMSUB.D
+FNMADD.D:
+  instruction_type: 
+  opcode: 0b1001111
+  encodings: 
+    - name: funct2[25]
+      opcode: 0b01
+      start_bit: 25
+      size: 2
+  arguments: 
+    - name: frs3
+      start_bit: 27
+      size: 5
+    - name: frs2
+      start_bit: 20
+      size: 5
+    - name: frs1
+      start_bit: 15
+      size: 5
+    - name: rm
+      start_bit: 12
+      size: 3
+    - name: frd
+      start_bit: 7
+      size: 5
+  description: frs3 01 frs2 frs1 rm frd 1001111 FNMADD.D
+FADD.D:
+  instruction_type: 
+  opcode: 0b1010011
+  encodings: 
+    - name: funct7[25]
+      opcode: 0b0000001
+      start_bit: 25
+      size: 7
+  arguments: 
+    - name: frs2
+      start_bit: 20
+      size: 5
+    - name: frs1
+      start_bit: 15
+      size: 5
+    - name: rm
+      start_bit: 12
+      size: 3
+    - name: frd
+      start_bit: 7
+      size: 5
+  description: 0000001 frs2 frs1 rm frd 1010011 FADD.D
+FSUB.D:
+  instruction_type: 
+  opcode: 0b1010011
+  encodings: 
+    - name: funct7[25]
+      opcode: 0b0000101
+      start_bit: 25
+      size: 7
+  arguments: 
+    - name: frs2
+      start_bit: 20
+      size: 5
+    - name: frs1
+      start_bit: 15
+      size: 5
+    - name: rm
+      start_bit: 12
+      size: 3
+    - name: frd
+      start_bit: 7
+      size: 5
+  description: 0000101 frs2 frs1 rm frd 1010011 FSUB.D
+FMUL.D:
+  instruction_type: 
+  opcode: 0b1010011
+  encodings: 
+    - name: funct7[25]
+      opcode: 0b0001001
+      start_bit: 25
+      size: 7
+  arguments: 
+    - name: frs2
+      start_bit: 20
+      size: 5
+    - name: frs1
+      start_bit: 15
+      size: 5
+    - name: rm
+      start_bit: 12
+      size: 3
+    - name: frd
+      start_bit: 7
+      size: 5
+  description: 0001001 frs2 frs1 rm frd 1010011 FMUL.D
+FDIV.D:
+  instruction_type: 
+  opcode: 0b1010011
+  encodings: 
+    - name: funct7[25]
+      opcode: 0b0001101
+      start_bit: 25
+      size: 7
+  arguments: 
+    - name: frs2
+      start_bit: 20
+      size: 5
+    - name: frs1
+      start_bit: 15
+      size: 5
+    - name: rm
+      start_bit: 12
+      size: 3
+    - name: frd
+      start_bit: 7
+      size: 5
+  description: 0001101 frs2 frs1 rm frd 1010011 FDIV.D
+FSQRT.D:
+  instruction_type: 
+  opcode: 0b1010011
+  encodings: 
+    - name: funct7[25]
+      opcode: 0b0101101
+      start_bit: 25
+      size: 7
+    - name: funct5[20]
+      opcode: 0b00000
+      start_bit: 20
+      size: 5
+  arguments: 
+    - name: frs1
+      start_bit: 15
+      size: 5
+    - name: rm
+      start_bit: 12
+      size: 3
+    - name: frd
+      start_bit: 7
+      size: 5
+  description: 0101101 00000 frs1 rm frd 1010011 FSQRT.D
+FSGNJ.D:
+  instruction_type: 
+  opcode: 0b1010011
+  encodings: 
+    - name: funct7[25]
+      opcode: 0b0010001
+      start_bit: 25
+      size: 7
+    - name: funct3[12]
+      opcode: 0b000
+      start_bit: 12
+      size: 3
+  arguments: 
+    - name: frs2
+      start_bit: 20
+      size: 5
+    - name: frs1
+      start_bit: 15
+      size: 5
+    - name: frd
+      start_bit: 7
+      size: 5
+  description: 0010001 frs2 frs1 000 frd 1010011 FSGNJ.D
+FSGNJN.D:
+  instruction_type: 
+  opcode: 0b1010011
+  encodings: 
+    - name: funct7[25]
+      opcode: 0b0010001
+      start_bit: 25
+      size: 7
+    - name: funct3[12]
+      opcode: 0b001
+      start_bit: 12
+      size: 3
+  arguments: 
+    - name: frs2
+      start_bit: 20
+      size: 5
+    - name: frs1
+      start_bit: 15
+      size: 5
+    - name: frd
+      start_bit: 7
+      size: 5
+  description: 0010001 frs2 frs1 001 frd 1010011 FSGNJN.D
+FSGNJX.D:
+  instruction_type: 
+  opcode: 0b1010011
+  encodings: 
+    - name: funct7[25]
+      opcode: 0b0010001
+      start_bit: 25
+      size: 7
+    - name: funct3[12]
+      opcode: 0b010
+      start_bit: 12
+      size: 3
+  arguments: 
+    - name: frs2
+      start_bit: 20
+      size: 5
+    - name: frs1
+      start_bit: 15
+      size: 5
+    - name: frd
+      start_bit: 7
+      size: 5
+  description: 0010001 frs2 frs1 010 frd 1010011 FSGNJX.D
+FMIN.D:
+  instruction_type: 
+  opcode: 0b1010011
+  encodings: 
+    - name: funct7[25]
+      opcode: 0b0010101
+      start_bit: 25
+      size: 7
+    - name: funct3[12]
+      opcode: 0b000
+      start_bit: 12
+      size: 3
+  arguments: 
+    - name: frs2
+      start_bit: 20
+      size: 5
+    - name: frs1
+      start_bit: 15
+      size: 5
+    - name: frd
+      start_bit: 7
+      size: 5
+  description: 0010101 frs2 frs1 000 frd 1010011 FMIN.D
+FMAX.D:
+  instruction_type: 
+  opcode: 0b1010011
+  encodings: 
+    - name: funct7[25]
+      opcode: 0b0010101
+      start_bit: 25
+      size: 7
+    - name: funct3[12]
+      opcode: 0b001
+      start_bit: 12
+      size: 3
+  arguments: 
+    - name: frs2
+      start_bit: 20
+      size: 5
+    - name: frs1
+      start_bit: 15
+      size: 5
+    - name: frd
+      start_bit: 7
+      size: 5
+  description: 0010101 frs2 frs1 001 frd 1010011 FMAX.D
+FCVT.S.D:
+  instruction_type: 
+  opcode: 0b1010011
+  encodings: 
+    - name: funct7[25]
+      opcode: 0b0100000
+      start_bit: 25
+      size: 7
+    - name: funct5[20]
+      opcode: 0b00001
+      start_bit: 20
+      size: 5
+  arguments: 
+    - name: frs1
+      start_bit: 15
+      size: 5
+    - name: rm
+      start_bit: 12
+      size: 3
+    - name: frd
+      start_bit: 7
+      size: 5
+  description: 0100000 00001 frs1 rm frd 1010011 FCVT.S.D
+FCVT.D.S:
+  instruction_type: 
+  opcode: 0b1010011
+  encodings: 
+    - name: funct7[25]
+      opcode: 0b0100001
+      start_bit: 25
+      size: 7
+    - name: funct5[20]
+      opcode: 0b00000
+      start_bit: 20
+      size: 5
+  arguments: 
+    - name: frs1
+      start_bit: 15
+      size: 5
+    - name: rm
+      start_bit: 12
+      size: 3
+    - name: frd
+      start_bit: 7
+      size: 5
+  description: 0100001 00000 frs1 rm frd 1010011 FCVT.D.S
+FEQ.D:
+  instruction_type: 
+  opcode: 0b1010011
+  encodings: 
+    - name: funct7[25]
+      opcode: 0b1010001
+      start_bit: 25
+      size: 7
+    - name: funct3[12]
+      opcode: 0b010
+      start_bit: 12
+      size: 3
+  arguments: 
+    - name: frs2
+      start_bit: 20
+      size: 5
+    - name: frs1
+      start_bit: 15
+      size: 5
+    - name: rd
+      start_bit: 7
+      size: 5
+  description: 1010001 frs2 frs1 010 rd 1010011 FEQ.D
+FLT.D:
+  instruction_type: 
+  opcode: 0b1010011
+  encodings: 
+    - name: funct7[25]
+      opcode: 0b1010001
+      start_bit: 25
+      size: 7
+    - name: funct3[12]
+      opcode: 0b001
+      start_bit: 12
+      size: 3
+  arguments: 
+    - name: frs2
+      start_bit: 20
+      size: 5
+    - name: frs1
+      start_bit: 15
+      size: 5
+    - name: rd
+      start_bit: 7
+      size: 5
+  description: 1010001 frs2 frs1 001 rd 1010011 FLT.D
+FLE.D:
+  instruction_type: 
+  opcode: 0b1010011
+  encodings: 
+    - name: funct7[25]
+      opcode: 0b1010001
+      start_bit: 25
+      size: 7
+    - name: funct3[12]
+      opcode: 0b000
+      start_bit: 12
+      size: 3
+  arguments: 
+    - name: frs2
+      start_bit: 20
+      size: 5
+    - name: frs1
+      start_bit: 15
+      size: 5
+    - name: rd
+      start_bit: 7
+      size: 5
+  description: 1010001 frs2 frs1 000 rd 1010011 FLE.D
+FCLASS.D:
+  instruction_type: 
+  opcode: 0b1010011
+  encodings: 
+    - name: funct7[25]
+      opcode: 0b1110001
+      start_bit: 25
+      size: 7
+    - name: funct5[20]
+      opcode: 0b00000
+      start_bit: 20
+      size: 5
+    - name: funct3[12]
+      opcode: 0b001
+      start_bit: 12
+      size: 3
+  arguments: 
+    - name: frs1
+      start_bit: 15
+      size: 5
+    - name: rd
+      start_bit: 7
+      size: 5
+  description: 1110001 00000 frs1 001 rd 1010011 FCLASS.D
+FCVT.W.D:
+  instruction_type: 
+  opcode: 0b1010011
+  encodings: 
+    - name: funct7[25]
+      opcode: 0b1100001
+      start_bit: 25
+      size: 7
+    - name: funct5[20]
+      opcode: 0b00000
+      start_bit: 20
+      size: 5
+  arguments: 
+    - name: frs1
+      start_bit: 15
+      size: 5
+    - name: rm
+      start_bit: 12
+      size: 3
+    - name: rd
+      start_bit: 7
+      size: 5
+  description: 1100001 00000 frs1 rm rd 1010011 FCVT.W.D
+FCVT.WU.D:
+  instruction_type: 
+  opcode: 0b1010011
+  encodings: 
+    - name: funct7[25]
+      opcode: 0b1100001
+      start_bit: 25
+      size: 7
+    - name: funct5[20]
+      opcode: 0b00001
+      start_bit: 20
+      size: 5
+  arguments: 
+    - name: frs1
+      start_bit: 15
+      size: 5
+    - name: rm
+      start_bit: 12
+      size: 3
+    - name: rd
+      start_bit: 7
+      size: 5
+  description: 1100001 00001 frs1 rm rd 1010011 FCVT.WU.D
+FCVT.D.W:
+  instruction_type: 
+  opcode: 0b1010011
+  encodings: 
+    - name: funct7[25]
+      opcode: 0b1101001
+      start_bit: 25
+      size: 7
+    - name: funct5[20]
+      opcode: 0b00000
+      start_bit: 20
+      size: 5
+  arguments: 
+    - name: rs1
+      start_bit: 15
+      size: 5
+    - name: rm
+      start_bit: 12
+      size: 3
+    - name: frd
+      start_bit: 7
+      size: 5
+  description: 1101001 00000 rs1 rm frd 1010011 FCVT.D.W
+FCVT.D.WU:
+  instruction_type: 
+  opcode: 0b1010011
+  encodings: 
+    - name: funct7[25]
+      opcode: 0b1101001
+      start_bit: 25
+      size: 7
+    - name: funct5[20]
+      opcode: 0b00001
+      start_bit: 20
+      size: 5
+  arguments: 
+    - name: rs1
+      start_bit: 15
+      size: 5
+    - name: rm
+      start_bit: 12
+      size: 3
+    - name: frd
+      start_bit: 7
+      size: 5
+  description: 1101001 00001 rs1 rm frd 1010011 FCVT.D.WU
+FCVT.L.D:
+  instruction_type: 
+  opcode: 0b1010011
+  encodings: 
+    - name: funct7[25]
+      opcode: 0b1100001
+      start_bit: 25
+      size: 7
+    - name: funct5[20]
+      opcode: 0b00010
+      start_bit: 20
+      size: 5
+  arguments: 
+    - name: frs1
+      start_bit: 15
+      size: 5
+    - name: rm
+      start_bit: 12
+      size: 3
+    - name: rd
+      start_bit: 7
+      size: 5
+  description: 1100001 00010 frs1 rm rd 1010011 FCVT.L.D
+FCVT.LU.D:
+  instruction_type: 
+  opcode: 0b1010011
+  encodings: 
+    - name: funct7[25]
+      opcode: 0b1100001
+      start_bit: 25
+      size: 7
+    - name: funct5[20]
+      opcode: 0b00011
+      start_bit: 20
+      size: 5
+  arguments: 
+    - name: frs1
+      start_bit: 15
+      size: 5
+    - name: rm
+      start_bit: 12
+      size: 3
+    - name: rd
+      start_bit: 7
+      size: 5
+  description: 1100001 00011 frs1 rm rd 1010011 FCVT.LU.D
+FMV.X.D:
+  instruction_type: 
+  opcode: 0b1010011
+  encodings: 
+    - name: funct7[25]
+      opcode: 0b1110001
+      start_bit: 25
+      size: 7
+    - name: funct5[20]
+      opcode: 0b00000
+      start_bit: 20
+      size: 5
+    - name: funct3[12]
+      opcode: 0b000
+      start_bit: 12
+      size: 3
+  arguments: 
+    - name: frs1
+      start_bit: 15
+      size: 5
+    - name: rd
+      start_bit: 7
+      size: 5
+  description: 1110001 00000 frs1 000 rd 1010011 FMV.X.D
+FCVT.D.L:
+  instruction_type: 
+  opcode: 0b1010011
+  encodings: 
+    - name: funct7[25]
+      opcode: 0b1101001
+      start_bit: 25
+      size: 7
+    - name: funct5[20]
+      opcode: 0b00010
+      start_bit: 20
+      size: 5
+  arguments: 
+    - name: rs1
+      start_bit: 15
+      size: 5
+    - name: rm
+      start_bit: 12
+      size: 3
+    - name: frd
+      start_bit: 7
+      size: 5
+  description: 1101001 00010 rs1 rm frd 1010011 FCVT.D.L
+FCVT.D.LU:
+  instruction_type: 
+  opcode: 0b1010011
+  encodings: 
+    - name: funct7[25]
+      opcode: 0b1101001
+      start_bit: 25
+      size: 7
+    - name: funct5[20]
+      opcode: 0b00011
+      start_bit: 20
+      size: 5
+  arguments: 
+    - name: rs1
+      start_bit: 15
+      size: 5
+    - name: rm
+      start_bit: 12
+      size: 3
+    - name: frd
+      start_bit: 7
+      size: 5
+  description: 1101001 00011 rs1 rm frd 1010011 FCVT.D.LU
+FMV.D.X:
+  instruction_type: 
+  opcode: 0b1010011
+  encodings: 
+    - name: funct7[25]
+      opcode: 0b1111001
+      start_bit: 25
+      size: 7
+    - name: funct5[20]
+      opcode: 0b00000
+      start_bit: 20
+      size: 5
+    - name: funct3[12]
+      opcode: 0b000
+      start_bit: 12
+      size: 3
+  arguments: 
+    - name: rs1
+      start_bit: 15
+      size: 5
+    - name: frd
+      start_bit: 7
+      size: 5
+  description: 1111001 00000 rs1 000 frd 1010011 FMV.D.X
+FLQ:
+  instruction_type: 
+  opcode: 0b0000111
+  encodings: 
+    - name: funct3[12]
+      opcode: 0b100
+      start_bit: 12
+      size: 3
+  arguments: 
+    - name: imm[11:0]
+      start_bit: 20
+      size: 12
+    - name: rs1
+      start_bit: 15
+      size: 5
+    - name: frd
+      start_bit: 7
+      size: 5
+  description: imm[11:0] rs1 100 frd 0000111 FLQ
+FSQ:
+  instruction_type: 
+  opcode: 0b0100111
+  encodings: 
+    - name: funct3[12]
+      opcode: 0b100
+      start_bit: 12
+      size: 3
+  arguments: 
+    - name: imm[11:5]
+      start_bit: 25
+      size: 7
+    - name: frs2
+      start_bit: 20
+      size: 5
+    - name: rs1
+      start_bit: 15
+      size: 5
+    - name: imm[4:0]
+      start_bit: 7
+      size: 5
+  description: imm[11:5] frs2 rs1 100 imm[4:0] 0100111 FSQ
+FMADD.Q:
+  instruction_type: 
+  opcode: 0b1000011
+  encodings: 
+    - name: funct2[25]
+      opcode: 0b11
+      start_bit: 25
+      size: 2
+  arguments: 
+    - name: frs3
+      start_bit: 27
+      size: 5
+    - name: frs2
+      start_bit: 20
+      size: 5
+    - name: frs1
+      start_bit: 15
+      size: 5
+    - name: rm
+      start_bit: 12
+      size: 3
+    - name: frd
+      start_bit: 7
+      size: 5
+  description: frs3 11 frs2 frs1 rm frd 1000011 FMADD.Q
+FMSUB.Q:
+  instruction_type: 
+  opcode: 0b1000111
+  encodings: 
+    - name: funct2[25]
+      opcode: 0b11
+      start_bit: 25
+      size: 2
+  arguments: 
+    - name: frs3
+      start_bit: 27
+      size: 5
+    - name: frs2
+      start_bit: 20
+      size: 5
+    - name: frs1
+      start_bit: 15
+      size: 5
+    - name: rm
+      start_bit: 12
+      size: 3
+    - name: frd
+      start_bit: 7
+      size: 5
+  description: frs3 11 frs2 frs1 rm frd 1000111 FMSUB.Q
+FNMSUB.Q:
+  instruction_type: 
+  opcode: 0b1001011
+  encodings: 
+    - name: funct2[25]
+      opcode: 0b11
+      start_bit: 25
+      size: 2
+  arguments: 
+    - name: frs3
+      start_bit: 27
+      size: 5
+    - name: frs2
+      start_bit: 20
+      size: 5
+    - name: frs1
+      start_bit: 15
+      size: 5
+    - name: rm
+      start_bit: 12
+      size: 3
+    - name: frd
+      start_bit: 7
+      size: 5
+  description: frs3 11 frs2 frs1 rm frd 1001011 FNMSUB.Q
+FNMADD.Q:
+  instruction_type: 
+  opcode: 0b1001111
+  encodings: 
+    - name: funct2[25]
+      opcode: 0b11
+      start_bit: 25
+      size: 2
+  arguments: 
+    - name: frs3
+      start_bit: 27
+      size: 5
+    - name: frs2
+      start_bit: 20
+      size: 5
+    - name: frs1
+      start_bit: 15
+      size: 5
+    - name: rm
+      start_bit: 12
+      size: 3
+    - name: frd
+      start_bit: 7
+      size: 5
+  description: frs3 11 frs2 frs1 rm frd 1001111 FNMADD.Q
+FADD.Q:
+  instruction_type: 
+  opcode: 0b1010011
+  encodings: 
+    - name: funct7[25]
+      opcode: 0b0000011
+      start_bit: 25
+      size: 7
+  arguments: 
+    - name: frs2
+      start_bit: 20
+      size: 5
+    - name: frs1
+      start_bit: 15
+      size: 5
+    - name: rm
+      start_bit: 12
+      size: 3
+    - name: frd
+      start_bit: 7
+      size: 5
+  description: 0000011 frs2 frs1 rm frd 1010011 FADD.Q
+FSUB.Q:
+  instruction_type: 
+  opcode: 0b1010011
+  encodings: 
+    - name: funct7[25]
+      opcode: 0b0000111
+      start_bit: 25
+      size: 7
+  arguments: 
+    - name: frs2
+      start_bit: 20
+      size: 5
+    - name: frs1
+      start_bit: 15
+      size: 5
+    - name: rm
+      start_bit: 12
+      size: 3
+    - name: frd
+      start_bit: 7
+      size: 5
+  description: 0000111 frs2 frs1 rm frd 1010011 FSUB.Q
+FMUL.Q:
+  instruction_type: 
+  opcode: 0b1010011
+  encodings: 
+    - name: funct7[25]
+      opcode: 0b0001011
+      start_bit: 25
+      size: 7
+  arguments: 
+    - name: frs2
+      start_bit: 20
+      size: 5
+    - name: frs1
+      start_bit: 15
+      size: 5
+    - name: rm
+      start_bit: 12
+      size: 3
+    - name: frd
+      start_bit: 7
+      size: 5
+  description: 0001011 frs2 frs1 rm frd 1010011 FMUL.Q
+FDIV.Q:
+  instruction_type: 
+  opcode: 0b1010011
+  encodings: 
+    - name: funct7[25]
+      opcode: 0b0001111
+      start_bit: 25
+      size: 7
+  arguments: 
+    - name: frs2
+      start_bit: 20
+      size: 5
+    - name: frs1
+      start_bit: 15
+      size: 5
+    - name: rm
+      start_bit: 12
+      size: 3
+    - name: frd
+      start_bit: 7
+      size: 5
+  description: 0001111 frs2 frs1 rm frd 1010011 FDIV.Q
+FSQRT.Q:
+  instruction_type: 
+  opcode: 0b1010011
+  encodings: 
+    - name: funct7[25]
+      opcode: 0b0101111
+      start_bit: 25
+      size: 7
+    - name: funct5[20]
+      opcode: 0b00000
+      start_bit: 20
+      size: 5
+  arguments: 
+    - name: frs1
+      start_bit: 15
+      size: 5
+    - name: rm
+      start_bit: 12
+      size: 3
+    - name: frd
+      start_bit: 7
+      size: 5
+  description: 0101111 00000 frs1 rm frd 1010011 FSQRT.Q
+FSGNJ.Q:
+  instruction_type: 
+  opcode: 0b1010011
+  encodings: 
+    - name: funct7[25]
+      opcode: 0b0010011
+      start_bit: 25
+      size: 7
+    - name: funct3[12]
+      opcode: 0b000
+      start_bit: 12
+      size: 3
+  arguments: 
+    - name: frs2
+      start_bit: 20
+      size: 5
+    - name: frs1
+      start_bit: 15
+      size: 5
+    - name: frd
+      start_bit: 7
+      size: 5
+  description: 0010011 frs2 frs1 000 frd 1010011 FSGNJ.Q
+FSGNJN.Q:
+  instruction_type: 
+  opcode: 0b1010011
+  encodings: 
+    - name: funct7[25]
+      opcode: 0b0010011
+      start_bit: 25
+      size: 7
+    - name: funct3[12]
+      opcode: 0b001
+      start_bit: 12
+      size: 3
+  arguments: 
+    - name: frs2
+      start_bit: 20
+      size: 5
+    - name: frs1
+      start_bit: 15
+      size: 5
+    - name: frd
+      start_bit: 7
+      size: 5
+  description: 0010011 frs2 frs1 001 frd 1010011 FSGNJN.Q
+FSGNJX.Q:
+  instruction_type: 
+  opcode: 0b1010011
+  encodings: 
+    - name: funct7[25]
+      opcode: 0b0010011
+      start_bit: 25
+      size: 7
+    - name: funct3[12]
+      opcode: 0b010
+      start_bit: 12
+      size: 3
+  arguments: 
+    - name: frs2
+      start_bit: 20
+      size: 5
+    - name: frs1
+      start_bit: 15
+      size: 5
+    - name: frd
+      start_bit: 7
+      size: 5
+  description: 0010011 frs2 frs1 010 frd 1010011 FSGNJX.Q
+FMIN.Q:
+  instruction_type: 
+  opcode: 0b1010011
+  encodings: 
+    - name: funct7[25]
+      opcode: 0b0010111
+      start_bit: 25
+      size: 7
+    - name: funct3[12]
+      opcode: 0b000
+      start_bit: 12
+      size: 3
+  arguments: 
+    - name: frs2
+      start_bit: 20
+      size: 5
+    - name: frs1
+      start_bit: 15
+      size: 5
+    - name: frd
+      start_bit: 7
+      size: 5
+  description: 0010111 frs2 frs1 000 frd 1010011 FMIN.Q
+FMAX.Q:
+  instruction_type: 
+  opcode: 0b1010011
+  encodings: 
+    - name: funct7[25]
+      opcode: 0b0010111
+      start_bit: 25
+      size: 7
+    - name: funct3[12]
+      opcode: 0b001
+      start_bit: 12
+      size: 3
+  arguments: 
+    - name: frs2
+      start_bit: 20
+      size: 5
+    - name: frs1
+      start_bit: 15
+      size: 5
+    - name: frd
+      start_bit: 7
+      size: 5
+  description: 0010111 frs2 frs1 001 frd 1010011 FMAX.Q
+FCVT.S.Q:
+  instruction_type: 
+  opcode: 0b1010011
+  encodings: 
+    - name: funct7[25]
+      opcode: 0b0100000
+      start_bit: 25
+      size: 7
+    - name: funct5[20]
+      opcode: 0b00011
+      start_bit: 20
+      size: 5
+  arguments: 
+    - name: frs1
+      start_bit: 15
+      size: 5
+    - name: rm
+      start_bit: 12
+      size: 3
+    - name: frd
+      start_bit: 7
+      size: 5
+  description: 0100000 00011 frs1 rm frd 1010011 FCVT.S.Q
+FCVT.Q.S:
+  instruction_type: 
+  opcode: 0b1010011
+  encodings: 
+    - name: funct7[25]
+      opcode: 0b0100011
+      start_bit: 25
+      size: 7
+    - name: funct5[20]
+      opcode: 0b00000
+      start_bit: 20
+      size: 5
+  arguments: 
+    - name: frs1
+      start_bit: 15
+      size: 5
+    - name: rm
+      start_bit: 12
+      size: 3
+    - name: frd
+      start_bit: 7
+      size: 5
+  description: 0100011 00000 frs1 rm frd 1010011 FCVT.Q.S
+FCVT.D.Q:
+  instruction_type: 
+  opcode: 0b1010011
+  encodings: 
+    - name: funct7[25]
+      opcode: 0b0100001
+      start_bit: 25
+      size: 7
+    - name: funct5[20]
+      opcode: 0b00011
+      start_bit: 20
+      size: 5
+  arguments: 
+    - name: frs1
+      start_bit: 15
+      size: 5
+    - name: rm
+      start_bit: 12
+      size: 3
+    - name: frd
+      start_bit: 7
+      size: 5
+  description: 0100001 00011 frs1 rm frd 1010011 FCVT.D.Q
+FCVT.Q.D:
+  instruction_type: 
+  opcode: 0b1010011
+  encodings: 
+    - name: funct7[25]
+      opcode: 0b0100011
+      start_bit: 25
+      size: 7
+    - name: funct5[20]
+      opcode: 0b00001
+      start_bit: 20
+      size: 5
+  arguments: 
+    - name: frs1
+      start_bit: 15
+      size: 5
+    - name: rm
+      start_bit: 12
+      size: 3
+    - name: frd
+      start_bit: 7
+      size: 5
+  description: 0100011 00001 frs1 rm frd 1010011 FCVT.Q.D
+FEQ.Q:
+  instruction_type: 
+  opcode: 0b1010011
+  encodings: 
+    - name: funct7[25]
+      opcode: 0b1010011
+      start_bit: 25
+      size: 7
+    - name: funct3[12]
+      opcode: 0b010
+      start_bit: 12
+      size: 3
+  arguments: 
+    - name: frs2
+      start_bit: 20
+      size: 5
+    - name: frs1
+      start_bit: 15
+      size: 5
+    - name: rd
+      start_bit: 7
+      size: 5
+  description: 1010011 frs2 frs1 010 rd 1010011 FEQ.Q
+FLT.Q:
+  instruction_type: 
+  opcode: 0b1010011
+  encodings: 
+    - name: funct7[25]
+      opcode: 0b1010011
+      start_bit: 25
+      size: 7
+    - name: funct3[12]
+      opcode: 0b001
+      start_bit: 12
+      size: 3
+  arguments: 
+    - name: frs2
+      start_bit: 20
+      size: 5
+    - name: frs1
+      start_bit: 15
+      size: 5
+    - name: rd
+      start_bit: 7
+      size: 5
+  description: 1010011 frs2 frs1 001 rd 1010011 FLT.Q
+FLE.Q:
+  instruction_type: 
+  opcode: 0b1010011
+  encodings: 
+    - name: funct7[25]
+      opcode: 0b1010011
+      start_bit: 25
+      size: 7
+    - name: funct3[12]
+      opcode: 0b000
+      start_bit: 12
+      size: 3
+  arguments: 
+    - name: frs2
+      start_bit: 20
+      size: 5
+    - name: frs1
+      start_bit: 15
+      size: 5
+    - name: rd
+      start_bit: 7
+      size: 5
+  description: 1010011 frs2 frs1 000 rd 1010011 FLE.Q
+FCLASS.Q:
+  instruction_type: 
+  opcode: 0b1010011
+  encodings: 
+    - name: funct7[25]
+      opcode: 0b1110011
+      start_bit: 25
+      size: 7
+    - name: funct5[20]
+      opcode: 0b00000
+      start_bit: 20
+      size: 5
+    - name: funct3[12]
+      opcode: 0b001
+      start_bit: 12
+      size: 3
+  arguments: 
+    - name: frs1
+      start_bit: 15
+      size: 5
+    - name: rd
+      start_bit: 7
+      size: 5
+  description: 1110011 00000 frs1 001 rd 1010011 FCLASS.Q
+FCVT.W.Q:
+  instruction_type: 
+  opcode: 0b1010011
+  encodings: 
+    - name: funct7[25]
+      opcode: 0b1100011
+      start_bit: 25
+      size: 7
+    - name: funct5[20]
+      opcode: 0b00000
+      start_bit: 20
+      size: 5
+  arguments: 
+    - name: frs1
+      start_bit: 15
+      size: 5
+    - name: rm
+      start_bit: 12
+      size: 3
+    - name: rd
+      start_bit: 7
+      size: 5
+  description: 1100011 00000 frs1 rm rd 1010011 FCVT.W.Q
+FCVT.WU.Q:
+  instruction_type: 
+  opcode: 0b1010011
+  encodings: 
+    - name: funct7[25]
+      opcode: 0b1100011
+      start_bit: 25
+      size: 7
+    - name: funct5[20]
+      opcode: 0b00001
+      start_bit: 20
+      size: 5
+  arguments: 
+    - name: frs1
+      start_bit: 15
+      size: 5
+    - name: rm
+      start_bit: 12
+      size: 3
+    - name: rd
+      start_bit: 7
+      size: 5
+  description: 1100011 00001 frs1 rm rd 1010011 FCVT.WU.Q
+FCVT.Q.W:
+  instruction_type: 
+  opcode: 0b1010011
+  encodings: 
+    - name: funct7[25]
+      opcode: 0b1101011
+      start_bit: 25
+      size: 7
+    - name: funct5[20]
+      opcode: 0b00000
+      start_bit: 20
+      size: 5
+  arguments: 
+    - name: rs1
+      start_bit: 15
+      size: 5
+    - name: rm
+      start_bit: 12
+      size: 3
+    - name: frd
+      start_bit: 7
+      size: 5
+  description: 1101011 00000 rs1 rm frd 1010011 FCVT.Q.W
+FCVT.Q.WU:
+  instruction_type: 
+  opcode: 0b1010011
+  encodings: 
+    - name: funct7[25]
+      opcode: 0b1101011
+      start_bit: 25
+      size: 7
+    - name: funct5[20]
+      opcode: 0b00001
+      start_bit: 20
+      size: 5
+  arguments: 
+    - name: rs1
+      start_bit: 15
+      size: 5
+    - name: rm
+      start_bit: 12
+      size: 3
+    - name: frd
+      start_bit: 7
+      size: 5
+  description: 1101011 00001 rs1 rm frd 1010011 FCVT.Q.WU
+FCVT.L.Q:
+  instruction_type: 
+  opcode: 0b1010011
+  encodings: 
+    - name: funct7[25]
+      opcode: 0b1100011
+      start_bit: 25
+      size: 7
+    - name: funct5[20]
+      opcode: 0b00010
+      start_bit: 20
+      size: 5
+  arguments: 
+    - name: frs1
+      start_bit: 15
+      size: 5
+    - name: rm
+      start_bit: 12
+      size: 3
+    - name: rd
+      start_bit: 7
+      size: 5
+  description: 1100011 00010 frs1 rm rd 1010011 FCVT.L.Q
+FCVT.LU.Q:
+  instruction_type: 
+  opcode: 0b1010011
+  encodings: 
+    - name: funct7[25]
+      opcode: 0b1100011
+      start_bit: 25
+      size: 7
+    - name: funct5[20]
+      opcode: 0b00011
+      start_bit: 20
+      size: 5
+  arguments: 
+    - name: frs1
+      start_bit: 15
+      size: 5
+    - name: rm
+      start_bit: 12
+      size: 3
+    - name: rd
+      start_bit: 7
+      size: 5
+  description: 1100011 00011 frs1 rm rd 1010011 FCVT.LU.Q
+FCVT.Q.L:
+  instruction_type: 
+  opcode: 0b1010011
+  encodings: 
+    - name: funct7[25]
+      opcode: 0b1101011
+      start_bit: 25
+      size: 7
+    - name: funct5[20]
+      opcode: 0b00010
+      start_bit: 20
+      size: 5
+  arguments: 
+    - name: rs1
+      start_bit: 15
+      size: 5
+    - name: rm
+      start_bit: 12
+      size: 3
+    - name: frd
+      start_bit: 7
+      size: 5
+  description: 1101011 00010 rs1 rm frd 1010011 FCVT.Q.L
+FCVT.Q.LU:
+  instruction_type: 
+  opcode: 0b1010011
+  encodings: 
+    - name: funct7[25]
+      opcode: 0b1101011
+      start_bit: 25
+      size: 7
+    - name: funct5[20]
+      opcode: 0b00011
+      start_bit: 20
+      size: 5
+  arguments: 
+    - name: rs1
+      start_bit: 15
+      size: 5
+    - name: rm
+      start_bit: 12
+      size: 3
+    - name: frd
+      start_bit: 7
+      size: 5
+  description: 1101011 00011 rs1 rm frd 1010011 FCVT.Q.LU
+FLH:
+  instruction_type: 
+  opcode: 0b0000111
+  encodings: 
+    - name: funct3[12]
+      opcode: 0b001
+      start_bit: 12
+      size: 3
+  arguments: 
+    - name: imm[11:0]
+      start_bit: 20
+      size: 12
+    - name: rs1
+      start_bit: 15
+      size: 5
+    - name: rd
+      start_bit: 7
+      size: 5
+  description: imm[11:0] rs1 001 rd 0000111 FLH
+FSH:
+  instruction_type: 
+  opcode: 0b0100111
+  encodings: 
+    - name: funct3[12]
+      opcode: 0b001
+      start_bit: 12
+      size: 3
+  arguments: 
+    - name: imm[11:5]
+      start_bit: 25
+      size: 7
+    - name: rs2
+      start_bit: 20
+      size: 5
+    - name: rs1
+      start_bit: 15
+      size: 5
+    - name: imm[4:0]
+      start_bit: 7
+      size: 5
+  description: imm[11:5] rs2 rs1 001 imm[4:0] 0100111 FSH
+FMADD.H:
+  instruction_type: 
+  opcode: 0b1000011
+  encodings: 
+    - name: funct2[25]
+      opcode: 0b10
+      start_bit: 25
+      size: 2
+  arguments: 
+    - name: rs3
+      start_bit: 27
+      size: 5
+    - name: rs2
+      start_bit: 20
+      size: 5
+    - name: rs1
+      start_bit: 15
+      size: 5
+    - name: rm
+      start_bit: 12
+      size: 3
+    - name: rd
+      start_bit: 7
+      size: 5
+  description: rs3 10 rs2 rs1 rm rd 1000011 FMADD.H
+FMSUB.H:
+  instruction_type: 
+  opcode: 0b1000111
+  encodings: 
+    - name: funct2[25]
+      opcode: 0b10
+      start_bit: 25
+      size: 2
+  arguments: 
+    - name: rs3
+      start_bit: 27
+      size: 5
+    - name: rs2
+      start_bit: 20
+      size: 5
+    - name: rs1
+      start_bit: 15
+      size: 5
+    - name: rm
+      start_bit: 12
+      size: 3
+    - name: rd
+      start_bit: 7
+      size: 5
+  description: rs3 10 rs2 rs1 rm rd 1000111 FMSUB.H
+FNMSUB.H:
+  instruction_type: 
+  opcode: 0b1001011
+  encodings: 
+    - name: funct2[25]
+      opcode: 0b10
+      start_bit: 25
+      size: 2
+  arguments: 
+    - name: rs3
+      start_bit: 27
+      size: 5
+    - name: rs2
+      start_bit: 20
+      size: 5
+    - name: rs1
+      start_bit: 15
+      size: 5
+    - name: rm
+      start_bit: 12
+      size: 3
+    - name: rd
+      start_bit: 7
+      size: 5
+  description: rs3 10 rs2 rs1 rm rd 1001011 FNMSUB.H
+FNMADD.H:
+  instruction_type: 
+  opcode: 0b1001111
+  encodings: 
+    - name: funct2[25]
+      opcode: 0b10
+      start_bit: 25
+      size: 2
+  arguments: 
+    - name: rs3
+      start_bit: 27
+      size: 5
+    - name: rs2
+      start_bit: 20
+      size: 5
+    - name: rs1
+      start_bit: 15
+      size: 5
+    - name: rm
+      start_bit: 12
+      size: 3
+    - name: rd
+      start_bit: 7
+      size: 5
+  description: rs3 10 rs2 rs1 rm rd 1001111 FNMADD.H
+FADD.H:
+  instruction_type: 
+  opcode: 0b1010011
+  encodings: 
+    - name: funct7[25]
+      opcode: 0b0000010
+      start_bit: 25
+      size: 7
+  arguments: 
+    - name: rs2
+      start_bit: 20
+      size: 5
+    - name: rs1
+      start_bit: 15
+      size: 5
+    - name: rm
+      start_bit: 12
+      size: 3
+    - name: rd
+      start_bit: 7
+      size: 5
+  description: 0000010 rs2 rs1 rm rd 1010011 FADD.H
+FSUB.H:
+  instruction_type: 
+  opcode: 0b1010011
+  encodings: 
+    - name: funct7[25]
+      opcode: 0b0000110
+      start_bit: 25
+      size: 7
+  arguments: 
+    - name: rs2
+      start_bit: 20
+      size: 5
+    - name: rs1
+      start_bit: 15
+      size: 5
+    - name: rm
+      start_bit: 12
+      size: 3
+    - name: rd
+      start_bit: 7
+      size: 5
+  description: 0000110 rs2 rs1 rm rd 1010011 FSUB.H
+FMUL.H:
+  instruction_type: 
+  opcode: 0b1010011
+  encodings: 
+    - name: funct7[25]
+      opcode: 0b0001010
+      start_bit: 25
+      size: 7
+  arguments: 
+    - name: rs2
+      start_bit: 20
+      size: 5
+    - name: rs1
+      start_bit: 15
+      size: 5
+    - name: rm
+      start_bit: 12
+      size: 3
+    - name: rd
+      start_bit: 7
+      size: 5
+  description: 0001010 rs2 rs1 rm rd 1010011 FMUL.H
+FDIV.H:
+  instruction_type: 
+  opcode: 0b1010011
+  encodings: 
+    - name: funct7[25]
+      opcode: 0b0001110
+      start_bit: 25
+      size: 7
+  arguments: 
+    - name: rs2
+      start_bit: 20
+      size: 5
+    - name: rs1
+      start_bit: 15
+      size: 5
+    - name: rm
+      start_bit: 12
+      size: 3
+    - name: rd
+      start_bit: 7
+      size: 5
+  description: 0001110 rs2 rs1 rm rd 1010011 FDIV.H
+FSQRT.H:
+  instruction_type: 
+  opcode: 0b1010011
+  encodings: 
+    - name: funct7[25]
+      opcode: 0b0101110
+      start_bit: 25
+      size: 7
+    - name: funct5[20]
+      opcode: 0b00000
+      start_bit: 20
+      size: 5
+  arguments: 
+    - name: rs1
+      start_bit: 15
+      size: 5
+    - name: rm
+      start_bit: 12
+      size: 3
+    - name: rd
+      start_bit: 7
+      size: 5
+  description: 0101110 00000 rs1 rm rd 1010011 FSQRT.H
+FSGNJ.H:
+  instruction_type: 
+  opcode: 0b1010011
+  encodings: 
+    - name: funct7[25]
+      opcode: 0b0010010
+      start_bit: 25
+      size: 7
+    - name: funct3[12]
+      opcode: 0b000
+      start_bit: 12
+      size: 3
+  arguments: 
+    - name: rs2
+      start_bit: 20
+      size: 5
+    - name: rs1
+      start_bit: 15
+      size: 5
+    - name: rd
+      start_bit: 7
+      size: 5
+  description: 0010010 rs2 rs1 000 rd 1010011 FSGNJ.H
+FSGNJN.H:
+  instruction_type: 
+  opcode: 0b1010011
+  encodings: 
+    - name: funct7[25]
+      opcode: 0b0010010
+      start_bit: 25
+      size: 7
+    - name: funct3[12]
+      opcode: 0b001
+      start_bit: 12
+      size: 3
+  arguments: 
+    - name: rs2
+      start_bit: 20
+      size: 5
+    - name: rs1
+      start_bit: 15
+      size: 5
+    - name: rd
+      start_bit: 7
+      size: 5
+  description: 0010010 rs2 rs1 001 rd 1010011 FSGNJN.H
+FSGNJX.H:
+  instruction_type: 
+  opcode: 0b1010011
+  encodings: 
+    - name: funct7[25]
+      opcode: 0b0010010
+      start_bit: 25
+      size: 7
+    - name: funct3[12]
+      opcode: 0b010
+      start_bit: 12
+      size: 3
+  arguments: 
+    - name: rs2
+      start_bit: 20
+      size: 5
+    - name: rs1
+      start_bit: 15
+      size: 5
+    - name: rd
+      start_bit: 7
+      size: 5
+  description: 0010010 rs2 rs1 010 rd 1010011 FSGNJX.H
+FMIN.H:
+  instruction_type: 
+  opcode: 0b1010011
+  encodings: 
+    - name: funct7[25]
+      opcode: 0b0010110
+      start_bit: 25
+      size: 7
+    - name: funct3[12]
+      opcode: 0b000
+      start_bit: 12
+      size: 3
+  arguments: 
+    - name: rs2
+      start_bit: 20
+      size: 5
+    - name: rs1
+      start_bit: 15
+      size: 5
+    - name: rd
+      start_bit: 7
+      size: 5
+  description: 0010110 rs2 rs1 000 rd 1010011 FMIN.H
+FMAX.H:
+  instruction_type: 
+  opcode: 0b1010011
+  encodings: 
+    - name: funct7[25]
+      opcode: 0b0010110
+      start_bit: 25
+      size: 7
+    - name: funct3[12]
+      opcode: 0b001
+      start_bit: 12
+      size: 3
+  arguments: 
+    - name: rs2
+      start_bit: 20
+      size: 5
+    - name: rs1
+      start_bit: 15
+      size: 5
+    - name: rd
+      start_bit: 7
+      size: 5
+  description: 0010110 rs2 rs1 001 rd 1010011 FMAX.H
+FCVT.S.H:
+  instruction_type: 
+  opcode: 0b1010011
+  encodings: 
+    - name: funct7[25]
+      opcode: 0b0100000
+      start_bit: 25
+      size: 7
+    - name: funct5[20]
+      opcode: 0b00010
+      start_bit: 20
+      size: 5
+  arguments: 
+    - name: rs1
+      start_bit: 15
+      size: 5
+    - name: rm
+      start_bit: 12
+      size: 3
+    - name: rd
+      start_bit: 7
+      size: 5
+  description: 0100000 00010 rs1 rm rd 1010011 FCVT.S.H
+FCVT.H.S:
+  instruction_type: 
+  opcode: 0b1010011
+  encodings: 
+    - name: funct7[25]
+      opcode: 0b0100010
+      start_bit: 25
+      size: 7
+    - name: funct5[20]
+      opcode: 0b00000
+      start_bit: 20
+      size: 5
+  arguments: 
+    - name: rs1
+      start_bit: 15
+      size: 5
+    - name: rm
+      start_bit: 12
+      size: 3
+    - name: rd
+      start_bit: 7
+      size: 5
+  description: 0100010 00000 rs1 rm rd 1010011 FCVT.H.S
+FCVT.D.H:
+  instruction_type: 
+  opcode: 0b1010011
+  encodings: 
+    - name: funct7[25]
+      opcode: 0b0100001
+      start_bit: 25
+      size: 7
+    - name: funct5[20]
+      opcode: 0b00010
+      start_bit: 20
+      size: 5
+  arguments: 
+    - name: rs1
+      start_bit: 15
+      size: 5
+    - name: rm
+      start_bit: 12
+      size: 3
+    - name: rd
+      start_bit: 7
+      size: 5
+  description: 0100001 00010 rs1 rm rd 1010011 FCVT.D.H
+FCVT.H.D:
+  instruction_type: 
+  opcode: 0b1010011
+  encodings: 
+    - name: funct7[25]
+      opcode: 0b0100010
+      start_bit: 25
+      size: 7
+    - name: funct5[20]
+      opcode: 0b00001
+      start_bit: 20
+      size: 5
+  arguments: 
+    - name: rs1
+      start_bit: 15
+      size: 5
+    - name: rm
+      start_bit: 12
+      size: 3
+    - name: rd
+      start_bit: 7
+      size: 5
+  description: 0100010 00001 rs1 rm rd 1010011 FCVT.H.D
+FCVT.Q.H:
+  instruction_type: 
+  opcode: 0b1010011
+  encodings: 
+    - name: funct7[25]
+      opcode: 0b0100011
+      start_bit: 25
+      size: 7
+    - name: funct5[20]
+      opcode: 0b00010
+      start_bit: 20
+      size: 5
+  arguments: 
+    - name: rs1
+      start_bit: 15
+      size: 5
+    - name: rm
+      start_bit: 12
+      size: 3
+    - name: rd
+      start_bit: 7
+      size: 5
+  description: 0100011 00010 rs1 rm rd 1010011 FCVT.Q.H
+FCVT.H.Q:
+  instruction_type: 
+  opcode: 0b1010011
+  encodings: 
+    - name: funct7[25]
+      opcode: 0b0100010
+      start_bit: 25
+      size: 7
+    - name: funct5[20]
+      opcode: 0b00011
+      start_bit: 20
+      size: 5
+  arguments: 
+    - name: rs1
+      start_bit: 15
+      size: 5
+    - name: rm
+      start_bit: 12
+      size: 3
+    - name: rd
+      start_bit: 7
+      size: 5
+  description: 0100010 00011 rs1 rm rd 1010011 FCVT.H.Q
+FEQ.H:
+  instruction_type: 
+  opcode: 0b1010011
+  encodings: 
+    - name: funct7[25]
+      opcode: 0b1010010
+      start_bit: 25
+      size: 7
+    - name: funct3[12]
+      opcode: 0b010
+      start_bit: 12
+      size: 3
+  arguments: 
+    - name: rs2
+      start_bit: 20
+      size: 5
+    - name: rs1
+      start_bit: 15
+      size: 5
+    - name: rd
+      start_bit: 7
+      size: 5
+  description: 1010010 rs2 rs1 010 rd 1010011 FEQ.H
+FLT.H:
+  instruction_type: 
+  opcode: 0b1010011
+  encodings: 
+    - name: funct7[25]
+      opcode: 0b1010010
+      start_bit: 25
+      size: 7
+    - name: funct3[12]
+      opcode: 0b001
+      start_bit: 12
+      size: 3
+  arguments: 
+    - name: rs2
+      start_bit: 20
+      size: 5
+    - name: rs1
+      start_bit: 15
+      size: 5
+    - name: rd
+      start_bit: 7
+      size: 5
+  description: 1010010 rs2 rs1 001 rd 1010011 FLT.H
+FLE.H:
+  instruction_type: 
+  opcode: 0b1010011
+  encodings: 
+    - name: funct7[25]
+      opcode: 0b1010010
+      start_bit: 25
+      size: 7
+    - name: funct3[12]
+      opcode: 0b000
+      start_bit: 12
+      size: 3
+  arguments: 
+    - name: rs2
+      start_bit: 20
+      size: 5
+    - name: rs1
+      start_bit: 15
+      size: 5
+    - name: rd
+      start_bit: 7
+      size: 5
+  description: 1010010 rs2 rs1 000 rd 1010011 FLE.H
+FCLASS.H:
+  instruction_type: 
+  opcode: 0b1010011
+  encodings: 
+    - name: funct7[25]
+      opcode: 0b1110010
+      start_bit: 25
+      size: 7
+    - name: funct5[20]
+      opcode: 0b00000
+      start_bit: 20
+      size: 5
+    - name: funct3[12]
+      opcode: 0b001
+      start_bit: 12
+      size: 3
+  arguments: 
+    - name: rs1
+      start_bit: 15
+      size: 5
+    - name: rd
+      start_bit: 7
+      size: 5
+  description: 1110010 00000 rs1 001 rd 1010011 FCLASS.H
+FCVT.W.H:
+  instruction_type: 
+  opcode: 0b1010011
+  encodings: 
+    - name: funct7[25]
+      opcode: 0b1100010
+      start_bit: 25
+      size: 7
+    - name: funct5[20]
+      opcode: 0b00000
+      start_bit: 20
+      size: 5
+  arguments: 
+    - name: rs1
+      start_bit: 15
+      size: 5
+    - name: rm
+      start_bit: 12
+      size: 3
+    - name: rd
+      start_bit: 7
+      size: 5
+  description: 1100010 00000 rs1 rm rd 1010011 FCVT.W.H
+FCVT.WU.H:
+  instruction_type: 
+  opcode: 0b1010011
+  encodings: 
+    - name: funct7[25]
+      opcode: 0b1100010
+      start_bit: 25
+      size: 7
+    - name: funct5[20]
+      opcode: 0b00001
+      start_bit: 20
+      size: 5
+  arguments: 
+    - name: rs1
+      start_bit: 15
+      size: 5
+    - name: rm
+      start_bit: 12
+      size: 3
+    - name: rd
+      start_bit: 7
+      size: 5
+  description: 1100010 00001 rs1 rm rd 1010011 FCVT.WU.H
+FMV.X.H:
+  instruction_type: 
+  opcode: 0b1010011
+  encodings: 
+    - name: funct7[25]
+      opcode: 0b1110010
+      start_bit: 25
+      size: 7
+    - name: funct5[20]
+      opcode: 0b00000
+      start_bit: 20
+      size: 5
+    - name: funct3[12]
+      opcode: 0b000
+      start_bit: 12
+      size: 3
+  arguments: 
+    - name: rs1
+      start_bit: 15
+      size: 5
+    - name: rd
+      start_bit: 7
+      size: 5
+  description: 1110010 00000 rs1 000 rd 1010011 FMV.X.H
+FCVT.H.W:
+  instruction_type: 
+  opcode: 0b1010011
+  encodings: 
+    - name: funct7[25]
+      opcode: 0b1101010
+      start_bit: 25
+      size: 7
+    - name: funct5[20]
+      opcode: 0b00000
+      start_bit: 20
+      size: 5
+  arguments: 
+    - name: rs1
+      start_bit: 15
+      size: 5
+    - name: rm
+      start_bit: 12
+      size: 3
+    - name: rd
+      start_bit: 7
+      size: 5
+  description: 1101010 00000 rs1 rm rd 1010011 FCVT.H.W
+FCVT.H.WU:
+  instruction_type: 
+  opcode: 0b1010011
+  encodings: 
+    - name: funct7[25]
+      opcode: 0b1101010
+      start_bit: 25
+      size: 7
+    - name: funct5[20]
+      opcode: 0b00001
+      start_bit: 20
+      size: 5
+  arguments: 
+    - name: rs1
+      start_bit: 15
+      size: 5
+    - name: rm
+      start_bit: 12
+      size: 3
+    - name: rd
+      start_bit: 7
+      size: 5
+  description: 1101010 00001 rs1 rm rd 1010011 FCVT.H.WU
+FMV.H.X:
+  instruction_type: 
+  opcode: 0b1010011
+  encodings: 
+    - name: funct7[25]
+      opcode: 0b1111010
+      start_bit: 25
+      size: 7
+    - name: funct5[20]
+      opcode: 0b00000
+      start_bit: 20
+      size: 5
+    - name: funct3[12]
+      opcode: 0b000
+      start_bit: 12
+      size: 3
+  arguments: 
+    - name: rs1
+      start_bit: 15
+      size: 5
+    - name: rd
+      start_bit: 7
+      size: 5
+  description: 1111010 00000 rs1 000 rd 1010011 FMV.H.X
+FCVT.L.H:
+  instruction_type: 
+  opcode: 0b1010011
+  encodings: 
+    - name: funct7[25]
+      opcode: 0b1100010
+      start_bit: 25
+      size: 7
+    - name: funct5[20]
+      opcode: 0b00010
+      start_bit: 20
+      size: 5
+  arguments: 
+    - name: rs1
+      start_bit: 15
+      size: 5
+    - name: rm
+      start_bit: 12
+      size: 3
+    - name: rd
+      start_bit: 7
+      size: 5
+  description: 1100010 00010 rs1 rm rd 1010011 FCVT.L.H
+FCVT.LU.H:
+  instruction_type: 
+  opcode: 0b1010011
+  encodings: 
+    - name: funct7[25]
+      opcode: 0b1100010
+      start_bit: 25
+      size: 7
+    - name: funct5[20]
+      opcode: 0b00011
+      start_bit: 20
+      size: 5
+  arguments: 
+    - name: rs1
+      start_bit: 15
+      size: 5
+    - name: rm
+      start_bit: 12
+      size: 3
+    - name: rd
+      start_bit: 7
+      size: 5
+  description: 1100010 00011 rs1 rm rd 1010011 FCVT.LU.H
+FCVT.H.L:
+  instruction_type: 
+  opcode: 0b1010011
+  encodings: 
+    - name: funct7[25]
+      opcode: 0b1101010
+      start_bit: 25
+      size: 7
+    - name: funct5[20]
+      opcode: 0b00010
+      start_bit: 20
+      size: 5
+  arguments: 
+    - name: rs1
+      start_bit: 15
+      size: 5
+    - name: rm
+      start_bit: 12
+      size: 3
+    - name: rd
+      start_bit: 7
+      size: 5
+  description: 1101010 00010 rs1 rm rd 1010011 FCVT.H.L
+FCVT.H.LU:
+  instruction_type: 
+  opcode: 0b1010011
+  encodings: 
+    - name: funct7[25]
+      opcode: 0b1101010
+      start_bit: 25
+      size: 7
+    - name: funct5[20]
+      opcode: 0b00011
+      start_bit: 20
+      size: 5
+  arguments: 
+    - name: rs1
+      start_bit: 15
+      size: 5
+    - name: rm
+      start_bit: 12
+      size: 3
+    - name: rd
+      start_bit: 7
+      size: 5
+  description: 1101010 00011 rs1 rm rd 1010011 FCVT.H.LU
+WRS.NTO:
+  instruction_type: 
+  opcode: 0b1110011
+  encodings: 
+    - name: funct12[20]
+      opcode: 0b000000001101
+      start_bit: 20
+      size: 12
+    - name: funct5[15]
+      opcode: 0b00000
+      start_bit: 15
+      size: 5
+    - name: funct3[12]
+      opcode: 0b000
+      start_bit: 12
+      size: 3
+    - name: funct5[7]
+      opcode: 0b00000
+      start_bit: 7
+      size: 5
+  arguments: 
+  description: 000000001101 00000 000 00000 1110011 WRS.NTO
+WRS.STO:
+  instruction_type: 
+  opcode: 0b1110011
+  encodings: 
+    - name: funct12[20]
+      opcode: 0b000000011101
+      start_bit: 20
+      size: 12
+    - name: funct5[15]
+      opcode: 0b00000
+      start_bit: 15
+      size: 5
+    - name: funct3[12]
+      opcode: 0b000
+      start_bit: 12
+      size: 3
+    - name: funct5[7]
+      opcode: 0b00000
+      start_bit: 7
+      size: 5
+  arguments: 
+  description: 000000011101 00000 000 00000 1110011 WRS.STO

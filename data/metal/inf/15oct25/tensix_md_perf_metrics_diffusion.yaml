@@ -1,0 +1,64 @@
+-   batch: 1
+    fps: null
+    gpu: Tensix
+    hardware: n150 (Wormhole)
+    id: metal
+    images_per_sec: null
+    input_dtype: bf8
+    model: Stable Diffusion 1.4 (512x512)
+    precision: bf8
+    release: null
+    sec_per_image: 6.25
+    sentences_per_sec: null
+    target_fps: null
+    target_images_per_sec: null
+    target_sec_per_image: 3.0
+    target_sentences_per_sec: null
+    target_tokens_per_sec_per_user: null
+    tokens_per_sec: null
+    tokens_per_sec_per_user: null
+    ttft_ms: null
+    vllm_repo_release: null
+-   batch: 1
+    fps: null
+    gpu: Tensix
+    hardware: p150 (Blackhole)
+    id: metal
+    images_per_sec: null
+    input_dtype: bf8
+    model: Stable Diffusion 1.4 (512x512)
+    precision: bf8
+    release: null
+    sec_per_image: 3.5
+    sentences_per_sec: null
+    target_fps: null
+    target_images_per_sec: null
+    target_sec_per_image: null
+    target_sentences_per_sec: null
+    target_tokens_per_sec_per_user: null
+    tokens_per_sec: null
+    tokens_per_sec_per_user: null
+    ttft_ms: null
+    vllm_repo_release: null
+-   batch: 1
+    fps: null
+    gpu: Tensix
+    hardware: n150 (Wormhole)
+    id: metal
+    images_per_sec: null
+    input_dtype: bf8
+    model: Stable Diffusion 3.5 Medium (512x512)
+    precision: bf8
+    release: null
+    sec_per_image: 16.0
+    sentences_per_sec: null
+    target_fps: null
+    target_images_per_sec: null
+    target_sec_per_image: 10.0
+    target_sentences_per_sec: null
+    target_tokens_per_sec_per_user: null
+    tokens_per_sec: null
+    tokens_per_sec_per_user: null
+    ttft_ms: null
+    vllm_repo_release: null
+

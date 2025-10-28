@@ -27,6 +27,7 @@ ipblocks:
             -   {name: tanh,  tpt: {int8: 128.,  int32: 32., fp32: 32. }}
             -   {name: log,   tpt: {int8: 128.,  int32: 32., fp32: 32. }}
             -   {name: exp,   tpt: {int8: 128.,  int32: 32., fp32: 32. }}
+            -   {name: sqrt,  tpt: {int8: 128.,  int32: 32., fp32: 32. }}
             -   {name: rsqrt, tpt: {int8: 128.,  int32: 32., fp32: 32. }}
             -   {name: cmp,   tpt: {int8: 128.,  int32: 32., fp32: 32. }}
             -   {name: mov,   tpt: {int8: 128.,  int32: 32., fp32: 32. }}

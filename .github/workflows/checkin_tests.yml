@@ -5,15 +5,24 @@ name: Checkin Tests
 
 on:
   workflow_dispatch:
-  workflow_call:
   push:
   pull_request:
-    branches:
-      - main
+  merge_group:
 
 jobs:
   checkin-tests:
-    runs-on: tt-beta-ubuntu-2204-large
+    env:
+      GIST_ID: 'c230835a5065366c13d3bbfb79f23bf6'
+      GIST_TOKEN: ${{ secrets.POLARIS_GIST_TOKEN }}
+      REPO_NAME: ${{ github.event.repository.name }}
+      GITHUB_REF: ${{ github.ref }}
+      GITHUB_SHA: ${{ github.sha }}
+      PASS_YELLOW: 75
+      PASS_REQUIRED: 95
+      COVERAGE_YELLOW: 75
+      COVERAGE_REQUIRED: 85
+
+    runs-on: tt-ubuntu-2204-large-stable
     strategy:
       max-parallel: 5
 
@@ -22,54 +31,189 @@ jobs:
         shell: bash -el {0}
 
     steps:
-    - uses: actions/checkout@v4
-    - uses: mamba-org/setup-micromamba@v2
-      id: setup-mamba
+    - id: checkout
+      name: Checkout
+      uses: actions/checkout@v4
+
+    - id: lfcdownload
+      name: Download required files from LFC
+      uses: ./.github/actions/lfcdownload
+
+    - id: setup-mamba
+      name: Setup mamba - developer
+      if: '!cancelled()'
+      uses: ./.github/actions/setup_mamba
       with:
         environment-file: envdev.yaml
         environment-name: poldevenv
-        post-cleanup: all
 
-    - name: check-micromamba-config     # Ensure default channels are not being used
-      run: |
-        micromamba info
-        micromamba list
+    - id: run-unit-and-coverage-tests
+      name: Run Unit and Coverage Tests
+      if: '!cancelled()'
+      uses: ./.github/actions/run-python-tests
 
-    - name: Run Unit and Coverage Tests
-      run: | 
-        coverage erase
-        coverage run -m pytest -m "not tools_secondary" --junitxml __ci/xml/junit.xml
-        coverage combine
-        coverage report 
-        coverage html -d __ci/html/
-        coverage xml -o __ci/xml/coverage.xml
-    - name: Run Checkin Tests
-      if: always()
-      run: |
-        python checkin_tests.py static
-    - name: Run standalone workload tests
-      if: always()
-      run: |
-        for test in tests/test_workloads/test_*.py; do
-          python -m pytest $test
-        done
-    - name: Check license and copyright
-      if: always()
-      run: |
-          python tools/spdxchecker.py --ignore .github/spdxchecker-ignore.yml --allowed-licenses Apache-2.0 --allowed-copyright "Tenstorrent AI ULC"
+    - id: run-static-analysis
+      name: Run Static Analysis
+      if: '!cancelled()'
+      uses: ./.github/actions/run-static-analysis
 
-    - name: Upload artifacts
-      if: always()
+    - id: run-rtl-tests
+      name: Run RTL Tests
+      if: '!cancelled()'
+      continue-on-error: true
+      uses: ./.github/actions/run-rtl-tests
+      with:
+        tag: sep23
+        parallel: 4
+        lfc-files: 'ext_rtl_test_data_set_sep23.tar.gz'
+        results-file: 'rtl_test_results.txt'
+
+    - id: generate-test-badges
+      name: Generate Test and Coverage Badges
+      if: ${{ !cancelled() && github.event_name == 'push' }}
+      uses: ./.github/actions/generate-test-badges
+      with:
+        gist-id: ${{ env.GIST_ID }}
+        gist-token: ${{ env.GIST_TOKEN }}
+        repo-name: ${{ env.REPO_NAME }}
+        is-main-branch: ${{ github.ref == 'refs/heads/main' }}
+        coverage-yellow-threshold: ${{ env.COVERAGE_YELLOW }}
+        coverage-required-threshold: ${{ env.COVERAGE_REQUIRED }}
+        test-yellow-threshold: ${{ env.PASS_YELLOW }}
+        test-required-threshold: ${{ env.PASS_REQUIRED }}
+
+    - id: generate-status-badges
+      name: Generate Status Badges
+      if: ${{ !cancelled() && github.event_name == 'push' }}
+      uses: ./.github/actions/generate-status-badges
+      with:
+        gist-id: ${{ env.GIST_ID }}
+        gist-token: ${{ env.GIST_TOKEN }}
+        repo-name: ${{ env.REPO_NAME }}
+        is-main-branch: ${{ github.ref == 'refs/heads/main' }}
+        static-tests-outcome: ${{ steps.run-static-analysis.outputs.static-tests-outcome }}
+        spdx-tests-outcome: ${{ steps.run-static-analysis.outputs.license-checks-outcome }}
+
+    - id: generate-rtl-badges
+      name: Generate RTL Badges
+      if: ${{ !cancelled() && github.event_name == 'push' }}
+      uses: ./.github/actions/generate-rtl-badges
+      with:
+        gist-id: ${{ env.GIST_ID }}
+        gist-token: ${{ env.GIST_TOKEN }}
+        repo-name: ${{ env.REPO_NAME }}
+        is-main-branch: ${{ github.ref == 'refs/heads/main' }}
+        rtl-outcome: ${{ steps.run-rtl-tests.outputs.outcome }}
+        rtl-exit-code: ${{ steps.run-rtl-tests.outputs.exit-code }}
+        results-file: ${{ steps.run-rtl-tests.outputs.results-file }}
+
+    - id: upload-artifacts
+      name: Upload artifacts
+      if: '!cancelled()'
       uses: actions/upload-artifact@v4
       with:
-        name: dist-wo-onnxdumps
+        name: checkin_artifacts
         path: |
            .coverage
+           __ci/json
+           __ci/html
            __RUN_TESTS
            !__RUN_TESTS/**/*.onnx
+
+    - id: upload-rtl-artifacts
+      name: Upload RTL artifacts
+      if: '!cancelled()'
+      uses: actions/upload-artifact@v4
+      with:
+        name: rtl_artifacts
+        path: |
+           ${{ steps.run-rtl-tests.outputs.results-file }}
+           __llk_out/*.json
+           __llk_out/*.csv
+           __llk_out/*.png
+
+    - id: check-overall-success
+      name: Check Overall Success
+      if: '!cancelled()'
+      run: |
+        echo "Checking overall job success status..."
+        echo "This step will succeed ONLY if ALL prior steps have succeeded, regardless of continue-on-error settings"
+        echo ""
+        
+        # Track steps that are not successful
+        NON_SUCCESS_STEPS=""
+        
+        # Check all test and processing steps - must be 'success' to pass
+        if [[ "${{ steps.run-unit-and-coverage-tests.outcome }}" != "success" ]]; then
+          echo "❌ Unit and coverage tests: ${{ steps.run-unit-and-coverage-tests.outcome }}"
+          NON_SUCCESS_STEPS="$NON_SUCCESS_STEPS run-unit-and-coverage-tests(${{ steps.run-unit-and-coverage-tests.outcome }})"
+        else
+          echo "✅ Unit and coverage tests: success"
+        fi
+        
+        if [[ "${{ steps.run-static-analysis.outcome }}" != "success" ]]; then
+          echo "❌ Static analysis: ${{ steps.run-static-analysis.outcome }}"
+          NON_SUCCESS_STEPS="$NON_SUCCESS_STEPS run-static-analysis(${{ steps.run-static-analysis.outcome }})"
+        else
+          echo "✅ Static analysis: success"
+        fi
+        
+        if [[ "${{ steps.run-rtl-tests.outcome }}" != "success" ]]; then
+          echo "❌ RTL tests: ${{ steps.run-rtl-tests.outcome }}"
+          NON_SUCCESS_STEPS="$NON_SUCCESS_STEPS run-rtl-tests(${{ steps.run-rtl-tests.outcome }})"
+        else
+          echo "✅ RTL tests: success"
+        fi
+        
+        if [[ "${{ steps.generate-test-badges.outcome }}" != "success" && "${{ steps.generate-test-badges.outcome }}" != "skipped" ]]; then
+          echo "❌ Test badges generation: ${{ steps.generate-test-badges.outcome }}"
+          NON_SUCCESS_STEPS="$NON_SUCCESS_STEPS generate-test-badges(${{ steps.generate-test-badges.outcome }})"
+        else
+          echo "✅ Test badges generation: ${{ steps.generate-test-badges.outcome }}"
+        fi
+        
+        if [[ "${{ steps.generate-status-badges.outcome }}" != "success" && "${{ steps.generate-status-badges.outcome }}" != "skipped" ]]; then
+          echo "❌ Status badges generation: ${{ steps.generate-status-badges.outcome }}"
+          NON_SUCCESS_STEPS="$NON_SUCCESS_STEPS generate-status-badges(${{ steps.generate-status-badges.outcome }})"
+        else
+          echo "✅ Status badges generation: ${{ steps.generate-status-badges.outcome }}"
+        fi
+        
+        if [[ "${{ steps.generate-rtl-badges.outcome }}" != "success" && "${{ steps.generate-rtl-badges.outcome }}" != "skipped" ]]; then
+          echo "❌ RTL badges generation: ${{ steps.generate-rtl-badges.outcome }}"
+          NON_SUCCESS_STEPS="$NON_SUCCESS_STEPS generate-rtl-badges(${{ steps.generate-rtl-badges.outcome }})"
+        else
+          echo "✅ RTL badges generation: ${{ steps.generate-rtl-badges.outcome }}"
+        fi
+        
+        if [[ "${{ steps.upload-artifacts.outcome }}" != "success" ]]; then
+          echo "❌ Artifacts upload: ${{ steps.upload-artifacts.outcome }}"
+          NON_SUCCESS_STEPS="$NON_SUCCESS_STEPS upload-artifacts(${{ steps.upload-artifacts.outcome }})"
+        else
+          echo "✅ Artifacts upload: success"
+        fi
+        
+        if [[ "${{ steps.upload-rtl-artifacts.outcome }}" != "success" ]]; then
+          echo "❌ RTL artifacts upload: ${{ steps.upload-rtl-artifacts.outcome }}"
+          NON_SUCCESS_STEPS="$NON_SUCCESS_STEPS upload-rtl-artifacts(${{ steps.upload-rtl-artifacts.outcome }})"
+        else
+          echo "✅ RTL artifacts upload: success"
+        fi
+        
+        # Succeed only if ALL steps succeeded
+        if [[ -n "$NON_SUCCESS_STEPS" ]]; then
+          echo ""
+          echo "❌ Job failed - not all steps succeeded:$NON_SUCCESS_STEPS"
+          echo "Overall job status: FAILED"
+          exit 1
+        else
+          echo ""
+          echo "🎉 ALL steps completed successfully!"
+          echo "Overall job status: PASSED"
+        fi
     
   userenv-tests:
-    runs-on: tt-beta-ubuntu-2204-large
+    runs-on: tt-ubuntu-2204-large-stable
     strategy:
       max-parallel: 5
 
@@ -78,28 +222,24 @@ jobs:
         shell: bash -el {0}
 
     steps:
-    - uses: actions/checkout@v4
-    - uses: mamba-org/setup-micromamba@v2
-      id: userenv-setup-mamba
+    - name: Checkout
+      uses: actions/checkout@v4
+
+    - name: Setup mamba - user
+      uses: ./.github/actions/setup_mamba
       with:
         environment-file: environment.yaml
         environment-name: poluserenv
-        post-cleanup: all
-
-    - name: userenv-check-micromamba-config     # Ensure default channels are not being used
-      run: |
-        micromamba info
-        micromamba list
 
     - name: userenv-checkin-tests
-      if: always()
+      if: '!cancelled()'
       run: |
         python checkin_tests.py workloads
+
     - name: Upload artifacts
-      if: always()
       uses: actions/upload-artifact@v4
       with:
-        name: userenv-dist-wo-onnxdumps
+        name: checkin_userenv_artifacts
         path: |
            __RUN_TESTS
            !__RUN_TESTS/**/*.onnx

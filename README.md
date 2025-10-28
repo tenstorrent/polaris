@@ -1,13 +1,13 @@
 [![Python 3.13](https://img.shields.io/badge/python-3.13-blue.svg)](https://www.python.org/downloads/release/python-3132/)
-![Checkin Tests](https://github.com/tenstorrent/polaris/actions/workflows/checkin_tests.yml/badge.svg?branch=main)
-<!-- 
-  ![Unit Tests](./__ci/badge/pytest.svg?dummy=8484744)
-  [![Coverage](./__ci/badge/coverage.svg?dummy=8484744)](./__ci/html/index.html)
--->
+&nbsp;&nbsp;&nbsp;![Checkin Tests](https://github.com/tenstorrent/polaris/actions/workflows/checkin_tests.yml/badge.svg?branch=main)
+&nbsp;&nbsp;&nbsp;![Coverage](https://img.shields.io/endpoint?url=https://gist.githubusercontent.com/ssapreTT/c230835a5065366c13d3bbfb79f23bf6/raw/polaris_coverage_badge.json)
+&nbsp;&nbsp;&nbsp;![Unit Tests](https://img.shields.io/endpoint?url=https://gist.githubusercontent.com/ssapreTT/c230835a5065366c13d3bbfb79f23bf6/raw/polaris_tests_badge.json)
+&nbsp;&nbsp;&nbsp;![MyPy](https://img.shields.io/endpoint?url=https://gist.githubusercontent.com/ssapreTT/c230835a5065366c13d3bbfb79f23bf6/raw/polaris_mypy_status.json)
+&nbsp;&nbsp;&nbsp;![SPDX](https://img.shields.io/endpoint?url=https://gist.githubusercontent.com/ssapreTT/c230835a5065366c13d3bbfb79f23bf6/raw/polaris_spdx_status.json)
 
-<div align="center">
+![RTL Status](https://img.shields.io/endpoint?url=https://gist.githubusercontent.com/ssapreTT/c230835a5065366c13d3bbfb79f23bf6/raw/polaris_rtl_scurve_status.json)
+&nbsp;&nbsp;&nbsp;![RTL Correlation](https://img.shields.io/endpoint?url=https://gist.githubusercontent.com/ssapreTT/c230835a5065366c13d3bbfb79f23bf6/raw/polaris_rtl_scurve_ratio_geomean.json)
 
-<picture>
 <img alt="Polaris logo" src="doc/polaris_logo.png" height="200">
 </picture>
 
@@ -23,6 +23,7 @@ Yet Another High Level AI Simulator
 - [Introduction](#introduction)
 - [Installation](#installation)
   - [Prerequisites](#prerequisites)
+  - [Download Polaris](#download-polaris)
   - [Environment Setup](#environment-setup)
     - [User Environment](#user-environment)
     - [Developer Environment](#developer-environment)
@@ -32,6 +33,9 @@ Yet Another High Level AI Simulator
   - [Output and Analysis](#output-and-analysis)
   - [Best Practices](#best-practices)
   - [Troubleshooting](#troubleshooting)
+- [Performance Correlation Tools](#performance-correlation-tools)
+  - [Tensix-Metal Correlation](#tensix-metal-correlation)
+  - [Markdown Metrics Parser](#markdown-metrics-parser)
 - [Support](#support)
 
 ## Introduction
@@ -42,6 +46,9 @@ Yet Another High Level AI Simulator
 ### Prerequisites
 - Python 3.13 or higher
 - Miniforge package manager
+
+### Download Polaris
+Execute ```git clone https://github.com/tenstorrent/polaris.git```
 
 ### Environment Setup
 The recommended setup uses Python with the Miniforge installation manager. It is expected that the reader is familiar with conda environments, creating and switching between environments. One can familiarize oneself with these concepts at [Conda Getting Started](https://docs.conda.io/projects/conda/en/latest/user-guide/getting-started.html).
@@ -56,6 +63,13 @@ The recommended setup uses Python with the Miniforge installation manager. It is
    ```bash
    conda update -n base -c conda-forge conda
    ```
+3. Conda environment initialization: The install script prompts the user to initialize conda with your shell. After this step, the user needs to log out and login again  (or,
+   exit the terminal and start a new terminal session). 
+
+4. To enable conda command on the path, run 
+    ```
+    source <your-conda-install-path>/etc/profile.d/conda.sh
+    ```
 
 #### User Environment Setup
 1. Create and activate the Polaris environment. The conda environment will
@@ -92,12 +106,25 @@ python polaris.py [options] --archspec <arch_config> --wlspec <workload_spec> --
 - `--wlmapspec,   -m`: Path to workload mapping specification YAML file
 - `--study,       -s`: Name for the simulation study (default: "study")
 - `--odir,        -o`: Output directory for results (default: ".")
-- `--outputformat`: Output format for results (none/yaml/json/pickle)
+- `--outputformat`: Output format for results (none/yaml/json/pickle, default: json)
 - `--dump_stats_csv`: Enable CSV stats output
 - `--dryrun,      -n`: Perform a dry run without actual simulation
+
+#### Data and Output Options
+- `--datatype,    -d`: Activation data type (fp64/fp32/tf32/fp16/bf16/fp8/int32/int8)
+- `--dump_ttsim_onnx`: Dump ONNX graph for TTSIM workloads
+
+#### Sweep Specifications
+- `--frequency`: Frequency (MHz) range specification (start end step)
+- `--batchsize`: Batch size range specification (start end step)
+
+#### Profiling and Analysis Options
 - `--enable_memalloc`: Enable memory allocation simulation
 - `--instr_profile`: Enable instruction profiling
 - `--enable_cprofile`: Enable Python cProfile for performance analysis
+
+#### Logging Options
+- `--log_level,    -l`: Set logging level (debug/info/warning/error/critical, default: info)
 
 ### Filtering Options
 - `--filterarch`: Filter architecture configurations
@@ -182,9 +209,57 @@ output_dir/
    - Use `--dryrun` to check configurations
    - Verify file paths and permissions
 
+## Performance Correlation Tools
+
+Polaris includes tools for correlating simulated performance with measured hardware performance.
+
+### Tensix-Metal Correlation
+
+The correlation tool compares Polaris simulation results with actual hardware measurements from TT-Metal.
+
+**Quick Start:**
+```bash
+# Step 1: Parse hardware metrics (creates metadata)
+python tools/parse_ttsi_perf_results.py --tag 15oct25
+
+# Step 2: Run correlation (reads data source from metadata)
+python tools/run_ttsi_corr.py \
+    --tag 15oct25 \
+    --workloads-config config/ttsi_correlation_workloads.yaml \
+    --arch-config config/tt_wh.yaml \
+    --output-dir __CORRELATION_OUTPUT
+```
+
+**Features:**
+- Automated correlation analysis between Polaris and TT-Metal
+- XLSX and CSV export with formulas and formatting
+- Geometric mean calculation for aggregate metrics
+- Support for multiple input formats (markdown, directories, URLs)
+
+**Documentation:** See [tools/parsers/](tools/parsers/) for detailed documentation.
+
+### Markdown Metrics Parser
+
+Extract performance metrics from TT-Metal markdown documentation:
+
+```bash
+python tools/parse_ttsi_perf_results.py \
+    --input https://raw.githubusercontent.com/tenstorrent/tt-metal/main/models/README.md \
+    --output-dir data/metal/inf
+```
+
+**Features:**
+- Standards-compliant markdown parsing (CommonMark via markdown-it-py)
+- Automatic categorization by model type (LLM, vision, detection, NLP, diffusion)
+- YAML output format compatible with correlation tools
+- Robust error handling and validation
+
+**Documentation:** 
+- [Parser README](tools/parsers/README.rst) - Architecture and API reference
+- [Usage Examples](tools/parsers/USAGE_EXAMPLE.rst) - Examples and troubleshooting
+
 ## Support
 For issues and questions:
 - Check the project repository: https://github.com/tenstorrent/polaris
 - Review existing issues or create new ones
 - Consult the development team for advanced support
-

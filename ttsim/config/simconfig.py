@@ -1,18 +1,19 @@
 #!/usr/bin/env python
 # SPDX-FileCopyrightText: (C) 2025 Tenstorrent AI ULC
 # SPDX-License-Identifier: Apache-2.0
-from loguru import logger
-import re
 import os
-from copy import deepcopy
-from typing import Any, Type, Optional
-import yaml
 import sys
-from pydantic import BaseModel, model_validator, ValidationError
-from typing import Optional, List, Union, NewType, TYPE_CHECKING
+import re
 from collections import Counter
+from copy import deepcopy
+from typing import TYPE_CHECKING, Any, List, NewType, Optional, Type, Union
+
 import deepdiff
-from ttsim.utils.common import convert_units, warnonce
+import yaml
+from loguru import logger
+from pydantic import BaseModel, ValidationError, model_validator
+
+from ttsim.utils.common import convert_units
 
 LOG   = logger
 INFO  = LOG.info
@@ -268,7 +269,7 @@ class ComputePipeModel(BaseModel, extra='forbid'):
     def get_insn(self, instr: str) -> ComputeInsnModel:
         matches = [insn for insn in self.instructions if insn.name == instr]
         if len(matches) != 1:
-            raise AssertionError(f'non-unique matches for instruction {instr} in {self.name} pipe')
+            raise AssertionError(f'non-unique matches for instruction {instr} in {self.name} pipe: {matches=}')
         return matches[0]
 
     def frequency(self, units="MHz"):
@@ -307,13 +308,13 @@ class ComputePipeModel(BaseModel, extra='forbid'):
         try:
             ipc = insn.tpt[prec]
         except KeyError:
-            warnonce(f"WARNING: Missing Support for Precision={prec} with Instruction={instr}@ComputePipe={self.name}")
+            logger.warning(f"WARNING: Missing Support for Precision={prec} with Instruction={instr}@ComputePipe={self.name}", once=True)
             upgraded_prec = self.handle_missing_precision(insn, prec)
-            warnonce(f">>>> upgraded_prec=   {upgraded_prec}")
+            logger.warning(f">>>> upgraded_prec=   {upgraded_prec}", once=True)
             if upgraded_prec is None:
                 raise AssertionError(f"Missing Support for Precision={prec} with Instruction={instr}@ComputePipe={self.name}")
             else:
-                warnonce(f"WARNING: Using Precision={upgraded_prec} with Instruction={instr}@ComputePipe={self.name} instead!!")
+                logger.warning(f"WARNING: Using Precision={upgraded_prec} with Instruction={instr}@ComputePipe={self.name} instead!!", once=True)
                 ipc = insn.tpt[upgraded_prec]
         if TYPE_CHECKING:
             assert self.systolic_depth is not None

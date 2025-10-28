@@ -67,18 +67,18 @@ def flatten_dict_as_str(d: dict[str, Any], param_sep: str = '_') -> dict[str, An
     return _flatten(d, parent_key='', param_sep=param_sep)
 
 
-JobKey = namedtuple('JobKey', ['devname', 'wlcls', 'wlname', 'wlinstance', 'bs'])
+JobKey = namedtuple('JobKey', ['devname', 'wlgroup', 'wlname', 'wlinstance', 'bs'])
 
 
 def jobkey_2_str(key: JobKey) -> str:
-    return f'{key.devname}_{key.wlcls}_{key.wlname}_{key.wlinstance}_b{key.bs}'
+    return f'{key.devname}_{key.wlgroup}_{key.wlname}_{key.wlinstance}_b{key.bs}'
 
 
 def summary_index(summary_list: list[dict[str, Any]]) -> dict[JobKey, dict]:
     row_dict: dict[JobKey, dict[str, Any]] = {}
     for row in summary_list:
         assert isinstance(row, dict)
-        key_attrs = {x: row[x] for x in ['devname', 'wlcls', 'wlname', 'wlinstance', 'bs']}
+        key_attrs = {x: row[x] for x in ['devname', 'wlgroup', 'wlname', 'wlinstance', 'bs']}
         k = JobKey(**key_attrs)
         row_dict[k] = row
     return row_dict

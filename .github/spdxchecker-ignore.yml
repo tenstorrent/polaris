@@ -1,15 +1,22 @@
 # SPDX-FileCopyrightText: (C) 2025 Tenstorrent AI ULC
 # SPDX-License-Identifier: Apache-2.0
 ignore:
+  - '*.map'
+  - '*.json'
+  - '*.elf'
   - '*.xlsx'
+  - '*.rst'
   - '*.csv'
   - '*.md'
+  - '*.mdc'
   - '*.onnx'
   - '*.png'
   - .gitignore
   - condarc
   - '*.txt'
   - '*.toml'
+  - '*.tar.gz'
+  - CODEOWNERS
 warning:
   - '*.html'
   - '*.yaml'

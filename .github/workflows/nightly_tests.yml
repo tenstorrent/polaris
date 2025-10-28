@@ -1,0 +1,52 @@
+# SPDX-FileCopyrightText: (C) 2025 Tenstorrent AI ULC
+# SPDX-License-Identifier: Apache-2.0
+
+name: Nightly Tests
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '0 0 * * *'
+
+jobs:
+  nightly-tests:
+    runs-on: tt-ubuntu-2204-large-stable
+    strategy:
+      max-parallel: 5
+
+    defaults:
+      run:
+        shell: bash -el {0}
+
+    steps:
+    - id: checkout
+      name: Checkout
+      uses: actions/checkout@v4
+
+    - id: lfcdownload
+      name: Download required files from LFC
+      uses: ./.github/actions/lfcdownload
+
+    - id: setup-mamba
+      name: Setup mamba - developer
+      if: '!cancelled()'
+      uses: ./.github/actions/setup_mamba
+      with:
+        environment-file: envdev.yaml
+        environment-name: poldevenv
+
+    - id: run-unit-and-coverage-tests
+      name: Run All Unit and Coverage Tests
+      if: '!cancelled()'
+      uses: ./.github/actions/run-python-tests
+      with:
+        test-markers: ''   # Run ALL tests for nightly
+
+    - name: Upload artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: dist-unit-and-coverage-tests-wo-onnxdumps
+        path: |
+           .coverage
+           __ci/
+    

@@ -98,5 +98,32 @@ class SimTensor:
         cloned_tensor.link_module = self.link_module
         return cloned_tensor
 
+    def clone_by_shape(self, /, data_maybe_missing = True):
+        assert self.check_shape(), f"Illegal Shape in Tensor {self}"
+        if data_maybe_missing:
+            if self.data is None:
+                if self.rank() == 0:
+                    if self.dtype == np.float32:
+                        clone_data = np.float32(1.0)
+                    else:
+                        assert False, "Only np.float32 rank-0 tensor clones supported right now!!!"
+                else:
+                    cloned_data = np.random.randn(*(self.shape)).astype(self.dtype)
+                clone = SimTensor({
+                    'name'   : self.name + '.clone_by_shape',
+                    'shape'  : self.shape,
+                    'dtype'  : self.dtype,
+                    'data'   : cloned_data,
+                    'resolve': self.resolve,
+                    'op_in'  : self.op_in,
+                    'op_out' : self.op_out
+                    })
+            else:
+                clone = self
+        else:
+            assert self.data is not None, f"Illegal Data in Tensor {self}"
+            clone = self
+        return clone
+
 def make_tensor(name: str) -> SimTensor:
     return SimTensor({'name': name, 'shape': [], 'dtype': None})

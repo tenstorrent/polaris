@@ -4,7 +4,7 @@
 import pytest
 
 import numpy as np
-from ttsim.ops.op import SplitOp
+from ttsim.ops.op import SimOp
 from ttsim.ops.tensor import make_tensor
 import ttsim.front.functional.op as F
 
@@ -230,13 +230,13 @@ def test_split():
         o_tensors = [make_tensor(f"O{i}") for i in range(num_outputs)]
         op_info = {
                 'name'   : op_name,
-                'optype' : 'split',
+                'optype' : 'Split',
                 'inList' : [x.name for x in i_tensors],
                 'outList': [x.name for x in o_tensors],
                 'attrs'  : attrs,
                 }
 
-        op_obj = SplitOp(op_info)
+        op_obj = SimOp(op_info)
         for x in i_tensors: x.op_in  = [op_name]
         for x in o_tensors: x.op_out = [op_name]
 

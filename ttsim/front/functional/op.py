@@ -7,7 +7,7 @@ from typing import Union, Iterator
 
 from loguru import logger
 from ttsim.graph import WorkloadGraph
-from ttsim.ops import SimOpFactory, SimTensor
+from ttsim.ops import SimOp, SimTensor
 import ttsim.utils.common as common
 from ttsim.config.wl2archmap import WL2ArchTypeSpec
 
@@ -57,8 +57,7 @@ def get_opinfo(name, optype, **kwargs):
 
 def get_sim_op(opinfo, default_dtype=None):
     optype: str = opinfo['optype']
-    opcls = SimOpFactory(optype)
-    opobj = opcls(opinfo)
+    opobj = SimOp(opinfo)
     if WL2ArchTypeSpec.has_instance():
         opobj.set_precision(WL2ArchTypeSpec.layer_2_datatype(optype.upper()))
     else:
@@ -173,7 +172,7 @@ class SplitOpHandle:
         s += f"    perf_stats : {self.perf_stats}\n"
         return s
 
-    def __call__(self, x):
+    def __call__(self, x, y=None):
         #ensure axis is within x.rank bounds
         if self.axis < 0:
             axis = x.rank() + self.axis
@@ -186,8 +185,9 @@ class SplitOpHandle:
         out_dim = x.shape[axis] // self.count
         assert out_dim >= 1, f"SplitOpHandle: out_dim={out_dim} should be >=1"
 
-        y = _from_data(self.name + '.in2', np.array([out_dim for _ in range(self.count)],
-                                                    dtype=np.int64), is_param=False, is_const=True)
+        if y is None:
+            y = _from_data(self.name + '.in2', np.array([out_dim for _ in range(self.count)],
+                                                        dtype=np.int64), is_param=False, is_const=True)
         self.implicit_inputs.append(y)
 
         #input tensor setup
@@ -377,10 +377,12 @@ def ReshapeFixed(name, shape1, **kwargs):
     op_hndl = SimOpHandle(name, 'Reshape', params=[(1,shape_term)], ipos=[0], **kwargs)
     return op_hndl
 
-def Linear(name, nrow, ncol, **kwargs):
+def Linear(name, nrow, ncol, module=None, **kwargs):
     mm_param = _from_shape(name + '.param', [nrow, ncol], is_param=True)
     mm_param.op_in.append(name)
     op_hndl =  SimOpHandle(name, 'MatMul', params=[(1,mm_param)], ipos=[0], **kwargs)
+    if module is not None:
+        module._tensors[mm_param.name] = mm_param
     return op_hndl
 
 def Conv2d(name, in_channels, out_channels, kernel_size, **kwargs):
@@ -401,6 +403,26 @@ def Conv2d(name, in_channels, out_channels, kernel_size, **kwargs):
                           strides=stride,      # Torch / ONNX names differ
                           pads=padding,        # Torch / ONNX names differ
                           dilations=dilation,  # Torch / ONNX names differ
+                          )
+    return op_hndl
+
+def ConvTranspose2d(name, in_channels, out_channels, kernel_size=2, stride=2):
+    kernel_dims = (kernel_size, kernel_size)
+    stride      = common.make_tuple(stride, 2)
+    param_dims  = [in_channels, out_channels, *kernel_dims]
+    convt_param = _from_shape(name+'.param', param_dims, is_param=True)
+    op_hndl = SimOpHandle(name, 'ConvTranspose', params=[(1, convt_param)], ipos=[0],
+                          strides=stride,
+                          )
+    return op_hndl
+
+def Upsample(name, scale_factor, mode='nearest', align_corners=True):
+    op_hndl = SimOpHandle(name, 'Upsample',
+                          ipos=[0],
+                          params=[],
+                          scale_factor=scale_factor,
+                          mode=mode,
+                          align_corners=align_corners
                           )
     return op_hndl
 
@@ -494,6 +516,26 @@ def Resize(name: str, /, scale_factor, **kwargs):
     op_hndl = SimOpHandle(name, 'Resize', params=[(1, roi), (2, scales)], ipos=[0], **kwargs)
     return op_hndl
 
+def Split(name, **kwargs):
+    return SplitOpHandle(name, ipos=[0, 1], **kwargs)
+
+def AdaptiveAvgPool1d(name, adaptive=True, output_size=1, **kwargs):
+    op_hndl = SimOpHandle(name, 'AveragePool', params=[], ipos=[0],
+                          adaptive=adaptive,
+                          output_size=output_size,
+                          **kwargs)
+    return op_hndl
+
+def conv1d(name, **kwargs):
+    op_hndl = SimOpHandle(
+        name,
+        'Conv',
+        params=[],
+        ipos=[0, 1, 2],
+        **kwargs
+    )
+    return op_hndl
+
 ######################################################################################################
 # Simple Operator Mapping
 ######################################################################################################
@@ -505,9 +547,14 @@ UnaryOperator = partial(UniversalOperator, params=[], ipos=[0])
 Identity      = partial(UnaryOperator, optype='Identity')
 Tanh          = partial(UnaryOperator, optype='Tanh')
 Neg           = partial(UnaryOperator, optype='Neg')
+exp           = partial(UnaryOperator, optype='Exp')
 Cos           = partial(UnaryOperator, optype='Cos')
 Sin           = partial(UnaryOperator, optype='Sin')
+Log           = partial(UnaryOperator, optype='Log')
+Sqrt          = partial(UnaryOperator, optype='Sqrt')
 Softmax       = partial(UnaryOperator, optype='Softmax')
+softplus      = partial(UnaryOperator, optype='Softplus')
+Clip          = partial(UnaryOperator, optype='Clip')
 Cast          = partial(UnaryOperator, optype='Cast')
 Shape         = partial(UnaryOperator, optype='Shape')
 Transpose     = partial(UnaryOperator, optype='Transpose')
@@ -516,6 +563,12 @@ Relu          = partial(UnaryOperator, optype='Relu')
 LeakyReLU     = partial(UnaryOperator, optype='LeakyRelu')
 Sigmoid       = partial(UnaryOperator, optype='Sigmoid')
 AveragePool2d = partial(UnaryOperator, optype='AveragePool')
+Sum           = partial(UnaryOperator, optype='Sum')
+Mean          = partial(UnaryOperator, optype='Mean')
+Reciprocal    = partial(UnaryOperator, optype='Reciprocal')
+Hardswish     = partial(UnaryOperator, optype='Hardswish')
+ReduceSum     = partial(UniversalOperator, optype='ReduceSum', params=[], ipos=[0])
+
 
 #Binary Operators
 BinaryOperator = partial(UniversalOperator, params=[], ipos=[0,1])
@@ -531,6 +584,8 @@ Unsqueeze      = partial(BinaryOperator, optype='Unsqueeze')
 Squeeze        = partial(BinaryOperator, optype='Squeeze')
 Tile           = partial(BinaryOperator, optype='Tile')
 Equal          = partial(BinaryOperator, optype='Equal')
+Assign         = partial(BinaryOperator, optype='Assign')
+Pad            = partial(BinaryOperator, optype='Pad')
 
 #Ternary Operators
 TernaryOperator = partial(UniversalOperator, params=[], ipos=[0,1,2])

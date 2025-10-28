@@ -1,0 +1,25 @@
+{
+  "engines": [
+    {
+      "engineName": "unpacker",
+      "engineInstructions": ["unpacr"]
+    },
+    {
+      "engineName": "sfpu",
+      "engineInstructions": ["dotpv"]
+    },
+    {
+      "engineName": "matrix",
+      "engineInstructions": ["elwadd", "elwsub", "elwmul", "mvmul"]
+    },
+    {
+      "engineName": "packer",
+      "engineInstructions": ["pacr"]
+    }
+  ],
+  "MOP_CFG_START": {
+    "0": "0xffb8000", 
+    "1": "0xffb8000", 
+    "2": "0xffb8000" 
+  }
+}

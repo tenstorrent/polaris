@@ -20,7 +20,9 @@ repos:
             name: Run static checks on the repository
             description: Check static checks
             language: python
-            entry: mypy .
+            entry: ./checkin_tests.py
+            args:  [static]
+            # additional_dependencies: [pyyaml, loguru, pydantic]
             pass_filenames: false
         -   id: unit tests
             name: Run unit tests

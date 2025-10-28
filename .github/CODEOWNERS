@@ -1,0 +1,9 @@
+# SPDX-FileCopyrightText: (C) 2025 Tenstorrent AI ULC
+# SPDX-License-Identifier: Apache-2.0
+# Order is important; the last matching pattern takes the most precedence.
+
+# These owners will be the default owners for everything in
+# the repo. Unless a later match takes precedence,
+# @skaulTT and @ssapreTT will be requested for
+# review when someone opens a pull request.
+*       @skaulTT @ssapreTT

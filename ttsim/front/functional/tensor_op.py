@@ -209,6 +209,16 @@ def tensor_transpose(self, dim0, dim1):
         self.link_module._tensors[self.name] = self
     return op(self)
 
+def tensor_permute(self, perm):
+    assert self.link_module is not None, f"link_module for {self.name} not specified!!"
+    op_name = f"{self.link_module.name}.permute.impl_{next(counter)}"
+    op = F.Transpose(op_name, perm=perm)
+    op.set_module(self.link_module)
+    self.link_module._op_hndls[op.name] = op
+    if self.name not in self.link_module._tensors:
+        self.link_module._tensors[self.name] = self
+    return op(self)
+
 def tensor_unsqueeze(self, dim):
     assert isinstance(self, SimTensor), f"unsqueeze self = {self} not a SimTensor!!"
     if self.rank() < 0: raise ValueError("Tensor rank must be at least 0.")
@@ -247,7 +257,7 @@ def tensor_squeeze(self, dim):
     assert self.link_module is not None, f"link_module for {self.name} not specified!!"
     op_name = f"{self.link_module.name}.unsqueeze.impl_{next(counter)}"
     axesTensor = F._from_data(op_name + '.axes', is_const=True, data=np.array([dim]))
-    op = F.Unsqueeze(op_name)
+    op = F.Squeeze(op_name)
     op.set_module(self.link_module)
     self.link_module._op_hndls[op.name] = op
     for x in [self, axesTensor]:
@@ -553,6 +563,7 @@ SimTensor.__truediv__ = tensor_div         #type: ignore
 SimTensor.__pow__     = tensor_pow         #type: ignore
 SimTensor.__neg__     = tensor_neg         #type: ignore
 SimTensor.__getitem__ = tensor_getitem     #type: ignore
+SimTensor.__matmul__  = matmul             #type: ignore
 
 SimTensor.cos         = tensor_cos         #type: ignore
 SimTensor.sin         = tensor_sin         #type: ignore
@@ -566,6 +577,7 @@ SimTensor.contiguous  = tensor_contiguous  #type: ignore
 SimTensor.flatten     = tensor_flatten     #type: ignore
 SimTensor.repeat      = tensor_repeat      #type: ignore
 SimTensor.softmax     = tensor_softmax     #type: ignore
+SimTensor.permute     = tensor_permute     #type: ignore
 
 #TODO:
 # 0. Cleanup op-naming/link-module/tensor etc... (refactor)

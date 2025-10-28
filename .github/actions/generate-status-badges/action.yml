@@ -1,0 +1,97 @@
+# SPDX-FileCopyrightText: (C) 2025 Tenstorrent AI ULC
+# SPDX-License-Identifier: Apache-2.0
+
+name: 'Generate Status Badges'
+description: 'Creates status badges based on workflow step outcomes'
+
+inputs:
+  gist-id:
+    description: 'GitHub Gist ID for badge storage'
+    required: true
+  gist-token:
+    description: 'GitHub token for gist access'
+    required: true
+  repo-name:
+    description: 'Repository name for badge naming'
+    required: true
+  is-main-branch:
+    description: 'Whether this is the main branch (affects gist file naming)'
+    required: true
+  static-tests-outcome:
+    description: 'Outcome of static tests step (success, failure, skipped, cancelled)'
+    required: true
+  spdx-tests-outcome:
+    description: 'Outcome of SPDX/license checks step (success, failure, skipped, cancelled)'
+    required: true
+  mypy-badge-label:
+    description: 'Label for MyPy badge'
+    required: false
+    default: 'MyPy'
+  spdx-badge-label:
+    description: 'Label for SPDX badge'
+    required: false
+    default: 'SPDX'
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Generate status badges
+      shell: bash -el {0}
+      env:
+        GIST_TOKEN: ${{ inputs.gist-token }}
+      run: |
+        echo "Generating status badges for repository: ${{ inputs.repo-name }}"
+        echo "Static tests outcome: ${{ inputs.static-tests-outcome }}"
+        echo "SPDX tests outcome: ${{ inputs.spdx-tests-outcome }}"
+        
+        # Generate mypy badge based on static tests step outcome
+        if [ "${{ inputs.static-tests-outcome }}" == "success" ]; then
+          MYPY_MESSAGE="Passing"
+          MYPY_EXIT_CODE=0
+          echo "✅ MyPy badge: $MYPY_MESSAGE"
+        elif [ "${{ inputs.static-tests-outcome }}" == "failure" ]; then
+          MYPY_MESSAGE="Failing"
+          MYPY_EXIT_CODE=1
+          echo "❌ MyPy badge: $MYPY_MESSAGE"
+        else
+          echo "⏭️ Skipping MyPy badge (outcome: ${{ inputs.static-tests-outcome }})"
+          MYPY_MESSAGE=""
+        fi
+        
+        if [ -n "$MYPY_MESSAGE" ]; then
+          MYPY_COLOR=$(python3 tools/ci/colorpicker.py --exitcode $MYPY_EXIT_CODE)
+          if [ "${{ inputs.is-main-branch }}" == "true" ]; then
+            MYPY_FILENAME="${{ inputs.repo-name }}_mypy_status.json"
+          else
+            MYPY_FILENAME="DELETEME_${{ inputs.repo-name }}_mypy_status.json"
+          fi
+          python tools/ci/makegist.py --gist-id ${{ inputs.gist-id }} --gist-filename $MYPY_FILENAME label="${{ inputs.mypy-badge-label }}" message="$MYPY_MESSAGE" color="$MYPY_COLOR"
+          echo "📋 Created MyPy badge: $MYPY_FILENAME"
+        fi
+        
+        # Generate spdx badge based on license checks step outcome
+        if [ "${{ inputs.spdx-tests-outcome }}" == "success" ]; then
+          SPDX_MESSAGE="Passing"
+          SPDX_EXIT_CODE=0
+          echo "✅ SPDX badge: $SPDX_MESSAGE"
+        elif [ "${{ inputs.spdx-tests-outcome }}" == "failure" ]; then
+          SPDX_MESSAGE="Failing"
+          SPDX_EXIT_CODE=1
+          echo "❌ SPDX badge: $SPDX_MESSAGE"
+        else
+          echo "⏭️ Skipping SPDX badge (outcome: ${{ inputs.spdx-tests-outcome }})"
+          SPDX_MESSAGE=""
+        fi
+        
+        if [ -n "$SPDX_MESSAGE" ]; then
+          SPDX_COLOR=$(python3 tools/ci/colorpicker.py --exitcode $SPDX_EXIT_CODE)
+          if [ "${{ inputs.is-main-branch }}" == "true" ]; then
+            SPDX_FILENAME="${{ inputs.repo-name }}_spdx_status.json"
+          else
+            SPDX_FILENAME="DELETEME_${{ inputs.repo-name }}_spdx_status.json"
+          fi
+          python tools/ci/makegist.py --gist-id ${{ inputs.gist-id }} --gist-filename $SPDX_FILENAME label="${{ inputs.spdx-badge-label }}" message="$SPDX_MESSAGE" color="$SPDX_COLOR"
+          echo "📋 Created SPDX badge: $SPDX_FILENAME"
+        fi
+        
+        echo "✅ Status badge generation completed"

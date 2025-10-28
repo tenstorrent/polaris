@@ -14,12 +14,11 @@ from onnx.checker import check_model
 import numpy as np
 
 from ttsim.ops import SimOp, SimTensor
+from ttsim.back.device import Device
 
 LOG   = logger
 INFO  = LOG.info
 DEBUG = LOG.debug
-
-G_FUSE_OP_OVERLAP_COST_CONSTANT = 0.10 #10% overlap overhead
 
 class WorkloadGraph():
     # Type hint for instance attribute
@@ -45,6 +44,9 @@ class WorkloadGraph():
     def get_input_tensors(self)  : return self._input_tensors
     def get_output_tensors(self) : return self._output_tensors
     def get_ordered_nodes(self)  : return list(nx.topological_sort(self._graph))
+
+    def is_input_node(self, opname): return opname in self._input_nodes
+    def is_output_node(self, opname): return opname in self._output_nodes
 
     def add_hdr_info(self, hdr_info):
         self._hdr_info = hdr_info
@@ -120,131 +122,118 @@ class WorkloadGraph():
 
         return ostr
 
-    def execute(self, device):
-        #find compute/memory cycles, given a executable device
-        for opname in nx.topological_sort(self._graph):
-            op = self._ops[opname]
-            op.execute(device)
-
     def reverse_graph(self): pass
     def find_forks_and_joins(self): pass
     def create_gradient_tensors(self): pass
     def backward(self): pass
 
-    def set_precision(self, o2dt):
-        for opnum, opname in enumerate(nx.topological_sort(self._graph)):
-            op_type = self._ops[opname].optype.upper()
-            dt = o2dt.layer_2_datatype(op_type)
-            self._ops[opname].set_precision(dt)
-        for opname, op in self._ops.items():
-            assert op.precision is not None, f'Precision for {opname} is unset'
-        return
+    def get_op(self, opname):
+        return self._ops[opname]
 
-    def remove_nodes(self, removal_types):
-        for opname in nx.topological_sort(self._graph):
-            op_type = self._ops[opname].optype.upper()
-            if removal_types.is_included(op_type):
+    def get_optype(self, opname):
+        return self._ops[opname].optype
+
+    def get_successors(self, opname):
+        return list(self._graph.successors(opname))
+
+    def is_removed(self, opname):
+        return self._ops[opname].removed_in_optimization
+
+    def remove_nodes(self, removal_spec):
+        for opname in self.get_ordered_nodes():
+            optype = self.get_optype(opname).upper()
+            if removal_spec.is_included(optype):
                 self._ops[opname].remove_in_optimization()
         return
 
-    def fuse_nodes(self, op_type_fusion_patterns):
-        #op_type_fusion_list is a list of lists specifying optype-patterns to search for
-        # in the graph and then fuse. The patterns are specifed in order of priority
-        # e.g. [ [Matmul, Gelu, Add], [Matmul, Gelu] ] will match Matmul-Gelu-Add
-        #   first and only then match the next pattern
+    def fuse_nodes(self, fusion_spec):
+        """
+        op_type_fusion_list is a list of lists specifying optype-patterns to search for
+         in the graph and then fuse. The patterns are specifed in order of priority
+         e.g. [ [Matmul, Gelu, Add], [Matmul, Gelu] ] will match Matmul-Gelu-Add
+           first and only then match the next pattern
+        Steps:
+            1) Find all matched nodes in the graph:        fusion_candidates
+            2) Track nodes that have already been matched: already_matched_nodes_set
 
-        #FIRST PASS: find all matched nodes in the graph
+        """
         fusion_candidates = []
-        #track nodes that have already been matched
         already_matched_nodes_set = set()
-        for pattern in op_type_fusion_patterns.get_fused_layer_sequences():
+        for pattern in fusion_spec.get_fused_layer_sequences():
             pattern_len = len(pattern)
             assert pattern_len > 1, f"Illegal fusion pattern specification {pattern}!!"
-            for node in nx.topological_sort(self._graph):
-                if node in already_matched_nodes_set:
+            for opname in self.get_ordered_nodes():
+                if opname in already_matched_nodes_set:
                     continue
 
-                if self._ops[node].optype.upper() == pattern[0]:
-                    current_node          = node
+                if self.get_optype(opname).upper() == pattern[0]:
+                    current_node          = opname
                     matched_nodes_list    = [current_node]
-                    current_node_op_type  = self._ops[current_node].optype.upper()
+                    current_node_op_type  = self.get_optype(current_node).upper()
                     for i in range(1, pattern_len):
-                        successors = list(self._graph.successors(current_node))
+                        successors = self.get_successors(current_node)
                         if ( len(successors) == 1 and
-                            self._ops[successors[0]].optype.upper() == pattern[i] and
+                            self.get_optype(successors[0]).upper() == pattern[i] and
                             successors[0] not in already_matched_nodes_set):
                             current_node = successors[0]
                             matched_nodes_list.append(current_node)
-                        elif len(successors) == 1 and self._ops[successors[0]].removed_in_optimization:
-                            # Skip nodes that have been marked for removal during optimization
-                            # and continue looking at their successors instead
+                        elif len(successors) == 1 and self.is_removed(successors[0]):
+                            """
+                            Skip nodes that have been marked for removal during optimization
+                            and continue looking at their successors instead
+                            """
                             current_node = successors[0]
-                            next_successors = list(self._graph.successors(current_node))
+                            next_successors = self.get_successors(current_node)
                             if next_successors:
                                 current_node = next_successors[0]
-                                if (self._ops[current_node].optype.upper() == pattern[i] and
+                                if (self.get_optype(current_node).upper() == pattern[i] and
                                     current_node not in already_matched_nodes_set):
                                     matched_nodes_list.append(current_node)
                                 else:
-                                    # Pattern doesn't match after skipping removed node
+                                    """Pattern doesn't match after skipping removed node"""
                                     break
                             else:
-                                # No more successors after a removed node
+                                """No more successors after a removed node"""
                                 break
                         else:
-                            #pattern does not match break
+                            """pattern does not match break"""
                             break
                     if len(matched_nodes_list) == pattern_len:
                         fusion_candidates.append(matched_nodes_list)
                         already_matched_nodes_set.update(matched_nodes_list)
+        return fusion_candidates
 
-        #SECOND PASS: now all out fusion candidates have been found, and we can apply the
-        # op-fusion on the graph
-        for fusion_nodes in fusion_candidates:
-            #create a new fused node with combined operations:
-            pattern_len   = len(fusion_nodes)
-            first_op_name = fusion_nodes[0]
-            last_op_name  = fusion_nodes[-1]
-            first_op      = self._ops[first_op_name]
-            last_op       = self._ops[last_op_name]
+    def set_precision(self, data_type_spec):
+        for opname in self.get_ordered_nodes():
+            optype = self.get_optype(opname).upper()
+            dt     = data_type_spec.layer_2_datatype(optype)
+            self._ops[opname].precision = dt
 
-            #update fusion op cycles
-            # TODO: add some checks to make sure that intermediate fused ops have
-            #   only one input - one output
+        for opname in self.get_ordered_nodes():
+            op = self.get_op(opname)
+            assert op.precision is not None, f'Precision for {opname} is not set'
 
-            #compute cycles = sum of all fused op compute cycles + overhead per operator overlap
-            # TODO: should we add overlap cost only if COMPUTE PIPES CHANGE?
-            # intermediate mem rd/wr are suppressed by fusion
-            # mem rd cycles = first op mem rd cycles
-            # mem wr cycles = last op mem rd cycles
-            fused_compute_cycles = first_op.compute_cycles
-            fused_mem_rd_cycles  = first_op.mem_rd_cycles
-            fused_mem_wr_cycles  = last_op.mem_wr_cycles
-            for i in range(1, pattern_len):
-                matched_op_name  = fusion_nodes[i]
-                matched_op       = self._ops[matched_op_name]
-                fused_compute_cycles += math.ceil(matched_op.compute_cycles * (1.0 + G_FUSE_OP_OVERLAP_COST_CONSTANT))
-                matched_op.fuse_op(first_op_name)
-            first_op.fused_op_cycles = {
-                    'compute_cycles': fused_compute_cycles,
-                    'mem_rd_cycles': fused_mem_rd_cycles,
-                    'mem_wr_cycles': fused_mem_wr_cycles,
-                    }
         return
 
-    def map_resources(self, op2rsrc_map):
-        for node in nx.topological_sort(self._graph):
-            optype    = self._ops[node].optype.upper()
+    def set_resources(self, rsrc_spec):
+        for opname in self.get_ordered_nodes():
+            optype = self.get_optype(opname).upper()
+            rsrc   = rsrc_spec.layer_2_pipe(optype)
             try:
-                self._ops[node].uses_compute_pipe = op2rsrc_map.layer_2_pipe(optype)
+                self._ops[opname].uses_compute_pipe = rsrc
             except KeyError as e:
-                raise RuntimeError(f'operator {self._ops[node].optype} not mapped on the device')
+                raise RuntimeError(f'node={opname} operator={optype} rsrc={rsrc} error!')
         return
 
-    def graph2onnx(self, onnx_filename, /, producer_name="ttsim.functional.export", do_model_check=True):
+    def graph2onnx(self, onnx_filename, /, producer_name="ttsim.functional.export",
+                   do_model_check=True, filter_op_attrs=None):
         nptype_map = {
                 np.float32: TensorProto.FLOAT,
                 np.float64: TensorProto.FLOAT,
+                np.uint8:   TensorProto.UINT8,
+                np.uint16:  TensorProto.UINT16,
+                np.uint32:  TensorProto.UINT32,
+                np.int32:   TensorProto.INT32,
                 np.int64:   TensorProto.INT64,
                 np.bool_:   TensorProto.BOOL,
                 }
@@ -293,7 +282,11 @@ class WorkloadGraph():
 
         onnx_nodes = {}
         for oname, op in self._ops.items():
-            onnx_nodes[oname] = make_node(op.optype, op.inList, op.outList, name=oname, **op.attrs)
+            if filter_op_attrs is not None:
+                onnx_attrs = filter_op_attrs(op.attrs)
+            else:
+                onnx_attrs = op.attrs
+            onnx_nodes[oname] = make_node(op.optype, op.inList, op.outList, name=oname, **onnx_attrs)
 
         input_list        = [onnx_tensors[x] for x in self.get_input_tensors() if x in onnx_tensors]
         output_list       = [onnx_tensors[x] for x in self.get_output_tensors() if x in onnx_tensors]
