@@ -7,6 +7,7 @@ from .logical import register_logical_ops
 from .nn      import register_nn_ops
 from .tensor  import register_tensor_ops
 from .custom  import register_custom_ops
+from .reduction import register_reduction_ops
 
 first_time = True
 
@@ -18,5 +19,5 @@ def initialize_op_desc():
         register_nn_ops()
         register_tensor_ops()
         register_custom_ops()
+        register_reduction_ops()
         first_time = False
-

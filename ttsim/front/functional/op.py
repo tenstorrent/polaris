@@ -535,6 +535,11 @@ def conv1d(name, **kwargs):
     )
     return op_hndl
 
+def ReduceSum(name: str, axis: int, **kwargs):
+    axesT = _from_data(name + '.axes', np.array([axis], dtype=np.int32), is_param=False, is_const=True)
+    op_hndl = SimOpHandle(name, 'ReduceSum', params=[(1, axesT)], ipos=[0], **kwargs)
+    return op_hndl
+
 ######################################################################################################
 # Simple Operator Mapping
 ######################################################################################################
@@ -565,9 +570,7 @@ AveragePool2d = partial(UnaryOperator, optype='AveragePool')
 Sum           = partial(UnaryOperator, optype='Sum')
 Mean          = partial(UnaryOperator, optype='Mean')
 Reciprocal    = partial(UnaryOperator, optype='Reciprocal')
-Hardswish     = partial(UnaryOperator, optype='Hardswish')
-ReduceSum     = partial(UniversalOperator, optype='ReduceSum', params=[], ipos=[0])
-
+Hardswish     = partial(UnaryOperator, optype='HardSwish')
 
 #Binary Operators
 BinaryOperator = partial(UniversalOperator, params=[], ipos=[0,1])

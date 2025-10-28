@@ -65,16 +65,16 @@ def r1_func(iTList, oTList, op, **kwargs):
 
     inelems = dataT.nelems()
     instr_profile = {
-            'ReduceL1'        : {'abs': inelems, 'sum': inelems},
-            'ReduceL2'        : {'mul': inelems, 'sum': inelems, 'sqrt': 1},
-            'ReduceLogSum'    : {'log': inelems, 'sum': inelems},
-            'ReduceLogSumExp' : {'log': inelems, 'sum': inelems, 'exp': 1},
+            'ReduceL1'        : {'abs': inelems, 'add': inelems},
+            'ReduceL2'        : {'mul': inelems, 'add': inelems, 'sqrt': 1},
+            'ReduceLogSum'    : {'log': inelems, 'add': inelems},
+            'ReduceLogSumExp' : {'log': inelems, 'add': inelems, 'exp': 1},
             'ReduceMax'       : {'cmp': inelems},
-            'ReduceMean'      : {'sum': inelems, 'div': 1},
+            'ReduceMean'      : {'add': inelems, 'div': 1},
             'ReduceMin'       : {'cmp': inelems},
             'ReduceProd'      : {'mul': inelems},
-            'ReduceSum'       : {'sum': inelems},
-            'ReduceSumSquare' : {'mul': inelems, 'sum': inelems},
+            'ReduceSum'       : {'add': inelems},
+            'ReduceSumSquare' : {'mul': inelems, 'add': inelems},
             }
 
     oTList[0].shape = outShape
