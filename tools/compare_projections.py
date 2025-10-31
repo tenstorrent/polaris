@@ -22,6 +22,8 @@ from ttsim.utils.common import print_csv
 
 DEBUG = True
 
+MISSING_VALUE = 'N/A'
+
 type IndexTuple = Tuple[int | None, int | None]
 
 ATTRIBUTES_TO_SKIP: set[str] = {'type', 'stat_filename'}
@@ -107,22 +109,27 @@ def rollup_status(status_list: list[ComparisonStatus]) -> ComparisonStatus:
 
 
 def status_2_csvrow(summary: dict[str, Any]) -> dict[str, Any]:
+    def create_status_entry(status, value1=None, value2=None):
+        return {
+            'Stat': status.value,
+            'Value1': value1 if value1 is not None else MISSING_VALUE,
+            'Value2': value2 if value2 is not None else MISSING_VALUE,
+        }
+
     csv_row = {}
     for k2, v2 in summary.items():
-        if v2['type'] == 'non-numeric':
-            entry = {
-                'Stat': v2['status'].value,
-                'Value1': v2['value1'],
-                'Value2': v2['value2'],
-            }
+        if v2['status'] == ComparisonStatus.Only_in_1:
+            entry = create_status_entry(v2['status'], v2['value1'], None)
+        elif v2['status'] == ComparisonStatus.Only_in_2:
+            entry = create_status_entry(v2['status'], None, v2['value2'])
+        elif v2['type'] == 'non-numeric':
+            entry = create_status_entry(v2['status'], v2['value1'], v2['value2'])
         elif v2['type'] == 'numeric':
-            entry = {
-                'Stat': v2['status'].value,
-                'Value1': v2['value1'],
-                'Value2': v2['value2'],
+            entry = create_status_entry(v2['status'], v2['value1'], v2['value2'])
+            entry.update({
                 'Diff': v2['diff'],
                 'Ratio': v2['ratio'],
-            }
+            })
         else:
             raise NotImplementedError(f'{v2["type"]} not implemented')
         csv_entry = {(k2 + '_' + k3).lower(): v3 for k3, v3 in entry.items()}
@@ -213,8 +220,8 @@ def compare_operator_stats(opstatlist_1: list, opstatlist_2: list, epsilon: floa
 def compare_dicts(dict1: dict, dict2: dict, epsilon: float) -> dict[str, Any]:
     keys1, keys2 = set(dict1.keys()), set(dict2.keys())
     elem_status: dict[str, Any] = {k: {'status': ComparisonStatus.Mismatch} for k in keys1 | keys2}
-    elem_status.update({k: {'status': ComparisonStatus.Only_in_2} for k in keys2 - keys1})
-    elem_status.update({k: {'status': ComparisonStatus.Only_in_1} for k in keys1 - keys2})
+    elem_status.update({k: {'status': ComparisonStatus.Only_in_2, 'value1': None, 'value2': dict2[k]} for k in keys2 - keys1})
+    elem_status.update({k: {'status': ComparisonStatus.Only_in_1, 'value1': dict1[k], 'value2': None} for k in keys1 - keys2})
     for k in keys1 & keys2:
         elem_status[k] = compare_value(dict1[k], dict2[k], epsilon)
     result = {
@@ -246,6 +253,24 @@ class ProjectionRun:
         summary_file = self.studypath / 'SUMMARY' / 'study-summary.json'
         self.name = path.name
         tmp_dict = json.load(summary_file.open('r'))
+
+        # Validate that 'summary' exists and is a list
+        if 'summary' not in tmp_dict or not isinstance(tmp_dict['summary'], list):
+            raise KeyError(f"'summary' key missing or not a list in {summary_file}")
+
+        # Handle inconsistent field names: rename 'wlcls' to 'wlgroup' if needed
+        # Note: 'wlcls' might be present in some older runs, though 'wlgroup' is the
+        # preferred and current convention for workload group naming
+        for row in tmp_dict['summary']:
+            has_wlgroup = 'wlgroup' in row
+            has_wlcls = 'wlcls' in row
+
+            if has_wlgroup and has_wlcls:
+                row_keys = list(row.keys())
+                raise AssertionError(f"Row contains both 'wlgroup' and 'wlcls' keys. Please ensure only one field name convention is used. Keys present: {row_keys}")
+            elif has_wlcls and not has_wlgroup:
+                row['wlgroup'] = row.pop('wlcls')
+
         self.summary_dict = summary_index(tmp_dict['summary'])
         self.runinfo = json.load((self.rootpath / 'inputs' / 'runinfo.json').open('r'))
         self.confignames = {d.stem for d in (self.studypath / 'CONFIG').iterdir() if d.is_file()}
