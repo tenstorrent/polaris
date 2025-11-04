@@ -23,6 +23,7 @@ class memReq:
         self.bytes  = bytes
         self.addr   = addr
         self.src    = None
+        self.threadId = -1 
         self.target = None
 
     def __getReqId__(self):
@@ -74,6 +75,11 @@ class memReq:
     def __setSrc__(self, src):
         self.src = src
 
+    def __getThreadId__(self):
+        return self.threadId
+    def __setThreadId__(self, threadId):
+        self.threadId = threadId
+
     def __printReq__(self):
         print(f"ReqId: {self.__getReqId__()}, Op: {self.__getOp__()}, Addr: {self.__getAddr__()}, Bytes: {self.__getBytes__()}, Src: {self.__getSrc__()}, Target: {self.__getTarget__()} InsId: {self.__getInsId__()}")
 
@@ -107,24 +113,23 @@ class scratchpadRam:
 
     def arbitrate(self, req, oBuffer):
         startTime = self.env.now
-        if self.debug & 0x8: print(f"Cycle:{startTime} Req{req.__getReqId__()} insId{req.__getInsId__()} arbitration (in progress)")
+        # if self.debug & 0x8: print(f"Cycle:{startTime} Thread{req.__getThreadId__()} req{req.__getReqId__()} insId{req.__getInsId__()} src{req.__getSrc__()} arbitration (in progress)")
         self.reqTrk[req.__getReqId__()] = req
         if req.__getOp__() == "WR":
             yield self.env.timeout(self.latencyWr)
         else:
             yield self.env.timeout(self.latencyRd)
         yield oBuffer.put(req)
+        if self.debug & 0x8: print(f"Cycle:{self.env.now} TCore{"UNK"} Thread{req.__getThreadId__()} req{req.__getReqId__()} insId{req.__getInsId__()} src{req.__getSrc__()} Scratchpad response (done) from pipe:{req.__getSrc__()}")
         endTime = self.env.now
-        assert req.__getReqId__() in self.reqTrk , f"Req{req.__getReqId__()} not found in tracker"
+        assert req.__getReqId__() in self.reqTrk , f"req{req.__getReqId__()} not found in tracker"
         self.reqTrk.pop(req.__getReqId__(), None)
-        if self.debug & 0x8: print(f"Cycle:{endTime} Req{req.__getReqId__()} insId{req.__getInsId__()} arbitration (done)")
+        # if self.debug & 0x8: print(f"Cycle:{endTime} Thread{req.__getThreadId__()} req{req.__getReqId__()} insId{req.__getInsId__()} src{req.__getSrc__()} arbitration (done)")
 
     def processMemReq(self, tCore, pipe):
         #Hit is guaranteed
         while(True):
-            if self.debug & 0x8: print(f"Cycle:{self.env.now} TCore{tCore} Thread{-1} Scratchpad access initiation (checking) from pipe:{pipe}")
             ins = yield self.iBuffer[tCore][pipe].get()
-            if self.debug & 0x8: print(f"Cycle:{self.env.now} TCore{tCore} Thread{-1} Req{ins.__getReqId__()} insId{ins.__getInsId__()} Scratchpad access initiation (inprogress) from pipe:{pipe}")
+            if self.debug & 0x8: print(f"Cycle:{self.env.now} TCore{tCore} Thread{ins.__getThreadId__()} req{ins.__getReqId__()} insId{ins.__getInsId__()} src{ins.__getSrc__()} Scratchpad access request (done) from pipe:{pipe}")
             self.env.process(self.arbitrate(ins, self.oBuffer[tCore][pipe]))
-            if self.debug & 0x8: print(f"Cycle:{self.env.now} TCore{tCore} Thread{-1} Req{ins.__getReqId__()} insId{ins.__getInsId__()} Scratchpad access initiation (done) from pipe:{pipe}")
             yield self.env.timeout(1)

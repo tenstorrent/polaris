@@ -1521,6 +1521,8 @@ class tensixCore:
 
         # Pipes - Process
         self.tensixPipeTrk = []
+        self.sourceRdReqTrk  = []
+        self.sourceWrReqTrk  = []
         if self.debug & DEBUG_TENSIX_MED_LEVEL: print("len(l1IBuffer)=", len(l1IBuffer), ",len(self.pipes)=", len(self.pipes))
         if self.debug & DEBUG_TENSIX_MED_LEVEL: print("len(l1OBuffer)=", len(l1IBuffer), ",len(self.pipes)=", len(self.pipes))
         assert len(l1IBuffer) == len(self.pipes) , "There isn't as many number of L1IBuffers as tensixPipes"
@@ -1533,6 +1535,8 @@ class tensixCore:
             else:
                 self.env.process(self.tensixPipe(self.args_dict, coreId, i, l1IBuffer[i], l1OBuffer[i]))
             self.tensixPipeTrk.append({})
+            self.sourceRdReqTrk.append({})
+            self.sourceWrReqTrk.append({})
 
         #Register Buffers Per Pipe - Specifically perf unpacker / packer
         #TODO: Support multi-port, multi-reg writes.
@@ -1712,15 +1716,31 @@ class tensixCore:
 
     def _calcNumData(self,s0, s1):         return math.ceil(s1 / s0) # Join
 
-    def _accumulate_request_bytes(self, sourceReqTrk):
-        accumSrcBytes = sum(req.__getBytes__() for req in sourceReqTrk.values())
+    def _accumulate_request_bytes(self, sReqTrk, target):
+        if len(sReqTrk) == 0:
+            return [[], 0]
+        assert target > 0, f"Cycle:{self.env.now} TCore{self.coreId} Target bytes must be greater than zero"
+
+        accumSrcBytes = 0
+        joinList = []
+        for req in sReqTrk.values():
+            assert req.__getBytes__() > 0, f"Cycle:{self.env.now} TCore{self.coreId} req{req.__getReqId__()} Request has zero bytes"
+            accumSrcBytes += req.__getBytes__()
+            joinList.append(req.__getReqId__())
+            if accumSrcBytes >= target:
+                if self.debug & DEBUG_RISC_MED_LEVEL:
+                    print(f"Cycle:{self.env.now} TCore{self.coreId} Accumulated bytes {accumSrcBytes} exceeded target {target}, stopping accumulation. Current joinList: {joinList}")
+                break
+        # accumSrcBytes = sum(req.__getBytes__() for req in sReqTrk.values())
+
         assert accumSrcBytes > 0, f"Cycle:{self.env.now} TCore{self.coreId} No valid bytes accumulated for request"
-        return accumSrcBytes
+        return [joinList, accumSrcBytes]
+    
 
     # reqBuff ----> iBuff/insTrk
     # reqBuff ----> oBuff/insTrk , Short-circuit iBuff --> oBuff path
     def _handle_memory_request(self, reqBuff, iBuff, oBuff,
-                        reqTrk, overrideOp = None, overrideTarget=None):
+                        reqTrk, pipeId, overrideOp = None, overrideTarget=None):
 
         """
         Processes memory/register requests by splitting/coalescing based on port widths.
@@ -1736,31 +1756,39 @@ class tensixCore:
         Returns:
             None (runs as SimPy process)
         """
-        sourceReqTrk = {}
+        # sourceReqTrk = {}
         while(True):
             maxTimer    = maxTimerValue = MAXTIMER_LOW
             sourceReq = yield reqBuff.get()
             if self.debug & DEBUG_RISC_HIGH_LEVEL: sourceReq.__printReq__()
 
+            # Update Target in source if needed
+            if(overrideTarget != None):
+                if self.debug & DEBUG_RISC_HIGH_LEVEL:
+                    print(f"Cycle:{self.env.now} TCore{self.coreId} Thread{sourceReq.__getThreadId__()} insId{sourceReq.__getInsId__()} req{sourceReq.__getReqId__()} reqOp:{sourceReq.__getOp__()} Changing Target of Req from {sourceReq.__getTarget__()} to {overrideTarget}")
+                sourceReq.__setTarget__(overrideTarget)
+
+            if(overrideOp != None):
+                if self.debug & DEBUG_RISC_HIGH_LEVEL:
+                    print(f"Cycle:{self.env.now} TCore{self.coreId} Thread{sourceReq.__getThreadId__()} insId{sourceReq.__getInsId__()} req{sourceReq.__getReqId__()} reqOp:{sourceReq.__getOp__()} Target:{sourceReq.__getTarget__()} Changing Op of Req from {sourceReq.__getOp__()} to {overrideOp}")
+                sourceReq.__setOp__(overrideOp)
+
             # Pre-split / pre-coalesce request tracker
-            sourceReqTrk[sourceReq.__getReqId__()] = sourceReq
+            if(sourceReq.__getOp__() == "RD"):
+                if self.debug & DEBUG_RISC_MED_LEVEL:
+                    print(f"Cycle:{self.env.now} TCore{self.coreId} Thread{sourceReq.__getThreadId__()} insId{sourceReq.__getInsId__()} req{sourceReq.__getReqId__()} reqOp:{sourceReq.__getOp__()} Target:{sourceReq.__getTarget__()} Adding to sourceRdReqTrk[{self.pipes[pipeId]}]")
+                self.sourceRdReqTrk[pipeId][sourceReq.__getReqId__()] = sourceReq
+            else:
+                if self.debug & DEBUG_RISC_MED_LEVEL:
+                    print(f"Cycle:{self.env.now} TCore{self.coreId} Thread{sourceReq.__getThreadId__()} insId{sourceReq.__getInsId__()} req{sourceReq.__getReqId__()} reqOp:{sourceReq.__getOp__()} Target:{sourceReq.__getTarget__()} Adding to sourceWrReqTrk[{self.pipes[pipeId]}]")
+                self.sourceWrReqTrk[pipeId][sourceReq.__getReqId__()] = sourceReq
+
             if self.debug & DEBUG_RISC_HIGH_LEVEL:
                 print(f"Target: {sourceReq.__getTarget__()} Handling Req{sourceReq.__getReqId__()} for InsId {sourceReq.__getInsId__()} from {sourceReq.__getTarget__()} to {self.pipes[sourceReq.__getSrc__()]} overridden to {overrideTarget}")
             assert sourceReq.__getInsId__() in self.tensixPipeTrk[sourceReq.__getSrc__()], f"Cycle:{self.env.now} TCore{self.coreId} Rsp InsId {sourceReq.__getInsId__()} not found in tensixPipeTrk"
 
             # Get Source Instruction from tensixPipeTrk based on [source, insId]
             pipeIns = self.tensixPipeTrk[sourceReq.__getSrc__()][sourceReq.__getInsId__()]
-
-            # Update Target in source if needed
-            if(overrideTarget != None):
-                if self.debug & DEBUG_RISC_HIGH_LEVEL:
-                    print(f"Target: {sourceReq.__getTarget__()} Changing Target of Req from {sourceReq.__getTarget__()} to {overrideTarget}")
-                sourceReq.__setTarget__(overrideTarget)
-
-            if(overrideOp != None):
-                if self.debug & DEBUG_RISC_HIGH_LEVEL:
-                    print(f"Target: {sourceReq.__getTarget__()} Changing Op of Req from {sourceReq.__getOp__()} to {overrideOp}")
-                sourceReq.__setOp__(overrideOp)
 
             #Set portWidth - TODO: This should be configurable
             l1PortWidth = self.DEFAULT_L1_PORT_WIDTH;   regPortWidth = self.DEFAULT_REG_PORT_WIDTH
@@ -1783,15 +1811,17 @@ class tensixCore:
                         assert False, f"Unknown target {sourceReq.__getTarget__()}"
 
                     # Find request(s) meeting targetBytes
-                    accumSrcBytes = self._accumulate_request_bytes(sourceReqTrk)
+                    [reqJoinList, accumSrcRdBytes] = self._accumulate_request_bytes(self.sourceRdReqTrk[pipeId], portWidth)
                     if self.debug & DEBUG_RISC_HIGH_LEVEL:
-                        if(len(sourceReqTrk) > 0):
-                            print(f"Target: {sourceReq.__getTarget__()} Accumulated Bytes = {accumSrcBytes} Length sourceReqTrk={len(sourceReqTrk)}")
-                    if(accumSrcBytes < portWidth):     continue # Wait for more requests to accumulate
-                    if self.debug & DEBUG_RISC_HIGH_LEVEL:           print(f"Target: {sourceReq.__getTarget__()} Setting number of read requests to {sourceReq.__getTarget__()}={pipeIns.getMemInfo(totalReads)} , NumBytes={accumSrcBytes} , PortWidth={portWidth}")
+                        if(len(self.sourceRdReqTrk[pipeId]) > 0):
+                            print(f"Cycle:{self.env.now} TCore{self.coreId} Thread{self.sourceRdReqTrk[pipeId][reqJoinList[0]].__getThreadId__()} insId{self.sourceRdReqTrk[pipeId][reqJoinList[0]].__getInsId__()} req{reqJoinList[0]} reqOp:{self.sourceRdReqTrk[pipeId][reqJoinList[0]].__getOp__()} Pipe:{self.pipes[pipeId]} Target:{sourceReq.__getTarget__()} Accumulated Bytes = {accumSrcRdBytes} Target Bytes = {portWidth} Length self.sourceRdReqTrk[pipeId]={len(self.sourceRdReqTrk[pipeId])}, ReqJoinList={reqJoinList}")
+                    if(accumSrcRdBytes < portWidth):     continue # Wait for more requests to accumulate
+                    if self.debug & DEBUG_RISC_MED_LEVEL:           
+                        if(len(self.sourceRdReqTrk[pipeId]) > 0):
+                            print(f"Cycle:{self.env.now} TCore{self.coreId} Thread{self.sourceRdReqTrk[pipeId][reqJoinList[0]].__getThreadId__()} Target:{sourceReq.__getTarget__()} Setting number of read requests to {sourceReq.__getTarget__()}={pipeIns.getMemInfo(totalReads)} , NumBytes={accumSrcRdBytes} , PortWidth={portWidth}")
 
-                    accumSentBytes = 0
-                    while(accumSentBytes < accumSrcBytes):
+                    accumSentRdBytes = 0
+                    while(accumSentRdBytes < accumSrcRdBytes):
                         assert portWidth != -1, "Port Width not set"
                         parents = []
 
@@ -1801,8 +1831,9 @@ class tensixCore:
                         memReq.__setSrc__(sourceReq.__getSrc__())
                         memReq.__setTarget__(sourceReq.__getTarget__())
                         memReq.__setInsId__(sourceReq.__getInsId__())
-                        for k in sourceReqTrk.keys():     parents.append(sourceReqTrk[k].__getReqId__())
+                        for k in self.sourceRdReqTrk[pipeId].keys():     parents.append(self.sourceRdReqTrk[pipeId][k].__getReqId__())
                         memReq.__setParentReqIds__(parents)
+                        memReq.__setThreadId__(sourceReq.__getThreadId__())
 
                         # L1 - put in iBuff, REG - put in oBuff
                         if self.debug & DEBUG_TENSIX_MED_LEVEL: print(f"Target: {memReq.__getTarget__()} Cycle:{self.env.now} Addr:{hex(pipeIns.getRelAddr())} TCore{self.coreId} Thread{pipeIns.getThread()} pipeInsId:{pipeIns.getInsId()} pipeInstruction:{pipeIns.getOp()} {memReq.__getTarget__()} access (inprogress) at [{self.coreId},{pipeIns.getExPipe()}] from pipe:{pipeIns.getExPipe()}")
@@ -1815,21 +1846,21 @@ class tensixCore:
                             if self.debug & DEBUG_TENSIX_MED_LEVEL: print(f"Cycle:{self.env.now} Req{memReq.__getReqId__()} insId{memReq.__getInsId__()} arbitration (done)")
 
                         reqTrk[memReq.__getReqId__()] = memReq          # Insert into tracker.
-                        accumSentBytes += portWidth
+                        accumSentRdBytes += portWidth
                         pipeIns.incrMemInfo(readsSent, 1)
                         if(pipeIns.getMemInfo(readsSent) == 1):      pipeIns.setMemInfo("startL1Time", self.env.now)
                         if self.debug & DEBUG_RISC_HIGH_LEVEL:
-                            print(f"Cycle:{self.env.now} TCore{self.coreId} Req{memReq.__getReqId__()} insId{memReq.__getInsId__()} Target: {memReq.__getTarget__()} Inserting Req into tracker. AccumSentBytes={accumSentBytes}, AccumSrcBytes={accumSrcBytes}")
+                            print(f"Cycle:{self.env.now} TCore{self.coreId} Req{memReq.__getReqId__()} insId{memReq.__getInsId__()} Target: {memReq.__getTarget__()} Inserting Req into tracker. AccumSentRdBytes={accumSentRdBytes}, AccumSrcRdBytes={accumSrcRdBytes}")
                             print(f"Cycle:{self.env.now} TCore{self.coreId} Req{memReq.__getReqId__()} insId{memReq.__getInsId__()} Target: {memReq.__getTarget__()} Reads Sent {pipeIns.getMemInfo(readsSent)}. Total Reads={pipeIns.getMemInfo(totalReads)}")
                             print(f"Cycle:{self.env.now} TCore{self.coreId} Req{memReq.__getReqId__()} insId{memReq.__getInsId__()} Target: {memReq.__getTarget__()} Sending request from {pipeIns.getExPipe()}")
 
-                        if accumSentBytes == accumSrcBytes:
+                        if accumSentRdBytes == accumSrcRdBytes:
                             if self.debug & DEBUG_RISC_HIGH_LEVEL:
                                 print(f"Cycle:{self.env.now} TCore{self.coreId} Req{memReq.__getReqId__()} insId{memReq.__getInsId__()} Target: {memReq.__getTarget__()} All bytes sent")
                             for i in parents:
                                 if self.debug & DEBUG_RISC_HIGH_LEVEL:
-                                    print(f"Cycle:{self.env.now} TCore{self.coreId} Req{memReq.__getReqId__()} insId{memReq.__getInsId__()} Target: {memReq.__getTarget__()} Removing Req{i} from sourceReqTrk. AccumSrcBytes={accumSrcBytes}. AccumSentBytes={accumSentBytes}")
-                                del sourceReqTrk[i]  # Remove from tracker
+                                    print(f"Cycle:{self.env.now} TCore{self.coreId} Req{memReq.__getReqId__()} insId{memReq.__getInsId__()} Target: {memReq.__getTarget__()} Removing Req{i} from sourceRdReqTrk. AccumSrcRdBytes={accumSrcRdBytes}. AccumSentRdBytes={accumSentRdBytes}")
+                                del self.sourceRdReqTrk[pipeId][i]  # Remove from tracker
                             maxTimer = maxTimerValue
                         else:
                             maxTimer = maxTimer - 1
@@ -1839,9 +1870,9 @@ class tensixCore:
                                 assert maxTimer > 0, msg
                         yield self.env.timeout(1)
 
-                    assert accumSentBytes == accumSrcBytes, f"Cycle:{self.env.now} TCore{self.coreId} Thread{pipeIns.getThread()} Not all bytes sent for L1 Req numL1ReadsSent={pipeIns.getMemInfo("numL1ReadsSent")} numTotalL1Reads={pipeIns.getMemInfo("numTotalL1Reads")}"
+                    assert accumSentRdBytes == accumSrcRdBytes, f"Cycle:{self.env.now} TCore{self.coreId} Thread{pipeIns.getThread()} Not all bytes sent for L1 Req numL1ReadsSent={pipeIns.getMemInfo("numL1ReadsSent")} numTotalL1Reads={pipeIns.getMemInfo("numTotalL1Reads")}"
                     if self.debug & DEBUG_RISC_HIGH_LEVEL:   print(f"Resetting accumulators")
-                    accumSrcBytes = 0; accumSentBytes = 0
+                    accumSrcRdBytes = 0; accumSentRdBytes = 0
                     if pipeIns.getMemInfo(totalReads) > 0 and (self.debug & DEBUG_RISC_HIGH_LEVEL):
                         print(f"Cycle:{self.env.now} TCore{self.coreId} Req{memReq.__getReqId__()} insId{memReq.__getInsId__()} Target: {sourceReq.__getTarget__()} All Reads Sent {pipeIns.getMemInfo(readsSent)} == L1 Reads Total {pipeIns.getMemInfo(totalReads)}")
 
@@ -1861,19 +1892,19 @@ class tensixCore:
                         assert False, "Unknown target for L1 Req" + str(sourceReq.__getTarget__())
 
                     # Find request(s) meeting targetBytes
-                    accumSrcBytes = self._accumulate_request_bytes(sourceReqTrk)
+                    [reqJoinList, accumSrcWrBytes] = self._accumulate_request_bytes(self.sourceWrReqTrk[pipeId], portWidth)
                     if self.debug & DEBUG_RISC_HIGH_LEVEL:
-                        if(len(sourceReqTrk) > 0):
-                            print(f"Target: {sourceReq.__getTarget__()} Accumulated Bytes = {accumSrcBytes} Length sourceReqTrk={len(sourceReqTrk)}")
-                    if(accumSrcBytes < portWidth):     continue # Wait for more requests to accumulate
-                    if self.debug & DEBUG_RISC_HIGH_LEVEL:           print(f"Target: {sourceReq.__getTarget__()} Setting number of read requests to {sourceReq.__getTarget__()}={pipeIns.getMemInfo(totalWrites)} , NumBytes={accumSrcBytes} , PortWidth={portWidth}")
+                        if(len(self.sourceWrReqTrk[pipeId]) > 0):
+                            print(f"Cycle:{self.env.now} TCore{self.coreId} Thread{self.sourceWrReqTrk[pipeId][reqJoinList[0]].__getThreadId__()} insId{self.sourceWrReqTrk[pipeId][reqJoinList[0]].__getInsId__()} req{reqJoinList[0]} reqOp:{self.sourceWrReqTrk[pipeId][reqJoinList[0]].__getOp__()} Pipe:{self.pipes[pipeId]} Target:{sourceReq.__getTarget__()} Accumulated Bytes = {accumSrcWrBytes} Target Bytes = {portWidth} Length self.sourceWrReqTrk[pipeId]={len(self.sourceWrReqTrk[pipeId])}, ReqJoinList={reqJoinList}")
+                    if(accumSrcWrBytes < portWidth):     continue # Wait for more requests to accumulate
+                    if self.debug & DEBUG_RISC_MED_LEVEL:           
+                        if(len(self.sourceWrReqTrk[pipeId]) > 0):
+                            print(f"Cycle:{self.env.now} TCore{self.coreId} Thread{self.sourceWrReqTrk[pipeId][reqJoinList[0]].__getThreadId__()} Target:{sourceReq.__getTarget__()} Setting number of write requests to {sourceReq.__getTarget__()}={pipeIns.getMemInfo(totalWrites)} , NumBytes={accumSrcWrBytes} , PortWidth={portWidth}")
 
-                    if self.debug & DEBUG_RISC_HIGH_LEVEL:
-                        print(f"Target: {sourceReq.__getTarget__()} Setting number of write requests to {sourceReq.__getTarget__()}={pipeIns.getMemInfo(totalWrites)} , NumBytes={accumSrcBytes} , PortWidth={portWidth}")
-                    assert accumSrcBytes > 0, f"Cycle:{self.env.now} TCore{self.coreId} Thread{pipeIns.getThread()} No valid bytes accumulated for {sourceReq.__getTarget__()} request"
+                    assert accumSrcWrBytes > 0, f"Cycle:{self.env.now} TCore{self.coreId} Thread{pipeIns.getThread()} No valid bytes accumulated for {sourceReq.__getTarget__()} request"
 
-                    accumSentBytes = 0
-                    while(accumSentBytes < accumSrcBytes):
+                    accumSentWrBytes = 0
+                    while(accumSentWrBytes < accumSrcWrBytes):
                         assert portWidth != -1, "Port Width not set"
                         parents = []
 
@@ -1883,7 +1914,7 @@ class tensixCore:
                         memReq.__setSrc__(sourceReq.__getSrc__())
                         memReq.__setTarget__(sourceReq.__getTarget__())
                         memReq.__setInsId__(sourceReq.__getInsId__())
-                        for k in sourceReqTrk.keys():     parents.append(sourceReqTrk[k].__getReqId__())
+                        for k in self.sourceWrReqTrk[pipeId].keys():     parents.append(self.sourceWrReqTrk[pipeId][k].__getReqId__())
                         memReq.__setParentReqIds__(parents)
 
                         # L1 - put in iBuff, REG - put in oBuff
@@ -1897,21 +1928,21 @@ class tensixCore:
                             if self.debug & DEBUG_TENSIX_MED_LEVEL: print(f"Cycle:{self.env.now} Req{memReq.__getReqId__()} insId{memReq.__getInsId__()} arbitration (done)")
 
                         reqTrk[memReq.__getReqId__()] = memReq          # Insert into tracker.
-                        accumSentBytes += portWidth
+                        accumSentWrBytes += portWidth
                         pipeIns.incrMemInfo(writesSent, 1)
                         if(pipeIns.getMemInfo(writesSent) == 1):      pipeIns.setMemInfo("startL1Time", self.env.now)
                         if self.debug & DEBUG_RISC_HIGH_LEVEL:
-                            print(f"Cycle:{self.env.now} TCore{self.coreId} Req{memReq.__getReqId__()} insId{memReq.__getInsId__()} Target: {memReq.__getTarget__()} Inserting Req into tracker. AccumSentBytes={accumSentBytes}, AccumSrcBytes={accumSrcBytes}")
+                            print(f"Cycle:{self.env.now} TCore{self.coreId} Req{memReq.__getReqId__()} insId{memReq.__getInsId__()} Target: {memReq.__getTarget__()} Inserting Req into tracker. AccumSentWrBytes={accumSentWrBytes}, AccumSrcWrBytes={accumSrcWrBytes}")
                             print(f"Cycle:{self.env.now} TCore{self.coreId} Req{memReq.__getReqId__()} insId{memReq.__getInsId__()} Target: {memReq.__getTarget__()} Writes Sent {pipeIns.getMemInfo(writesSent)}. Total Writes={pipeIns.getMemInfo(totalWrites)}")
                             print(f"Cycle:{self.env.now} TCore{self.coreId} Req{memReq.__getReqId__()} insId{memReq.__getInsId__()} Target: {memReq.__getTarget__()} Sending request from {pipeIns.getExPipe()}")
 
-                        if accumSentBytes == accumSrcBytes:
+                        if accumSentWrBytes == accumSrcWrBytes:
                             if self.debug & DEBUG_RISC_HIGH_LEVEL:
                                 print(f"Cycle:{self.env.now} TCore{self.coreId} Req{memReq.__getReqId__()} insId{memReq.__getInsId__()} Target: {memReq.__getTarget__()} All bytes sent")
                             for i in parents:
                                 if self.debug & DEBUG_RISC_HIGH_LEVEL:
-                                    print(f"Cycle:{self.env.now} TCore{self.coreId} Req{memReq.__getReqId__()} insId{memReq.__getInsId__()} Target: {memReq.__getTarget__()} Removing Req{i} from sourceReqTrk. AccumSrcBytes={accumSrcBytes}. AccumSentBytes={accumSentBytes}")
-                                del sourceReqTrk[i]  # Remove from tracker
+                                    print(f"Cycle:{self.env.now} TCore{self.coreId} Req{memReq.__getReqId__()} insId{memReq.__getInsId__()} Target: {memReq.__getTarget__()} Removing Req{i} from sourceWrReqTrk. AccumSrcWrBytes={accumSrcWrBytes}. AccumSentWrBytes={accumSentWrBytes}")
+                                del self.sourceWrReqTrk[pipeId][i]  # Remove from tracker
                                 maxTimer = maxTimerValue
                         else:
                             maxTimer = maxTimer - 1
@@ -1921,9 +1952,9 @@ class tensixCore:
                                 assert maxTimer > 0, msg
                         yield self.env.timeout(1)
 
-                    assert accumSentBytes == accumSrcBytes, f"Cycle:{self.env.now} TCore{self.coreId} Thread{pipeIns.getThread()} Not all bytes sent for L1 Req numL1WritesSent={pipeIns.getMemInfo("numL1WritesSent")} numTotalL1Writes={pipeIns.getMemInfo("numTotalL1Writes")}"
+                    assert accumSentWrBytes == accumSrcWrBytes, f"Cycle:{self.env.now} TCore{self.coreId} Thread{pipeIns.getThread()} Not all bytes sent for L1 Req numL1WritesSent={pipeIns.getMemInfo("numL1WritesSent")} numTotalL1Writes={pipeIns.getMemInfo("numTotalL1Writes")}"
                     if self.debug & DEBUG_RISC_HIGH_LEVEL: print(f"Target: {sourceReq.__getTarget__()} Resetting accumulators")
-                    accumSrcBytes = 0; accumSentBytes = 0
+                    accumSrcWrBytes = 0; accumSentWrBytes = 0
 
                 case _:
                     assert False, "L1 Req unknown op " + str(sourceReq.__getOp__())
@@ -2303,10 +2334,6 @@ class tensixCore:
             # 1b. Pipe/Resource Stall Logic
             if checkInOrderFalse and enablePipeStall and enableStallWait: yield from self._stall_and_check_pipes(pipeIns)
 
-            # 2b. Valid/InUse Checks
-            if checkInOrderFalse and enableSync: yield from self._check_valids(pipeIns)
-            if(self.debug & DEBUG_TENSIX_MED_LEVEL):   print(f"Cycle:{self.env.now} Addr:{hex(pipeIns.getRelAddr())} TCore{self.coreId} Thread{pipeIns.getThread()} insId{pipeIns.getInsId()} TCoreFromInstr{pipeIns.getCoreId()} Pipe[{pipeId}] Instruction:{pipeIns.getOp()} ready")
-
             #Exe Start
             execStartTime    = self.env.now
             if self.debug & DEBUG_TENSIX_MED_LEVEL:    print(f"Cycle:{self.env.now} Addr:{hex(pipeIns.getRelAddr())} TCore{self.coreId} Thread{pipeIns.getThread()} insId{pipeIns.getInsId()} TCoreFromInstr{pipeIns.getCoreId()} Pipe[{pipeId}] Instruction:{pipeIns.getOp()} Execution (inprogress) in pipe:{pipeIns.getExPipe()}")
@@ -2335,10 +2362,10 @@ class tensixCore:
 
             if (pipeIns.getOp() not in "POP_TILES" and pipeIns.getSrcSize() > 0):
                 # 4a bytes(L1 Req) = f(Input Format, Tile/Face/Row)
-                self.l1ReqBuff  = simpy.Store(self.env, capacity=1)
-                self.rspBuff    = simpy.Store(self.env, capacity=BUFFER_SIZE)
-                self.regReqBuff = simpy.Store(self.env, capacity=BUFFER_SIZE)
-                self.lastBuff   = simpy.Store(self.env, capacity=BUFFER_SIZE*4)        #TODO: This is really not needed.
+                l1ReqBuff  = simpy.Store(self.env, capacity=BUFFER_SIZE)
+                rspBuff    = simpy.Store(self.env, capacity=BUFFER_SIZE)
+                regReqBuff = simpy.Store(self.env, capacity=BUFFER_SIZE)
+                lastBuff   = simpy.Store(self.env, capacity=BUFFER_SIZE*4)        #TODO: This is really not needed.
                 l1PortWidth = self.DEFAULT_L1_PORT_WIDTH; regPortWidth = self.DEFAULT_REG_PORT_WIDTH                       #TODO: This should come from args
 
                 # Src --> convert --> Dst
@@ -2378,27 +2405,41 @@ class tensixCore:
                     print(f"Cycle:{self.env.now} Addr:{hex(pipeIns.getRelAddr())} TCore{self.coreId} Thread{pipeIns.getThread()} insId{pipeIns.getInsId()} Instruction:{pipeIns.getOp()} Unpacker Accesses (inprogress)(nonBarrier) Req:{memReq.__getReqId__()}")
 
                 if pipeIns.getSrcSize() > 0:
-                    self.l1ReqBuff.put(memReq)
+                    l1ReqBuff.put(memReq)
 
                 if(self.args_dict['enableSharedL1']):
                     if self.debug & DEBUG_TENSIX_MED_LEVEL:
                         print(f"Cycle:{self.env.now} Addr:{hex(pipeIns.getRelAddr())} TCore{self.coreId} Thread{pipeIns.getThread()} insId{pipeIns.getInsId()} Instruction:{pipeIns.getOp()} Unpacker Accesses (inprogress)(nonBarrier) Req:{memReq.__getReqId__()} dstSize={numDstBytes}, srcSize={numSrcBytes}")
                     # L1
-                    self.env.process(self._handle_memory_request(self.l1ReqBuff,iBuff, iBuff, reqTrk))
-                    self.env.process(self._handle_memory_response(self.rspBuff, oBuff, reqTrk))
+                    self.env.process(self._handle_memory_request(l1ReqBuff,iBuff, iBuff, reqTrk, pipeId))
+                    self.env.process(self._handle_memory_response(rspBuff, oBuff, reqTrk))
 
                     # Convert Based on Src/Dst Format
-                    self.env.process(self.convertFormat(self.rspBuff, self.regReqBuff, numDstBytes/numSrcBytes))
-                    #TODO: Move dependency check here
+                    self.env.process(self.convertFormat(rspBuff, regReqBuff, numDstBytes/numSrcBytes))
+
+                    # Poll until first response is available
+                    while(len(regReqBuff.items) == 0):
+                        yield self.env.timeout(1)
+
+                    # 2b. Valid/InUse Checks
+                    checkStartTime = self.env.now
+                    if(self.debug & DEBUG_TENSIX_MED_LEVEL):   print(f"Cycle:{self.env.now} Addr:{hex(pipeIns.getRelAddr())} TCore{self.coreId} Thread{pipeIns.getThread()} insId{pipeIns.getInsId()} TCoreFromInstr{pipeIns.getCoreId()} Pipe[{self.pipes[pipeId]}] Instruction:{pipeIns.getOp()} Check Valids (inprogress)")
+                    if checkInOrderFalse and enableSync: yield from self._check_valids(pipeIns)
+                    if(self.debug & DEBUG_TENSIX_MED_LEVEL):   print(f"Cycle:{self.env.now} Addr:{hex(pipeIns.getRelAddr())} TCore{self.coreId} Thread{pipeIns.getThread()} insId{pipeIns.getInsId()} TCoreFromInstr{pipeIns.getCoreId()} Pipe[{self.pipes[pipeId]}] Instruction:{pipeIns.getOp()} Check Valids (done) StallTime={self.env.now - checkStartTime}")
 
                     # Reg Write
-                    self.env.process(self._handle_memory_request(self.regReqBuff, self.regIBuffer[self.coreId][pipeId], self.regOBuffer[self.coreId][pipeId], reqTrk1, overrideOp="WR", overrideTarget="REG"))
-                    insId = yield self.env.process(self._handle_memory_response(self.lastBuff, self.regOBuffer[self.coreId][pipeId], reqTrk1))
+                    self.env.process(self._handle_memory_request(regReqBuff, self.regIBuffer[self.coreId][pipeId], self.regOBuffer[self.coreId][pipeId], reqTrk1, pipeId, overrideOp="WR", overrideTarget="REG"))
+                    insId = yield self.env.process(self._handle_memory_response(lastBuff, self.regOBuffer[self.coreId][pipeId], reqTrk1))
                 else:
                     # ShortCircuit Mem Path
-                    outReq = yield self.l1ReqBuff.get()
+                    outReq = yield l1ReqBuff.get()
+
+                    # 2b. Valid/InUse Checks
+                    if checkInOrderFalse and enableSync: yield from self._check_valids(pipeIns)
+                    if(self.debug & DEBUG_TENSIX_MED_LEVEL):   print(f"Cycle:{self.env.now} Addr:{hex(pipeIns.getRelAddr())} TCore{self.coreId} Thread{pipeIns.getThread()} insId{pipeIns.getInsId()} TCoreFromInstr{pipeIns.getCoreId()} Pipe[{pipeId}] Instruction:{pipeIns.getOp()} ready")
+
                     insId = outReq.__getInsId__()
-                    self.lastBuff.put(outReq)
+                    lastBuff.put(outReq)
 
                 assert len(self.tensixPipeTrk[pipeId]) > 0 , "Pipe Tracker is empty"
                 pipeIns  = self.tensixPipeTrk[pipeId][insId]
@@ -2410,7 +2451,11 @@ class tensixCore:
 
                 # Clear LastBuff
                 i = 0
-                while (i < (len(self.lastBuff.items))): yield self.lastBuff.get()
+                while (i < (len(lastBuff.items))): yield lastBuff.get()
+            else:
+                # 2b. Valid/InUse Checks
+                if checkInOrderFalse and enableSync: yield from self._check_valids(pipeIns)
+                if(self.debug & DEBUG_TENSIX_MED_LEVEL):   print(f"Cycle:{self.env.now} Addr:{hex(pipeIns.getRelAddr())} TCore{self.coreId} Thread{pipeIns.getThread()} insId{pipeIns.getInsId()} TCoreFromInstr{pipeIns.getCoreId()} Pipe[{pipeId}] Instruction:{pipeIns.getOp()} ready")
 
             #5. Valids / Resources Update
             yield from self._common_pipe_cleanup(pipeIns, pipeId, beginEvent)
@@ -2474,10 +2519,10 @@ class tensixCore:
             pipeIns.setMemInfo("numL1WritesSent", 0);             pipeIns.setMemInfo("numL1WritesRcvd", 0);
 
             if (pipeIns.getOp() not in "PUSH_TILES" and pipeIns.getSrcSize() > 0):
-                self.l1ReqBuff  = simpy.Store(self.env, capacity=BUFFER_SIZE)
-                self.regReqBuff  = simpy.Store(self.env, capacity=1)
-                self.rspBuff    = simpy.Store(self.env, capacity=BUFFER_SIZE)
-                self.lastBuff   = simpy.Store(self.env, capacity=BUFFER_SIZE*4)    #TODO: This is really not needed.
+                l1ReqBuff  = simpy.Store(self.env, capacity=BUFFER_SIZE)
+                regReqBuff  = simpy.Store(self.env, capacity=BUFFER_SIZE)
+                rspBuff    = simpy.Store(self.env, capacity=BUFFER_SIZE)
+                lastBuff   = simpy.Store(self.env, capacity=BUFFER_SIZE*4)    #TODO: This is really not needed.
                 l1PortWidth = self.DEFAULT_L1_PORT_WIDTH; regPortWidth = self.DEFAULT_REG_PORT_WIDTH  #TODO: This should come from args
 
                 # Src --> convert --> Dst
@@ -2511,7 +2556,7 @@ class tensixCore:
                     print(f"Cycle:{self.env.now} Addr:{hex(pipeIns.getRelAddr())} TCore{self.coreId} Thread{pipeIns.getThread()} insId{pipeIns.getInsId()} Instruction:{pipeIns.getOp()} Requests for insId {pipeIns.getInsId()} to REG created. Requests to be sent={pipeIns.getMemInfo('numTotalRegWrites')}")
                     # memReq.__printReq__()
                 if pipeIns.getSrcSize() > 0:
-                    self.regReqBuff.put(memReq)
+                    regReqBuff.put(memReq)
 
                 if self.debug & DEBUG_TENSIX_MED_LEVEL:     print(f"Cycle:{self.env.now} Addr:{hex(pipeIns.getRelAddr())} TCore{self.coreId} Thread{pipeIns.getThread()} insId{pipeIns.getInsId()} Instruction:{pipeIns.getOp()} Packer Accesses (inprogress)(nonBarrier) Req:{memReq.__getReqId__()}")
                 if(self.args_dict['enableSharedL1']):
@@ -2519,20 +2564,20 @@ class tensixCore:
                         print(f"Cycle:{self.env.now} Addr:{hex(pipeIns.getRelAddr())} TCore{self.coreId} Thread{pipeIns.getThread()} insId{pipeIns.getInsId()} Instruction:{pipeIns.getOp()} Packer Accesses (inprogress)(nonBarrier) Req:{memReq.__getReqId__()} dstSize={numDstBytes}, srcSize={numSrcBytes}")
 
                     #Reg
-                    self.env.process(self._handle_memory_request(self.regReqBuff,self.regIBuffer[self.coreId][pipeId], self.regOBuffer[self.coreId][pipeId], reqTrk))
-                    self.env.process(self._handle_memory_response(self.rspBuff, self.regOBuffer[self.coreId][pipeId], reqTrk))
+                    self.env.process(self._handle_memory_request(regReqBuff,self.regIBuffer[self.coreId][pipeId], self.regOBuffer[self.coreId][pipeId], reqTrk, pipeId))
+                    self.env.process(self._handle_memory_response(rspBuff, self.regOBuffer[self.coreId][pipeId], reqTrk))
 
                     #Convert
-                    self.env.process(self.convertFormat(self.rspBuff, self.l1ReqBuff, numDstBytes/numSrcBytes))
+                    self.env.process(self.convertFormat(rspBuff, l1ReqBuff, numDstBytes/numSrcBytes))
 
                     #L1
-                    self.env.process(self._handle_memory_request(self.l1ReqBuff, iBuff, oBuff, reqTrk1, overrideOp="WR", overrideTarget="L1"))
-                    insId = yield self.env.process(self._handle_memory_response(self.lastBuff, oBuff, reqTrk1))
+                    self.env.process(self._handle_memory_request(l1ReqBuff, iBuff, oBuff, reqTrk1, pipeId, overrideOp="WR", overrideTarget="L1"))
+                    insId = yield self.env.process(self._handle_memory_response(lastBuff, oBuff, reqTrk1))
                 else:
                     # ShortCircuit Mem Path
-                    outReq = yield self.regReqBuff.get()
+                    outReq = yield regReqBuff.get()
                     insId = outReq.__getInsId__()
-                    self.lastBuff.put(outReq)   # Directly put in lastBuff to avoid changing other code
+                    lastBuff.put(outReq)   # Directly put in lastBuff to avoid changing other code
 
                 assert len(self.tensixPipeTrk[pipeId]) > 0 , "Pipe Tracker is empty"
                 pipeIns  = self.tensixPipeTrk[pipeId][insId]
@@ -2544,7 +2589,7 @@ class tensixCore:
 
                 # Clear LastBuff
                 i = 0
-                while (i < (len(self.lastBuff.items))): yield self.lastBuff.get()
+                while (i < (len(lastBuff.items))): yield lastBuff.get()
 
             # 5. Valids / Resources Update
             yield from self._common_pipe_cleanup(pipeIns, pipeId, beginEvent)
