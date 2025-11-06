@@ -43,29 +43,29 @@ class valueStatus(IntEnum):
     IGNORE = -2
     UNSET = -1
 
-class instr(decoded_instruction.decoded_instruction, decoded_instruction.operands):
+class instr(decoded_instruction.decoded_instruction):
     def __init__(self, source= None):
         self.addr                           = -1
-        self.coreId                         = -1
-        self.threadId                       = -1
-        self.insId                          = -1
-        self.pipeDelay                      = -1
-        self.exPipe                         = None
-        self.operands                       = decoded_instruction.operands()
-        self.vldUpdMask                     = {}
         self.bankUpdMask                    = {}
         self.condChkVldUpdVal               = {}
         self.condWriVldUpdVal               = {}
-        self.pipeBankCtrl                   = {}
-        self.srcPipes                       = []
-        self.dstPipes                       = []
-        self.mnemonic                       = ""
-
-        self.srcFormat                      = None
+        self.coreId                         = -1
         self.dstFormat                      = None
-        self.numDatums                      = 0
-
+        self.dstPipes                       = []
+        self.exPipe                         = None
+        self.insId                          = -1
         self.memInfo                        = {}
+        self.mnemonic                       = ""
+        self.numDatums                      = 0
+        self.operands                       = decoded_instruction.operands()
+        self.pipeBankCtrl                   = {}
+        self.pipeDelay                      = -1
+        self.pipesThreadId                  = None
+        self.srcFormat                      = None
+        self.srcPipes                       = []
+        self.threadId                       = -1
+        self.vldUpdMask                     = {}
+
         if source is not None:
             self.__dict__.update(source.__dict__)
 
@@ -325,10 +325,10 @@ class instr(decoded_instruction.decoded_instruction, decoded_instruction.operand
             self.pipesThreadId = thread_id
 
     def getPipesThreadId(self):
-        if hasattr(self, 'pipesThreadId'):
+        if hasattr(self, 'pipesThreadId') and (self.pipesThreadId is not None):
             return self.pipesThreadId
         else:
-            print(f"- WARNING: pipeThreadId not defined for instruction {self}, returning getThread()")
+            print(f"- WARNING: pipeThreadId not defined for instruction at address {hex(self.addr)}, returning getThread()")
             return self.getThread()
 
     def setPipeDelay(self, delay):
