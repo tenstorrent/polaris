@@ -1,0 +1,1920 @@
+{
+  "enableSync": 1,
+  "numTriscCores": 1,
+  "maxNumThreadsperNeoCore": 4,
+  "orderScheme": [
+    [
+      0,
+      1
+    ],
+    [
+      0,
+      1
+    ],
+    [
+      0,
+      2,
+      3
+    ],
+    []
+  ],
+  "enableRiscPM": 1,
+  "riscPipeDepth": 4,
+  "branchMisPredictPenalty": 3,
+  "enableScoreboardCheckforRegs": 1,
+  "enableForwardingforRegs": 1,
+  "latency_l1": 10.0,
+  "enableSharedL1": 1,
+  "engines": [
+    {
+      "engineName": "CFG",
+      "engineInstructions": [
+        {
+          "name": "CFGSHIFTMASK",
+          "tpt": {
+            "int32": 1.0,
+            "bf16": 2.0,
+            "fp16": 2.0,
+            "fp32": 1.0,
+            "fp64": 0.5
+          }
+        },
+        {
+          "name": "CFGSHIFTMASK_BUT_ALIAS_BIT_8_OF_CFG_REG_ADDR_WITH_LSB_OF_OPCODE",
+          "tpt": {
+            "int32": 1.0,
+            "bf16": 2.0,
+            "fp16": 2.0,
+            "fp32": 1.0,
+            "fp64": 0.5
+          }
+        },
+        {
+          "name": "COMMIT_SHADOW",
+          "tpt": {
+            "int32": 1.0,
+            "bf16": 2.0,
+            "fp16": 2.0,
+            "fp32": 1.0,
+            "fp64": 0.5
+          }
+        },
+        {
+          "name": "RDCFG",
+          "tpt": {
+            "int32": 1.0,
+            "bf16": 2.0,
+            "fp16": 2.0,
+            "fp32": 1.0,
+            "fp64": 0.5
+          }
+        },
+        {
+          "name": "RMWCIB0",
+          "tpt": {
+            "int32": 1.0,
+            "bf16": 2.0,
+            "fp16": 2.0,
+            "fp32": 1.0,
+            "fp64": 0.5
+          }
+        },
+        {
+          "name": "RMWCIB0_BUT_ALIAS_BIT_8_OF_CFG_REG_ADDR_WITH_LSB_OF_OPCODE",
+          "tpt": {
+            "int32": 1.0,
+            "bf16": 2.0,
+            "fp16": 2.0,
+            "fp32": 1.0,
+            "fp64": 0.5
+          }
+        },
+        {
+          "name": "RMWCIB1",
+          "tpt": {
+            "int32": 1.0,
+            "bf16": 2.0,
+            "fp16": 2.0,
+            "fp32": 1.0,
+            "fp64": 0.5
+          }
+        },
+        {
+          "name": "RMWCIB1_BUT_ALIAS_BIT_8_OF_CFG_REG_ADDR_WITH_LSB_OF_OPCODE",
+          "tpt": {
+            "int32": 1.0,
+            "bf16": 2.0,
+            "fp16": 2.0,
+            "fp32": 1.0,
+            "fp64": 0.5
+          }
+        },
+        {
+          "name": "RMWCIB2",
+          "tpt": {
+            "int32": 1.0,
+            "bf16": 2.0,
+            "fp16": 2.0,
+            "fp32": 1.0,
+            "fp64": 0.5
+          }
+        },
+        {
+          "name": "RMWCIB2_BUT_ALIAS_BIT_8_OF_CFG_REG_ADDR_WITH_LSB_OF_OPCODE",
+          "tpt": {
+            "int32": 1.0,
+            "bf16": 2.0,
+            "fp16": 2.0,
+            "fp32": 1.0,
+            "fp64": 0.5
+          }
+        },
+        {
+          "name": "RMWCIB3",
+          "tpt": {
+            "int32": 1.0,
+            "bf16": 2.0,
+            "fp16": 2.0,
+            "fp32": 1.0,
+            "fp64": 0.5
+          }
+        },
+        {
+          "name": "RMWCIB3_BUT_ALIAS_BIT_8_OF_CFG_REG_ADDR_WITH_LSB_OF_OPCODE",
+          "tpt": {
+            "int32": 1.0,
+            "bf16": 2.0,
+            "fp16": 2.0,
+            "fp32": 1.0,
+            "fp64": 0.5
+          }
+        },
+        {
+          "name": "RV_WRCFG",
+          "tpt": {
+            "int32": 1.0,
+            "bf16": 2.0,
+            "fp16": 2.0,
+            "fp32": 1.0,
+            "fp64": 0.5
+          }
+        },
+        {
+          "name": "WRCFG",
+          "tpt": {
+            "int32": 1.0,
+            "bf16": 2.0,
+            "fp16": 2.0,
+            "fp32": 1.0,
+            "fp64": 0.5
+          }
+        }
+      ],
+      "engineGrp": "CFG",
+      "delay": 10
+    },
+    {
+      "engineName": "INSTISSUE",
+      "engineInstructions": [
+        {
+          "name": "CLEARDVALID",
+          "tpt": {
+            "int32": 1.0,
+            "bf16": 2.0,
+            "fp16": 2.0,
+            "fp32": 1.0,
+            "fp64": 0.5
+          }
+        },
+        {
+          "name": "ZEROACC",
+          "tpt": {
+            "int32": 1.0,
+            "bf16": 2.0,
+            "fp16": 2.0,
+            "fp32": 1.0,
+            "fp64": 0.5
+          }
+        },
+        {
+          "name": "ZEROSRC",
+          "tpt": {
+            "int32": 1.0,
+            "bf16": 2.0,
+            "fp16": 2.0,
+            "fp32": 1.0,
+            "fp64": 0.5
+          }
+        }
+      ],
+      "engineGrp": "MATH",
+      "delay": 10
+    },
+    {
+      "engineName": "MATH",
+      "engineInstructions": [
+        {
+          "name": "ELWADD",
+          "tpt": {
+            "int32": 1.0,
+            "bf16": 2.0,
+            "fp16": 2.0,
+            "fp32": 1.0,
+            "fp64": 0.5
+          }
+        },
+        {
+          "name": "ELWADDDI",
+          "tpt": {
+            "int32": 1.0,
+            "bf16": 2.0,
+            "fp16": 2.0,
+            "fp32": 1.0,
+            "fp64": 0.5
+          }
+        },
+        {
+          "name": "ELWMUL",
+          "tpt": {
+            "int32": 1.0,
+            "bf16": 2.0,
+            "fp16": 2.0,
+            "fp32": 1.0,
+            "fp64": 0.5
+          }
+        },
+        {
+          "name": "ELWMULDI",
+          "tpt": {
+            "int32": 1.0,
+            "bf16": 2.0,
+            "fp16": 2.0,
+            "fp32": 1.0,
+            "fp64": 0.5
+          }
+        },
+        {
+          "name": "ELWSUB",
+          "tpt": {
+            "int32": 1.0,
+            "bf16": 2.0,
+            "fp16": 2.0,
+            "fp32": 1.0,
+            "fp64": 0.5
+          }
+        },
+        {
+          "name": "ELWSUBDI",
+          "tpt": {
+            "int32": 1.0,
+            "bf16": 2.0,
+            "fp16": 2.0,
+            "fp32": 1.0,
+            "fp64": 0.5
+          }
+        },
+        {
+          "name": "GAPOOL",
+          "tpt": {
+            "int32": 1.0,
+            "bf16": 2.0,
+            "fp16": 2.0,
+            "fp32": 1.0,
+            "fp64": 0.5
+          }
+        },
+        {
+          "name": "GMPOOL",
+          "tpt": {
+            "int32": 1.0,
+            "bf16": 2.0,
+            "fp16": 2.0,
+            "fp32": 1.0,
+            "fp64": 0.5
+          }
+        },
+        {
+          "name": "INCRWC",
+          "tpt": {
+            "int32": 1.0,
+            "bf16": 2.0,
+            "fp16": 2.0,
+            "fp32": 1.0,
+            "fp64": 0.5
+          }
+        },
+        {
+          "name": "MOVA2D",
+          "tpt": {
+            "int32": 1.0,
+            "bf16": 2.0,
+            "fp16": 2.0,
+            "fp32": 1.0,
+            "fp64": 0.5
+          }
+        },
+        {
+          "name": "MOVB2A",
+          "tpt": {
+            "int32": 1.0,
+            "bf16": 2.0,
+            "fp16": 2.0,
+            "fp32": 1.0,
+            "fp64": 0.5
+          }
+        },
+        {
+          "name": "MOVB2D",
+          "tpt": {
+            "int32": 1.0,
+            "bf16": 2.0,
+            "fp16": 2.0,
+            "fp32": 1.0,
+            "fp64": 0.5
+          }
+        },
+        {
+          "name": "MOVD2A",
+          "tpt": {
+            "int32": 1.0,
+            "bf16": 2.0,
+            "fp16": 2.0,
+            "fp32": 1.0,
+            "fp64": 0.5
+          }
+        },
+        {
+          "name": "MOVD2B",
+          "tpt": {
+            "int32": 1.0,
+            "bf16": 2.0,
+            "fp16": 2.0,
+            "fp32": 1.0,
+            "fp64": 0.5
+          }
+        },
+        {
+          "name": "MOVDBGA2D",
+          "tpt": {
+            "int32": 1.0,
+            "bf16": 2.0,
+            "fp16": 2.0,
+            "fp32": 1.0,
+            "fp64": 0.5
+          }
+        },
+        {
+          "name": "MOVDBGB2D",
+          "tpt": {
+            "int32": 1.0,
+            "bf16": 2.0,
+            "fp16": 2.0,
+            "fp32": 1.0,
+            "fp64": 0.5
+          }
+        },
+        {
+          "name": "MVMUL",
+          "tpt": {
+            "int32": 1.0,
+            "bf16": 2.0,
+            "fp16": 2.0,
+            "fp32": 1.0,
+            "fp64": 0.5
+          }
+        },
+        {
+          "name": "MVMULDI",
+          "tpt": {
+            "int32": 1.0,
+            "bf16": 2.0,
+            "fp16": 2.0,
+            "fp32": 1.0,
+            "fp64": 0.5
+          }
+        },
+        {
+          "name": "SETASHRMV",
+          "tpt": {
+            "int32": 1.0,
+            "bf16": 2.0,
+            "fp16": 2.0,
+            "fp32": 1.0,
+            "fp64": 0.5
+          }
+        },
+        {
+          "name": "SETRWC",
+          "tpt": {
+            "int32": 1.0,
+            "bf16": 2.0,
+            "fp16": 2.0,
+            "fp32": 1.0,
+            "fp64": 0.5
+          }
+        },
+        {
+          "name": "SHIFTXA",
+          "tpt": {
+            "int32": 1.0,
+            "bf16": 2.0,
+            "fp16": 2.0,
+            "fp32": 1.0,
+            "fp64": 0.5
+          }
+        },
+        {
+          "name": "SHIFTXB",
+          "tpt": {
+            "int32": 1.0,
+            "bf16": 2.0,
+            "fp16": 2.0,
+            "fp32": 1.0,
+            "fp64": 0.5
+          }
+        }
+      ],
+      "engineGrp": "MATH",
+      "delay": 10
+    },
+    {
+      "engineName": "NONE",
+      "engineInstructions": [
+        {
+          "name": "HALT",
+          "tpt": {
+            "int32": 1.0,
+            "bf16": 2.0,
+            "fp16": 2.0,
+            "fp32": 1.0,
+            "fp64": 0.5
+          }
+        },
+        {
+          "name": "NOP",
+          "tpt": {
+            "int32": 1.0,
+            "bf16": 2.0,
+            "fp16": 2.0,
+            "fp32": 1.0,
+            "fp64": 0.5
+          }
+        },
+        {
+          "name": "REPLAY",
+          "tpt": {
+            "int32": 1.0,
+            "bf16": 2.0,
+            "fp16": 2.0,
+            "fp32": 1.0,
+            "fp64": 0.5
+          }
+        },
+        {
+          "name": "RESOURCEDECL",
+          "tpt": {
+            "int32": 1.0,
+            "bf16": 2.0,
+            "fp16": 2.0,
+            "fp32": 1.0,
+            "fp64": 0.5
+          }
+        }
+      ],
+      "engineGrp": "NONE",
+      "delay": 0
+    },
+    {
+      "engineName": "PACKER0",
+      "engineInstructions": [
+        {
+          "name": "PACR0_FACE",
+          "tpt": {
+            "int32": 1.0,
+            "bf16": 2.0,
+            "fp16": 2.0,
+            "fp32": 1.0,
+            "fp64": 0.5
+          }
+        },
+        {
+          "name": "PACR0_FACE_INC",
+          "tpt": {
+            "int32": 1.0,
+            "bf16": 2.0,
+            "fp16": 2.0,
+            "fp32": 1.0,
+            "fp64": 0.5
+          }
+        },
+        {
+          "name": "PACR0_ROW",
+          "tpt": {
+            "int32": 1.0,
+            "bf16": 2.0,
+            "fp16": 2.0,
+            "fp32": 1.0,
+            "fp64": 0.5
+          }
+        },
+        {
+          "name": "PACR0_ROW_INC",
+          "tpt": {
+            "int32": 1.0,
+            "bf16": 2.0,
+            "fp16": 2.0,
+            "fp32": 1.0,
+            "fp64": 0.5
+          }
+        },
+        {
+          "name": "PACR0_TILE",
+          "tpt": {
+            "int32": 1.0,
+            "bf16": 2.0,
+            "fp16": 2.0,
+            "fp32": 1.0,
+            "fp64": 0.5
+          }
+        },
+        {
+          "name": "PACR0_TILE_INC",
+          "tpt": {
+            "int32": 1.0,
+            "bf16": 2.0,
+            "fp16": 2.0,
+            "fp32": 1.0,
+            "fp64": 0.5
+          }
+        },
+        {
+          "name": "PACR_STRIDE",
+          "tpt": {
+            "int32": 1.0,
+            "bf16": 2.0,
+            "fp16": 2.0,
+            "fp32": 1.0,
+            "fp64": 0.5
+          }
+        },
+        {
+          "name": "PACR_UNTILIZE",
+          "tpt": {
+            "int32": 1.0,
+            "bf16": 2.0,
+            "fp16": 2.0,
+            "fp32": 1.0,
+            "fp64": 0.5
+          }
+        },
+        {
+          "name": "PUSH_TILES",
+          "tpt": {
+            "int32": 1.0,
+            "bf16": 2.0,
+            "fp16": 2.0,
+            "fp32": 1.0,
+            "fp64": 0.5
+          }
+        },
+        {
+          "name": "RV_PACR",
+          "tpt": {
+            "int32": 1.0,
+            "bf16": 2.0,
+            "fp16": 2.0,
+            "fp32": 1.0,
+            "fp64": 0.5
+          }
+        }
+      ],
+      "engineGrp": "PACK",
+      "delay": 10
+    },
+    {
+      "engineName": "PACKER1",
+      "engineInstructions": [
+        {
+          "name": "PACR1_FACE",
+          "tpt": {
+            "int32": 1.0,
+            "bf16": 2.0,
+            "fp16": 2.0,
+            "fp32": 1.0,
+            "fp64": 0.5
+          }
+        },
+        {
+          "name": "PACR1_FACE_INC",
+          "tpt": {
+            "int32": 1.0,
+            "bf16": 2.0,
+            "fp16": 2.0,
+            "fp32": 1.0,
+            "fp64": 0.5
+          }
+        },
+        {
+          "name": "PACR1_ROW",
+          "tpt": {
+            "int32": 1.0,
+            "bf16": 2.0,
+            "fp16": 2.0,
+            "fp32": 1.0,
+            "fp64": 0.5
+          }
+        },
+        {
+          "name": "PACR1_ROW_INC",
+          "tpt": {
+            "int32": 1.0,
+            "bf16": 2.0,
+            "fp16": 2.0,
+            "fp32": 1.0,
+            "fp64": 0.5
+          }
+        },
+        {
+          "name": "PACR1_TILE",
+          "tpt": {
+            "int32": 1.0,
+            "bf16": 2.0,
+            "fp16": 2.0,
+            "fp32": 1.0,
+            "fp64": 0.5
+          }
+        },
+        {
+          "name": "PACR1_TILE_INC",
+          "tpt": {
+            "int32": 1.0,
+            "bf16": 2.0,
+            "fp16": 2.0,
+            "fp32": 1.0,
+            "fp64": 0.5
+          }
+        },
+        {
+          "name": "PACR_STRIDE",
+          "tpt": {
+            "int32": 1.0,
+            "bf16": 2.0,
+            "fp16": 2.0,
+            "fp32": 1.0,
+            "fp64": 0.5
+          }
+        },
+        {
+          "name": "PACR_UNTILIZE",
+          "tpt": {
+            "int32": 1.0,
+            "bf16": 2.0,
+            "fp16": 2.0,
+            "fp32": 1.0,
+            "fp64": 0.5
+          }
+        },
+        {
+          "name": "RV_PACR",
+          "tpt": {
+            "int32": 1.0,
+            "bf16": 2.0,
+            "fp16": 2.0,
+            "fp32": 1.0,
+            "fp64": 0.5
+          }
+        }
+      ],
+      "engineGrp": "PACK",
+      "delay": 10
+    },
+    {
+      "engineName": "SFPU",
+      "engineInstructions": [
+        {
+          "name": "SFPABS",
+          "tpt": {
+            "int32": 1.0,
+            "bf16": 1.0,
+            "fp16": 1.0,
+            "fp32": 0.5,
+            "fp64": 0.5
+          }
+        },
+        {
+          "name": "SFPADD",
+          "tpt": {
+            "int32": 1.0,
+            "bf16": 1.0,
+            "fp16": 1.0,
+            "fp32": 0.5,
+            "fp64": 0.5
+          }
+        },
+        {
+          "name": "SFPADDI",
+          "tpt": {
+            "int32": 0.5,
+            "bf16": 0.5,
+            "fp16": 0.5,
+            "fp32": 0.25,
+            "fp64": 0.25
+          }
+        },
+        {
+          "name": "SFPAND",
+          "tpt": {
+            "int32": 1.0,
+            "bf16": 1.0,
+            "fp16": 1.0,
+            "fp32": 0.5,
+            "fp64": 0.5
+          }
+        },
+        {
+          "name": "SFPARECIP",
+          "tpt": {
+            "int32": 1.0,
+            "bf16": 1.0,
+            "fp16": 1.0,
+            "fp32": 0.5,
+            "fp64": 0.5
+          }
+        },
+        {
+          "name": "SFPCAST",
+          "tpt": {
+            "int32": 1.0,
+            "bf16": 1.0,
+            "fp16": 1.0,
+            "fp32": 0.5,
+            "fp64": 0.5
+          }
+        },
+        {
+          "name": "SFPCOMPC",
+          "tpt": {
+            "int32": 1.0,
+            "bf16": 1.0,
+            "fp16": 1.0,
+            "fp32": 0.5,
+            "fp64": 0.5
+          }
+        },
+        {
+          "name": "SFPCONFIG",
+          "tpt": {
+            "int32": 1.0,
+            "bf16": 1.0,
+            "fp16": 1.0,
+            "fp32": 0.5,
+            "fp64": 0.5
+          }
+        },
+        {
+          "name": "SFPDIVP2",
+          "tpt": {
+            "int32": 1.0,
+            "bf16": 1.0,
+            "fp16": 1.0,
+            "fp32": 0.5,
+            "fp64": 0.5
+          }
+        },
+        {
+          "name": "SFPENCC",
+          "tpt": {
+            "int32": 1.0,
+            "bf16": 1.0,
+            "fp16": 1.0,
+            "fp32": 0.5,
+            "fp64": 0.5
+          }
+        },
+        {
+          "name": "SFPEXEXP",
+          "tpt": {
+            "int32": 1.0,
+            "bf16": 1.0,
+            "fp16": 1.0,
+            "fp32": 0.5,
+            "fp64": 0.5
+          }
+        },
+        {
+          "name": "SFPEXMAN",
+          "tpt": {
+            "int32": 1.0,
+            "bf16": 1.0,
+            "fp16": 1.0,
+            "fp32": 0.5,
+            "fp64": 0.5
+          }
+        },
+        {
+          "name": "SFPGT",
+          "tpt": {
+            "int32": 1.0,
+            "bf16": 1.0,
+            "fp16": 1.0,
+            "fp32": 0.5,
+            "fp64": 0.5
+          }
+        },
+        {
+          "name": "SFPIADD",
+          "tpt": {
+            "int32": 1.0,
+            "bf16": 1.0,
+            "fp16": 1.0,
+            "fp32": 0.5,
+            "fp64": 0.5
+          }
+        },
+        {
+          "name": "SFPLE",
+          "tpt": {
+            "int32": 1.0,
+            "bf16": 1.0,
+            "fp16": 1.0,
+            "fp32": 0.5,
+            "fp64": 0.5
+          }
+        },
+        {
+          "name": "SFPLOAD",
+          "tpt": {
+            "int32": 1.0,
+            "bf16": 1.0,
+            "fp16": 1.0,
+            "fp32": 0.5,
+            "fp64": 0.5
+          }
+        },
+        {
+          "name": "SFPLOADI",
+          "tpt": {
+            "int32": 1.0,
+            "bf16": 1.0,
+            "fp16": 1.0,
+            "fp32": 0.5,
+            "fp64": 0.5
+          }
+        },
+        {
+          "name": "SFPLOADMACRO",
+          "tpt": {
+            "int32": 1.0,
+            "bf16": 1.0,
+            "fp16": 1.0,
+            "fp32": 0.5,
+            "fp64": 0.5
+          }
+        },
+        {
+          "name": "SFPLUT",
+          "tpt": {
+            "int32": 0.5,
+            "bf16": 0.5,
+            "fp16": 0.5,
+            "fp32": 0.25,
+            "fp64": 0.25
+          }
+        },
+        {
+          "name": "SFPLUTFP32",
+          "tpt": {
+            "int32": 1.0,
+            "bf16": 1.0,
+            "fp16": 1.0,
+            "fp32": 0.5,
+            "fp64": 0.5
+          }
+        },
+        {
+          "name": "SFPLZ",
+          "tpt": {
+            "int32": 1.0,
+            "bf16": 1.0,
+            "fp16": 1.0,
+            "fp32": 0.5,
+            "fp64": 0.5
+          }
+        },
+        {
+          "name": "SFPMAD",
+          "tpt": {
+            "int32": 0.5,
+            "bf16": 0.5,
+            "fp16": 0.5,
+            "fp32": 0.25,
+            "fp64": 0.25
+          }
+        },
+        {
+          "name": "SFPMOV",
+          "tpt": {
+            "int32": 1.0,
+            "bf16": 1.0,
+            "fp16": 1.0,
+            "fp32": 0.5,
+            "fp64": 0.5
+          }
+        },
+        {
+          "name": "SFPMUL",
+          "tpt": {
+            "int32": 1.0,
+            "bf16": 1.0,
+            "fp16": 1.0,
+            "fp32": 0.5,
+            "fp64": 0.5
+          }
+        },
+        {
+          "name": "SFPMUL24",
+          "tpt": {
+            "int32": 1.0,
+            "bf16": 1.0,
+            "fp16": 1.0,
+            "fp32": 0.5,
+            "fp64": 0.5
+          }
+        },
+        {
+          "name": "SFPMULI",
+          "tpt": {
+            "int32": 0.5,
+            "bf16": 0.5,
+            "fp16": 0.5,
+            "fp32": 0.25,
+            "fp64": 0.25
+          }
+        },
+        {
+          "name": "SFPNOP",
+          "tpt": {
+            "int32": 1.0,
+            "bf16": 1.0,
+            "fp16": 1.0,
+            "fp32": 0.5,
+            "fp64": 0.5
+          }
+        },
+        {
+          "name": "SFPNOT",
+          "tpt": {
+            "int32": 1.0,
+            "bf16": 1.0,
+            "fp16": 1.0,
+            "fp32": 0.5,
+            "fp64": 0.5
+          }
+        },
+        {
+          "name": "SFPOR",
+          "tpt": {
+            "int32": 1.0,
+            "bf16": 1.0,
+            "fp16": 1.0,
+            "fp32": 0.5,
+            "fp64": 0.5
+          }
+        },
+        {
+          "name": "SFPPOPC",
+          "tpt": {
+            "int32": 1.0,
+            "bf16": 1.0,
+            "fp16": 1.0,
+            "fp32": 0.5,
+            "fp64": 0.5
+          }
+        },
+        {
+          "name": "SFPPUSHC",
+          "tpt": {
+            "int32": 1.0,
+            "bf16": 1.0,
+            "fp16": 1.0,
+            "fp32": 0.5,
+            "fp64": 0.5
+          }
+        },
+        {
+          "name": "SFPSETCC",
+          "tpt": {
+            "int32": 1.0,
+            "bf16": 1.0,
+            "fp16": 1.0,
+            "fp32": 0.5,
+            "fp64": 0.5
+          }
+        },
+        {
+          "name": "SFPSETEXP",
+          "tpt": {
+            "int32": 1.0,
+            "bf16": 1.0,
+            "fp16": 1.0,
+            "fp32": 0.5,
+            "fp64": 0.5
+          }
+        },
+        {
+          "name": "SFPSETMAN",
+          "tpt": {
+            "int32": 1.0,
+            "bf16": 1.0,
+            "fp16": 1.0,
+            "fp32": 0.5,
+            "fp64": 0.5
+          }
+        },
+        {
+          "name": "SFPSETSGN",
+          "tpt": {
+            "int32": 1.0,
+            "bf16": 1.0,
+            "fp16": 1.0,
+            "fp32": 0.5,
+            "fp64": 0.5
+          }
+        },
+        {
+          "name": "SFPSHFT",
+          "tpt": {
+            "int32": 1.0,
+            "bf16": 1.0,
+            "fp16": 1.0,
+            "fp32": 0.5,
+            "fp64": 0.5
+          }
+        },
+        {
+          "name": "SFPSHFT2",
+          "tpt": {
+            "int32": 0.5,
+            "bf16": 0.5,
+            "fp16": 0.5,
+            "fp32": 0.25,
+            "fp64": 0.25
+          }
+        },
+        {
+          "name": "SFPSTORE",
+          "tpt": {
+            "int32": 1.0,
+            "bf16": 1.0,
+            "fp16": 1.0,
+            "fp32": 0.5,
+            "fp64": 0.5
+          }
+        },
+        {
+          "name": "SFPSWAP",
+          "tpt": {
+            "int32": 0.5,
+            "bf16": 0.5,
+            "fp16": 0.5,
+            "fp32": 0.25,
+            "fp64": 0.25
+          }
+        },
+        {
+          "name": "SFPTRANSP",
+          "tpt": {
+            "int32": 1.0,
+            "bf16": 1.0,
+            "fp16": 1.0,
+            "fp32": 0.5,
+            "fp64": 0.5
+          }
+        },
+        {
+          "name": "SFPXOR",
+          "tpt": {
+            "int32": 1.0,
+            "bf16": 1.0,
+            "fp16": 1.0,
+            "fp32": 0.5,
+            "fp64": 0.5
+          }
+        },
+        {
+          "name": "SFP_STOCH_RND",
+          "tpt": {
+            "int32": 1.0,
+            "bf16": 1.0,
+            "fp16": 1.0,
+            "fp32": 0.5,
+            "fp64": 0.5
+          }
+        },
+        {
+          "name": "SFPNONLINEAR",
+          "tpt": {
+            "int32": 1.0,
+            "bf16": 1.0,
+            "fp16": 1.0,
+            "fp32": 0.5,
+            "fp64": 0.5
+          }
+        }
+      ],
+      "engineGrp": "SFPU",
+      "delay": 10
+    },
+    {
+      "engineName": "SYNC",
+      "engineInstructions": [
+        {
+          "name": "ATGETM",
+          "tpt": {
+            "int32": 1.0,
+            "bf16": 2.0,
+            "fp16": 2.0,
+            "fp32": 1.0,
+            "fp64": 0.5
+          }
+        },
+        {
+          "name": "ATRELM",
+          "tpt": {
+            "int32": 1.0,
+            "bf16": 2.0,
+            "fp16": 2.0,
+            "fp32": 1.0,
+            "fp64": 0.5
+          }
+        },
+        {
+          "name": "MOP",
+          "tpt": {
+            "int32": 1.0,
+            "bf16": 2.0,
+            "fp16": 2.0,
+            "fp32": 1.0,
+            "fp64": 0.5
+          }
+        },
+        {
+          "name": "MOP_CFG",
+          "tpt": {
+            "int32": 1.0,
+            "bf16": 2.0,
+            "fp16": 2.0,
+            "fp32": 1.0,
+            "fp64": 0.5
+          }
+        },
+        {
+          "name": "SEMGET",
+          "tpt": {
+            "int32": 1.0,
+            "bf16": 2.0,
+            "fp16": 2.0,
+            "fp32": 1.0,
+            "fp64": 0.5
+          }
+        },
+        {
+          "name": "SEMINIT",
+          "tpt": {
+            "int32": 1.0,
+            "bf16": 2.0,
+            "fp16": 2.0,
+            "fp32": 1.0,
+            "fp64": 0.5
+          }
+        },
+        {
+          "name": "SEMPOST",
+          "tpt": {
+            "int32": 1.0,
+            "bf16": 2.0,
+            "fp16": 2.0,
+            "fp32": 1.0,
+            "fp64": 0.5
+          }
+        },
+        {
+          "name": "SEMWAIT",
+          "tpt": {
+            "int32": 1.0,
+            "bf16": 2.0,
+            "fp16": 2.0,
+            "fp32": 1.0,
+            "fp64": 0.5
+          }
+        },
+        {
+          "name": "STALLWAIT",
+          "tpt": {
+            "int32": 1.0,
+            "bf16": 2.0,
+            "fp16": 2.0,
+            "fp32": 1.0,
+            "fp64": 0.5
+          }
+        },
+        {
+          "name": "WAIT_FREE",
+          "tpt": {
+            "int32": 1.0,
+            "bf16": 2.0,
+            "fp16": 2.0,
+            "fp32": 1.0,
+            "fp64": 0.5
+          }
+        },
+        {
+          "name": "WAIT_TILES",
+          "tpt": {
+            "int32": 1.0,
+            "bf16": 2.0,
+            "fp16": 2.0,
+            "fp32": 1.0,
+            "fp64": 0.5
+          }
+        }
+      ],
+      "engineGrp": "SYNC",
+      "delay": 10
+    },
+    {
+      "engineName": "TDMA",
+      "engineInstructions": [
+        {
+          "name": "INC_DST_TILE_FACE_ROW_IDX",
+          "tpt": {
+            "int32": 1.0,
+            "bf16": 2.0,
+            "fp16": 2.0,
+            "fp32": 1.0,
+            "fp64": 0.5
+          }
+        },
+        {
+          "name": "INC_SRC_TILE_FACE_ROW_IDX",
+          "tpt": {
+            "int32": 1.0,
+            "bf16": 2.0,
+            "fp16": 2.0,
+            "fp32": 1.0,
+            "fp64": 0.5
+          }
+        },
+        {
+          "name": "SETDVALID",
+          "tpt": {
+            "int32": 1.0,
+            "bf16": 2.0,
+            "fp16": 2.0,
+            "fp32": 1.0,
+            "fp64": 0.5
+          }
+        },
+        {
+          "name": "SET_DST_TILE_FACE_ROW_IDX",
+          "tpt": {
+            "int32": 1.0,
+            "bf16": 2.0,
+            "fp16": 2.0,
+            "fp32": 1.0,
+            "fp64": 0.5
+          }
+        },
+        {
+          "name": "SET_SRC_TILE_FACE_ROW_IDX",
+          "tpt": {
+            "int32": 1.0,
+            "bf16": 2.0,
+            "fp16": 2.0,
+            "fp32": 1.0,
+            "fp64": 0.5
+          }
+        }
+      ],
+      "engineGrp": "TDMA",
+      "delay": 10
+    },
+    {
+      "engineName": "THCON",
+      "engineInstructions": [
+        {
+          "name": "ADDGPR",
+          "tpt": {
+            "int32": 1.0,
+            "bf16": 2.0,
+            "fp16": 2.0,
+            "fp32": 1.0,
+            "fp64": 0.5
+          }
+        },
+        {
+          "name": "ATCAS",
+          "tpt": {
+            "int32": 1.0,
+            "bf16": 2.0,
+            "fp16": 2.0,
+            "fp32": 1.0,
+            "fp64": 0.5
+          }
+        },
+        {
+          "name": "ATINCGET",
+          "tpt": {
+            "int32": 1.0,
+            "bf16": 2.0,
+            "fp16": 2.0,
+            "fp32": 1.0,
+            "fp64": 0.5
+          }
+        },
+        {
+          "name": "ATINCGETPTR",
+          "tpt": {
+            "int32": 1.0,
+            "bf16": 2.0,
+            "fp16": 2.0,
+            "fp32": 1.0,
+            "fp64": 0.5
+          }
+        },
+        {
+          "name": "ATSWAP",
+          "tpt": {
+            "int32": 1.0,
+            "bf16": 2.0,
+            "fp16": 2.0,
+            "fp32": 1.0,
+            "fp64": 0.5
+          }
+        },
+        {
+          "name": "BITWOPGPR",
+          "tpt": {
+            "int32": 1.0,
+            "bf16": 2.0,
+            "fp16": 2.0,
+            "fp32": 1.0,
+            "fp64": 0.5
+          }
+        },
+        {
+          "name": "CMPGPR",
+          "tpt": {
+            "int32": 1.0,
+            "bf16": 2.0,
+            "fp16": 2.0,
+            "fp32": 1.0,
+            "fp64": 0.5
+          }
+        },
+        {
+          "name": "DMANOP",
+          "tpt": {
+            "int32": 1.0,
+            "bf16": 2.0,
+            "fp16": 2.0,
+            "fp32": 1.0,
+            "fp64": 0.5
+          }
+        },
+        {
+          "name": "LOADIND",
+          "tpt": {
+            "int32": 1.0,
+            "bf16": 2.0,
+            "fp16": 2.0,
+            "fp32": 1.0,
+            "fp64": 0.5
+          }
+        },
+        {
+          "name": "LOADREG",
+          "tpt": {
+            "int32": 1.0,
+            "bf16": 2.0,
+            "fp16": 2.0,
+            "fp32": 1.0,
+            "fp64": 0.5
+          }
+        },
+        {
+          "name": "MULGPR",
+          "tpt": {
+            "int32": 1.0,
+            "bf16": 2.0,
+            "fp16": 2.0,
+            "fp32": 1.0,
+            "fp64": 0.5
+          }
+        },
+        {
+          "name": "SETGPR",
+          "tpt": {
+            "int32": 1.0,
+            "bf16": 2.0,
+            "fp16": 2.0,
+            "fp32": 1.0,
+            "fp64": 0.5
+          }
+        },
+        {
+          "name": "SHIFTGPR",
+          "tpt": {
+            "int32": 1.0,
+            "bf16": 2.0,
+            "fp16": 2.0,
+            "fp32": 1.0,
+            "fp64": 0.5
+          }
+        },
+        {
+          "name": "STOREIND",
+          "tpt": {
+            "int32": 1.0,
+            "bf16": 2.0,
+            "fp16": 2.0,
+            "fp32": 1.0,
+            "fp64": 0.5
+          }
+        },
+        {
+          "name": "STOREREG",
+          "tpt": {
+            "int32": 1.0,
+            "bf16": 2.0,
+            "fp16": 2.0,
+            "fp32": 1.0,
+            "fp64": 0.5
+          }
+        },
+        {
+          "name": "SUBGPR",
+          "tpt": {
+            "int32": 1.0,
+            "bf16": 2.0,
+            "fp16": 2.0,
+            "fp32": 1.0,
+            "fp64": 0.5
+          }
+        }
+      ],
+      "engineGrp": "THCON",
+      "delay": 10
+    },
+    {
+      "engineName": "UNPACKER0",
+      "engineInstructions": [
+        {
+          "name": "POP_TILES",
+          "tpt": {
+            "int32": 1.0,
+            "bf16": 2.0,
+            "fp16": 2.0,
+            "fp32": 1.0,
+            "fp64": 0.5
+          }
+        },
+        {
+          "name": "RV_UNPACR",
+          "tpt": {
+            "int32": 1.0,
+            "bf16": 2.0,
+            "fp16": 2.0,
+            "fp32": 1.0,
+            "fp64": 0.5
+          }
+        },
+        {
+          "name": "UNPACR0_FACE",
+          "tpt": {
+            "int32": 1.0,
+            "bf16": 2.0,
+            "fp16": 2.0,
+            "fp32": 1.0,
+            "fp64": 0.5
+          }
+        },
+        {
+          "name": "UNPACR0_FACE_INC",
+          "tpt": {
+            "int32": 1.0,
+            "bf16": 2.0,
+            "fp16": 2.0,
+            "fp32": 1.0,
+            "fp64": 0.5
+          }
+        },
+        {
+          "name": "UNPACR0_ROW",
+          "tpt": {
+            "int32": 1.0,
+            "bf16": 2.0,
+            "fp16": 2.0,
+            "fp32": 1.0,
+            "fp64": 0.5
+          }
+        },
+        {
+          "name": "UNPACR0_ROW_INC",
+          "tpt": {
+            "int32": 1.0,
+            "bf16": 2.0,
+            "fp16": 2.0,
+            "fp32": 1.0,
+            "fp64": 0.5
+          }
+        },
+        {
+          "name": "UNPACR0_STRIDE",
+          "tpt": {
+            "int32": 1.0,
+            "bf16": 2.0,
+            "fp16": 2.0,
+            "fp32": 1.0,
+            "fp64": 0.5
+          }
+        },
+        {
+          "name": "UNPACR0_TILE",
+          "tpt": {
+            "int32": 1.0,
+            "bf16": 2.0,
+            "fp16": 2.0,
+            "fp32": 1.0,
+            "fp64": 0.5
+          }
+        },
+        {
+          "name": "UNPACR0_TILE_INC",
+          "tpt": {
+            "int32": 1.0,
+            "bf16": 2.0,
+            "fp16": 2.0,
+            "fp32": 1.0,
+            "fp64": 0.5
+          }
+        },
+        {
+          "name": "UNPACR_DEST_FACE",
+          "tpt": {
+            "int32": 1.0,
+            "bf16": 2.0,
+            "fp16": 2.0,
+            "fp32": 1.0,
+            "fp64": 0.5
+          }
+        },
+        {
+          "name": "UNPACR_DEST_FACE_INC",
+          "tpt": {
+            "int32": 1.0,
+            "bf16": 2.0,
+            "fp16": 2.0,
+            "fp32": 1.0,
+            "fp64": 0.5
+          }
+        },
+        {
+          "name": "UNPACR_DEST_ROW",
+          "tpt": {
+            "int32": 1.0,
+            "bf16": 2.0,
+            "fp16": 2.0,
+            "fp32": 1.0,
+            "fp64": 0.5
+          }
+        },
+        {
+          "name": "UNPACR_DEST_ROW_INC",
+          "tpt": {
+            "int32": 1.0,
+            "bf16": 2.0,
+            "fp16": 2.0,
+            "fp32": 1.0,
+            "fp64": 0.5
+          }
+        },
+        {
+          "name": "UNPACR_DEST_STRIDE",
+          "tpt": {
+            "int32": 1.0,
+            "bf16": 2.0,
+            "fp16": 2.0,
+            "fp32": 1.0,
+            "fp64": 0.5
+          }
+        },
+        {
+          "name": "UNPACR_DEST_TILE",
+          "tpt": {
+            "int32": 1.0,
+            "bf16": 2.0,
+            "fp16": 2.0,
+            "fp32": 1.0,
+            "fp64": 0.5
+          }
+        },
+        {
+          "name": "UNPACR_DEST_TILE_INC",
+          "tpt": {
+            "int32": 1.0,
+            "bf16": 2.0,
+            "fp16": 2.0,
+            "fp32": 1.0,
+            "fp64": 0.5
+          }
+        },
+        {
+          "name": "UNPACR_NOP",
+          "tpt": {
+            "int32": 1.0,
+            "bf16": 2.0,
+            "fp16": 2.0,
+            "fp32": 1.0,
+            "fp64": 0.5
+          }
+        },
+        {
+          "name": "UNPACR_TILE_MISC",
+          "tpt": {
+            "int32": 1.0,
+            "bf16": 2.0,
+            "fp16": 2.0,
+            "fp32": 1.0,
+            "fp64": 0.5
+          }
+        },
+        {
+          "name": "UNPACR_TILIZE",
+          "tpt": {
+            "int32": 1.0,
+            "bf16": 2.0,
+            "fp16": 2.0,
+            "fp32": 1.0,
+            "fp64": 0.5
+          }
+        }
+      ],
+      "engineGrp": "UNPACK",
+      "delay": 10
+    },
+    {
+      "engineName": "UNPACKER1",
+      "engineInstructions": [
+        {
+          "name": "RV_UNPACR",
+          "tpt": {
+            "int32": 1.0,
+            "bf16": 2.0,
+            "fp16": 2.0,
+            "fp32": 1.0,
+            "fp64": 0.5
+          }
+        },
+        {
+          "name": "UNPACR1_FACE",
+          "tpt": {
+            "int32": 1.0,
+            "bf16": 2.0,
+            "fp16": 2.0,
+            "fp32": 1.0,
+            "fp64": 0.5
+          }
+        },
+        {
+          "name": "UNPACR1_FACE_INC",
+          "tpt": {
+            "int32": 1.0,
+            "bf16": 2.0,
+            "fp16": 2.0,
+            "fp32": 1.0,
+            "fp64": 0.5
+          }
+        },
+        {
+          "name": "UNPACR1_ROW",
+          "tpt": {
+            "int32": 1.0,
+            "bf16": 2.0,
+            "fp16": 2.0,
+            "fp32": 1.0,
+            "fp64": 0.5
+          }
+        },
+        {
+          "name": "UNPACR1_ROW_INC",
+          "tpt": {
+            "int32": 1.0,
+            "bf16": 2.0,
+            "fp16": 2.0,
+            "fp32": 1.0,
+            "fp64": 0.5
+          }
+        },
+        {
+          "name": "UNPACR1_STRIDE",
+          "tpt": {
+            "int32": 1.0,
+            "bf16": 2.0,
+            "fp16": 2.0,
+            "fp32": 1.0,
+            "fp64": 0.5
+          }
+        },
+        {
+          "name": "UNPACR1_TILE",
+          "tpt": {
+            "int32": 1.0,
+            "bf16": 2.0,
+            "fp16": 2.0,
+            "fp32": 1.0,
+            "fp64": 0.5
+          }
+        },
+        {
+          "name": "UNPACR1_TILE_INC",
+          "tpt": {
+            "int32": 1.0,
+            "bf16": 2.0,
+            "fp16": 2.0,
+            "fp32": 1.0,
+            "fp64": 0.5
+          }
+        },
+        {
+          "name": "UNPACR_NOP",
+          "tpt": {
+            "int32": 1.0,
+            "bf16": 2.0,
+            "fp16": 2.0,
+            "fp32": 1.0,
+            "fp64": 0.5
+          }
+        },
+        {
+          "name": "UNPACR_TILE_MISC",
+          "tpt": {
+            "int32": 1.0,
+            "bf16": 2.0,
+            "fp16": 2.0,
+            "fp32": 1.0,
+            "fp64": 0.5
+          }
+        },
+        {
+          "name": "UNPACR_TILIZE",
+          "tpt": {
+            "int32": 1.0,
+            "bf16": 2.0,
+            "fp16": 2.0,
+            "fp32": 1.0,
+            "fp64": 0.5
+          }
+        }
+      ],
+      "engineGrp": "UNPACK",
+      "delay": 10
+    },
+    {
+      "engineName": "UNPACKER2",
+      "engineInstructions": [
+        {
+          "name": "RV_UNPACR",
+          "tpt": {
+            "int32": 1.0,
+            "bf16": 2.0,
+            "fp16": 2.0,
+            "fp32": 1.0,
+            "fp64": 0.5
+          }
+        },
+        {
+          "name": "UNPACR2_FACE",
+          "tpt": {
+            "int32": 1.0,
+            "bf16": 2.0,
+            "fp16": 2.0,
+            "fp32": 1.0,
+            "fp64": 0.5
+          }
+        },
+        {
+          "name": "UNPACR2_FACE_INC",
+          "tpt": {
+            "int32": 1.0,
+            "bf16": 2.0,
+            "fp16": 2.0,
+            "fp32": 1.0,
+            "fp64": 0.5
+          }
+        },
+        {
+          "name": "UNPACR2_ROW",
+          "tpt": {
+            "int32": 1.0,
+            "bf16": 2.0,
+            "fp16": 2.0,
+            "fp32": 1.0,
+            "fp64": 0.5
+          }
+        },
+        {
+          "name": "UNPACR2_ROW_INC",
+          "tpt": {
+            "int32": 1.0,
+            "bf16": 2.0,
+            "fp16": 2.0,
+            "fp32": 1.0,
+            "fp64": 0.5
+          }
+        },
+        {
+          "name": "UNPACR2_STRIDE",
+          "tpt": {
+            "int32": 1.0,
+            "bf16": 2.0,
+            "fp16": 2.0,
+            "fp32": 1.0,
+            "fp64": 0.5
+          }
+        },
+        {
+          "name": "UNPACR2_TILE",
+          "tpt": {
+            "int32": 1.0,
+            "bf16": 2.0,
+            "fp16": 2.0,
+            "fp32": 1.0,
+            "fp64": 0.5
+          }
+        },
+        {
+          "name": "UNPACR2_TILE_INC",
+          "tpt": {
+            "int32": 1.0,
+            "bf16": 2.0,
+            "fp16": 2.0,
+            "fp32": 1.0,
+            "fp64": 0.5
+          }
+        },
+        {
+          "name": "UNPACR_NOP",
+          "tpt": {
+            "int32": 1.0,
+            "bf16": 2.0,
+            "fp16": 2.0,
+            "fp32": 1.0,
+            "fp64": 0.5
+          }
+        },
+        {
+          "name": "UNPACR_TILE_MISC",
+          "tpt": {
+            "int32": 1.0,
+            "bf16": 2.0,
+            "fp16": 2.0,
+            "fp32": 1.0,
+            "fp64": 0.5
+          }
+        },
+        {
+          "name": "UNPACR_TILIZE",
+          "tpt": {
+            "int32": 1.0,
+            "bf16": 2.0,
+            "fp16": 2.0,
+            "fp32": 1.0,
+            "fp64": 0.5
+          }
+        }
+      ],
+      "engineGrp": "UNPACK",
+      "delay": 10
+    }
+  ],
+  "stack": {
+    "0": [
+      "0x8023FF",
+      "0x802000"
+    ],
+    "1": [
+      "0x801FFF",
+      "0x801C00"
+    ],
+    "2": [
+      "0x801BFF",
+      "0x801800"
+    ],
+    "3": [
+      "0x8017FF",
+      "0x801400"
+    ]
+  },
+  "globalPointer": "0xffb007f0"
+}

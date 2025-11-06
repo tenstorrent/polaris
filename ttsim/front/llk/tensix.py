@@ -41,6 +41,16 @@ def add_size(instructions: dict[str, typing.Any]) -> dict[str, typing.Any]:
 
     for mnemonic, info in instructions.items():
 
+        if not isinstance(info, dict):
+            msg = f"- error: mnemonic: {mnemonic}\n"
+            msg += f"- expected value/info type to be dict, received {type(info)}\n"
+            msg += "- info:\n"
+            msg += f"{info}"
+            raise Exception(msg)
+
+        if "arguments" not in info.keys():
+            continue
+    
         if isinstance(info["arguments"], list):
             if 0 == len(info["arguments"]):
                 raise Exception(f"- {mnemonic} has a argument list with 0 length")
@@ -313,7 +323,7 @@ def decode_instruction(instruction: int,
                 opcode = instr_opcode
                 name = mnemonic
 
-                if isinstance(info["arguments"], list):
+                if isinstance(info, dict) and ("arguments" in info.keys()) and isinstance(info["arguments"], list):
                     for arg in info["arguments"]:
                         oprd_value: int = (unswzld_instr >> arg["start_bit"]) & ((1 << arg["size"]) - 1)
                         oprd_name: str = arg["name"]

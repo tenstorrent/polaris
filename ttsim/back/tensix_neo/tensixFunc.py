@@ -1321,12 +1321,9 @@ class tensixFunc:
         assert "immediates" not in dir(ins.getOperands()) , "Zero Imm expected"
         match ins.kind:
             case decoded_instruction.instruction_kind.ttqs:
-                if(self.args['llkVersionTag'] in ["jul1", "jul27", "sep23"]):
-                    assert len(ins.getAttr()) == 6, "Six attribs expected. Received " + str(len(ins.getAttr()))
-                else:
-                    assert len(ins.getAttr()) == 4, "Four attribs expected. Received " + str(len(ins.getAttr()))
+                assert len(ins.getAttr()) == 6, "Six attribs expected. Received " + str(len(ins.getAttr()))
             case _:
-                assert len(ins.getAttr()) == 4, "Four attribs expected. Received " + str(len(ins.getAttr()))
+                raise Exception(f"- instruction MVMULDI is not defined for {ins.kind}")
 
         src = [] ; dst = [] ; imm = []; vldUpd ={}; bankUpd = {};
 
@@ -1953,7 +1950,36 @@ class tensixFunc:
         for w in waitRsrcList:
             if(w in ins.getAttr()):
                 waitRsrc = ins.getAttr()[w]
-                if(self.args['llkVersionTag'] in ["jul1", "jul27", "sep23"]):
+                if(self.args['llkVersionTag'] in ["feb19", "mar18"]):
+                    match waitRsrc:
+                        # case: 0x00: srcPipes.append(0) nada,
+                        case 0x01:
+                            assert len(self.pipeGrps['THCON']) > 0 , "Can't find thcon in engine groups"
+                            pipeLst2  = self.pipeGrps['THCON']                      # srcPipes.append(8) # thcon,
+                        case 0x02|0x03|0x04|0x05|0x06|0x07:
+                            assert len(self.pipeGrps['UNPACK']) > 0 , "Can't find unpack in engine groups"
+                            pipeLst2  = self.pipeGrps['UNPACK']                     # upk0_idle,# upk0_l1_rds_done,# upk1_idle,# upk1_l1_rds_done,# upk2_idle,# upk2_l1_rds_done,
+                        case 0x08|0x09|0x0A|0x0B:
+                            assert len(self.pipeGrps['PACK']) > 0 , "Can't find pack in engine groups"
+                            pipeLst2  = self.pipeGrps['PACK']                       # pck0_idle,# pck0_dst_rds_done,# pck1_idle,# pck1_dst_rds_done,
+                        case 0x0C:
+                            assert len(self.pipeGrps['MATH']) > 0 , "Can't find math in engine groups"
+                            pipeLst2  = self.pipeGrps['MATH']                       # math,
+                        # case 0x0D: srcPipes.append(0) # srcA_clr,
+                        # case 0x0E: srcPipes.append(0) # srcB_clr,
+                        # case 0x0F: srcPipes.append(0) # srcA_vld,
+                        # case 0x10: srcPipes.append(0) # srcB_vld,
+                        case 0x11:
+                            assert len(self.pipeGrps['XMOV']) > 0 , "Can't find xmov in engine groups"
+                            pipeLst2  = self.pipeGrps['XMOV']                        # mover,
+                        # case 0x12: srcPipes.append(0) # trisc_mmio_cfg,
+                        case 0x13:
+                            assert len(self.pipeGrps['SFPU']) > 0 , "Can't find sfpu in engine groups"
+                            pipeLst2  = self.pipeGrps['SFPU']                        # sfpu,
+                        case 0x14:
+                            assert len(self.pipeGrps['CFG']) > 0 , "Can't find cfg in engine groups"
+                            pipeLst2  = self.pipeGrps['CFG']                        # cfg_exu,
+                else:
                     match waitRsrc:
                         # case: 0x00: srcPipes.append(0) nada,
                         case 0x01:
@@ -1982,35 +2008,6 @@ class tensixFunc:
                             assert len(self.pipeGrps['SFPU']) > 0 , "Can't find sfpu in engine groups"
                             pipeLst2  = self.pipeGrps['SFPU']                        # sfpu,
                         case 0x17:
-                            assert len(self.pipeGrps['CFG']) > 0 , "Can't find cfg in engine groups"
-                            pipeLst2  = self.pipeGrps['CFG']                        # cfg_exu,
-                else:
-                    match waitRsrc:
-                        # case: 0x00: srcPipes.append(0) nada,
-                        case 0x01:
-                            assert len(self.pipeGrps['THCON']) > 0 , "Can't find thcon in engine groups"
-                            pipeLst2  = self.pipeGrps['THCON']                      # srcPipes.append(8) # thcon,
-                        case 0x02|0x03|0x04|0x05|0x06|0x07:
-                            assert len(self.pipeGrps['UNPACK']) > 0 , "Can't find unpack in engine groups"
-                            pipeLst2  = self.pipeGrps['UNPACK']                     # upk0_idle,# upk0_l1_rds_done,# upk1_idle,# upk1_l1_rds_done,# upk2_idle,# upk2_l1_rds_done,
-                        case 0x08|0x09|0x0A|0x0B:
-                            assert len(self.pipeGrps['PACK']) > 0 , "Can't find pack in engine groups"
-                            pipeLst2  = self.pipeGrps['PACK']                       # pck0_idle,# pck0_dst_rds_done,# pck1_idle,# pck1_dst_rds_done,
-                        case 0x0C:
-                            assert len(self.pipeGrps['MATH']) > 0 , "Can't find math in engine groups"
-                            pipeLst2  = self.pipeGrps['MATH']                       # math,
-                        # case 0x0D: srcPipes.append(0) # srcA_clr,
-                        # case 0x0E: srcPipes.append(0) # srcB_clr,
-                        # case 0x0F: srcPipes.append(0) # srcA_vld,
-                        # case 0x10: srcPipes.append(0) # srcB_vld,
-                        case 0x11:
-                            assert len(self.pipeGrps['XMOV']) > 0 , "Can't find xmov in engine groups"
-                            pipeLst2  = self.pipeGrps['XMOV']                        # mover,
-                        # case 0x12: srcPipes.append(0) # trisc_mmio_cfg,
-                        case 0x13:
-                            assert len(self.pipeGrps['SFPU']) > 0 , "Can't find sfpu in engine groups"
-                            pipeLst2  = self.pipeGrps['SFPU']                        # sfpu,
-                        case 0x14:
                             assert len(self.pipeGrps['CFG']) > 0 , "Can't find cfg in engine groups"
                             pipeLst2  = self.pipeGrps['CFG']                        # cfg_exu,
 
@@ -2042,10 +2039,11 @@ class tensixFunc:
         assert "sources" not in dir(ins.getOperands()) , "Zero Src expected"
         assert "immediates" not in dir(ins.getOperands()) , "Zero Imm expected"
         #TODO: Remove llkVersionTag based code once LLK stabilizes
-        if(self.args['llkVersionTag'] in ["apr24", "jul1", "jul27", "sep23"]):
-            assert len(ins.getAttr()) == 7, "Seven attribs expected. Received " + str(len(ins.getAttr()))
-        else:
+        #TODO: Check what do we need for WH and BH.
+        if(self.args['llkVersionTag'] in ["feb19", "mar18"]):
             assert len(ins.getAttr()) == 4, "Four attribs expected. Received " + str(len(ins.getAttr()))
+        else:
+            assert len(ins.getAttr()) == 7, "Seven attribs expected. Received " + str(len(ins.getAttr()))
 
         nextRelAddr = ins.getRelAddr() + 4
         return nextRelAddr
@@ -2132,10 +2130,10 @@ class tensixFunc:
                 dst.append(0);  vldUpd[0] = 0; bankUpd[0] = 0; #srcA
                 src.append(3);  vldUpd[3] = 0; bankUpd[3] = 0; #dst0
             case "MOVD2B":
-                if(self.args['llkVersionTag'] in ["jul1", "jul27", "sep23"]):
-                    assert len(ins.getAttr()) == 6, "Six attribs expected. Received " + str(len(ins.getAttr()))
-                else:
+                if(self.args['llkVersionTag'] in ["feb19", "mar18"]):
                     assert len(ins.getAttr()) == 5, "Five attribs expected. Received " + str(len(ins.getAttr()))
+                else:
+                    assert len(ins.getAttr()) == 6, "Six attribs expected. Received " + str(len(ins.getAttr()))
                 dst.append(1);  vldUpd[1] = 0; bankUpd[1] = 0; #srcA
                 src.append(3);  vldUpd[3] = 0; bankUpd[3] = 0; #dst0
             case "MOVB2A":

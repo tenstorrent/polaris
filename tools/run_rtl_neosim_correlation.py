@@ -389,7 +389,7 @@ class InputParams:
         self.num_processes: int                   = 1
         self.rtl_data_path_prefix: str            = f"{RTL_DATA_PATH_ROOT}/rtl_test_data_set"
         self.rtl_status_file_name: str            = "sim_result.yml"
-        self.rtl_tags: list[str]                  = ["jul1", "jul27", "sep23"]
+        self.rtl_tags: list[str]                  = ["jul1", "jul27", "sep23", "nov17"]
         self.rtl_test_dir_path_suffix: str        = 'rsim/debug'
         self.rtl_test_dir_suffix: str             = '_0'
         self.rtl_tests: list[str]                 = []
@@ -898,15 +898,22 @@ class RTLTest:
         env = os.environ.copy()
         env["PYTHONPATH"] = "."
 
+        timeout_value_s = 60
+
         with open(log_file_name, "w") as log_file:
             cmd_args = [str(a) if not isinstance(a, (str, bytes, os.PathLike)) else a for a in cmd_args]
-            subprocess.run(
-                cmd_args,
-                stdout=log_file,
-                stderr=subprocess.STDOUT,
-                env=env,
-                check=False  # Don't raise exception on non-zero exit
-            )
+            try:
+                subprocess.run(
+                    cmd_args,
+                    stdout=log_file,
+                    stderr=subprocess.STDOUT,
+                    env=env,
+                    check=False,  # Don't raise exception on non-zero exit
+                    timeout=timeout_value_s
+                )
+            except subprocess.TimeoutExpired:
+                log_file.write(f"\nProcess timed out after {timeout_value_s} seconds\n")
+                print(f"      - Process timed out after {timeout_value_s} seconds for test: {test_name}")
 
 class RTLTests:
     @staticmethod
@@ -1508,7 +1515,7 @@ def execute_all_runs(run_config: RunConfig) -> dict[str, dict[str, bool]]:
 if "__main__" == __name__:
     # Set up argument parser
     parser = argparse.ArgumentParser(description = 'Execute RTL tests via model')
-    parser.add_argument('--tag', nargs = '+', default = None, help = 'Optional: RTL tags to execute tests with (e.g., feb19 mar18 jul1 jul27 sep23)')
+    parser.add_argument('--tag', nargs = '+', default = None, help = 'Optional: RTL tags to execute tests with (e.g., feb19 mar18 jul1 jul27 sep23 nov17)')
     parser.add_argument('--test', nargs = '+', default = None, help = 'Optional: Specific test names to run (default: run all tests)')
     parser.add_argument('--parallel', '-j', '-np', type = int, default = None, help = 'Optional: Number of parallel processes to use')
     parser.add_argument('--batch-file', type = str, default = None, help = 'Optional: YAML batch file with test runs configuration')

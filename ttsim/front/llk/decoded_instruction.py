@@ -443,6 +443,16 @@ def get_instruction_set_from_file_name(file_name: str) -> dict[str, typing.Any]:
         instructions: dict[str, typing.Any] = yaml.safe_load(stream)
 
         for mnemonic, info in instructions.items():
+            if not isinstance(info, dict):
+                msg = f"- error: reading file: {file_name}, mnemonic: {mnemonic}\n"
+                msg += f"- expected value/info type to be dict, received {type(info)}\n"
+                msg += "- info:\n"
+                msg += f"{info}"
+                raise Exception(msg)
+
+            if "arguments" not in info.keys():
+                continue
+
             if isinstance(info["arguments"], list):
                 arg_names = [arg["name"] for arg in info["arguments"]]
                 if len(set(arg_names)) != len(arg_names):
