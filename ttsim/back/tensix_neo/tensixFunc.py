@@ -2197,7 +2197,7 @@ class tensixFunc:
         nextRelAddr = ins.getRelAddr() + 4
         return nextRelAddr
 
-    def __execreplay__(self,ins):
+    def __execreplay__(self,ins, cycle):
         assert ins.getOp() == "REPLAY" , "Expected opcode REPLAY. Received " + str(ins.getOp())
         assert "destinations" not in dir(ins.getOperands()) , "Zero Dst expected"
         assert "sources" not in dir(ins.getOperands()) , "Zero Src expected"
@@ -2209,6 +2209,7 @@ class tensixFunc:
                 assert len(ins.getAttr()) == 6, "Six attribs expected. Received " + str(len(ins.getAttr()))
 
         # assert False, "Replay not implemented"
+        print(f"TFunctional(Update) Cycle:{cycle} Addr:{hex(ins.getRelAddr())} TCore{self.coreId} Thread{ins.getThread()} ", end='')
         ins.printInstr(ins.getThread())
         return [ins.getAttr()['load_mode'], ins.getAttr()['execute_while_loading'], ins.getAttr()['start_idx'], ins.getAttr()['len']]
 
@@ -2537,7 +2538,7 @@ class tensixFunc:
                                         nextAddr            = self.__execsrctilefacerowi__(ins)
             case "INC_SRC_TILE_FACE_ROW_IDX":
                                         nextAddr            = self.__execsrctilefacerowi__(ins)
-            case "REPLAY":              nextAddr            = self.__execreplay__(ins)
+            case "REPLAY":              nextAddr            = self.__execreplay__(ins, cycle)
             case "SFPABS" | "SFPAND" | "SFPARECIP" | "SFPCOMPC" | "SFPDIVP2" | "SFPENCC" | "SFPEXEXP" | "SFPEXMAN" | "SFPGT" | "SFPIADD" | "SFPLE" | "SFPLZ" | "SFPMOV" | "SFPNOT" | "SFPOR" | "SFPPOPC" | "SFPPUSHC" | "SFPSETCC" | "SFPSETEXP" | "SFPSETMAN" | "SFPSETSGN" | "SFPSHFT" | "SFPTRANSP" | "SFPXOR":
                                         nextAddr            = self.__execSFPU_MATHI12__(ins)
             case "SFPADD" | "SFPMAD" | "SFPMUL" | "SFPMUL24":

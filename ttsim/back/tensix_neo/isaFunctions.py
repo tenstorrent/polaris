@@ -66,6 +66,7 @@ class instr(decoded_instruction.decoded_instruction, decoded_instruction.operand
         self.numDatums                      = 0
 
         self.memInfo                        = {}
+        self.eventInfo                      = {}
         if source is not None:
             self.__dict__.update(source.__dict__)
 
@@ -393,6 +394,20 @@ class instr(decoded_instruction.decoded_instruction, decoded_instruction.operand
         if hasattr(self, 'memInfo') and key in self.memInfo:
             return self.memInfo[key]
         else:       assert False, f"key {key} not in memInfo"
+
+    def getAllMemInfo(self):
+        return self.memInfo
+
+    def setEventInfo(self, key, value):
+        if not hasattr(self, 'eventInfo'):
+            raise AttributeError("eventInfo not defined")
+        self.eventInfo[key] = value
+
+    def getEventInfo(self, key):
+        if hasattr(self, 'eventInfo') and key in self.eventInfo:
+            return self.eventInfo[key]
+        else:
+            raise KeyError(f"key {key} not in eventInfo")
 
 # decodeInstr - return instr object
 def decodeInstr(insBinary, insKind, swz, ttISA = None):

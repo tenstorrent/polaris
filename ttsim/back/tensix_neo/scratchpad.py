@@ -75,6 +75,16 @@ class memReq:
     def __setSrc__(self, src):
         self.src = src
 
+    def __getSrcPipe__(self):
+        return self.srcPipe
+    def __setSrcPipe__(self, pipeName):
+        self.srcPipe = pipeName
+
+    def __getCoreId__(self):
+        return self.coreId
+    def __setCoreId__(self, coreId):
+        self.coreId = coreId
+
     def __getThreadId__(self):
         return self.threadId
     def __setThreadId__(self, threadId):
@@ -120,7 +130,7 @@ class scratchpadRam:
         else:
             yield self.env.timeout(self.latencyRd)
         yield oBuffer.put(req)
-        if self.debug & 0x8: print(f"Cycle:{self.env.now} TCore{"UNK"} Thread{req.__getThreadId__()} req{req.__getReqId__()} insId{req.__getInsId__()} src{req.__getSrc__()} Scratchpad response (done) from pipe:{req.__getSrc__()}")
+        if self.debug & 0x8: print(f"Cycle:{self.env.now} TCore{req.__getCoreId__()} Thread{req.__getThreadId__()} req{req.__getReqId__()} insId{req.__getInsId__()} src:{req.__getSrcPipe__()} Scratchpad response (done)")
         endTime = self.env.now
         assert req.__getReqId__() in self.reqTrk , f"req{req.__getReqId__()} not found in tracker"
         self.reqTrk.pop(req.__getReqId__(), None)
@@ -130,6 +140,7 @@ class scratchpadRam:
         #Hit is guaranteed
         while(True):
             ins = yield self.iBuffer[tCore][pipe].get()
-            if self.debug & 0x8: print(f"Cycle:{self.env.now} TCore{tCore} Thread{ins.__getThreadId__()} req{ins.__getReqId__()} insId{ins.__getInsId__()} src{ins.__getSrc__()} Scratchpad access request (done) from pipe:{pipe}")
+            assert ins.__getCoreId__() == tCore , f"TCore Mismatch: Expected {tCore}, got {ins.__getCoreId__()}"
+            if self.debug & 0x8: print(f"Cycle:{self.env.now} TCore{tCore} Thread{ins.__getThreadId__()} req{ins.__getReqId__()} insId{ins.__getInsId__()} src:{ins.__getSrcPipe__()} Scratchpad request (done)")
             self.env.process(self.arbitrate(ins, self.oBuffer[tCore][pipe]))
             yield self.env.timeout(1)
