@@ -65,7 +65,6 @@ SPDX_COPYRIGHT_PREFIX = 'SPDX-FileCopyrightText:'
 SPDX_LICENSE = re.compile(SPDX_LICENSE_PREFIX + '\\s+(?P<license_text>.*)')
 SPDX_COPYRIGHT = re.compile(SPDX_COPYRIGHT_PREFIX + '\\s+(?P<copyright_text>.*)')
 COPYRIGHT_REGEX = re.compile('(?P<cprt_string>©|[(][cC][)])\\s+(?P<cprt_years>\\d{4}(-\\d{4})?)\\s+(?P<cprt_holder>.*)')
-TEXT_COPYRIGHT_REGEX = re.compile('Copyright ' + COPYRIGHT_REGEX.pattern)
 
 
 def ext_2_lang(ext: str) -> str:
@@ -173,12 +172,10 @@ def analyze_file(filename: str, allowed_licenses: list[str], allowed_copyright: 
     license_status: SPDXHeaderStatus = SPDXHeaderStatus.ST_MISSING
     copyright_status: SPDXHeaderStatus = SPDXHeaderStatus.ST_MISSING
     if filename == 'LICENSE':
-        # LICENSE file is always a special case. It will only have copyright text
-        # as a special case, since the license "txt" file does not have a
-        # SPDX-License-Identifier line
-        result = parse_copyright_in_txt(filename, allowed_copyright)
+        # LICENSE file is always a special case. It should NOT have copyright text
+        # and does not need SPDX-License-Identifier line as it is the license text itself
         license_status = SPDXHeaderStatus.ST_OK
-        copyright_status = result
+        copyright_status = SPDXHeaderStatus.ST_OK
     elif lang == 'unknown':
         logger.error(f'File {filename} has unknown extension {ext}. Skipping.')
     else:
@@ -291,19 +288,7 @@ def get_ignore_patterns(ignore_pattern_list: list[str]) -> Union[None, re.Patter
     return ignore_re
 
 
-def parse_copyright_in_txt(filename: str, allowed_copyright: str) -> SPDXHeaderStatus:
-    """
-    Parse a text file for copyright information.
-    """
-    with open(filename) as f:
-        for line in f:
-            if not (copyright_match := TEXT_COPYRIGHT_REGEX.search(line.strip())):
-                continue
-            if copyright_match.group('cprt_holder').strip() == allowed_copyright:
-                return SPDXHeaderStatus.ST_OK
-            else:
-                return SPDXHeaderStatus.ST_INCORRECT
-    return SPDXHeaderStatus.ST_MISSING
+
 
 
 def get_active_files(gitignore_flag: bool, ignore_spec: IgnoreFileModel) -> list[str]:

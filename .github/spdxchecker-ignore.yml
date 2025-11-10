@@ -17,6 +17,7 @@ ignore:
   - '*.toml'
   - '*.tar.gz'
   - CODEOWNERS
+  - NOTICE
 warning:
   - '*.html'
   - '*.yaml'
