@@ -198,28 +198,3 @@
    WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
    See the License for the specific language governing permissions and
    limitations under the License.
-
-
-   Copyright (c) 2025 Tenstorrent AI ULC
-
----------------------------------------------------------------------------
-Third-Party Dependencies:
-The following dependencies are utilized by this project but are not explicitly
-distributed as part of the software:
-
-- matplotlib - https://matplotlib.org/stable/project/license.html
-- networkx   - https://networkx.org/documentation/stable/#license
-- numpy      - https://numpy.org/doc/stable/license.html
-- onnx       - https://github.com/onnx/onnx/blob/main/LICENSE
-- openpyxl   - https://openpyxl.readthedocs.io/en/stable/
-- pyyaml     - https://github.com/yaml/pyyaml/blob/main/LICENSE
-- sphinx     - https://github.com/sphinx-doc/sphinx/blob/master/LICENSE.rst
-- sphinx-rtd-theme     - https://github.com/readthedocs/sphinx_rtd_theme/blob/master/LICENSE
-- yaml       - https://github.com/yaml/pyyaml/blob/main/LICENSE
-- pydantic   - https://github.com/pydantic/pydantic/blob/main/LICENSE
-- mypy       - https://github.com/python/mypy/blob/master/LICENSE
-- coverage   - https://github.com/nedbat/coveragepy/blob/master/LICENSE.txt
-- pip        - https://github.com/pypa/pip/blob/main/LICENSE.txt
-- pytest     - https://docs.pytest.org/en/stable/license.html
-- types-PYYAML   - https://pypi.org/project/types-PyYAML/
-- types-networkx - https://pypi.org/project/types-networkx/

@@ -1,0 +1,53 @@
+Polaris
+Copyright (c) 2025 Tenstorrent AI ULC
+
+This product includes software developed at
+Tenstorrent AI ULC (https://www.tenstorrent.com/).
+
+---------------------------------------------------------------------------
+Third-Party Dependencies:
+
+Sections of this code come from the matplotlib project, found here: https://matplotlib.org/
+Licensed under the Matplotlib License (BSD-compatible)
+
+Sections of this code come from the networkx project, found here: https://networkx.org/
+Licensed under the BSD 3-Clause License
+
+Sections of this code come from the numpy project, found here: https://numpy.org/
+Licensed under the BSD 3-Clause License
+
+Sections of this code come from the onnx project, found here: https://github.com/onnx/onnx
+Licensed under the Apache License 2.0
+
+Sections of this code come from the openpyxl project, found here: https://openpyxl.readthedocs.io/en/stable/
+Licensed under the MIT License
+
+Sections of this code come from the pyyaml project, found here: https://github.com/yaml/pyyaml
+Licensed under the MIT License
+
+Sections of this code come from the sphinx project, found here: https://github.com/sphinx-doc/sphinx
+Licensed under the BSD 2-Clause License
+
+Sections of this code come from the sphinx-rtd-theme project, found here: https://github.com/readthedocs/sphinx_rtd_theme
+Licensed under the MIT License
+
+Sections of this code come from the pydantic project, found here: https://github.com/pydantic/pydantic
+Licensed under the MIT License
+
+Sections of this code come from the mypy project, found here: https://github.com/python/mypy
+Licensed under the MIT License
+
+Sections of this code come from the coverage project, found here: https://github.com/nedbat/coveragepy
+Licensed under the Apache License 2.0
+
+Sections of this code come from the pip project, found here: https://github.com/pypa/pip
+Licensed under the MIT License
+
+Sections of this code come from the pytest project, found here: https://docs.pytest.org/
+Licensed under the MIT License
+
+Sections of this code come from the types-PYYAML project, found here: https://pypi.org/project/types-PyYAML/
+Licensed under the Apache License 2.0
+
+Sections of this code come from the types-networkx project, found here: https://pypi.org/project/types-networkx/
+Licensed under the Apache License 2.0
