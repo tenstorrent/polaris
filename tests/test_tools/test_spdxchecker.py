@@ -136,6 +136,28 @@ def test_validate_config_warns_no_copyrights():
     # Test passes if no exception is raised
 
 
+def test_validate_config_with_validation_disabled():
+    """Test that validation can be disabled for invalid SPDX licenses."""
+    config = ConfigFileModel(
+        allowed_licenses=['Apache-2.0', 'MIT', 'BSD-3-Clause', 'CustomLicense'],
+        allowed_copyrights=['Tenstorrent AI ULC']
+    )
+    # Should not raise an exception when validation is disabled
+    validate_config(config, validate_spdx=False)
+    # Test passes if no exception is raised
+
+
+def test_validate_config_with_validation_enabled():
+    """Test that validation rejects invalid licenses when enabled."""
+    config = ConfigFileModel(
+        allowed_licenses=['Apache-2.0', 'MIT'],
+        allowed_copyrights=['Tenstorrent AI ULC']
+    )
+    # Should raise an exception when validation is enabled (default)
+    with pytest.raises(ValueError, match='Invalid SPDX license identifiers'):
+        validate_config(config, validate_spdx=True)
+
+
 def test_load_config_file_not_found():
     """Test load_config raises FileNotFoundError for missing file."""
     with pytest.raises(FileNotFoundError, match='Configuration file not found'):
@@ -183,6 +205,39 @@ def test_load_config_invalid_yaml(tmp_path):
         load_config(str(config_file))
 
 
+def test_load_config_with_validation_disabled(tmp_path):
+    """Test load_config with SPDX validation disabled allows any license."""
+    config_file = tmp_path / "config_with_custom_license.yml"
+    config_file.write_text("""
+allowed_licenses:
+  - MIT
+  - BSD-3-Clause
+  - CustomLicense
+allowed_copyrights:
+  - Tenstorrent AI ULC
+""")
+    # Should not raise an exception when validation is disabled
+    config = load_config(str(config_file), validate_spdx=False)
+    assert len(config.allowed_licenses) == 3
+    assert 'MIT' in config.allowed_licenses
+    assert 'CustomLicense' in config.allowed_licenses
+
+
+def test_load_config_with_validation_enabled_rejects_invalid(tmp_path):
+    """Test load_config with SPDX validation enabled rejects invalid licenses."""
+    config_file = tmp_path / "config_with_invalid_license.yml"
+    config_file.write_text("""
+allowed_licenses:
+  - MIT
+  - InvalidLicense
+allowed_copyrights:
+  - Tenstorrent AI ULC
+""")
+    # Should raise an exception when validation is enabled
+    with pytest.raises(ValueError, match='Invalid SPDX license identifiers'):
+        load_config(str(config_file), validate_spdx=True)
+
+
 def test_multiple_copyright_holders():
     """Test that multiple copyright holders are supported."""
     content = '\n'.join([lic_header, copyright_header])
@@ -203,6 +258,21 @@ def test_cli_config_parameter():
     """Test that CLI includes --config parameter."""
     args = create_args().parse_args(['--config', 'custom_config.yml'])
     assert args.config == 'custom_config.yml'
+
+
+def test_cli_validate_spdx_licenses_flag():
+    """Test that CLI includes --validate-spdx-licenses flag."""
+    # Test default value (enabled)
+    args_default = create_args().parse_args([])
+    assert args_default.validate_spdx_licenses is True
+    
+    # Test explicit enable
+    args_enabled = create_args().parse_args(['--validate-spdx-licenses'])
+    assert args_enabled.validate_spdx_licenses is True
+    
+    # Test explicit disable
+    args_disabled = create_args().parse_args(['--no-validate-spdx-licenses'])
+    assert args_disabled.validate_spdx_licenses is False
 
 
 def test_cli_override_licenses():
