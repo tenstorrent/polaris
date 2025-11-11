@@ -45,6 +45,8 @@ python tools/spdxchecker.py [OPTIONS]
 - `--config/-c`: Path to SPDX configuration file (default: `.github/spdxchecker-config.yml`)
 - `--allowed-licenses`: List of acceptable license identifiers (overrides config file)
 - `--allowed-copyrights`: List of acceptable copyright holders (overrides config file)
+- `--validate-spdx-licenses`: Validate licenses against known SPDX identifiers (default: `true`)
+- `--no-validate-spdx-licenses`: Disable SPDX license validation (allows any license identifier)
 - `--gitignore`: Respect .gitignore patterns (default: `true`)
 - `--loglevel/-l`: Set logging level (`DEBUG`, `INFO`, `WARNING`, `ERROR`, `CRITICAL`; default: `INFO`)
 - `--dryrun/-n`: Test mode without making changes
@@ -296,6 +298,19 @@ done
 ```
 
 ## Advanced Usage
+
+### Disabling SPDX License Validation
+By default, the tool validates that all license identifiers in the configuration file are valid SPDX identifiers. This can be disabled if you need to use custom or non-standard license identifiers:
+
+```bash
+# Disable SPDX validation to allow custom license identifiers
+python tools/spdxchecker.py \
+    --config .github/spdxchecker-config.yml \
+    --no-validate-spdx-licenses \
+    --allowed-licenses "CustomLicense" "ProprietaryLicense"
+```
+
+**Note:** When validation is disabled, the tool will still check that files contain the license identifiers you specify, but it won't verify that those identifiers are officially recognized SPDX identifiers.
 
 ### Custom License and Copyright Validation
 ```bash
