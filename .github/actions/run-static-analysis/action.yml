@@ -73,7 +73,7 @@ runs:
         fi
         
         echo "Executing: $CMD"
-        eval $CMD
+        bash -c "$CMD"
         
         echo "✅ License and copyright checks completed successfully"
     

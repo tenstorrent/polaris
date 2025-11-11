@@ -117,10 +117,6 @@ class ConfigFileModel(BaseModel):
     warning: list[str] = []  # File-patterns that should not cause an error, but should be logged as warnings
     allowed_licenses: list[str] = []  # Allowed SPDX license identifiers
     allowed_copyrights: list[str] = []  # Allowed copyright holders
-    default_license: str | None = None  # Default license for new files (optional)
-    default_copyright: str | None = None  # Default copyright for new files (optional)
-
-
 def validate_config(config: ConfigFileModel) -> None:
     """
     Validate the configuration file for correctness.
@@ -424,6 +420,7 @@ def main() -> int:
         elif warn_flag:
             logger.warning(f'{fname}: {status_message}')
         else:
+            logger.error(f'{fname}: {status_message}')
             num_errors += 1
     if num_errors:
         logger.error('Valid license lines : "<comment> {prefix} <license>", where license is one of {licenses}',

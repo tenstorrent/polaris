@@ -195,7 +195,8 @@ allowed_licenses:
 # Allowed copyright holders (exact string matching)
 allowed_copyrights:
   - "Tenstorrent AI ULC"
-  - "(C) 2025 Tenstorrent AI ULC"
+  # Only list the copyright holder name (e.g., "Tenstorrent AI ULC").
+  # Do not include (C) or the year; these are handled by the parser.
   # Add variations/third-party copyright holders as needed
 
 # Optional: Default license for new files
