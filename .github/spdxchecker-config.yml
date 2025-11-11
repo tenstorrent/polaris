@@ -34,10 +34,4 @@ allowed_licenses:
 # Allowed copyright holders
 allowed_copyrights:
   - "Tenstorrent AI ULC"
-
-# Default license for new files (optional)
-default_license: Apache-2.0
-
-# Default copyright for new files (optional)
-default_copyright: "Tenstorrent AI ULC"
-
+ 

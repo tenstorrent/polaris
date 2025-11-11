@@ -200,12 +200,6 @@ allowed_copyrights:
   # Only list the copyright holder name (e.g., "Tenstorrent AI ULC").
   # Do not include (C) or the year; these are handled by the parser.
   # Add variations/third-party copyright holders as needed
-
-# Optional: Default license for new files
-default_license: Apache-2.0
-
-# Optional: Default copyright for new files
-default_copyright: "Tenstorrent AI ULC"
 ```
 
 ### Pattern Matching

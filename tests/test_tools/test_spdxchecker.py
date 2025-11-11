@@ -75,14 +75,11 @@ def test_config_model_with_all_fields():
         ignore=['*.json', '*.md'],
         warning=['*.html'],
         allowed_licenses=['Apache-2.0'],
-        allowed_copyrights=['Tenstorrent AI ULC', '(C) 2025 Tenstorrent AI ULC'],
-        default_license='Apache-2.0',
-        default_copyright='Tenstorrent AI ULC'
+        allowed_copyrights=['Tenstorrent AI ULC', '(C) 2025 Tenstorrent AI ULC']
     )
     assert len(config.ignore) == 2
     assert len(config.allowed_licenses) == 1
     assert len(config.allowed_copyrights) == 2
-    assert config.default_license == 'Apache-2.0'
 
 
 def test_config_model_with_empty_fields():
@@ -92,8 +89,6 @@ def test_config_model_with_empty_fields():
     assert config.warning == []
     assert config.allowed_licenses == []
     assert config.allowed_copyrights == []
-    assert config.default_license is None
-    assert config.default_copyright is None
 
 
 def test_validate_config_with_valid_licenses():
@@ -178,14 +173,11 @@ allowed_licenses:
 allowed_copyrights:
   - Tenstorrent AI ULC
   - (C) 2025 Tenstorrent AI ULC
-default_license: Apache-2.0
-default_copyright: Tenstorrent AI ULC
 """)
     config = load_config(str(config_file))
     assert len(config.ignore) == 2
     assert len(config.allowed_licenses) == 1
     assert len(config.allowed_copyrights) == 2
-    assert config.default_license == 'Apache-2.0'
 
 
 def test_load_config_empty_file(tmp_path):
