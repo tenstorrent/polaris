@@ -100,6 +100,9 @@ def create_args() -> argparse.ArgumentParser:
     parser.add_argument('--allowed-copyrights', dest='allowed_copyrights', type=str, nargs='*',
                         default=None,
                         help='list of allowed copyright holders (overrides config file)')
+    parser.add_argument('--validate-spdx-licenses', action=argparse.BooleanOptionalAction,
+                        default=True,
+                        help='validate licenses against known SPDX identifiers (default: True)')
     parser.add_argument('--loglevel', '-l', type=lambda x: x.upper(), choices=['DEBUG', 'INFO', 'WARNING', 'ERROR', 'CRITICAL'],
                         default='INFO', help='set log level')
     parser.add_argument('--dryrun', '-n', action=argparse.BooleanOptionalAction,
@@ -117,14 +120,18 @@ class ConfigFileModel(BaseModel):
     warning: list[str] = []  # File-patterns that should not cause an error, but should be logged as warnings
     allowed_licenses: list[str] = []  # Allowed SPDX license identifiers
     allowed_copyrights: list[str] = []  # Allowed copyright holders
-def validate_config(config: ConfigFileModel) -> None:
+def validate_config(config: ConfigFileModel, validate_spdx: bool = True) -> None:
     """
     Validate the configuration file for correctness.
-    Checks that licenses are valid SPDX identifiers.
-    Raises ValueError if invalid licenses are found.
+    Checks that licenses are valid SPDX identifiers if validation is enabled.
+    Raises ValueError if invalid licenses are found (when validation is enabled).
+    
+    Args:
+        config: Configuration model to validate
+        validate_spdx: If True, validate licenses against known SPDX identifiers (default: True)
     """
     # Validate licenses against known SPDX identifiers (strict validation)
-    if config.allowed_licenses:
+    if validate_spdx and config.allowed_licenses:
         invalid_licenses = [lic for lic in config.allowed_licenses if lic not in VALID_SPDX_LICENSES]
         if invalid_licenses:
             logger.error(f'Configuration contains invalid SPDX license identifiers: {invalid_licenses}')
@@ -140,9 +147,13 @@ def validate_config(config: ConfigFileModel) -> None:
         logger.warning('No allowed copyright holders specified in configuration')
 
 
-def load_config(config_path: str) -> ConfigFileModel:
+def load_config(config_path: str, validate_spdx: bool = True) -> ConfigFileModel:
     """
     Load and validate configuration from file.
+    
+    Args:
+        config_path: Path to the configuration file
+        validate_spdx: If True, validate licenses against known SPDX identifiers (default: True)
     """
     if not os.path.exists(config_path):
         logger.error(f'Configuration file not found: {config_path}')
@@ -156,7 +167,7 @@ def load_config(config_path: str) -> ConfigFileModel:
             config_data = {}
 
         config = ConfigFileModel(**config_data)
-        validate_config(config)
+        validate_config(config, validate_spdx)
         return config
     except yaml.YAMLError as e:
         logger.error(f'Invalid YAML in configuration file {config_path}: {e}')
@@ -382,7 +393,13 @@ def main() -> int:
 
     # Load configuration from file
     logger.info(f'Using configuration file: {args.config}')
-    config = load_config(args.config)
+    config = load_config(args.config, args.validate_spdx_licenses)
+
+    # Log validation mode
+    if args.validate_spdx_licenses:
+        logger.info('SPDX license validation is enabled')
+    else:
+        logger.info('SPDX license validation is disabled')
 
     # Command-line arguments override config file settings
     allowed_licenses = args.allowed_licenses if args.allowed_licenses is not None else config.allowed_licenses
