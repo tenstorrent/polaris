@@ -66,6 +66,12 @@ SPDX_LICENSE = re.compile(SPDX_LICENSE_PREFIX + '\\s+(?P<license_text>.*)')
 SPDX_COPYRIGHT = re.compile(SPDX_COPYRIGHT_PREFIX + '\\s+(?P<copyright_text>.*)')
 COPYRIGHT_REGEX = re.compile('(?P<cprt_string>©|[(][cC][)])\\s+(?P<cprt_years>\\d{4}(-\\d{4})?)\\s+(?P<cprt_holder>.*)')
 
+# Valid SPDX license identifiers - maintained as a hardcoded list
+VALID_SPDX_LICENSES = [
+    'Apache-2.0',
+    # Add more valid SPDX identifiers as needed
+]
+
 
 def ext_2_lang(ext: str) -> str:
     """
@@ -85,28 +91,91 @@ def create_args() -> argparse.ArgumentParser:
     parser: argparse.ArgumentParser = argparse.ArgumentParser(description='check spdx headers for license and copyright.')
     parser.add_argument('--gitignore', action=argparse.BooleanOptionalAction,
         default=True, help='ignore files in .gitignore')
-    parser.add_argument('--ignorelist', '-i', type=str, help='file with list of files to ignore')
+    parser.add_argument('--config', '-c', type=str,
+                        default='.github/spdxchecker-config.yml',
+                        help='SPDX checker configuration file path')
     parser.add_argument('--allowed-licenses', '-a', dest='allowed_licenses', type=str, nargs='*',
-                        default=['Apache-2.0'],
-                        help='list of allowed licenses')
-    parser.add_argument('--allowed-copyright', '-c', dest='allowed_copyright', type=str,
-                        default='Tenstorrent AI ULC',
-                        help='allowed copyright')
+                        default=None,
+                        help='list of allowed licenses (overrides config file)')
+    parser.add_argument('--allowed-copyrights', dest='allowed_copyrights', type=str, nargs='*',
+                        default=None,
+                        help='list of allowed copyright holders (overrides config file)')
+    parser.add_argument('--validate-spdx-licenses', action=argparse.BooleanOptionalAction,
+                        default=True,
+                        help='validate licenses against known SPDX identifiers (default: True)')
     parser.add_argument('--loglevel', '-l', type=lambda x: x.upper(), choices=['DEBUG', 'INFO', 'WARNING', 'ERROR', 'CRITICAL'],
-                        default='WARNING', help='set log level')
+                        default='INFO', help='set log level')
     parser.add_argument('--dryrun', '-n', action=argparse.BooleanOptionalAction,
                         default=False, help='dryrun')
-    parser.add_argument('--verbose', '-v', action=argparse.BooleanOptionalAction, help='enable verbose diagnostics')
     return parser
 
 
-class IgnoreFileModel(BaseModel):
+class ConfigFileModel(BaseModel):
     """
-    Model to hold ignore and warning patterns from the ignore specification file.
+    Model to hold SPDX checker configuration including ignore patterns,
+    allowed licenses, and allowed copyright holders.
     """
 
     ignore: list[str] = []  # File-patterns that should be ignored
     warning: list[str] = []  # File-patterns that should not cause an error, but should be logged as warnings
+    allowed_licenses: list[str] = []  # Allowed SPDX license identifiers
+    allowed_copyrights: list[str] = []  # Allowed copyright holders
+
+def validate_config(config: ConfigFileModel, validate_spdx: bool = True) -> None:
+    """
+    Validate the configuration file for correctness.
+    Checks that licenses are valid SPDX identifiers if validation is enabled.
+    Raises ValueError if invalid licenses are found (when validation is enabled).
+    
+    Args:
+        config: Configuration model to validate
+        validate_spdx: If True, validate licenses against known SPDX identifiers (default: True)
+    """
+    # Validate licenses against known SPDX identifiers (strict validation)
+    if validate_spdx and config.allowed_licenses:
+        invalid_licenses = [lic for lic in config.allowed_licenses if lic not in VALID_SPDX_LICENSES]
+        if invalid_licenses:
+            logger.error(f'Configuration contains invalid SPDX license identifiers: {invalid_licenses}')
+            logger.error(f'Valid SPDX identifiers are: {VALID_SPDX_LICENSES}')
+            raise ValueError(f'Invalid SPDX license identifiers in configuration: {invalid_licenses}')
+
+    # Check that at least one license is specified
+    if not config.allowed_licenses:
+        logger.warning('No allowed licenses specified in configuration')
+
+    # Check that at least one copyright holder is specified
+    if not config.allowed_copyrights:
+        logger.warning('No allowed copyright holders specified in configuration')
+
+
+def load_config(config_path: str, validate_spdx: bool = True) -> ConfigFileModel:
+    """
+    Load and validate configuration from file.
+    
+    Args:
+        config_path: Path to the configuration file
+        validate_spdx: If True, validate licenses against known SPDX identifiers (default: True)
+    """
+    if not os.path.exists(config_path):
+        logger.error(f'Configuration file not found: {config_path}')
+        raise FileNotFoundError(f'Configuration file not found: {config_path}')
+
+    try:
+        with open(config_path) as f:
+            config_data = yaml.safe_load(f)
+
+        if config_data is None:
+            config_data = {}
+
+        config = ConfigFileModel(**config_data)
+        validate_config(config, validate_spdx)
+        return config
+    except yaml.YAMLError as e:
+        logger.error(f'Invalid YAML in configuration file {config_path}: {e}')
+        raise
+    except Exception as e:
+        logger.error(f'Error loading configuration file {config_path}: {e}')
+        raise
 
 
 def collect_git_status_files(gitignore_flag: bool) -> dict[str, str]:
@@ -163,7 +232,7 @@ def classify_file(filename: str) -> tuple[str, str]:
     return ext, lang
 
 
-def analyze_file(filename: str, allowed_licenses: list[str], allowed_copyright: str, verbose: bool = False,
+def analyze_file(filename: str, allowed_licenses: list[str], allowed_copyrights: list[str],
                  warn_flag: bool = False) -> tuple[SPDXHeaderStatus, SPDXHeaderStatus]:
     """
     Analyze a file to determine its extension and language.
@@ -179,7 +248,7 @@ def analyze_file(filename: str, allowed_licenses: list[str], allowed_copyright: 
     elif lang == 'unknown':
         logger.error(f'File {filename} has unknown extension {ext}. Skipping.')
     else:
-        parser = LanguageParser(lang, allowed_licenses, allowed_copyright, verbose, warn_flag)
+        parser = LanguageParser(lang, allowed_licenses, allowed_copyrights, warn_flag)
         parser_result = parser.parse(filename)
         license_status = parser_result['license']
         copyright_status = parser_result['copyright']
@@ -191,20 +260,19 @@ class LanguageParser:
     Class to parse files based on their language.
     """
 
-    def __init__(self, lang: str, allowed_licenses: list[str], allowed_copyright: str,
-                 verbose: bool = False, warn_flag: bool = False):
+    def __init__(self, lang: str, allowed_licenses: list[str], allowed_copyrights: list[str],
+                 warn_flag: bool = False):
         self.lang = lang
         self.allowed_licenses = allowed_licenses
-        self.allowed_copyright = allowed_copyright
+        self.allowed_copyrights = allowed_copyrights
         self.syntax = LANG_2_SYNTAX.get(lang, {})
         self.comment_syntax = self.syntax.get('comment', '')
         end_comment = self.syntax.get('end_comment', '')
         self.license_re = re.compile(self.comment_syntax + r'(?P<optional_space>\s*)' + SPDX_LICENSE.pattern + r'(?P<optional_space2>\s*)(?P<suffix>' + end_comment + r')')
         self.copyright_re = re.compile(self.comment_syntax + r'(?P<optional_space>\s*)' + SPDX_COPYRIGHT.pattern + r'(?P<optional_space2>\s*)(?P<suffix>' + end_comment + r')')
         self.license_status: SPDXHeaderStatus = SPDXHeaderStatus.ST_MISSING
-        self.verbose = verbose
         self.warn_flag = warn_flag
-        self.parsing : str | None = None
+        self.parsing: str | None = None
 
     def parse(self, filename: str) -> dict[str, SPDXHeaderStatus]:
         """
@@ -240,28 +308,33 @@ class LanguageParser:
         if (license_text := license_match.group('license_text').strip()) in self.allowed_licenses:
             return SPDXHeaderStatus.ST_OK
         else:
-            if self.verbose:
-                if self.warn_flag:
-                    logger.warning(f'{self.parsing}: wrong license text: "{license_text}", allowed licenses: {self.allowed_licenses}')
-                else:
-                    logger.error(f'{self.parsing}: wrong license text: "{license_text}", allowed licenses: {self.allowed_licenses}')
+            if self.warn_flag:
+                logger.warning(f'{self.parsing}: wrong license text: "{license_text}", allowed licenses: {self.allowed_licenses}')
+            else:
+                logger.error(f'{self.parsing}: wrong license text: "{license_text}", allowed licenses: {self.allowed_licenses}')
             return SPDXHeaderStatus.ST_INCORRECT
 
     def parse_copyright(self, copyright_match) -> SPDXHeaderStatus:
         """
         Parse a copyright line for copyright information.
+        Supports multiple copyright holders through exact string matching.
         """
         copyright_text = copyright_match.group('copyright_text')
         if not (copyright_parts_match := COPYRIGHT_REGEX.search(copyright_text)):
+            logger.debug(f'{self.parsing}: Copyright line is ill-formed: "{copyright_text}"')
             return SPDXHeaderStatus.ST_ILLFORMED
-        if (cprt_holder := copyright_parts_match.group('cprt_holder').strip()) == self.allowed_copyright:
+
+        cprt_holder = copyright_parts_match.group('cprt_holder').strip()
+
+        # Check if copyright holder matches any of the allowed copyright holders (exact match)
+        if cprt_holder in self.allowed_copyrights:
             return SPDXHeaderStatus.ST_OK
         else:
-            if self.verbose:
-                if self.warn_flag:
-                    logger.warning(f'wrong copyright holder: "{cprt_holder}", allowed copyright: {self.allowed_copyright}')
-                else:
-                    logger.error(f'wrong copyright holder: "{cprt_holder}", allowed copyright: {self.allowed_copyright}')
+            # Log mismatch at appropriate level based on warn_flag
+            if self.warn_flag:
+                logger.warning(f'{self.parsing}: wrong copyright holder: "{cprt_holder}", allowed copyrights: {self.allowed_copyrights}')
+            else:
+                logger.error(f'{self.parsing}: wrong copyright holder: "{cprt_holder}", allowed copyrights: {self.allowed_copyrights}')
             return SPDXHeaderStatus.ST_INCORRECT
 
     def parse_comment(self, line) -> tuple[str, SPDXHeaderStatus] | None:
@@ -289,18 +362,16 @@ def get_ignore_patterns(ignore_pattern_list: list[str]) -> Union[None, re.Patter
 
 
 
-
-
-def get_active_files(gitignore_flag: bool, ignore_spec: IgnoreFileModel) -> list[str]:
+def get_active_files(gitignore_flag: bool, config: ConfigFileModel) -> list[str]:
     """
     Get a list of active files in the current directory, excluding those that match
-    the .gitignore patterns and any additional ignore patterns specified in the ignore_spec.
+    the .gitignore patterns and any additional ignore patterns specified in the config.
     """
     git_status: dict[str, str] = collect_git_status_files(gitignore_flag)
     all_files: list[str] = collect_all_files('.')
 
     active_files: list[str] = []
-    ignore_re: IgnorePattern = get_ignore_patterns(ignore_spec.ignore)
+    ignore_re: IgnorePattern = get_ignore_patterns(config.ignore)
     for f in all_files:
         if git_status.get(f, '') == 'ignored':
             logger.debug(f'File {f} matches .gitignore pattern. Skipping.')
@@ -315,29 +386,63 @@ def get_active_files(gitignore_flag: bool, ignore_spec: IgnoreFileModel) -> list
 def main() -> int:
     args: argparse.Namespace = create_args().parse_args()
     logger.remove()
-    logger.add(sys.stdout, format='{level}:{message}', level=args.loglevel)
+    logger.add(sys.stdout,
+        format='<level>{level: <8}</level> | <cyan>{function}</cyan>:<cyan>{line}</cyan> | <level>{message}</level>',
+        level=args.loglevel)
 
-    ignore_spec = IgnoreFileModel(**yaml.safe_load(open(args.ignorelist))) if args.ignorelist else IgnoreFileModel()
+    # Load configuration from file
+    logger.info(f'Using configuration file: {args.config}')
+    config = load_config(args.config, args.validate_spdx_licenses)
 
-    active_files = get_active_files(args.gitignore, ignore_spec)
-    warn_re: IgnorePattern = get_ignore_patterns(ignore_spec.warning) if args.ignorelist else None
+    # Log validation mode
+    if args.validate_spdx_licenses:
+        logger.info('SPDX license validation is enabled')
+    else:
+        logger.info('SPDX license validation is disabled')
+
+    # Command-line arguments override config file settings
+    allowed_licenses = args.allowed_licenses if args.allowed_licenses is not None else config.allowed_licenses
+    allowed_copyrights = args.allowed_copyrights if args.allowed_copyrights is not None else config.allowed_copyrights
+
+    # Log overrides if applied
+    if args.allowed_licenses is not None:
+        logger.info(f'Allowed licenses overridden by command-line arguments: {allowed_licenses}')
+    else:
+        logger.info(f'Allowed licenses from config file: {allowed_licenses}')
+
+    if args.allowed_copyrights is not None:
+        logger.info(f'Allowed copyrights overridden by command-line arguments: {allowed_copyrights}')
+    else:
+        logger.info(f'Allowed copyrights from config file: {allowed_copyrights}')
+
+    # Ensure we have at least one license and copyright configured
+    if not allowed_licenses:
+        logger.error('No allowed licenses specified. Please configure allowed_licenses in config file or use --allowed-licenses')
+        return 1
+
+    if not allowed_copyrights:
+        logger.error('No allowed copyright holders specified. Please configure allowed_copyrights in config file or use --allowed-copyrights')
+        return 1
+
+    active_files = get_active_files(args.gitignore, config)
+    warn_re: IgnorePattern = get_ignore_patterns(config.warning)
     num_errors = 0
     for fname in active_files:
         warn_flag: bool = warn_re is not None and warn_re.search(fname) is not None
-        license_status, copyright_status = analyze_file(fname, args.allowed_licenses, args.allowed_copyright, args.verbose, warn_flag)
+        license_status, copyright_status = analyze_file(fname, allowed_licenses, allowed_copyrights, warn_flag)
         status_message = f'License: {license_status.value}, Copyright: {copyright_status.value}'
         if license_status == SPDXHeaderStatus.ST_OK and copyright_status == SPDXHeaderStatus.ST_OK:
-            logger.info(f'{fname}: {status_message}')
+            logger.debug(f'{fname}: {status_message}')
         elif warn_flag:
             logger.warning(f'{fname}: {status_message}')
         else:
-            num_errors += 1
             logger.error(f'{fname}: {status_message}')
+            num_errors += 1
     if num_errors:
         logger.error('Valid license lines : "<comment> {prefix} <license>", where license is one of {licenses}',
-                     prefix=SPDX_LICENSE_PREFIX, licenses=args.allowed_licenses)
-        logger.error('Valid copyright line: "<comment> {prefix} {copyright}"', prefix=SPDX_COPYRIGHT_PREFIX,
-                     copyright=args.allowed_copyright)
+                     prefix=SPDX_LICENSE_PREFIX, licenses=allowed_licenses)
+        logger.error('Valid copyright line: "<comment> {prefix} <copyright>", where copyright is one of {copyrights}',
+                     prefix=SPDX_COPYRIGHT_PREFIX, copyrights=allowed_copyrights)
     else:
         logger.info('All files have valid SPDX headers.')
     return 0 if num_errors == 0 else 1

@@ -47,7 +47,7 @@ This document describes the project's architecture and best practices for struct
 │   │   └── action.yml
 │   └── setup_mamba/           # Mamba environment setup action
 │       └── action.yml
-├── spdxchecker-ignore.yml     # SPDX license checker ignore rules
+├── spdxchecker-config.yml     # SPDX license checker configuration
 └── workflows/                 # CI/CD workflows using actions
     ├── checkin_tests.yml      # Pre-merge validation with integrated RTL testing
     └── nightly_tests.yml      # Comprehensive nightly testing

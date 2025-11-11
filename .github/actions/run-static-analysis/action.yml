@@ -17,18 +17,18 @@ inputs:
     description: 'Command to run for static tests'
     required: false
     default: 'python checkin_tests.py static'
-  spdx-ignore-file:
-    description: 'SPDX checker ignore file path'
+  spdx-config-file:
+    description: 'SPDX checker configuration file path'
     required: false
-    default: '.github/spdxchecker-ignore.yml'
+    default: '.github/spdxchecker-config.yml'
   allowed-licenses:
-    description: 'Allowed license types (comma-separated)'
+    description: 'Allowed license types (space-separated, overrides config file)'
     required: false
-    default: 'Apache-2.0'
-  allowed-copyright:
-    description: 'Allowed copyright holder'
+    default: ''
+  allowed-copyrights:
+    description: 'Allowed copyright holders (space-separated, overrides config file)'
     required: false
-    default: 'Tenstorrent AI ULC'
+    default: ''
 
 outputs:
   static-tests-outcome:
@@ -57,14 +57,23 @@ runs:
       shell: bash -el {0}
       run: |
         echo "Running license and copyright checks..."
-        echo "Ignore file: ${{ inputs.spdx-ignore-file }}"
-        echo "Allowed licenses: ${{ inputs.allowed-licenses }}"
-        echo "Allowed copyright: ${{ inputs.allowed-copyright }}"
+        echo "Config file: ${{ inputs.spdx-config-file }}"
         
-        python tools/spdxchecker.py \
-          --ignore ${{ inputs.spdx-ignore-file }} \
-          --allowed-licenses ${{ inputs.allowed-licenses }} \
-          --allowed-copyright "${{ inputs.allowed-copyright }}"
+        # Build command with optional overrides
+        CMD="python tools/spdxchecker.py --config ${{ inputs.spdx-config-file }}"
+        
+        if [ -n "${{ inputs.allowed-licenses }}" ]; then
+          echo "Overriding allowed licenses: ${{ inputs.allowed-licenses }}"
+          CMD="$CMD --allowed-licenses ${{ inputs.allowed-licenses }}"
+        fi
+        
+        if [ -n "${{ inputs.allowed-copyrights }}" ]; then
+          echo "Overriding allowed copyrights: ${{ inputs.allowed-copyrights }}"
+          CMD="$CMD --allowed-copyrights ${{ inputs.allowed-copyrights }}"
+        fi
+        
+        echo "Executing: $CMD"
+        bash -c "$CMD"
         
         echo "✅ License and copyright checks completed successfully"
     

@@ -1,0 +1,37 @@
+# SPDX-FileCopyrightText: (C) 2025 Tenstorrent AI ULC
+# SPDX-License-Identifier: Apache-2.0
+
+# Files and patterns to completely ignore during SPDX checks
+ignore:
+  - '*.map'
+  - '*.json'
+  - '*.elf'
+  - '*.xlsx'
+  - '*.rst'
+  - '*.csv'
+  - '*.md'
+  - '*.mdc'
+  - '*.onnx'
+  - '*.png'
+  - '.gitignore'
+  - 'condarc'
+  - '*.txt'
+  - '*.toml'
+  - '*.tar.gz'
+  - 'CODEOWNERS'
+  - 'NOTICE'
+
+# Files that should generate warnings instead of errors
+warning:
+  - '*.html'
+  - '*.yaml'
+  - '*.yml'
+
+# Allowed SPDX license identifiers
+allowed_licenses:
+  - Apache-2.0
+
+# Allowed copyright holders
+allowed_copyrights:
+  - "Tenstorrent AI ULC"
+ 

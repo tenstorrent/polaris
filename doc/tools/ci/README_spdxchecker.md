@@ -25,10 +25,13 @@ Without automated license checking, projects can suffer from:
 
 ```bash
 # ✅ Automated CI/CD integration prevents:
-python tools/spdxchecker.py --ignore .github/spdxchecker-ignore.yml \
-    --allowed-licenses Apache-2.0 \
-    --allowed-copyright "Tenstorrent AI ULC"
+python tools/spdxchecker.py --config .github/spdxchecker-config.yml
 # Exit code 0 = all files compliant, Exit code 1 = violations found
+
+# Override configuration with CLI arguments:
+python tools/spdxchecker.py --config .github/spdxchecker-config.yml \
+    --allowed-licenses Apache-2.0 MIT \
+    --allowed-copyrights "Tenstorrent AI ULC" "Another Company"
 ```
 
 ## Usage
@@ -39,11 +42,13 @@ python tools/spdxchecker.py [OPTIONS]
 ```
 
 ### Key Arguments
-- `--allowed-licenses`: List of acceptable license identifiers (default: `Apache-2.0`)
-- `--allowed-copyright`: Required copyright holder (default: `Tenstorrent AI ULC`)
-- `--ignore/-i`: YAML file with ignore patterns for files to skip
+- `--config/-c`: Path to SPDX configuration file (default: `.github/spdxchecker-config.yml`)
+- `--allowed-licenses`: List of acceptable license identifiers (overrides config file)
+- `--allowed-copyrights`: List of acceptable copyright holders (overrides config file)
+- `--validate-spdx-licenses`: Validate licenses against known SPDX identifiers (default: `true`)
+- `--no-validate-spdx-licenses`: Disable SPDX license validation (allows any license identifier)
 - `--gitignore`: Respect .gitignore patterns (default: `true`)
-- `--loglevel/-l`: Set logging level (`DEBUG`, `INFO`, `WARNING`, `ERROR`, `CRITICAL`)
+- `--loglevel/-l`: Set logging level (`DEBUG`, `INFO`, `WARNING`, `ERROR`, `CRITICAL`; default: `INFO`)
 - `--dryrun/-n`: Test mode without making changes
 
 ## Supported File Types
@@ -95,9 +100,7 @@ Each source file must contain both headers:
   if: always()  # Run even if previous steps fail
   run: |
     python tools/spdxchecker.py \
-      --ignore .github/spdxchecker-ignore.yml \
-      --allowed-licenses Apache-2.0 \
-      --allowed-copyright "Tenstorrent AI ULC"
+      --config .github/spdxchecker-config.yml
 ```
 
 ### Pre-commit Hook
@@ -159,15 +162,18 @@ license_check:
   allow_failure: false  # Fail pipeline on license violations
 ```
 
-## Configuration: Ignore Patterns
+## Configuration File
 
-### Ignore File Format (`.github/spdxchecker-ignore.yml`)
+### Configuration File Format (`.github/spdxchecker-config.yml`)
+
+The SPDX checker uses a comprehensive YAML configuration file that includes ignore patterns, allowed licenses, and copyright holders:
+
 ```yaml
 # SPDX-FileCopyrightText: (C) 2025 Tenstorrent AI ULC
 # SPDX-License-Identifier: Apache-2.0
 
+# Files and patterns to completely ignore during SPDX checks
 ignore:
-  # Files to completely skip (no SPDX headers required)
   - '*.json'        # Data files
   - '*.onnx'        # Model files  
   - '*.csv'         # Data exports
@@ -177,11 +183,23 @@ ignore:
   - '.gitignore'    # Git configuration
   - 'condarc'       # Conda configuration
 
+# Files that should generate warnings instead of errors
 warning:
-  # Files that should have headers but won't fail CI if missing
   - '*.html'        # Generated HTML
   - '*.yaml'        # Configuration files
   - '*.yml'         # YAML configs
+
+# Allowed SPDX license identifiers
+allowed_licenses:
+  - Apache-2.0
+  # Add more valid SPDX identifiers as needed
+
+# Allowed copyright holders (exact string matching)
+allowed_copyrights:
+  - "Tenstorrent AI ULC"
+  # Only list the copyright holder name (e.g., "Tenstorrent AI ULC").
+  # Do not include (C) or the year; these are handled by the parser.
+  # Add variations/third-party copyright holders as needed
 ```
 
 ### Pattern Matching
@@ -275,36 +293,50 @@ done
 
 ## Advanced Usage
 
-### Custom License Validation
+### Disabling SPDX License Validation
+By default, the tool validates that all license identifiers in the configuration file are valid SPDX identifiers. This can be disabled if you need to use custom or non-standard license identifiers:
+
 ```bash
-# Allow multiple licenses
+# Disable SPDX validation to allow custom license identifiers
 python tools/spdxchecker.py \
+    --config .github/spdxchecker-config.yml \
+    --no-validate-spdx-licenses \
+    --allowed-licenses "CustomLicense" "ProprietaryLicense"
+```
+
+**Note:** When validation is disabled, the tool will still check that files contain the license identifiers you specify, but it won't verify that those identifiers are officially recognized SPDX identifiers.
+
+### Custom License and Copyright Validation
+```bash
+# Allow multiple licenses and copyright holders (overrides config file)
+python tools/spdxchecker.py \
+    --config .github/spdxchecker-config.yml \
     --allowed-licenses Apache-2.0 MIT BSD-3-Clause \
-    --allowed-copyright "Tenstorrent AI ULC"
+    --allowed-copyrights "Tenstorrent AI ULC" "Third Party Company"
 ```
 
 ### Debug Mode for Troubleshooting
 ```bash
 # Detailed logging for debugging
 python tools/spdxchecker.py \
-    --loglevel DEBUG \
-    --ignore .github/spdxchecker-ignore.yml
+    --config .github/spdxchecker-config.yml \
+    --loglevel DEBUG
 ```
 
 ### Dry Run Mode
 ```bash
 # Test configuration without failing
 python tools/spdxchecker.py \
+    --config .github/spdxchecker-config.yml \
     --dryrun \
     --loglevel INFO
 ```
 
-### Custom Ignore Patterns
+### Custom Configuration File
 ```bash
-# Use different ignore file
+# Use a different configuration file
 python tools/spdxchecker.py \
-    --ignore custom-ignore-patterns.yml \
-    --allowed-licenses Apache-2.0
+    --config custom-spdx-config.yml
 ```
 
 ## Integration with Other Tools
@@ -412,6 +444,6 @@ This script is part of the Tenstorrent AI ULC project and is licensed under Apac
 ---
 
 **See Also:**
-- `.github/spdxchecker-ignore.yml` - Ignore pattern configuration
+- `.github/spdxchecker-config.yml` - Configuration file template
 - `.pre-commit-config.yaml` - Pre-commit hook setup
 - Project workflows in `.github/workflows/` for CI/CD integration examples
