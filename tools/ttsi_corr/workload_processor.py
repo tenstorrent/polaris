@@ -31,7 +31,7 @@ Migration Status:
 Usage:
 ------
     from ttsi_corr.workload_processor import process_workload_configs
-    
+
     ttsim_wlspec, metal_ref_scores, uniq_devs = process_workload_configs(
         all_configs=metrics,
         workloads_file=wl_file,
@@ -47,7 +47,6 @@ See Also:
 - tools/workloads.py: Workload configuration types
 """
 
-from pathlib import Path
 from typing import Any
 
 from loguru import logger
@@ -57,120 +56,138 @@ from tools.workloads import WorkloadConfig, WorkloadsFile
 type ScoreTuple = tuple[str, str, str, str]
 type ScoreDict = dict[ScoreTuple, dict[str, float]]
 
+# Original model name to workload instance mapping
+__MODEL_NAME_TO_WL_CONFIG: dict[str, dict[str, str | None]] = {
+    'bert': {'BERT-Large': 'bert_large', 'BERT-Base': 'bert_base', 'Sentence-Bert (backbone: bert-base)': 'bert_base'},
+    'bevdepth': {},
+    'resnet50': {'ResNet-50 (224x224)': 'rn50_224x224'},
+    'swin': {},
+    'unet': {
+        'UNet-VGG19 (256x256)': None,  # Explicitly marked None; workloads/UNet does not have a UNet-VGG19 instance
+    },
+    'yolov7': {},
+    'yolov8': {'YOLOv8s (640x640)': 'yolov8s'},
+    'llama2': {},
+    'llama3': {},
+}
 
-def find_workload_config(workloads_file: WorkloadsFile, wl_name: str) -> WorkloadConfig | None:
+# Convert to lowercase for case-insensitive matching
+MODEL_NAME_TO_WL_CONFIG: dict[str, dict[str, str | None]] = {k.lower(): {k2.lower(): v2 for k2, v2 in v.items()} for k, v in __MODEL_NAME_TO_WL_CONFIG.items()}  # type: ignore[assignment]
+
+
+def find_workload_config(workloads_file: WorkloadsFile, wl_name: str, model_name: str) -> tuple[WorkloadConfig, str] | None:
     """
-    Find a workload configuration by short workload name.
-    
-    Maps short workload names (bert, resnet50, llama, etc.) to actual workload
-    configurations in the workloads file using fuzzy matching.
-    
+    Find a workload configuration and instance name by short workload name and model name.
+
+    Maps short workload names (bert, resnet50, llama, etc.) and model names to actual
+    workload configurations and instance names using MODEL_NAME_TO_WL_CONFIG mapping.
+
     Args:
         workloads_file: Loaded workloads file
         wl_name: Short workload name (e.g., 'bert', 'resnet50')
-        
+        model_name: Full model name (e.g., 'BERT-Large', 'ResNet-50 (224x224)')
+
     Returns:
-        WorkloadConfig | None: Matching workload configuration or None if not found
-        
+        tuple[WorkloadConfig, str] | None: Tuple of (workload_config, instance_name) or None if not found
+
     Example:
         >>> wl_file = load_workloads_file('config/all_workloads.yaml')
-        >>> config = find_workload_config(wl_file, 'bert')
-        >>> config.name
-        'BERT'
-        
+        >>> result = find_workload_config(wl_file, 'bert', 'BERT-Large')
+        >>> wl_config, instance_name = result
+        >>> wl_config.name
+        'bert'
+        >>> instance_name
+        'bert_large'
+
     Note:
         Migrated from tools.run_ttsi_corr.find_workload_config() in Phase 5.
     """
-    # Create mapping from short names to workload config names
-    name_mapping = {
-        'bert': ['bert', 'BERT'],
-        'resnet50': ['resnet50', 'RESNET50', 'ResNet', 'resnet'],
-        'resnet': ['resnet', 'ResNet', 'RESNET50', 'resnet50'],
-        'llama': ['llama', 'llama2', 'Llama'],
-        'yolov7': ['yolov7', 'YOLOv7'],
-        'yolov8': ['yolov8', 'YOLOv8'],
-        'unet': ['unet', 'UNet'],
-        'mamba': ['mamba', 'Mamba'],
-    }
-    
-    # Get possible names for this workload (always include the original name first)
-    possible_names = name_mapping.get(wl_name.lower(), [wl_name])
-    
-    # Search for matching workload
-    for possible_name in possible_names:
-        wl_config = workloads_file.get_workload_by_name(possible_name)
-        if wl_config is not None:
-            return wl_config
-    
-    return None
+    wl_name_lower = wl_name.lower()
+    model_name_lower = model_name.lower()
+    if wl_name_lower not in MODEL_NAME_TO_WL_CONFIG:
+        logger.warning('Unknown workload type: {}', wl_name, once=True)
+        return None
+
+    wl_instance = MODEL_NAME_TO_WL_CONFIG.get(wl_name_lower, {}).get(model_name_lower, None)
+    if wl_instance is None:
+        logger.warning('No workload mapping found for workload "{}" model "{}"', wl_name, model_name, once=True)
+        return None
+
+    wl = workloads_file.get_workload_by_name(wl_name_lower)
+    if wl is None:
+        logger.warning('Workload "{}" not found in workloads file', wl_name)
+        return None
+
+    if wl_instance not in wl.instances:
+        logger.warning('No instance named "{}" found for workload "{}" (instances {}), skipping', wl_instance, wl_name, wl.instances.keys(), once=True)
+        return None
+
+    return wl, wl_instance
 
 
 def get_workload_module_config(
     wl_name: str,
     model_name: str,
     batch_size: int,
-    workloads_file: WorkloadsFile,
-    correlation_instance_name: str = 'corr'
+    workloads_file: WorkloadsFile
 ) -> dict[str, Any] | None:
     """
     Get workload module and instance configuration from workloads file.
-    
-    Loads configuration from the workloads file. Returns None if not found.
-    
+
+    Loads configuration from the workloads file and selects the appropriate
+
     Args:
         wl_name: Short workload name (e.g., 'bert', 'resnet50')
-        model_name: Full model name for additional context
+        model_name: Full model name used to determine instance (e.g., 'BERT-Large')
         batch_size: Batch size
         workloads_file: Loaded workloads file (required)
-        correlation_instance_name: Instance name to use for correlation
-        
+
     Returns:
         dict | None: Configuration with 'module', 'basedir', and 'instance_config' keys,
                     or None if workload not found in file
-                    
+
     Example:
         >>> config = get_workload_module_config(
         ...     'bert', 'BERT-Large', 16, wl_file
         ... )
         >>> config['module']
         'basicbert.BasicBERT'
-        
+
     Note:
-        Migrated from tools.run_ttsi_corr.get_workload_module_config() in Phase 5.
+        The instance name is automatically determined from MODEL_NAME_TO_WL_CONFIG
+        based on the model_name parameter.
     """
     # Find configuration from workloads file
-    wl_config = find_workload_config(workloads_file, wl_name)
-    if wl_config is None:
-        logger.warning('Workload {} not found in workloads file', wl_name)
+    result = find_workload_config(workloads_file, wl_name, model_name)
+    if result is None:
+        # logger.warning('Workload {} not found in workloads file', wl_name)
         return None
-    
-    logger.debug('Using workload configuration from file: {}', wl_config.name)
-    
+
+    # Unpack the tuple returned by find_workload_config
+    wl_config, selected_instance_name = result
+
+    logger.debug('Using workload configuration from file: {} with instance: {}',
+                wl_config.name, selected_instance_name)
+
     # Extract instance config from workload
-    # Use params as base config and merge with first instance if available
+    # Use params as base config and merge with selected instance
     instance_config = {'bs': batch_size}
-    
+
     # Add params to instance config if present
     if wl_config.params:
         instance_config.update(wl_config.params)
-    
-    # If there are instances defined, use correlation_instance_name if available
-    # (in correlation, we override batch size anyway)
-    if wl_config.instances:
-        # Prefer correlation_instance_name instance if it exists
-        if correlation_instance_name in wl_config.instances:
-            selected_instance_name = correlation_instance_name
-            logger.debug('Using correlation instance for workload: {}', wl_config.name)
-        else:
-            logger.warning('Skipped workload {} as instance named "{}" not found in instances', 
-                          wl_config.name, correlation_instance_name, once=True)
-            return None
-        
+
+    # Get the selected instance configuration
+    if selected_instance_name in wl_config.instances:
         selected_instance = wl_config.instances[selected_instance_name]
         # Merge instance config, keeping batch_size override
         instance_config.update(selected_instance)
         instance_config['bs'] = batch_size
-    
+    else:
+        logger.error('Instance "{}" not found in workload "{}" (this should not happen)',
+                    selected_instance_name, wl_config.name)
+        return None
+
     return {
         'module': wl_config.module,
         'basedir': wl_config.basedir,
@@ -183,53 +200,54 @@ def process_single_config(
     workloads_file: WorkloadsFile,
     default_precision: str | None,
     existing_scores: ScoreDict,
-    device_table: dict[str, str],
-    correlation_instance_name: str = 'corr'
+    device_table: dict[str, str]
 ) -> tuple[dict[str, Any], ScoreTuple, dict[str, Any]] | None:
     """
     Process a single configuration into workload spec and reference scores.
-    
+
+    Instance selection is automatically determined by MODEL_NAME_TO_WL_CONFIG
+    based on the model name in the configuration.
+
     Args:
         tensix_cfg: Configuration dictionary with workload metadata
         workloads_file: Workload configurations file
         default_precision: Default precision override
         existing_scores: Existing reference scores to check for duplicates
         device_table: Mapping of system names to device names
-        correlation_instance_name: Instance name to use for correlation
-        
+
     Returns:
         tuple: (xrec, instance_key, ref_scores) or None if should be skipped
-        
+
     Note:
         Migrated from tools.run_ttsi_corr._process_single_config() in Phase 5.
     """
     wl = tensix_cfg['_wl_type']
     model_name = tensix_cfg.get('wlname', wl)
-    
+
     # Extract configuration fields
     bs = tensix_cfg['gpu_batch_size']
     perf = tensix_cfg['perf']
     target_perf = tensix_cfg.get('target_perf', perf)
-    
+
     # Defensive check
     if perf is None or target_perf is None:
         logger.warning('Skipping workload {} due to None perf or target_perf', model_name)
         return None
-    
+
     system = tensix_cfg['system']
     prec = tensix_cfg['precision'] if default_precision is None else default_precision
-    
+
     # Get device name
     if system not in device_table:
         logger.warning('Unknown system "{}", adding to device table', system)
         device_table[system] = system
     gpu_dev = device_table[system]
-    
+
     # Create workload specification
     wl_identifier = model_name.replace(' ', '_').replace('(', '').replace(')', '') \
                                .replace('=', '').replace('/', '_')
     instance_name = f'b{bs}'
-    
+
     xrec = {
         'api': 'TTSIM',
         'basedir': 'workloads',
@@ -248,34 +266,34 @@ def process_single_config(
         'gpu_dev': gpu_dev,
         'instances': {instance_name: {'bs': bs}},
     }
-    
+
     instance_key = (wl_identifier, gpu_dev, xrec['api'], instance_name)
-    
+
     # Check for duplicates
     if instance_key in existing_scores:
         existing = existing_scores[instance_key]
         logger.warning('Duplicate instance key detected, skipping duplicate:')
         logger.warning('  Key: {}', instance_key)
         logger.warning('  Existing: model={}, system={}, prec={}, metric={}, perf={}, target_perf={}',
-                      model_name, system, existing['precision'], tensix_cfg['metric'], 
+                      model_name, system, existing['precision'], tensix_cfg['metric'],
                       existing['perf'], existing['target_perf'])
         logger.warning('  New (skipped): model={}, system={}, prec={}, metric={}, perf={}, target_perf={}',
                       model_name, system, prec, tensix_cfg['metric'], perf, target_perf)
         return None
-    
+
     # Get workload-specific module configuration
     wl_config = get_workload_module_config(
-        wl, model_name, bs, workloads_file, correlation_instance_name
+        wl, model_name, bs, workloads_file
     )
     if wl_config is None:
         return None
-    
+
     xrec['module'] = wl_config['module']
     xrec['basedir'] = wl_config.get('basedir', 'workloads')
     xrec['instances'][instance_name].update(wl_config['instance_config'])
-    
+
     logger.debug('{} Instance {}', wl, xrec['instances'])
-    
+
     ref_scores = {
         'perf': perf,
         'target_perf': target_perf,
@@ -285,7 +303,7 @@ def process_single_config(
         'system': system,
         'metric': tensix_cfg['metric'],
     }
-    
+
     return xrec, instance_key, ref_scores
 
 
@@ -294,38 +312,38 @@ def process_workload_configs(
     workloads_file: WorkloadsFile,
     workload_filter: set[str] | None,
     default_precision: str | None,
-    device_table: dict[str, str],
-    correlation_instance_name: str = 'corr'
+    device_table: dict[str, str]
 ) -> tuple[list[dict[str, Any]], ScoreDict, set[str]]:
     """
     Process configurations to create workload specifications and reference scores.
-    
+
+    Instance selection is automatically determined by MODEL_NAME_TO_WL_CONFIG
+    based on the model names in the configurations.
+
     Args:
         all_configs: Validated configurations
         workloads_file: Loaded workload configurations
         workload_filter: Workload filter (None = all)
         default_precision: Default precision override
         device_table: Mapping of system names to device names
-        correlation_instance_name: Instance name to use for correlation
-        
+
     Returns:
         tuple: (ttsim_wlspec, metal_ref_scores, uniq_devs)
             - ttsim_wlspec: List of workload specifications for simulation
             - metal_ref_scores: Dictionary of reference scores
             - uniq_devs: Set of unique device names
-            
+
     Example:
         >>> ttsim_wlspec, scores, devs = process_workload_configs(
         ...     all_configs=metrics,
         ...     workloads_file=wl_file,
         ...     workload_filter=None,
         ...     default_precision='fp16',
-        ...     device_table={'n300': 'n300'},
-        ...     correlation_instance_name='corr'
+        ...     device_table={'n300': 'n300'}
         ... )
         >>> len(ttsim_wlspec)
         42
-        
+
     Note:
         Migrated from tools.run_ttsi_corr.process_workload_configs() in Phase 5.
     """
@@ -333,10 +351,10 @@ def process_workload_configs(
     ttsim_wlspec = []
     metal_ref_scores: ScoreDict = {}
     uniq_devs = set()
-    
+
     for tensix_cfg in all_configs:
         wl = tensix_cfg['_wl_type']
-        
+
         # Apply filters
         if workload_filter and wl not in workload_filter:
             continue
@@ -346,24 +364,24 @@ def process_workload_configs(
             continue
 
         if tensix_cfg['system'] not in device_table:
-            logger.warning('Skipping config {} as it is not found in device table', tensix_cfg, once=True)
+            logger.warning('Skipping config {} as it is not found in device table', tensix_cfg['system'], once=True)
             continue
 
         # Process single configuration
         result = process_single_config(
             tensix_cfg, workloads_file, default_precision, metal_ref_scores,
-            device_table, correlation_instance_name
+            device_table
         )
-        
+
         if result is None:
             continue
-        
+
         xrec, instance_key, ref_scores = result
-        
+
         # Store results
         metal_ref_scores[instance_key] = ref_scores
         uniq_devs.add(xrec['gpu_dev'])
         ttsim_wlspec.append(xrec)
-    
+
     logger.info('Configured {} workload specifications', len(ttsim_wlspec))
     return ttsim_wlspec, metal_ref_scores, uniq_devs

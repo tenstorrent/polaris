@@ -55,10 +55,10 @@ import math
 from typing import Any, Optional
 
 from loguru import logger
-from openpyxl import Workbook  # type: ignore[import-untyped]
-from openpyxl.styles import Font, Alignment  # type: ignore[import-untyped]
-from openpyxl.chart import LineChart, Reference  # type: ignore[import-untyped]
-from openpyxl.worksheet.worksheet import Worksheet  # type: ignore[import-untyped]
+from openpyxl import Workbook
+from openpyxl.chart import LineChart, Reference
+from openpyxl.styles import Alignment, Font
+from openpyxl.worksheet.worksheet import Worksheet
 
 
 class ScurveChartBuilder:
@@ -287,8 +287,8 @@ class ScurveChartBuilder:
         
         # Calculate appropriate X-axis tick interval (~10 ticks)
         x_tick_interval = max(1, len(self.ratio_data) // 10)
-        chart.x_axis.majorUnit = x_tick_interval
-        chart.x_axis.minorUnit = x_tick_interval
+        chart.x_axis.majorUnit = x_tick_interval  # type: ignore[attr-defined]
+        chart.x_axis.minorUnit = x_tick_interval  # type: ignore[attr-defined]
         
         # Configure Y-axis (Ratio values)
         chart.y_axis.delete = False

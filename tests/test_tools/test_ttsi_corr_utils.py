@@ -76,8 +76,8 @@ class TestGetWorkloadNameFromModel:
 
     def test_llama_variants(self):
         """Test Llama model variants."""
-        assert get_workload_name_from_model('Llama 3.1 8B') == 'llama'
-        assert get_workload_name_from_model('Llama 3.2 1B') == 'llama'
+        assert get_workload_name_from_model('Llama 3.1 8B') == 'llama3'
+        assert get_workload_name_from_model('Llama 3.2 1B') == 'llama3'
         assert get_workload_name_from_model('llama-7b') == 'llama'
 
     def test_mamba(self):
@@ -173,7 +173,7 @@ class TestIntegration:
         
         # Verify results
         assert device == 'n150'
-        assert workload_name == 'llama'
+        assert workload_name == 'llama3'
         assert benchmark == 'Benchmark.Llama'
 
     def test_multiple_models_consistent(self):
@@ -181,11 +181,10 @@ class TestIntegration:
         models = [
             'Llama 3.1 8B',
             'Llama 3.2 1B',
-            'Llama 2 7B',
         ]
         
         for model in models:
-            assert get_workload_name_from_model(model) == 'llama'
+            assert get_workload_name_from_model(model) == 'llama3'
             assert get_benchmark_from_model(model) == 'Benchmark.Llama'
 
     def test_all_supported_models(self):
@@ -193,7 +192,7 @@ class TestIntegration:
         test_cases = [
             ('BERT-Base', 'bert', 'Benchmark.BERT'),
             ('ResNet-50', 'resnet50', 'Benchmark.ResNet50'),
-            ('Llama 3.1 8B', 'llama', 'Benchmark.Llama'),
+            ('Llama 3.1 8B', 'llama3', 'Benchmark.Llama'),
             ('Mamba-2.8B', 'mamba', 'Benchmark.Mamba'),
             ('YOLOv8', 'yolov8', 'Benchmark.YOLO'),
             ('Stable Diffusion', 'unet', 'Benchmark.UNet'),

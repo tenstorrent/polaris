@@ -61,6 +61,8 @@ def get_workload_name_from_model(model: str) -> str:
     
     # Llama variants
     if 'llama' in model_lower:
+        if 'llama 3' in model_lower:
+            return 'llama3'
         return 'llama'
     
     # Mamba
@@ -69,9 +71,9 @@ def get_workload_name_from_model(model: str) -> str:
     
     # YOLO variants
     if 'yolo' in model_lower:
-        if 'v8' in model_lower:
+        if 'v8' in model_lower or 'yolov8' in model_lower or 'yolo8' in model_lower:
             return 'yolov8'
-        elif 'v7' in model_lower:
+        elif 'v7' in model_lower or 'yolov7' in model_lower or 'yolo7' in model_lower:
             return 'yolov7'
         return 'yolo'
     
@@ -110,4 +112,3 @@ def get_benchmark_from_model(model: str) -> str:
     else:
         # Default: use model name as benchmark
         return f'Benchmark.{model.split()[0]}'
-

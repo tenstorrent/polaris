@@ -16,15 +16,15 @@ from unittest.mock import patch
 
 import pytest
 
-from tools.run_ttsi_corr import get_workload_module_config
 from tools.run_ttsi_corr import main as run_ttsi_corr
+from tools.ttsi_corr.workload_processor import get_workload_module_config
 
 
 class TestGetWorkloadModuleConfig:
     """Tests for workload configuration extraction."""
 
     def test_get_config_with_corr_instance(self):
-        """Test extracting config with 'corr' instance."""
+        """Test extracting config with mapped instance."""
         from tools.workloads import WorkloadConfig, WorkloadsFile
 
         workload = WorkloadConfig(
@@ -35,13 +35,14 @@ class TestGetWorkloadModuleConfig:
             params={'layers': 50},
             instances={
                 'default': {'bs': 32},
-                'corr': {'bs': 32, 'layers': 50}
+                'rn50_224x224': {'bs': 32, 'layers': 50}  # Instance name from MODEL_NAME_TO_WL_CONFIG
             }
         )
         workloads_file = WorkloadsFile(workloads=[workload])
 
+        # Use valid model name from MODEL_NAME_TO_WL_CONFIG mapping
         config = get_workload_module_config(
-            'resnet50', 'resnet', 32, workloads_file
+            'resnet50', 'ResNet-50 (224x224)', 32, workloads_file
         )
 
         assert config is not None
@@ -51,7 +52,7 @@ class TestGetWorkloadModuleConfig:
         assert config['module'] == 'BasicResNet@basicresnet.py'
 
     def test_get_config_missing_corr_instance(self):
-        """Test that None is returned when 'corr' instance is missing in workload file."""
+        """Test that None is returned when mapped instance is missing in workload file."""
         from tools.workloads import WorkloadConfig, WorkloadsFile
 
         workload = WorkloadConfig(
@@ -62,16 +63,17 @@ class TestGetWorkloadModuleConfig:
             params=None,
             instances={
                 'default': {'bs': 32}
-                # No 'corr' instance
+                # No 'rn50_224x224' instance (mapped from 'ResNet-50 (224x224)')
             }
         )
         workloads_file = WorkloadsFile(workloads=[workload])
 
+        # Use valid model name from MODEL_NAME_TO_WL_CONFIG mapping
         config = get_workload_module_config(
-            'resnet50', 'resnet', 32, workloads_file
+            'resnet50', 'ResNet-50 (224x224)', 32, workloads_file
         )
 
-        # When workload is found in file but lacks 'corr' instance, returns None
+        # When workload is found in file but lacks mapped instance, returns None
         assert config is None
 
     def test_get_config_workload_not_in_file(self):
@@ -84,13 +86,14 @@ class TestGetWorkloadModuleConfig:
             basedir='workloads',
             module='bert.py',
             params=None,
-            instances={'corr': {'bs': 1}}
+            instances={'bert_large': {'bs': 1}}
         )
         workloads_file = WorkloadsFile(workloads=[workload])
 
-        # Looking for 'resnet' but only 'bert' is defined - should return None
+        # Looking for 'resnet50' but only 'bert' is defined - should return None
+        # Also 'resnet50' is in MODEL_NAME_TO_WL_CONFIG but 'bert' workload file doesn't have it
         config = get_workload_module_config(
-            'resnet', 'resnet', 32, workloads_file
+            'resnet50', 'ResNet-50 (224x224)', 32, workloads_file
         )
 
         # Should return None when workload not found in file
@@ -102,18 +105,19 @@ class TestGetWorkloadModuleConfig:
 
         workload = WorkloadConfig(
             api='TTSIM',
-            name='resnet',
+            name='resnet50',
             basedir='workloads',
             module='resnet.py',
             params={'layers': 50, 'width': 1.0},  # Params at workload level
             instances={
-                'corr': {'bs': 32}  # Instance-specific param
+                'rn50_224x224': {'bs': 32}  # Instance-specific param (mapped from MODEL_NAME_TO_WL_CONFIG)
             }
         )
         workloads_file = WorkloadsFile(workloads=[workload])
 
+        # Use valid model name from MODEL_NAME_TO_WL_CONFIG mapping
         config = get_workload_module_config(
-            'resnet', 'resnet', 32, workloads_file
+            'resnet50', 'ResNet-50 (224x224)', 32, workloads_file
         )
 
         assert config is not None

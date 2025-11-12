@@ -47,12 +47,13 @@ See Also:
 
 from pathlib import Path
 from typing import Any
-import yaml
 
+import yaml
 from loguru import logger
 
 from tools.parsers.md_parser import TensixMdPerfMetricModel
-from tools.ttsi_corr.ttsi_corr_utils import get_benchmark_from_model, get_workload_name_from_model, parse_hardware_to_device
+from tools.ttsi_corr.ttsi_corr_utils import (get_benchmark_from_model, get_workload_name_from_model,
+                                             parse_hardware_to_device)
 from ttsim.utils.common import parse_yaml
 
 

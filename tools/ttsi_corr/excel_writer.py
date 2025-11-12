@@ -61,8 +61,8 @@ from pathlib import Path
 from typing import Any
 
 from loguru import logger
-from openpyxl.styles import Border, Side  # type: ignore[import-untyped]
-from openpyxl.worksheet.worksheet import Worksheet  # type: ignore[import-untyped]
+from openpyxl.styles import Border, Side
+from openpyxl.worksheet.worksheet import Worksheet
 
 
 class ExcelFormatter:

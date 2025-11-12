@@ -9,7 +9,7 @@ proper S-curve chart generation functionality.
 
 import math
 import pytest
-from openpyxl import Workbook  # type: ignore[import-untyped]
+from openpyxl import Workbook
 
 from tools.ttsi_corr.chart_builder import ScurveChartBuilder, add_scurve_chart
 

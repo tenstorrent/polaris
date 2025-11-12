@@ -29,6 +29,7 @@ workloads:
     module : ResNet@basicresnet.py
     params : {layers: [3,4,6,3], num_classes: 1000, num_channels: 3, bs: 1}
     instances:
+      rn50_224x224 : { img_height: 224, img_width: 224, }
       rn50_b1_hd : { img_height: 1024, img_width: 1024, }
       rn50_b1_uhd: { img_height: 2828, img_width: 2828, }
       corr: { }
@@ -87,4 +88,3 @@ workloads:
       bert_base : { nL: 12, nH: 12, dE:  768, nW:  512}
       bert_large: { nL: 24, nH: 16, dE: 1024, nW:  512}
       corr:    { nL: 24, nH: 16, dE: 1024, nW:  384}
-

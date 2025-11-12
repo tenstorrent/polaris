@@ -9,8 +9,8 @@ Excel formatting utilities functionality.
 
 import pytest
 from pathlib import Path
-from openpyxl import Workbook  # type: ignore[import-untyped]
-from openpyxl.worksheet.worksheet import Worksheet  # type: ignore[import-untyped]
+from openpyxl import Workbook
+from openpyxl.worksheet.worksheet import Worksheet
 
 from tools.ttsi_corr.excel_writer import ExcelFormatter, write_csv
 
