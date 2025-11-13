@@ -425,6 +425,6 @@ def fold(ttnn_tensor_like,
     else:
         #fold implemented as device specific efficient kernel: for DRAM/L1 memory configs
         #sharded tensor support: special handling for height sharded tensors
-        reshaped2  = ttnn_tensor_like.reshape(N, Hs, Ws, C * stride_h * stride_w)
+        reshaped2  = ttnn_tensor_like.reshape([N, Hs, Ws, C * stride_h * stride_w])
 
     return reshaped2
