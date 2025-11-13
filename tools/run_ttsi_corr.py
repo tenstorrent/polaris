@@ -15,11 +15,6 @@ from openpyxl import Workbook
 from tools.ttsi_corr.chart_builder import add_scurve_chart
 from tools.ttsi_corr.correlation import calculate_and_save_geomean, compare_scores, read_scores
 from tools.ttsi_corr.data_loader import load_metrics_from_sources, read_metadata
-from openpyxl import Workbook
-
-from tools.ttsi_corr.chart_builder import add_scurve_chart
-from tools.ttsi_corr.correlation import calculate_and_save_geomean, compare_scores, read_scores
-from tools.ttsi_corr.data_loader import load_metrics_from_sources, read_metadata
 from tools.ttsi_corr.excel_writer import ExcelFormatter, write_csv
 from tools.ttsi_corr.simulator import run_polaris_simulation, validate_and_filter_configs
 from tools.ttsi_corr.ttsi_corr_utils import TTSI_REF_VALID_TAGS
