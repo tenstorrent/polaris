@@ -115,9 +115,7 @@ repos:
       entry: tools/spdxchecker.py
       args: [
         --loglevel, error,
-        --ignore, .github/spdxchecker-ignore.yml,
-        --allowed-licenses, Apache-2.0,
-        --allowed-copyright, "Tenstorrent AI ULC"
+        --config, .github/spdxchecker-config.yml
       ]
       additional_dependencies: [pyyaml, loguru, pydantic]
       pass_filenames: false
@@ -133,9 +131,7 @@ pipeline {
                     def result = sh(
                         script: '''
                             python tools/spdxchecker.py \
-                                --ignore .github/spdxchecker-ignore.yml \
-                                --allowed-licenses Apache-2.0 \
-                                --allowed-copyright "Tenstorrent AI ULC"
+                                --config .github/spdxchecker-config.yml
                         ''',
                         returnStatus: true
                     )
@@ -156,9 +152,7 @@ license_check:
   stage: compliance
   script:
     - python tools/spdxchecker.py 
-        --ignore .github/spdxchecker-ignore.yml
-        --allowed-licenses Apache-2.0
-        --allowed-copyright "Tenstorrent AI ULC"
+        --config .github/spdxchecker-config.yml
   allow_failure: false  # Fail pipeline on license violations
 ```
 
@@ -368,9 +362,7 @@ python tools/spdxchecker.py \
 .PHONY: license-check
 license-check:
 	python tools/spdxchecker.py \
-		--ignore .github/spdxchecker-ignore.yml \
-		--allowed-licenses Apache-2.0 \
-		--allowed-copyright "Tenstorrent AI ULC"
+		--config .github/spdxchecker-config.yml
 
 .PHONY: ci-checks
 ci-checks: license-check lint test
