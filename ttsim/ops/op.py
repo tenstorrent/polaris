@@ -79,7 +79,7 @@ class SimOp:
         shape_inf_func = opdesc['shape_inf_func']
         shape_inf_func(inT, outT, self, **kwargs)
 
-        return
+        return self.perf_stats
 
     def update_tensor_counts(self, inT, outT, **kwargs):
         in_param_count  = sum([x.nelems() for x in inT if x.is_param == True])
