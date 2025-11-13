@@ -59,6 +59,10 @@ from openpyxl import Workbook
 from openpyxl.chart import LineChart, Reference
 from openpyxl.styles import Alignment, Font
 from openpyxl.worksheet.worksheet import Worksheet
+from openpyxl import Workbook  # type: ignore[import-untyped]
+from openpyxl.chart import LineChart, Reference  # type: ignore[import-untyped]
+from openpyxl.styles import Alignment, Font  # type: ignore[import-untyped]
+from openpyxl.worksheet.worksheet import Worksheet  # type: ignore[import-untyped]
 
 
 class ScurveChartBuilder:

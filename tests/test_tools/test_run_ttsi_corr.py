@@ -16,6 +16,7 @@ from unittest.mock import patch
 
 import pytest
 
+from tools.ttsi_corr.workload_processor import get_workload_module_config
 from tools.run_ttsi_corr import main as run_ttsi_corr
 from tools.ttsi_corr.workload_processor import get_workload_module_config
 
