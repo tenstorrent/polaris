@@ -246,6 +246,58 @@ def test_multiple_copyright_holders():
         assert copyright_status == SPDXHeaderStatus.ST_OK
 
 
+def test_multiple_license_and_copyright_lines():
+    """Test that multiple license and copyright lines in a single file are all processed."""
+    # Test with multiple valid license and copyright lines
+    # Build test strings dynamically to avoid SPDX checker detecting them as actual headers
+    spdx_copyright = "# SPDX-FileCopyrightText: "
+    spdx_license = "# SPDX-License-Identifier: "
+
+    multiple_valid_content = f'''#!/usr/bin/env python3
+{spdx_copyright}(C) 2025 Tenstorrent AI ULC
+{spdx_license}Apache-2.0
+{spdx_copyright}(C) 2024 Another Company
+{spdx_license}MIT
+
+def hello():
+    print("Hello world")
+'''
+
+    # Test with mixed valid and invalid lines
+    mixed_content = f'''#!/usr/bin/env python3
+{spdx_copyright}(C) 2025 Tenstorrent AI ULC
+{spdx_license}Apache-2.0
+{spdx_copyright}(C) 2024 Unknown Company
+{spdx_license}InvalidLicense
+
+def hello():
+    print("Hello world")
+'''
+
+    import unittest.mock as mock
+
+    # Test case 1: All valid entries should result in OK status
+    with mock.patch("builtins.open", mock.mock_open(read_data=multiple_valid_content)):
+        license_status, copyright_status = analyze_file(
+            "test.py",
+            ["Apache-2.0", "MIT"],
+            ["Tenstorrent AI ULC", "Another Company"]
+        )
+        assert license_status == SPDXHeaderStatus.ST_OK
+        assert copyright_status == SPDXHeaderStatus.ST_OK
+
+    # Test case 2: Mixed valid/invalid entries should result in INCORRECT status
+    with mock.patch("builtins.open", mock.mock_open(read_data=mixed_content)):
+        license_status, copyright_status = analyze_file(
+            "test.py",
+            ["Apache-2.0", "MIT"],
+            ["Tenstorrent AI ULC", "Another Company"],
+            warn_flag=True  # Use warn_flag to avoid error logging in tests
+        )
+        assert license_status == SPDXHeaderStatus.ST_INCORRECT
+        assert copyright_status == SPDXHeaderStatus.ST_INCORRECT
+
+
 def test_cli_config_parameter():
     """Test that CLI includes --config parameter."""
     args = create_args().parse_args(['--config', 'custom_config.yml'])
@@ -257,11 +309,11 @@ def test_cli_validate_spdx_licenses_flag():
     # Test default value (enabled)
     args_default = create_args().parse_args([])
     assert args_default.validate_spdx_licenses is True
-    
+
     # Test explicit enable
     args_enabled = create_args().parse_args(['--validate-spdx-licenses'])
     assert args_enabled.validate_spdx_licenses is True
-    
+
     # Test explicit disable
     args_disabled = create_args().parse_args(['--no-validate-spdx-licenses'])
     assert args_disabled.validate_spdx_licenses is False

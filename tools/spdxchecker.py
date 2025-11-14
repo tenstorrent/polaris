@@ -64,7 +64,7 @@ SPDX_LICENSE_PREFIX = 'SPDX-License-Identifier:'
 SPDX_COPYRIGHT_PREFIX = 'SPDX-FileCopyrightText:'
 SPDX_LICENSE = re.compile(SPDX_LICENSE_PREFIX + '\\s+(?P<license_text>.*)')
 SPDX_COPYRIGHT = re.compile(SPDX_COPYRIGHT_PREFIX + '\\s+(?P<copyright_text>.*)')
-COPYRIGHT_REGEX = re.compile('(?P<cprt_string>©|[(][cC][)])\\s+(?P<cprt_years>\\d{4}(-\\d{4})?)\\s+(?P<cprt_holder>.*)')
+COPYRIGHT_REGEX = re.compile('(?P<cprt_string>Copyright|©|[(][cC][)])\\s+(?P<cprt_years>\\d{4}(-\\d{4})?)\\s+(?P<cprt_holder>.*)')
 
 # Valid SPDX license identifiers - maintained as a hardcoded list
 VALID_SPDX_LICENSES = [
@@ -126,7 +126,7 @@ def validate_config(config: ConfigFileModel, validate_spdx: bool = True) -> None
     Validate the configuration file for correctness.
     Checks that licenses are valid SPDX identifiers if validation is enabled.
     Raises ValueError if invalid licenses are found (when validation is enabled).
-    
+
     Args:
         config: Configuration model to validate
         validate_spdx: If True, validate licenses against known SPDX identifiers (default: True)
@@ -151,7 +151,7 @@ def validate_config(config: ConfigFileModel, validate_spdx: bool = True) -> None
 def load_config(config_path: str, validate_spdx: bool = True) -> ConfigFileModel:
     """
     Load and validate configuration from file.
-    
+
     Args:
         config_path: Path to the configuration file
         validate_spdx: If True, validate licenses against known SPDX identifiers (default: True)
@@ -273,33 +273,68 @@ class LanguageParser:
         self.license_status: SPDXHeaderStatus = SPDXHeaderStatus.ST_MISSING
         self.warn_flag = warn_flag
         self.parsing: str | None = None
+        self.found_licenses: list[tuple[str, SPDXHeaderStatus]] = []
+        self.found_copyrights: list[tuple[str, SPDXHeaderStatus]] = []
 
     def parse(self, filename: str) -> dict[str, SPDXHeaderStatus]:
         """
         Parse a file for SPDX headers.
         """
         self.parsing = filename
-        result: dict[str, SPDXHeaderStatus] = {x: SPDXHeaderStatus.ST_MISSING for x in ['license', 'copyright']}
+        self.found_licenses = []
+        self.found_copyrights = []
+
         with open(filename) as f:
             if len(contents := f.read()) == 0:
-                for x in result:
-                    result[x] = SPDXHeaderStatus.ST_OK
                 self.parsing = None
-                return result
+                return {'license': SPDXHeaderStatus.ST_OK, 'copyright': SPDXHeaderStatus.ST_OK}
+
+            # Parse all lines to collect all license and copyright entries
             for line in contents.splitlines():
                 if (line := line.rstrip()).startswith(self.comment_syntax):
                     if (comment_parse_result := self.parse_comment(line)) is None:
                         continue
-                    comment_type, comment_status = comment_parse_result
+                    comment_type, comment_status, content = comment_parse_result
                     if comment_type == 'license':
-                        result['license'] = comment_status
+                        self.found_licenses.append((content, comment_status))
                     elif comment_type == 'copyright':
-                        result['copyright'] = comment_status
-                if all ([entry != SPDXHeaderStatus.ST_MISSING for entry in result.values()]): # ['license']['status'] != FileSPDXStatus.ST_MISSING and result['copyright']['status'] != FileSPDXStatus.ST_MISSING:
-                    # If both license and copyright are found, we can stop parsing
-                    break
+                        self.found_copyrights.append((content, comment_status))
+
+        # Determine overall status based on all found entries
+        result = {
+            'license': self._determine_overall_status(self.found_licenses),
+            'copyright': self._determine_overall_status(self.found_copyrights)
+        }
+
         self.parsing = None
         return result
+
+    def _determine_overall_status(self, found_entries: list[tuple[str, SPDXHeaderStatus]]) -> SPDXHeaderStatus:
+        """
+        Determine the overall status based on all found entries.
+        If no entries are found, status is MISSING.
+        If any entry has an error status, the overall status reflects the error.
+        If all entries are OK, the overall status is OK.
+        """
+        if not found_entries:
+            return SPDXHeaderStatus.ST_MISSING
+
+        # Check if all entries are OK
+        if all(status == SPDXHeaderStatus.ST_OK for _, status in found_entries):
+            return SPDXHeaderStatus.ST_OK
+
+        # If there are any errors, prioritize the most severe error status
+        # Error prioritization: MISSING is handled above (empty check).
+        # Among found entries, INCORRECT is prioritized over ILLFORMED.
+        # OK is not an error status and is excluded from error_statuses.
+        # Increasing severity: OK < ILLFORMED < INCORRECT
+        error_statuses = [status for _, status in found_entries if status != SPDXHeaderStatus.ST_OK]
+        if SPDXHeaderStatus.ST_INCORRECT in error_statuses:
+            return SPDXHeaderStatus.ST_INCORRECT
+        elif SPDXHeaderStatus.ST_ILLFORMED in error_statuses:
+            return SPDXHeaderStatus.ST_ILLFORMED
+        raise AssertionError("Unexpected error status fallback in _determine_overall_status")
+
 
     def parse_license(self, license_match) -> SPDXHeaderStatus:
         """
@@ -337,14 +372,16 @@ class LanguageParser:
                 logger.error(f'{self.parsing}: wrong copyright holder: "{cprt_holder}", allowed copyrights: {self.allowed_copyrights}')
             return SPDXHeaderStatus.ST_INCORRECT
 
-    def parse_comment(self, line) -> tuple[str, SPDXHeaderStatus] | None:
+    def parse_comment(self, line) -> tuple[str, SPDXHeaderStatus, str] | None:
         """
         Parse a comment line for license and copyright information.
         """
         if license_match := self.license_re.search(line):
-            return 'license', self.parse_license(license_match)
+            license_text = license_match.group('license_text').strip()
+            return 'license', self.parse_license(license_match), license_text
         if copyright_match := self.copyright_re.search(line):
-            return 'copyright', self.parse_copyright(copyright_match)
+            copyright_text = copyright_match.group('copyright_text')
+            return 'copyright', self.parse_copyright(copyright_match), copyright_text
         return None
 
 
