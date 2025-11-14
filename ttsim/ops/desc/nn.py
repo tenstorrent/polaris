@@ -355,7 +355,7 @@ def conv_sinf(iTList, oTList, op, **kwargs):
     total_macs      = output_elements * macs_per_output
     instr_count     = { 'mac': int(total_macs) }
     if len(iTList) == 3:
-        instr_count['add'] = output_elements
+        instr_count['add'] = int(output_elements)
 
     bias_elems = B.nelems() if len(iTList) == 3 else 0
     bias_bytes = B.nbytes(op.precision) if len(iTList) == 3 else 0
