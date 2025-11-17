@@ -328,9 +328,9 @@ class Device:
 
         #total perf metrics
         tot_ideal_throughput = bs * 1000 / tot_ideal_msecs
-        tot_throughput       = (1 - self.G_GUARDBAND) * tot_ideal_throughput
-        tot_cycles           = math.ceil((1 + self.G_GUARDBAND) * tot_ideal_cycles)
         tot_msecs            = (1 + self.G_GUARDBAND) * tot_ideal_msecs
+        tot_throughput       = bs * 1000 / tot_msecs
+        tot_cycles           = math.ceil((1 + self.G_GUARDBAND) * tot_ideal_cycles)
 
         summary_stats = {
                 'inParams'              : tot_inParamCount,
