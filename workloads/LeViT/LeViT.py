@@ -91,12 +91,15 @@ def b16(name: str, n: int, resolution: int = 224) -> SimNN.Module:
             super().__init__()
             self.name = name
             self.c1 = Conv2d_BN(f'{name}.c1', 3, n // 8, 3, 2, 1, resolution=resolution)
-            self.a1 = F.Hardswish(f'{name}.a1'); self.a1.set_module(self)
             self.c2 = Conv2d_BN(f'{name}.c2', n // 8, n // 4, 3, 2, 1, resolution=resolution // 2)
-            self.a2 = F.Hardswish(f'{name}.a2'); self.a2.set_module(self)
             self.c3 = Conv2d_BN(f'{name}.c3', n // 4, n // 2, 3, 2, 1, resolution=resolution // 4)
-            self.a3 = F.Hardswish(f'{name}.a3'); self.a3.set_module(self)
             self.c4 = Conv2d_BN(f'{name}.c4', n // 2, n, 3, 2, 1, resolution=resolution // 8)
+
+            # Use registry name 'HardSwish'
+            self.a1 = F.UniversalOperator(f'{name}.a1', optype='HardSwish', params=[], ipos=[0]); self.a1.set_module(self)
+            self.a2 = F.UniversalOperator(f'{name}.a2', optype='HardSwish', params=[], ipos=[0]); self.a2.set_module(self)
+            self.a3 = F.UniversalOperator(f'{name}.a3', optype='HardSwish', params=[], ipos=[0]); self.a3.set_module(self)
+
             self._submodules[self.c1.name] = self.c1
             self._submodules[self.c2.name] = self.c2
             self._submodules[self.c3.name] = self.c3
@@ -104,9 +107,9 @@ def b16(name: str, n: int, resolution: int = 224) -> SimNN.Module:
             super().link_op2module()
 
         def __call__(self, x):
-            y = self.c1(x); y = self.a1(y)
-            y = self.c2(y); y = self.a2(y)
-            y = self.c3(y); y = self.a3(y)
+            y = self.a1(self.c1(x))
+            y = self.a2(self.c2(y))
+            y = self.a3(self.c3(y))
             y = self.c4(y)
             return y
 
@@ -127,23 +130,25 @@ class Residual(SimNN.Module):
 
         self.is_seq3 = isinstance(m, tuple) and len(m) == 3
         if self.is_seq3:
-            fc1, act, fc2 = m
+            fc1, act, fc2 = m  # act placeholder ignored; we inject HardSwish
             self.fc1 = fc1
-            self.act = act
             self.fc2 = fc2
+            self.act = F.UniversalOperator(name + '.act', optype='HardSwish', params=[], ipos=[0]); self.act.set_module(self)
             self._submodules[self.fc1.name] = self.fc1
             self._submodules[self.fc2.name] = self.fc2
         else:
             self.m = m
             self._submodules[name + '.m'] = m
 
-        self.add = F.Add(name + '.add')
-        self.mul = F.Mul(name + '.mul')
+        self.add = F.Add(name + '.add'); self.add.set_module(self)
+        self.mul = F.Mul(name + '.mul'); self.mul.set_module(self)
         super().link_op2module()
 
     def _apply_m(self, x):
         if self.is_seq3:
-            return self.fc2(self.act(self.fc1(x)))
+            t = self.fc1(x)
+            t = self.act(t)
+            return self.fc2(t)
         return self.m(x)
 
     def __call__(self, x):
@@ -163,8 +168,7 @@ class Residual(SimNN.Module):
 
 class Attention(SimNN.Module):
     def __init__(self, name: str, dim: int, key_dim: int, num_heads: int = 8,
-                 attn_ratio: float = 4.0, activation: Optional[str] = "silu",
-                 resolution: int = 14):
+                 attn_ratio: float = 4.0, resolution: int = 14):
         super().__init__()
         self.name = name
         self.num_heads = int(num_heads)
@@ -174,11 +178,9 @@ class Attention(SimNN.Module):
         self.nh_kd = self.key_dim * self.num_heads
         self.scale_val = np.array(self.key_dim ** -0.5, dtype=np.float32)
 
-        # qkv and output projection
         self.qkv  = Linear_BN(name + '.qkv', dim, self.dh + 2 * self.nh_kd, resolution=resolution)
         self.proj = Linear_BN(name + '.proj', self.dh, dim, resolution=resolution, bn_weight_init=0.0)
 
-        # core ops
         self.softmax = F.Softmax(name + '.softmax', axis=-1)
         self.matmul_qk = F.MatMul(name + '.matmul_qk')
         self.matmul_av = F.MatMul(name + '.matmul_av')
@@ -186,16 +188,19 @@ class Attention(SimNN.Module):
         self.transpose_kt = F.Transpose(name + '.transpose_kt', perm=[0, 1, 3, 2])
         self.transpose_out = F.Transpose(name + '.transpose_out', perm=[0, 2, 1, 3])
 
-        # gather and reshape/transpose
         self.gather_q = F.Gather(name + '.gq', axis=2)
         self.gather_k = F.Gather(name + '.gk', axis=2)
         self.gather_v = F.Gather(name + '.gv', axis=2)
-        self.reshape_q = F.Reshape(name + '.q.R'); self.Tq = F.Transpose(name + '.q.T', perm=[0, 2, 1, 3])
-        self.reshape_k = F.Reshape(name + '.k.R'); self.Tk = F.Transpose(name + '.k.T', perm=[0, 2, 1, 3])
-        self.reshape_v = F.Reshape(name + '.v.R'); self.Tv = F.Transpose(name + '.v.T', perm=[0, 2, 1, 3])
-        self.reshape_out = F.Reshape(name + '.out.R')
+        self.reshape_q = F.Reshape(name + '.q.R'); self.reshape_q.set_module(self)
+        self.Tq = F.Transpose(name + '.q.T', perm=[0, 2, 1, 3]); self.Tq.set_module(self)
+        self.reshape_k = F.Reshape(name + '.k.R'); self.reshape_k.set_module(self)
+        self.Tk = F.Transpose(name + '.k.T', perm=[0, 2, 1, 3]); self.Tk.set_module(self)
+        self.reshape_v = F.Reshape(name + '.v.R'); self.reshape_v.set_module(self)
+        self.Tv = F.Transpose(name + '.v.T', perm=[0, 2, 1, 3]); self.Tv.set_module(self)
+        self.reshape_out = F.Reshape(name + '.out.R'); self.reshape_out.set_module(self)
 
-        self.act = F.Hardswish(name + '.act'); self.act.set_module(self)
+        # Native HardSwish before proj
+        self.act = F.UniversalOperator(name + '.act', optype='HardSwish', params=[], ipos=[0]); self.act.set_module(self)
         super().link_op2module()
 
     def __call__(self, x):
@@ -204,19 +209,18 @@ class Attention(SimNN.Module):
 
         # split ranges
         q_w = k_w = self.nh_kd; v_w = self.dh
-        q_idx = F._from_data(self.name + '.q.idx', np.arange(0, q_w, dtype=np.int64))
-        k_idx = F._from_data(self.name + '.k.idx', np.arange(q_w, q_w + k_w, dtype=np.int64))
-        v_idx = F._from_data(self.name + '.v.idx', np.arange(q_w + k_w, q_w + k_w + v_w, dtype=np.int64))
+        q_idx = F._from_data(self.name + '.q.idx', np.array(np.arange(0, q_w), dtype=np.int64))
+        k_idx = F._from_data(self.name + '.k.idx', np.array(np.arange(q_w, q_w + k_w), dtype=np.int64))
+        v_idx = F._from_data(self.name + '.v.idx', np.array(np.arange(q_w + k_w, q_w + k_w + v_w), dtype=np.int64))
         self._tensors[q_idx.name] = q_idx; self._tensors[k_idx.name] = k_idx; self._tensors[v_idx.name] = v_idx
 
         # gather q,k,v
         q = self.gather_q(qkv, q_idx); k = self.gather_k(qkv, k_idx); v = self.gather_v(qkv, v_idx)
 
         # [B,N,H,·] -> [B,H,N,·]
-        shp_q = F._from_data(self.name + '.q.shp', np.array([B, N, self.num_heads, self.key_dim], dtype=np.int64))
-        shp_k = F._from_data(self.name + '.k.shp', np.array([B, N, self.num_heads, self.key_dim], dtype=np.int64))
-        shp_v = F._from_data(self.name + '.v.shp', np.array([B, N, self.num_heads, self.d], dtype=np.int64))
-        for s in (shp_q, shp_k, shp_v): self._tensors[s.name] = s
+        shp_q = F._from_data(self.name + '.q.shp', np.array([B, N, self.num_heads, self.key_dim], dtype=np.int64)); self._tensors[shp_q.name] = shp_q
+        shp_k = F._from_data(self.name + '.k.shp', np.array([B, N, self.num_heads, self.key_dim], dtype=np.int64)); self._tensors[shp_k.name] = shp_k
+        shp_v = F._from_data(self.name + '.v.shp', np.array([B, N, self.num_heads, self.d], dtype=np.int64)); self._tensors[shp_v.name] = shp_v
         q = self.Tq(self.reshape_q(q, shp_q)); k = self.Tk(self.reshape_k(k, shp_k)); v = self.Tv(self.reshape_v(v, shp_v))
 
         # attention
@@ -229,6 +233,8 @@ class Attention(SimNN.Module):
         y = self.transpose_out(y)
         shp_out = F._from_data(self.name + '.out.shp', np.array([B, y.shape[1], self.dh], dtype=np.int64)); self._tensors[shp_out.name] = shp_out
         y = self.reshape_out(y, shp_out)
+
+        # HardSwish then proj
         y = self.act(y)
         return self.proj(y)
 
@@ -242,10 +248,10 @@ class Subsample(SimNN.Module):
         self.name = name
         self.stride = int(stride)
         self.resolution = int(resolution)
-        self.reshape4 = F.Reshape(name + '.to4')
-        self.reshape3 = F.Reshape(name + '.to3')
-        self.gather_row = F.Gather(name + '.grow', axis=1)
-        self.gather_col = F.Gather(name + '.gcol', axis=2)
+        self.reshape4 = F.Reshape(name + '.to4'); self.reshape4.set_module(self)
+        self.reshape3 = F.Reshape(name + '.to3'); self.reshape3.set_module(self)
+        self.gather_row = F.Gather(name + '.grow', axis=1); self.gather_row.set_module(self)
+        self.gather_col = F.Gather(name + '.gcol', axis=2); self.gather_col.set_module(self)
         super().link_op2module()
 
     def __call__(self, x):
@@ -254,8 +260,8 @@ class Subsample(SimNN.Module):
         s4 = F._from_data(self.name + '.s4', np.array([B, R, R, C], dtype=np.int64)); self._tensors[s4.name] = s4
         t = self.reshape4(x, s4)
 
-        rows = F._from_data(self.name + '.rows', np.arange(0, R, self.stride, dtype=np.int64))
-        cols = F._from_data(self.name + '.cols', np.arange(0, R, self.stride, dtype=np.int64))
+        rows = F._from_data(self.name + '.rows', np.array(np.arange(0, R, self.stride), dtype=np.int64))
+        cols = F._from_data(self.name + '.cols', np.array(np.arange(0, R, self.stride), dtype=np.int64))
         self._tensors[rows.name] = rows; self._tensors[cols.name] = cols
 
         t = self.gather_row(t, rows)
@@ -270,7 +276,7 @@ class Subsample(SimNN.Module):
 
 class AttentionSubsample(SimNN.Module):
     def __init__(self, name: str, in_dim: int, out_dim: int, key_dim: int, num_heads: int = 8,
-        attn_ratio: float = 2.0, activation: Optional[str] = "silu", stride: int = 2,
+        attn_ratio: float = 2.0, stride: int = 2,
         resolution: int = 14, resolution_: int = 7):
         super().__init__()
         self.name = name
@@ -296,12 +302,15 @@ class AttentionSubsample(SimNN.Module):
 
         self.gather_k = F.Gather(name + '.gk', axis=2)
         self.gather_v = F.Gather(name + '.gv', axis=2)
-        self.reshape_k = F.Reshape(name + '.k.R'); self.Tk = F.Transpose(name + '.k.T', perm=[0, 2, 1, 3])
-        self.reshape_v = F.Reshape(name + '.v.R'); self.Tv = F.Transpose(name + '.v.T', perm=[0, 2, 1, 3])
-        self.reshape_q = F.Reshape(name + '.q.R'); self.Tq = F.Transpose(name + '.q.T', perm=[0, 2, 1, 3])
-        self.reshape_out = F.Reshape(name + '.out.R')
+        self.reshape_k = F.Reshape(name + '.k.R'); self.reshape_k.set_module(self)
+        self.Tk = F.Transpose(name + '.k.T', perm=[0, 2, 1, 3]); self.Tk.set_module(self)
+        self.reshape_v = F.Reshape(name + '.v.R'); self.reshape_v.set_module(self)
+        self.Tv = F.Transpose(name + '.v.T', perm=[0, 2, 1, 3]); self.Tv.set_module(self)
+        self.reshape_q = F.Reshape(name + '.q.R'); self.reshape_q.set_module(self)
+        self.Tq = F.Transpose(name + '.q.T', perm=[0, 2, 1, 3]); self.Tq.set_module(self)
+        self.reshape_out = F.Reshape(name + '.out.R'); self.reshape_out.set_module(self)
 
-        self.act = F.Hardswish(name + '.act'); self.act.set_module(self)
+        self.act = F.UniversalOperator(name + '.act', optype='HardSwish', params=[], ipos=[0]); self.act.set_module(self)
         super().link_op2module()
 
     def __call__(self, x):
@@ -310,20 +319,18 @@ class AttentionSubsample(SimNN.Module):
 
         # split kv -> k, v
         k_w = self.num_heads * self.key_dim; v_w = self.dh
-        k_idx = F._from_data(self.name + '.k.idx', np.arange(0, k_w, dtype=np.int64))
-        v_idx = F._from_data(self.name + '.v.idx', np.arange(k_w, k_w + v_w, dtype=np.int64))
+        k_idx = F._from_data(self.name + '.k.idx', np.array(np.arange(0, k_w), dtype=np.int64))
+        v_idx = F._from_data(self.name + '.v.idx', np.array(np.arange(k_w, k_w + v_w), dtype=np.int64))
         self._tensors[k_idx.name] = k_idx; self._tensors[v_idx.name] = v_idx
         k = self.gather_k(kv, k_idx); v = self.gather_v(kv, v_idx)
 
-        shp_k = F._from_data(self.name + '.k.shp', np.array([B, N, self.num_heads, self.key_dim], dtype=np.int64))
-        shp_v = F._from_data(self.name + '.v.shp', np.array([B, N, self.num_heads, self.d], dtype=np.int64))
-        self._tensors[shp_k.name] = shp_k; self._tensors[shp_v.name] = shp_v
+        shp_k = F._from_data(self.name + '.k.shp', np.array([B, N, self.num_heads, self.key_dim], dtype=np.int64)); self._tensors[shp_k.name] = shp_k
+        shp_v = F._from_data(self.name + '.v.shp', np.array([B, N, self.num_heads, self.d], dtype=np.int64)); self._tensors[shp_v.name] = shp_v
         k = self.Tk(self.reshape_k(k, shp_k)); v = self.Tv(self.reshape_v(v, shp_v))
 
         # q path
         q = self.qfc(self.qsub(x))
-        shp_q = F._from_data(self.name + '.q.shp', np.array([B, self.resolution_2, self.num_heads, self.key_dim], dtype=np.int64))
-        self._tensors[shp_q.name] = shp_q
+        shp_q = F._from_data(self.name + '.q.shp', np.array([B, self.resolution_2, self.num_heads, self.key_dim], dtype=np.int64)); self._tensors[shp_q.name] = shp_q
         q = self.Tq(self.reshape_q(q, shp_q))
 
         # attention
@@ -336,6 +343,7 @@ class AttentionSubsample(SimNN.Module):
         y = self.transpose_out(y)
         shp_out = F._from_data(self.name + '.out.shp', np.array([B, y.shape[1], self.dh], dtype=np.int64)); self._tensors[shp_out.name] = shp_out
         y = self.reshape_out(y, shp_out)
+
         y = self.act(y)
         return self.proj(y)
 
@@ -372,18 +380,18 @@ class LeViT(SimNN.Module):
         self.num_classes = num_classes
         self.distillation = distillation
 
-        # Patch stem (CNN) aligns with levit.py via b16 backbone
+        # Patch stem (CNN)
         self.patch = b16('levit.patch', n=embed_dim[0], resolution=self.in_height)
         self._submodules['levit.patch'] = self.patch
 
-        # Build blocks sequence, mirroring levit.py’s loop structure
+        # Build blocks sequence
         self.blocks: List[SimNN.Module] = []
         resolution = img_h // patch
         down_ops = list(down_ops) + [['']]  # sentinel
 
         for i, (ed, kd, dpth, nh, ar, mr, do) in enumerate(zip(embed_dim, key_dim, depth, heads, attn_ratio, mlp_ratio, down_ops)):
             for bi in range(dpth):
-                attn = Attention(f'levit.attn_s{i}b{bi}', ed, kd, nh, ar, 'silu', resolution)
+                attn = Attention(f'levit.attn_s{i}b{bi}', ed, kd, nh, ar, resolution)
                 self._submodules[attn.name] = attn
                 blk_attn = Residual(f'levit.blk_attn_s{i}b{bi}', attn, drop_path)
                 self.blocks.append(blk_attn); self._submodules[blk_attn.name] = blk_attn
@@ -392,10 +400,10 @@ class LeViT(SimNN.Module):
                     h = int(ed * mr)
                     scope = f'levit.mlp_s{i}b{bi}'
                     fc1 = Linear_BN(f'{scope}.fc1', ed, h, resolution)
-                    act = F.Hardswish(f'{scope}.act'); act.set_module(self)
+                    act_placeholder = None
                     fc2 = Linear_BN(f'{scope}.fc2', h, ed, resolution, bn_weight_init=0.0)
                     self._submodules[fc1.name] = fc1; self._submodules[fc2.name] = fc2
-                    blk_mlp = Residual(f'levit.blk_mlp_s{i}b{bi}', (fc1, act, fc2), drop_path)
+                    blk_mlp = Residual(f'levit.blk_mlp_s{i}b{bi}', (fc1, act_placeholder, fc2), drop_path)
                     self.blocks.append(blk_mlp); self._submodules[blk_mlp.name] = blk_mlp
 
             if isinstance(do, list) and len(do) > 0 and do[0] == 'Subsample':
@@ -403,8 +411,7 @@ class LeViT(SimNN.Module):
                 resolution_ = (resolution - 1) // stride + 1
                 ds = AttentionSubsample(f'levit.down_s{i}', embed_dim[i], embed_dim[i + 1],
                                         key_dim=do[1], num_heads=do[2], attn_ratio=do[3],
-                                        activation='silu', stride=stride,
-                                        resolution=resolution, resolution_=resolution_)
+                                        stride=stride, resolution=resolution, resolution_=resolution_)
                 self.blocks.append(ds); self._submodules[ds.name] = ds
                 resolution = resolution_
 
@@ -412,27 +419,30 @@ class LeViT(SimNN.Module):
                     h = int(embed_dim[i + 1] * do[4])
                     scope = f'levit.post_s{i}'
                     fc1 = Linear_BN(f'{scope}.fc1', embed_dim[i + 1], h, resolution)
-                    act = F.Hardswish(f'{scope}.act'); act.set_module(self)
+                    act_placeholder = None
                     fc2 = Linear_BN(f'{scope}.fc2', h, embed_dim[i + 1], resolution, bn_weight_init=0.0)
                     self._submodules[fc1.name] = fc1; self._submodules[fc2.name] = fc2
-                    blk_post = Residual(f'levit.blk_post_s{i}', (fc1, act, fc2), drop_path)
+                    blk_post = Residual(f'levit.blk_post_s{i}', (fc1, act_placeholder, fc2), drop_path)
                     self.blocks.append(blk_post); self._submodules[blk_post.name] = blk_post
 
-        # Avg over tokens (N), same as x.mean(1) in levit.py
-        self.avg_sum = F.ReduceSum('levit.avg.sum', axis=1)
-        self.avg_mul = F.Mul('levit.avg.mul')
+        # Avg over tokens via MatMul with an averaging row
+        self.avg_matmul = F.MatMul('levit.avg.matmul'); self.avg_matmul.set_module(self)
+        self.avg_RL = F.Reshape('levit.avg.RL'); self.avg_RL.set_module(self)
+        self.avg_RR = F.Reshape('levit.avg.RR'); self.avg_RR.set_module(self)
+        self.avg_RO = F.Reshape('levit.avg.RO'); self.avg_RO.set_module(self)
+        self.avg_mul = F.Mul('levit.avg.mul'); self.avg_mul.set_module(self)
 
         # Classifier heads
         self.head = BN_Linear('levit.head', embed_dim[-1], num_classes) if num_classes > 0 else (lambda t: t)
         if isinstance(self.head, SimNN.Module): self._submodules['levit.head'] = self.head
         self.head_dist = BN_Linear('levit.head_dist', embed_dim[-1], num_classes) if (num_classes > 0 and self.distillation) else None
         if self.head_dist is not None: self._submodules['levit.head_dist'] = self.head_dist
-        self.head_add = F.Add('levit.head.add')
-        self.mul_head = F.Mul('levit.head.mul')
+        self.head_add = F.Add('levit.head.add'); self.head_add.set_module(self)
+        self.mul_head = F.Mul('levit.head.mul'); self.mul_head.set_module(self)
 
-        # Stem reshape to [B,N,C], transpose to match levit.py path
-        self.R3 = F.Reshape('levit.R3')
-        self.T = F.Transpose('levit.T', perm=[0, 2, 1])
+        # Stem reshape to [B,N,C], transpose to match baseline path
+        self.R3 = F.Reshape('levit.R3'); self.R3.set_module(self)
+        self.T = F.Transpose('levit.T', perm=[0, 2, 1]); self.T.set_module(self)
 
         self.training = False
         super().link_op2module()
@@ -458,19 +468,32 @@ class LeViT(SimNN.Module):
         for blk in self.blocks:
             z = blk(z)
 
-        # Mean over tokens (dim=1)
+        # Mean over tokens using MatMul with averaging row
         N_live = z.shape[1]
-        invN = F._from_data('levit.avg.invN', np.array(1.0 / float(N_live), dtype=np.float32)); self._tensors[invN.name] = invN
-        z = self.avg_mul(self.avg_sum(z), invN)
+        C_live = z.shape[2]
+        avg_row_vals = np.full((1, N_live), 1.0 / float(N_live), dtype=np.float32)
+        avg_row = F._from_data('levit.avg.row', avg_row_vals); self._tensors[avg_row.name] = avg_row
+
+        onesB = F._from_data('levit.avg.onesB', np.ones((B, 1, 1), dtype=np.float32)); self._tensors[onesB.name] = onesB
+        shpL_1 = F._from_data('levit.avg.shpL1', np.array([1, 1, N_live], dtype=np.int64)); self._tensors[shpL_1.name] = shpL_1
+        avg_row_11N = self.avg_RL(avg_row, shpL_1)
+        avgL = self.avg_mul(onesB, avg_row_11N)  # [B,1,N]
+
+        shpR = F._from_data('levit.avg.shpR', np.array([B, N_live, C_live], dtype=np.int64)); self._tensors[shpR.name] = shpR
+        zR = self.avg_RR(z, shpR)
+
+        z_mean = self.avg_matmul(avgL, zR)
+        shpO = F._from_data('levit.avg.shpO', np.array([B, 1, C_live], dtype=np.int64)); self._tensors[shpO.name] = shpO
+        z_mean = self.avg_RO(z_mean, shpO)
 
         # Heads (distillation optional)
         if self.head_dist is not None and self.num_classes > 0 and self.distillation:
-            y1 = self.head(z) if not callable(self.head) else self.head(z)
-            y2 = self.head_dist(z)
+            y1 = self.head(z_mean) if not callable(self.head) else self.head(z_mean)
+            y2 = self.head_dist(z_mean)
             half = F._from_data('levit.half', np.array(0.5, dtype=np.float32)); self._tensors[half.name] = half
             out = self.mul_head(self.head_add(y1, y2), half)
         else:
-            out = self.head(z) if not callable(self.head) else self.head(z)
+            out = self.head(z_mean) if not callable(self.head) else self.head(z_mean)
         return out
 
     def get_forward_graph(self):
@@ -479,22 +502,18 @@ class LeViT(SimNN.Module):
     def analytical_param_count(self, lvl=0):
         cnt = 0
 
-        # Patch
         patch = self.patch
         if hasattr(patch, "analytical_param_count"):
             cnt += patch.analytical_param_count(lvl + 1)
 
-        # Blocks
         for blk in self.blocks:
             if hasattr(blk, "analytical_param_count"):
                 cnt += blk.analytical_param_count(lvl + 1)
 
-        # Head: either BN_Linear or a lambda
         head = self.head
         if hasattr(head, "analytical_param_count"):
             cnt += head.analytical_param_count(lvl + 1)
 
-        # Head dist: Optional[BN_Linear]
         head_dist = self.head_dist
         if head_dist is not None:
             cnt += head_dist.analytical_param_count(lvl + 1)
@@ -507,15 +526,6 @@ LEVIT = LeViT
 
 
 if __name__ == "__main__":
-    # Initialize WL->Arch mapping from YAML (robust path regardless of CWD)
-    from pathlib import Path
-    from ttsim.config.wl2archmap import get_wlmapspec_from_yaml
-
-    cfg_yaml = Path(__file__).resolve().parents[2] / "config" / "wl2archmapping.yaml"
-    print(f"Using wl2archmapping: {cfg_yaml}")
-    get_wlmapspec_from_yaml(str(cfg_yaml))
-
-    # Model config
     cfg = {
         "img_channels": 3,
         "img_height": 224,
@@ -537,13 +547,11 @@ if __name__ == "__main__":
         "bs": 1,
     }
 
-    # Build and run
-    model = LeViT("test_levit", cfg)
+    model = LeViT("levit", cfg)
     model.set_batch_size(1)
     model.create_input_tensors()
     out = model()
     print("Output shape:", out.shape)
-    print("Analytical parameter count:", model.analytical_param_count())
+    print(f"Analytical parameter count: {model.analytical_param_count():,d}")
     gg = model.get_forward_graph()
-    print("Dumping ONNX Graph to levit.onnx")
     gg.graph2onnx("levit.onnx", do_model_check=False)
