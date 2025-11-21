@@ -50,3 +50,82 @@ workloads:
     instances:
       bert_base : { nL: 12, nH: 12, dE:  768, nW:  512}
       bert_large: { nL: 24, nH: 16, dE: 1024, nW:  512}
+  - api: TTSIM
+    name: YOLOv7
+    basedir: workloads
+    module : YOLO7@Yolo_v7.py
+    instances:
+      yolov7-tiny      : {yaml_cfg_path: 'https://raw.githubusercontent.com/WongKinYiu/yolov7/refs/heads/main/cfg/deploy/yolov7-tiny.yaml',      in_channels: 3, in_resolution: 640, bs: 1}
+      yolov7-tiny-silu : {yaml_cfg_path: 'https://raw.githubusercontent.com/WongKinYiu/yolov7/refs/heads/main/cfg/deploy/yolov7-tiny-silu.yaml', in_channels: 3, in_resolution: 640, bs: 1}
+      yolov7           : {yaml_cfg_path: 'https://raw.githubusercontent.com/WongKinYiu/yolov7/refs/heads/main/cfg/deploy/yolov7.yaml',           in_channels: 3, in_resolution: 640, bs: 1}
+      yolov7x          : {yaml_cfg_path: 'https://raw.githubusercontent.com/WongKinYiu/yolov7/refs/heads/main/cfg/deploy/yolov7x.yaml',          in_channels: 3, in_resolution: 640, bs: 1}
+
+  - api: TTSIM
+    name: YOLOv8
+    basedir: workloads
+    module : YOLO8@Yolo_v8.py
+    instances:
+      yolov8s          : {yaml_cfg_path: 'https://raw.githubusercontent.com/autogyro/yolo-V8/refs/heads/main/ultralytics/models/v8/yolov8s.yaml', in_channels: 3, in_resolution: 640, bs: 1}
+      yolov8n          : {yaml_cfg_path: 'https://raw.githubusercontent.com/autogyro/yolo-V8/refs/heads/main/ultralytics/models/v8/yolov8n.yaml', in_channels: 3, in_resolution: 640, bs: 1}
+      yolov8m          : {yaml_cfg_path: 'https://raw.githubusercontent.com/autogyro/yolo-V8/refs/heads/main/ultralytics/models/v8/yolov8m.yaml', in_channels: 3, in_resolution: 640, bs: 1}
+      # yolov8l          : {yaml_cfg_path: 'https://raw.githubusercontent.com/autogyro/yolo-V8/refs/heads/main/ultralytics/models/v8/yolov8l.yaml', in_channels: 3, in_resolution: 640, bs: 1}
+      # yolov8x          : {yaml_cfg_path: 'https://raw.githubusercontent.com/autogyro/yolo-V8/refs/heads/main/ultralytics/models/v8/yolov8x.yaml', in_channels: 3, in_resolution: 640, bs: 1}
+      # yolov8x6         : {yaml_cfg_path: 'https://raw.githubusercontent.com/autogyro/yolo-V8/refs/heads/main/ultralytics/models/v8/yolov8x6.yaml', in_channels: 3, in_resolution: 640, bs: 1}
+
+  - api: TTSIM
+    name: RESNET50
+    basedir: workloads
+    module : ResNet@basicresnet.py
+    params : {layers: [3,4,6,3], num_classes: 1000, num_channels: 3, use_adaptive_pool: true, init_stride: 4, bs: 1}
+    instances:
+      rn50_b1_hd : { img_height: 1024, img_width: 1024 }
+      rn50_b1_uhd: { img_height: 2828, img_width: 2828 }
+
+  - api: TTSIM
+    name: BEVDepth
+    basedir: workloads/bevdepth
+    module : BaseBEVDepth@BEVDepth.py
+    params :
+      is_train_depth    : false
+      training          : false
+      num_cameras       : 1
+      num_sweeps        : 2
+      head_conf_yaml    : config/bevdepth_cfgs/bevdepth_head.yaml
+      backbone_conf_yaml: config/bevdepth_cfgs/bevdepth_backbone.yaml
+    instances:
+      bevdepth_s : { img_height:   32, img_width:   32, img_channels: 3, bs: 1 }
+      bevdepth_m : { img_height:  256, img_width:  256, img_channels: 3, bs: 1 }
+      bevdepth_l : { img_height: 1024, img_width: 1024, img_channels: 3, bs: 1 }
+
+  - api: TTSIM
+    name: UNet
+    basedir: workloads/UNet
+    module : UNet@unet_model.py
+    instances:
+      unet_b1 : {n_channels: 3, n_classes: 2, img_size: 256, bilinear: False, bs: 1}
+
+  - api: TTSIM
+    name: llama2
+    basedir: workloads/llama2
+    module : Transformer@model.py
+    instances:
+      input_small: {dim: 32, n_layers: 2, n_heads: 2, vocab_size: 256, max_batch_size: 2, max_seq_len: 8, seq_len: 1, bs: 1}
+      input_standard: {dim: 4096, n_layers: 32, n_heads: 32, vocab_size: 32000, max_batch_size: 2, max_seq_len: 8, seq_len: 1, bs: 1}
+
+  - api: TTSIM
+    name: SwinTransformer
+    basedir: workloads/Swin-Transformer
+    module : SwinTransformer@SwinTransformer.py
+    instances:
+      input_1: {img_size: 224, in_chans: 3, bs: 3, num_classes: 3000}
+
+  - api: TTSIM
+    name: LeViT
+    basedir: workloads/LeViT
+    module : LEVIT@LeViT.py
+    instances:
+      LeViT_128S: { img_height: 224, img_width: 224, img_channels: 3, bs: 1, patch_size: 16, dims: [128, 256, 384], depths: [2, 3, 4], heads: [4, 6, 8], key_dim: [16, 16, 16], attn_ratio: [2, 2, 2], mlp_ratio: [2, 2, 2], down_ops: [["Subsample", 16, 8, 4, 2, 2], ["Subsample", 16, 16, 4, 2, 2]], drop_path: 0, global_pool: avg, compute_pipe: matrix }
+      LeViT_128: { img_height: 224, img_width: 224, img_channels: 3, bs: 1, patch_size: 16, dims: [128, 256, 384], depths: [4, 4, 4], heads: [4, 8, 12], key_dim: [16, 16, 16], attn_ratio: [2, 2, 2], mlp_ratio: [2, 2, 2], down_ops: [["Subsample", 16, 8, 4, 2, 2], ["Subsample", 16, 16, 4, 2, 2]], drop_path: 0, global_pool: avg, compute_pipe: matrix }
+      LeViT_192: { img_height: 224, img_width: 224, img_channels: 3, bs: 1, patch_size: 16, dims: [192, 288, 384], depths: [4, 4, 4], heads: [3, 5, 6], key_dim: [32, 32, 32], attn_ratio: [2, 2, 2], mlp_ratio: [2, 2, 2], down_ops: [["Subsample", 32, 6, 4, 2, 2], ["Subsample", 32, 9, 4, 2, 2]], drop_path: 0, global_pool: avg, compute_pipe: matrix }
+      LeViT_256: { img_height: 224, img_width: 224, img_channels: 3, bs: 1, patch_size: 16, dims: [256, 384, 512], depths: [4, 4, 4], heads: [4, 6, 8], key_dim: [32, 32, 32], attn_ratio: [2, 2, 2], mlp_ratio: [2, 2, 2], down_ops: [["Subsample", 32, 8, 4, 2, 2], ["Subsample", 32, 12, 4, 2, 2]], drop_path: 0, global_pool: avg, compute_pipe: matrix }
+      LeViT_384: { img_height: 224, img_width: 224, img_channels: 3, bs: 1, patch_size: 16, dims: [384, 512, 768], depths: [6, 9, 12], heads: [6, 9, 12], key_dim: [32, 32, 32], attn_ratio: [2, 2, 2], mlp_ratio: [2, 2, 2], down_ops: [["Subsample", 32, 12, 4, 2, 2], ["Subsample", 32, 16, 4, 2, 2]], drop_path: 0.1, global_pool: avg, compute_pipe: matrix }

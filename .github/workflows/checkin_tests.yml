@@ -237,6 +237,7 @@ jobs:
         python checkin_tests.py workloads
 
     - name: Upload artifacts
+      if: '!cancelled()'
       uses: actions/upload-artifact@v4
       with:
         name: checkin_userenv_artifacts

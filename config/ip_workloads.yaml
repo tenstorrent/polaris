@@ -4,7 +4,7 @@ workloads:
   - api: TTSIM
     name: YOLOv7
     basedir: workloads
-    module : YOLO7@YOLO_v7.py
+    module : YOLO7@Yolo_v7.py
     instances:
       yolov7-tiny      : {yaml_cfg_path: 'https://raw.githubusercontent.com/WongKinYiu/yolov7/refs/heads/main/cfg/deploy/yolov7-tiny.yaml',      in_channels: 3, in_resolution: 640, bs: 1}
       yolov7-tiny-silu : {yaml_cfg_path: 'https://raw.githubusercontent.com/WongKinYiu/yolov7/refs/heads/main/cfg/deploy/yolov7-tiny-silu.yaml', in_channels: 3, in_resolution: 640, bs: 1}
@@ -29,8 +29,8 @@ workloads:
     module : ResNet@basicresnet.py
     params : {layers: [3,4,6,3], num_classes: 1000, num_channels: 3, use_adaptive_pool: true, init_stride: 4, bs: 1}
     instances:
-      rn50_b1_hd : { img_height: 1024, img_width: 1024, }
-      rn50_b1_uhd: { img_height: 2828, img_width: 2828, }
+      rn50_b1_hd : { img_height: 1024, img_width: 1024 }
+      rn50_b1_uhd: { img_height: 2828, img_width: 2828 }
 
   - api: TTSIM
     name: BEVDepth
@@ -53,22 +53,22 @@ workloads:
     basedir: workloads/UNet
     module : UNet@unet_model.py
     instances:
-      unet_b1 : {'n_channels': 3, 'n_classes': 2, 'img_size': 256, 'bilinear': False, 'bs': 1}
+      unet_b1 : {n_channels: 3, n_classes: 2, img_size: 256, bilinear: False, bs: 1}
 
   - api: TTSIM
     name: llama2
     basedir: workloads/llama2
     module : Transformer@model.py
     instances:
-      input_small: {'dim': 32, 'n_layers': 2, 'n_heads': 2, 'vocab_size': 256, 'max_batch_size': 2, 'max_seq_len': 8, 'seq_len': 1, 'bs': 1}
-      input_standard: {'dim': 4096, 'n_layers': 32, 'n_heads': 32, 'vocab_size': 32000, 'max_batch_size': 2, 'max_seq_len': 8, 'seq_len': 1, 'bs': 1}
+      input_small: {dim: 32, n_layers: 2, n_heads: 2, vocab_size: 256, max_batch_size: 2, max_seq_len: 8, seq_len: 1, bs: 1}
+      input_standard: {dim: 4096, n_layers: 32, n_heads: 32, vocab_size: 32000, max_batch_size: 2, max_seq_len: 8, seq_len: 1, bs: 1}
 
   - api: TTSIM
     name: SwinTransformer
     basedir: workloads/Swin-Transformer
     module : SwinTransformer@SwinTransformer.py
     instances:
-      input_1: {'img_size': 224, 'in_chans': 3, 'bs': 3, 'num_classes': 3000}
+      input_1: {img_size: 224, in_chans: 3, bs: 3, num_classes: 3000}
 
   - api: TTSIM
     name: LeViT
