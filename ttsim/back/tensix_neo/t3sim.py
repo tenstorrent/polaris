@@ -1084,7 +1084,7 @@ class thread:
             if(len(scoreBoardSet) >0 ):    yield simpy.events.AllOf(self.env, scoreBoardSet)
 
             yield self.env.timeout(1)
-            if self.debug & DEBUG_TENSIX_MED_LEVEL:
+            if self.debug & DEBUG_TENSIX_HIGH_LEVEL:
                 print(f"Cycle:{self.env.now} Addr:{hex(ins.getRelAddr())} TCore{self.coreId} Thread{self.threadId} Instruction:{ins.getOp()} ObjectId:{hex(id(ins))} SetInUse-RISC (done):{ins.mnemonic} srcList={ins.getSrcInt()} dstList={ins.getDstInt()}: Stall Time:{self.env.now - startTime} ")
 
             yield self.riscExecTrkBuff.put(ins)
@@ -1100,7 +1100,7 @@ class thread:
         yield self.riscResetRegBuff.put(ins)
 
         self.sumRiscLatency += (self.env.now - startTime + 1)
-        if self.debug & DEBUG_TENSIX_MED_LEVEL:
+        if self.debug & DEBUG_TENSIX_HIGH_LEVEL:
             print(f"Cycle:{self.env.now} Addr:{hex(ins.getRelAddr())} TCore{self.coreId} Thread{self.threadId} Instruction:{ins.getOp()} ObjectId:{hex(id(ins))} Execution-RISC (done):{ins.mnemonic}. Latency:{self.env.now - startTime} ")
 
         return
@@ -1125,13 +1125,18 @@ class thread:
 
             if(len(scoreBoardSet) > 0 ):    yield simpy.events.AllOf(self.env, scoreBoardSet)
             yield self.env.timeout(1)
-            if self.debug & DEBUG_TENSIX_MED_LEVEL:
+            if self.debug & DEBUG_TENSIX_HIGH_LEVEL:
                 print(f"Cycle:{self.env.now} Addr:{hex(ins.getRelAddr())} TCore{self.coreId} Thread{self.threadId} Instruction:{ins.getOp()} ObjectId:{hex(id(ins))} ResetInUse-RISC (done):{ins.mnemonic} from Instruction Buffer srcList={ins.getSrcInt()} dstList={ins.getDstInt()}")
 
     def mopDecode(self):
         while(True):
             ins = yield self.mopBuff.get()
             if(ins.isMop() ):
+                #### Write non-zero value to PCBuffer[2] and CSR for Mop Sync
+                self.tensixFunc.tensixSplRegs.__writeReg__(ins.getThread(), 1, 'mopSync')
+                if(self.debug & DEBUG_TENSIX_MED_LEVEL):
+                    print(f"Cycle:{self.env.now} Addr:{hex(ins.getRelAddr())} TCore{self.coreId} Thread{ins.getThread()} MOP Decode started. mopSync = {self.tensixFunc.tensixSplRegs.__readReg__(ins.getThread(), 'mopSync')}")
+
                 if(self.debug & DEBUG_TENSIX_LOW_LEVEL):
                     print(f"TFunctional Cycle:{self.env.now} Addr:{hex(ins.getRelAddr())} TCore{self.coreId} Thread{ins.getThread()} ", end='')
                     ins.printInstr(self.threadId)
@@ -1165,11 +1170,22 @@ class thread:
                         self.instrBuff.put(decodedIns)
                         yield self.env.timeout(1)
                     i += 1
+                #### Write zero value to PCBuffer[2] and CSR for Mop Sync
+                self.tensixFunc.tensixSplRegs.__writeReg__(ins.getThread(), 0, 'mopSync')
+
                 if(self.debug & DEBUG_TENSIX_MED_LEVEL):
-                    print(f"Cycle:{self.env.now} Addr:{hex(ins.getRelAddr())} TCore{self.coreId} Thread{ins.getThread()} MOP Decode completed. Total TT Instructions generated={i} from MOP Instruction")
+                    print(f"Cycle:{self.env.now} Addr:{hex(ins.getRelAddr())} TCore{self.coreId} Thread{ins.getThread()} MOP Decode completed. Total TT Instructions generated={i} from MOP Instruction. mopSync = {self.tensixFunc.tensixSplRegs.__readReg__(ins.getThread(), 'mopSync')}")
             elif(ins.isTT()):
+                #### Write zero value to PCBuffer[2] and CSR for Mop Sync
+                self.tensixFunc.tensixSplRegs.__writeReg__(ins.getThread(), 0, 'mopSync')
+                if(self.debug & DEBUG_TENSIX_MED_LEVEL):
+                    print(f"Cycle:{self.env.now} Addr:{hex(ins.getRelAddr())} TCore{self.coreId} Thread{ins.getThread()} Non MOP TT Instruction. mopSync = {self.tensixFunc.tensixSplRegs.__readReg__(ins.getThread(), 'mopSync')}")
                 self.instrBuff.put(ins)
             else:
+                #### Write zero value to PCBuffer[2] and CSR for Mop Sync
+                self.tensixFunc.tensixSplRegs.__writeReg__(ins.getThread(), 0, 'mopSync')
+                if(self.debug & DEBUG_TENSIX_MED_LEVEL):
+                    print(f"Cycle:{self.env.now} Addr:{hex(ins.getRelAddr())} TCore{self.coreId} Thread{ins.getThread()} Non MOP non TT Instruction. mopSync = {self.tensixFunc.tensixSplRegs.__readReg__(ins.getThread(), 'mopSync')}")
                 print("Expected TT instruction. Received", print(ins))
             yield self.env.timeout(2)
             self.prevPC = self.pc

@@ -285,20 +285,31 @@ class triscFunc:
             bankUpd = status.bankUpdMask
             condChkVld = status.condChkVldUpdVal
             condWriVld = status.condWriVldUpdVal
-        elif(cfgRegType == 'mop'):              # Write to MMR (TRISC)
+        elif(cfgRegType in ['mop', 'mopSync','idleSync']):              # Write to MMR (TRISC)
             if self.debug & 0x8: print(f"__execsw:{cfgRegType}[{hex(cfgRegIndex)}]={hex(self.triscRegs.__readReg__(ins.getSrcInt()[0]) + ins.getImm()[0])}")
-            if(cfgRegIndex >=0 and cfgRegIndex <= 8): # MOP
-                if self.debug & 0x8:     print("Writing to (TENSIX) Thread[{0}]:{2} mop[{1}]={3}".format(self.threadId, hex(cfgRegIndex), hex(self.triscRegs.__readReg__(ins.getSrcInt()[0]) + ins.getImm()[0]), hex(self.triscRegs.__readReg__(ins.getSrcInt()[1]))))
-                self.ttSplRegs.__writeReg__(self.threadId*64 + cfgRegIndex, self.triscRegs.__readReg__(ins.getSrcInt()[1]), cfgRegType)
-            else:
-                assert False, "Unknown reg Index=" + str(cfgRegIndex) + ",Type=" + str(cfgRegType)
-        elif(cfgRegType == 'instrBuffer'):      # Write to MMR (TENSIX)
-            if self.debug & 0x8: print(f"__execsw:{regType}[{hex(regIndex)}]={hex(self.triscRegs.__readReg__(ins.getSrcInt()[0]) + ins.getImm()[0])}")
-            if(cfgRegIndex ==0):  #InstrBuffer
-                if self.debug & 0x8:     print("Writing to (TENSIX) Thread[{0}]:{2} instrbuf[{1}]={3}".format(self.threadId, hex(cfgRegIndex), hex(self.triscRegs.__readReg__(ins.getSrcInt()[0]) + ins.getImm()[0]), hex(self.triscRegs.__readReg__(ins.getSrcInt()[1]))))
-                self.ttSplRegs.__writeReg__(cfgRegIndex, self.triscRegs.__readReg__(ins.getSrcInt()[1]), cfgRegType)
-            else:
-                assert False, "Unknown reg Index=" + str(cfgRegIndex) + ",Type=" + str(cfgRegType)
+            match cfgRegType:
+                case 'mop': 
+                    assert cfgRegIndex >=0 and cfgRegIndex <= 8, f"MOP Reg Index out of range. cfgRegIndex={cfgRegIndex}"
+                    if self.debug & 0x8:     print(f"Addr:{hex(ins.getRelAddr())} TCore{self.coreId} Thread{self.threadId} Writing to (TENSIX) {hex(cfgRegIndex)} mop[{hex(cfgRegIndex)}]={hex(self.triscRegs.__readReg__(ins.getSrcInt()[0]) + ins.getImm()[0])} {hex(self.triscRegs.__readReg__(ins.getSrcInt()[1]))}")
+                    self.ttSplRegs.__writeReg__(self.threadId*64 + cfgRegIndex, self.triscRegs.__readReg__(ins.getSrcInt()[1]), cfgRegType)
+                case 'mopSync': 
+                    assert cfgRegIndex == 0, "Only one mopSync register supported. Unexpected Index=" + str(cfgRegIndex)
+                    if self.debug & 0x8:     print(f"Addr:{hex(ins.getRelAddr())} TCore{self.coreId} Thread{self.threadId} Writing to (TENSIX) {hex(cfgRegIndex)} mopSync[{hex(cfgRegIndex)}]={hex(self.triscRegs.__readReg__(ins.getSrcInt()[0]) + ins.getImm()[0])} {hex(self.triscRegs.__readReg__(ins.getSrcInt()[1]))}")
+                    #TODO: Evaluate Disable Write to PCBuffer[2] for mopSync
+                    self.ttSplRegs.__writeReg__(self.threadId + cfgRegIndex, self.triscRegs.__readReg__(ins.getSrcInt()[1]), cfgRegType)
+                case 'idleSync': 
+                    assert cfgRegIndex == 0, "Only one idleSync register supported. Unexpected Index=" + str(cfgRegIndex)
+                    if self.debug & 0x8:     print(f"Addr:{hex(ins.getRelAddr())} TCore{self.coreId} Thread{self.threadId} Writing to (TENSIX) {hex(cfgRegIndex)} idleSync[{hex(cfgRegIndex)}]={hex(self.triscRegs.__readReg__(ins.getSrcInt()[0]) + ins.getImm()[0])} {hex(self.triscRegs.__readReg__(ins.getSrcInt()[1]))}")
+                    self.ttSplRegs.__writeReg__(self.threadId + cfgRegIndex, self.triscRegs.__readReg__(ins.getSrcInt()[1]), cfgRegType)
+                case _:     
+                    assert False, "Unknown reg Index=" + str(cfgRegIndex) + ",Type=" + str(cfgRegType)
+        elif(cfgRegType in ['instrBuffer']):              # Write to MMR (TRISC)
+            if self.debug & 0x8: print(f"__execsw:{cfgRegType}[{hex(cfgRegIndex)}]={hex(self.triscRegs.__readReg__(ins.getSrcInt()[0]) + ins.getImm()[0])}")
+            match cfgRegType:
+                case 'instrBuffer': assert cfgRegIndex == 0, "InstrBuffer Reg Index out of range"
+                case _:             assert False, "Unknown reg Index=" + str(cfgRegIndex) + ",Type=" + str(cfgRegType)
+            if self.debug & 0x8:     print(f"Writing to (TENSIX) Thread[{self.threadId}]:{hex(cfgRegIndex)} {cfgRegType}[{hex(cfgRegIndex)}]={hex(self.triscRegs.__readReg__(ins.getSrcInt()[0]) + ins.getImm()[0])} {hex(self.triscRegs.__readReg__(ins.getSrcInt()[1]))}")
+            self.ttSplRegs.__writeReg__(cfgRegIndex, self.triscRegs.__readReg__(ins.getSrcInt()[1]), cfgRegType)
         else:                                   # Write to MMR (TRISC)
             assert regIndex != -1, "Reg Index cannot be uninitialized"
             if self.debug & 0x8: print(f"__execsw:{regType}[{hex(regIndex)}]={hex(self.triscRegs.__readReg__(ins.getSrcInt()[0]) + ins.getImm()[0])}")
@@ -735,7 +746,7 @@ class triscFunc:
                 self.memData.__writeMem__(self.triscRegs.__readReg__(ins.getSrcInt()[0]) + ins.getImm()[0], 0xFF)
 
             self.triscRegs.__writeReg__(ins.getDstInt()[0], self.memData.__readMem__(self.triscRegs.__readReg__(ins.getSrcInt()[0]) + ins.getImm()[0]))
-            if self.debug & 0x8: print(f"__execlw:{regType} , {regIndex}, {hex(self.triscRegs.__readReg__(ins.getSrcInt()[0]) + ins.getImm()[0])}")
+            if self.debug & 0x8: print(f"__execlw:REG[{hex(ins.getDstInt()[0])}]=MEM[{hex(self.triscRegs.__readReg__(ins.getSrcInt()[0]) + ins.getImm()[0])}]")
 
             if(self.debug & 0x10):
                 print(f"\t{ins.getOp()}: MEM[{hex(self.triscRegs.__readReg__(ins.getSrcInt()[0]) + ins.getImm()[0])}]={hex(self.triscRegs.__readReg__(ins.getDstInt()[0]))}")
@@ -743,7 +754,7 @@ class triscFunc:
         elif(cfgRegType == 'cfg'):              # Write to MMR (Tensix)
             assert cfgRegIndex != -1, "Config Reg Index cannot be uninitialized"
             if self.debug & 0x8:
-                print(f"__execlw:{cfgRegType} , {cfgRegIndex}, {hex(self.triscRegs.__readReg__(ins.getSrcInt()[0]) + ins.getImm()[0])}")
+                print(f"__execlw(cfg):{cfgRegType} , {cfgRegIndex}, {hex(self.triscRegs.__readReg__(ins.getSrcInt()[0]) + ins.getImm()[0])}")
 
             if "DEST_TARGET_REG_CFG_MATH" == self.ttSplRegs.getCfgRegUpdateClass(cfgRegIndex): # DEST_TARGET_REG_CFG_MATH_SEC0_Offset_ADDR32
                 print(f"Reading from (TENSIX) Thread[{self.threadId}]:{hex(self.triscRegs.__readReg__(ins.getSrcInt()[0]) + ins.getImm()[0])} DEST_TARGET_REG_CFG cfg[{hex(cfgRegIndex)}]={hex(self.ttSplRegs.__readReg__(cfgRegIndex, cfgRegType))}")
@@ -751,20 +762,38 @@ class triscFunc:
                 # if self.triscRegs.__readReg__(ins.getSrcInt()[1]) >=512:  bankUpd[3] = 1
             else:
                 print(f"WARNING: Unhandled special register (TENSIX) {cfgRegType}[{cfgRegIndex}], Memlocation={hex(self.triscRegs.__readReg__(ins.getSrcInt()[0]) + ins.getImm()[0])}" )
-        elif(cfgRegType == 'mop'):              # Write to MMR (TRISC)
+        elif(cfgRegType in ['mop','mopSync', 'idleSync']):              # Write to MMR (TRISC)
             if self.debug & 0x8: print(f"__execlw:{cfgRegType} , {cfgRegIndex}, {hex(self.triscRegs.__readReg__(ins.getSrcInt()[0]) + ins.getImm()[0])}")
-            if(cfgRegIndex >=0 and cfgRegIndex <= 8): # MOP
-                if self.debug & 0x8:    print(f"Reading from (TENSIX) Thread[{self.threadId}]:{hex(self.triscRegs.__readReg__(ins.getSrcInt()[0]) + ins.getImm()[0])} mop[{hex(cfgRegIndex)}]={hex(self.ttSplRegs.__readReg__(cfgRegIndex, cfgRegType))}")
-                self.triscRegs.__writeReg__(ins.getDstInt()[0], self.ttSplRegs.__readReg__(self.threadId*64 + cfgRegIndex, cfgRegType))
-            else:
-                assert False, "Unknown reg Index=" + str(cfgRegIndex) + ",Type=" + str(cfgRegType)
-        elif(cfgRegType == 'instrBuffer'):      # Write to MMR (TENSIX)
-            if(cfgRegIndex ==0):  #InstrBuffer
-                if self.debug & 0x8:    print(f"Reading from (TENSIX) Thread[{self.threadId}]:{hex(self.triscRegs.__readReg__(ins.getSrcInt()[0]) + ins.getImm()[0])} instrbuf[{hex(cfgRegIndex)}]={hex(self.ttSplRegs.__readReg__(cfgRegIndex, cfgRegType))}")
-                # self.ttSplRegs.__writeReg__(cfgRegIndex, self.triscRegs.__readReg__(ins.getSrcInt()[1]), cfgRegType)
-                self.triscRegs.__writeReg__(ins.getDstInt()[0], self.ttSplRegs.__readReg__(cfgRegIndex, cfgRegType))
-            else:
-                assert False, "Unknown reg Index=" + str(cfgRegIndex) + ",Type=" + str(cfgRegType)
+            match cfgRegType:
+                case 'mop':       
+                    assert cfgRegIndex >=0 and cfgRegIndex <= 8, f"MOP Reg Index out of range. cfgRegIndex={cfgRegIndex}"
+                    if self.debug & 0x8:    print(f"Reading from (TENSIX) Thread[{self.threadId}]:{hex(self.triscRegs.__readReg__(ins.getSrcInt()[0]) + ins.getImm()[0])} mop[{hex(cfgRegIndex)}]={hex(self.ttSplRegs.__readReg__(cfgRegIndex, cfgRegType))}")
+                    self.triscRegs.__writeReg__(ins.getDstInt()[0], self.ttSplRegs.__readReg__(self.threadId*64 + cfgRegIndex, cfgRegType))
+                case 'mopSync':   
+                    assert cfgRegIndex == 0, f"Only one mopSync register supported. Unexpected Index={cfgRegIndex}"
+                    if(self.ttSplRegs.__readReg__(self.threadId + cfgRegIndex, cfgRegType) != 0):
+                        print(f"Addr:{hex(ins.getRelAddr())} TCore{self.coreId} Thread[{self.threadId}] (TENSIX) MOPSync register read as non-zero value {hex(self.ttSplRegs.__readReg__(self.threadId + cfgRegIndex, cfgRegType))}. Stalling")
+                        #TODO: Implement MOPSync stall behavior
+                        # nextRelAddr = ins.getRelAddr() - 4
+                        # return nextRelAddr
+                        self.triscRegs.__writeReg__(ins.getDstInt()[0], self.ttSplRegs.__readReg__(self.threadId + cfgRegIndex, cfgRegType))
+                    else:
+                        self.triscRegs.__writeReg__(ins.getDstInt()[0], self.ttSplRegs.__readReg__(self.threadId + cfgRegIndex, cfgRegType))
+                        print(f"Addr:{hex(ins.getRelAddr())} TCore{self.coreId} Thread[{self.threadId}] (TENSIX) MOPSync register read as zero value {hex(self.ttSplRegs.__readReg__(self.threadId + cfgRegIndex, cfgRegType))}. Continuing")
+                case 'idleSync':  
+                    assert cfgRegIndex == 0, f"Only one idleSync register supported. Unexpected Index={cfgRegIndex}"
+                    #TODO: Implement idleSync stall behavior
+                    self.triscRegs.__writeReg__(ins.getDstInt()[0], self.ttSplRegs.__readReg__(self.threadId + cfgRegIndex, cfgRegType))
+                case _:          
+                    assert False, "Unknown reg Index=" + str(cfgRegIndex) + ",Type=" + str(cfgRegType)
+        elif(cfgRegType in ['instrBuffer', 'ttsemaphores']):  # Tensix Special Regs
+            if self.debug & 0x8: print(f"__execlw({cfgRegType}) , {cfgRegIndex}, {hex(self.triscRegs.__readReg__(ins.getSrcInt()[0]) + ins.getImm()[0])}")
+            match cfgRegType:
+                case 'instrBuffer':  assert cfgRegIndex == 0, f"InstrBuffer Reg Index out of range. cfgRegIndex={cfgRegIndex}"
+                case 'ttsemaphores': assert cfgRegIndex >= 0 and cfgRegIndex <= 31, f"ttsemaphores Reg Index out of range. cfgRegIndex={cfgRegIndex}"
+                case _:              assert False, "Unknown reg Index=" + str(cfgRegIndex) + ",Type=" + str(cfgRegType)
+            if self.debug & 0x8:    print(f"Reading from (TENSIX) Thread[{self.threadId}]:{hex(self.triscRegs.__readReg__(ins.getSrcInt()[0]) + ins.getImm()[0])} {cfgRegType}[{hex(cfgRegIndex)}]={hex(self.ttSplRegs.__readReg__(cfgRegIndex, cfgRegType))}")
+            self.triscRegs.__writeReg__(ins.getDstInt()[0], self.ttSplRegs.__readReg__(cfgRegIndex, cfgRegType))
         else:   # Read from MMR
             self.triscRegs.__writeReg__(ins.getDstInt()[0], self.triscRegs.__readReg__(regIndex, regType))
             if(self.debug & 0x10):

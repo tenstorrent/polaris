@@ -5,6 +5,7 @@
 # Functional Model
 import sys
 
+import math
 import copy
 import enum
 
@@ -20,7 +21,13 @@ MEMORY_MAP_KEY_NUM_BYTES_PER_REG = 'NUM_BYTES_PER_REGISTER'
 MEMORY_MAP_KEY_START = 'START'
 MEMORY_MAP_KEY_TRISC_MAP_INSTR_BUFFER = 'ibuffer'
 MEMORY_MAP_KEY_TRISC_MAP_MOP = 'mop_cfg'
-MEMORY_MAP_KEY_TRISC_MAP_SEMAPHORES = 'global_regs.semaphore_regs'
+
+# PCBUFFER
+MEMORY_MAP_KEY_TRISC_MAP_PCBUFFER = 'pcbuffer'
+MEMORY_MAP_VALUE_TRISC_MAP_SEMAPHORES   = 0x80
+MEMORY_MAP_VALUE_TRISC_MAP_MOPSYNC      = 0x08
+MEMORY_MAP_VALUE_TRISC_MAP_IDLESYNC     = 0x04
+
 
 BANK_UPDATE_THRESHOLD = 512
 
@@ -63,6 +70,11 @@ def toggle(val, mask):
     return result
 
 class ttSplRegs:
+    TREG_NUMREGS    = 0
+    TREG_STARTADDR  = 1
+    TREG_ADDRSIZE   = 2
+    TREG_NUMBANKS   = 3
+
     def __init__(self,coreId, args):
         self.debug      = args['debug']
         self.args       = args
@@ -90,9 +102,21 @@ class ttSplRegs:
                 64,                 #MMR_SIZE
                 1,                  #NUM_BANKS
             ],
+            'mopSync' : [
+                MAX_THREADS,       #NUM_REGISTERS ,
+                args[MEMORY_MAP_KEY_TRISC_MAP][MEMORY_MAP_KEY_TRISC_MAP_PCBUFFER][MEMORY_MAP_KEY_START] + MEMORY_MAP_VALUE_TRISC_MAP_MOPSYNC,    #MMR_START = PCBUFFER + 0x08. TODO: Get this from cfg itself
+                4,                 #MMR_SIZE
+                1,                  #NUM_BANKS
+            ],
+            'idleSync' : [
+                MAX_THREADS,       #NUM_REGISTERS ,
+                args[MEMORY_MAP_KEY_TRISC_MAP][MEMORY_MAP_KEY_TRISC_MAP_PCBUFFER][MEMORY_MAP_KEY_START] + MEMORY_MAP_VALUE_TRISC_MAP_IDLESYNC,    #MMR_START = PCBUFFER + 0x04. TODO: Get this from cfg itself
+                4,                 #MMR_SIZE
+                1,                  #NUM_BANKS
+            ],
             'ttsemaphores' : [
                 NUM_VARIABLES_PER_TTSEMAPHORE * NUM_TTSEMAPHORES_PER_BANK,
-                args[MEMORY_MAP_KEY_TRISC_MAP][MEMORY_MAP_KEY_TRISC_MAP_SEMAPHORES][MEMORY_MAP_KEY_START],    #MMR_START
+                args[MEMORY_MAP_KEY_TRISC_MAP][MEMORY_MAP_KEY_TRISC_MAP_PCBUFFER][MEMORY_MAP_KEY_START] + MEMORY_MAP_VALUE_TRISC_MAP_SEMAPHORES,    #MMR_START = PCBUFFER + 0x80. TODO: Get this from cfg itself
                 64,                 #MMR_SIZE
                 32,                 #NUM_BANKS. There are most likely only 2 banks, but bank ID field width is 5 bits, so we set NUM_BANKS as 32.
             ]
@@ -112,7 +136,7 @@ class ttSplRegs:
     def __writeReg__(self,r, val, type='riscgpr'):
         assert type in self.regTypes, "RegType not supported:" + type
         assert val != None , "Only legal values supported" + str(val)
-        if(self.debug & 0x10):      print("{0}[{1}] = {2}".format(type, r, val))
+        if(self.debug & 0x10):      print(f"{type}[{hex(r)}] = {hex(val)}")
         self.reg[type][r] = val
 
     def __readReg__(self, r, type ='riscgpr'):
@@ -157,6 +181,23 @@ class ttSplRegs:
             regCnt += 1
         print()
 
+    def __getParamsNumRegs__(self, regType: str):
+        assert regType in self.regTypes, f"RegType not supported:{regType} Supported RegTypes" +  self.regTypes
+        return self.regTypeDict[regType][self.TREG_NUMREGS]
+
+    def __getParamsStartAddr__(self, regType: str):
+        assert regType in self.regTypes, f"RegType not supported:{regType} Supported RegTypes" +  self.regTypes
+        return self.regTypeDict[regType][self.TREG_STARTADDR]
+
+    def __getParamsAddrSize__(self, regType: str):
+        assert regType in self.regTypes, f"RegType not supported:{regType} Supported RegTypes" +  self.regTypes
+        return self.regTypeDict[regType][self.TREG_ADDRSIZE]
+
+    def __getParamsNumBanks__(self, regType: str):
+        assert regType in self.regTypes, f"RegType not supported:{regType} Supported RegTypes" +  self.regTypes
+        return self.regTypeDict[regType][self.TREG_NUMBANKS]
+
+    ### Special Functions to handle regType = 'cfg'
     def getCfgRegOffsets(self):
         return self.args[MEMORY_MAP_KEY_TRISC_MAP][MEMORY_MAP_KEY_TRISC_MAP_CFG][MEMORY_MAP_KEY_TRISC_MAP_OFFSETS]
 
@@ -1437,7 +1478,11 @@ class tensixFunc:
             # wait condition
           # ...
 
-        semaphore_id_in_bank = ins.operands.all['sem_sel']
+        sem_sel = ins.operands.all['sem_sel']
+        if not (isinstance(sem_sel, int) and sem_sel > 0 and (sem_sel & (sem_sel - 1)) == 0):
+            raise ValueError(f"sem_sel must be a positive power of 2 (one-hot encoding), got {sem_sel}")
+        semaphore_id_in_bank = int(math.log2(sem_sel))   # One-hot encoding
+
         if (ins.kind == decoded_instruction.instruction_kind.ttqs):
             bank_id          = ins.operands.all['sem_bank_sel']
         else:
@@ -1496,6 +1541,9 @@ class tensixFunc:
             stalled_pipes_as_bits = 0 # no pipes to be stalled.
             thread_id_of_pipes = -1 # no pipes to stall, so no thread id.
 
+        if self.debug & 0x20:     print(f"SEMINIT Writing SemaphoreReg{semaphore_id}={semaphores[reg_offset + tt_semaphore_idx.current_value]}")
+        self.tensixSplRegs.__writeReg__(semaphore_id, semaphores[reg_offset + tt_semaphore_idx.current_value], 'ttsemaphores')
+
         semaphores[reg_offset + tt_semaphore_idx.pipes_to_stall] = stalled_pipes_as_bits
         semaphores[reg_offset + tt_semaphore_idx.thread_id_of_pipes] = thread_id_of_pipes
 
@@ -1515,7 +1563,11 @@ class tensixFunc:
             case _:
                 assert len(ins.getAttr()) == 1, "One attribs expected. Received " + str(len(ins.getAttr()))
 
-        semaphore_id_in_bank = ins.operands.all['sem_sel']
+        sem_sel = ins.operands.all['sem_sel']
+        if not (isinstance(sem_sel, int) and sem_sel > 0 and (sem_sel & (sem_sel - 1)) == 0):
+            raise ValueError(f"sem_sel must be a positive power of 2 (one-hot encoding), got {sem_sel}")
+        semaphore_id_in_bank = int(math.log2(sem_sel))   # One-hot encoding
+
         if (ins.kind == decoded_instruction.instruction_kind.ttqs):
             bank_id          = ins.operands.all['sem_bank_sel']
         else:
@@ -1588,6 +1640,9 @@ class tensixFunc:
             semaphores[reg_offset + tt_semaphore_idx.pipes_to_stall] = 0 # Do not stall any pipes.
             semaphores[reg_offset + tt_semaphore_idx.thread_id_of_pipes] = -1 # no pipes to stall, so thread ID is -1.
 
+        if self.debug & 0x20:       print(f"SEMGET Writing SemaphoreReg{semaphore_id}={semaphores[reg_offset + tt_semaphore_idx.current_value]}")
+        self.tensixSplRegs.__writeReg__(semaphore_id, semaphores[reg_offset + tt_semaphore_idx.current_value], 'ttsemaphores')
+
         nextRelAddr = ins.getRelAddr() + 4
         return nextRelAddr
 
@@ -1604,7 +1659,11 @@ class tensixFunc:
             case _:
                 assert len(ins.getAttr()) == 1, "One attribs expected. Received " + str(len(ins.getAttr()))
 
-        semaphore_id_in_bank = ins.operands.all['sem_sel']
+        sem_sel = ins.operands.all['sem_sel']
+        if not (isinstance(sem_sel, int) and sem_sel > 0 and (sem_sel & (sem_sel - 1)) == 0):
+            raise ValueError(f"sem_sel must be a positive power of 2 (one-hot encoding), got {sem_sel}")
+        semaphore_id_in_bank = int(math.log2(sem_sel))   # One-hot encoding
+
         if (ins.kind == decoded_instruction.instruction_kind.ttqs):
             bank_id          = ins.operands.all['sem_bank_sel']
         else:
@@ -1675,6 +1734,9 @@ class tensixFunc:
             semaphores[reg_offset + tt_semaphore_idx.pipes_to_stall] = 0 # Do not stall any pipes further.
             semaphores[reg_offset + tt_semaphore_idx.thread_id_of_pipes] = -1 # no pipes to stall, so thread ID is -1.
 
+        if self.debug & 0x20:     print(f"SEMPOST Writing SemaphoreReg{semaphore_id}={semaphores[reg_offset + tt_semaphore_idx.current_value]}")
+        self.tensixSplRegs.__writeReg__(semaphore_id, semaphores[reg_offset + tt_semaphore_idx.current_value], 'ttsemaphores')
+
         nextRelAddr = ins.getRelAddr() + 4
         return nextRelAddr
 
@@ -1693,7 +1755,11 @@ class tensixFunc:
 
         value_if_uninitialised = -1
 
-        semaphore_id_in_bank = ins.operands.all['sem_sel']
+        sem_sel = ins.operands.all['sem_sel']
+        if not (isinstance(sem_sel, int) and sem_sel > 0 and (sem_sel & (sem_sel - 1)) == 0):
+            raise ValueError(f"sem_sel must be a positive power of 2 (one-hot encoding), got {sem_sel}")
+        semaphore_id_in_bank = int(math.log2(sem_sel))   # One-hot encoding
+
         if (ins.kind == decoded_instruction.instruction_kind.ttqs):
             bank_id          = ins.operands.all['sem_bank_sel']
         else:
