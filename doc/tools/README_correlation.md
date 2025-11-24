@@ -406,8 +406,7 @@ from ttsi_corr import (
 
 # 1. Load data
 data_dir = Path('data/metal/inf/15oct25')
-metadata = read_metadata(data_dir)
-metrics = load_metrics_from_sources(data_dir, metadata['data_source'])
+metrics = load_metrics_from_sources(data_dir)
 
 # 2. Validate and filter
 valid_configs = validate_and_filter_configs(metrics, workload_filter=None)

@@ -36,14 +36,9 @@ Load and validate reference performance metrics from various sources (HTML table
 ```python
 from ttsi_corr.data_loader import load_metrics_from_sources, read_metadata
 
-# Read metadata to determine data source
-metadata = read_metadata(Path('data/metal/inf/15oct25'))
-data_source = metadata.get('data_source')
-
-# Load metrics
+# Load metrics (data source automatically determined from _metadata.yaml)
 metrics = load_metrics_from_sources(
-    tensix_perf_data_dir=Path('data/metal/inf/15oct25'),
-    data_source=data_source
+    tensix_perf_data_dir=Path('data/metal/inf/15oct25')
 )
 ```
 
@@ -200,8 +195,7 @@ from ttsi_corr import (
 
 # 1. Load data
 data_dir = Path('data/metal/inf/15oct25')
-metadata = read_metadata(data_dir)
-metrics = load_metrics_from_sources(data_dir, metadata['data_source'])
+metrics = load_metrics_from_sources(data_dir)
 
 # 2. Validate and filter
 valid_configs = validate_and_filter_configs(metrics, workload_filter=None)
@@ -228,7 +222,7 @@ write_csv(comparison, output_dir / 'correlation_result.csv')
 from ttsi_corr import data_loader, correlation, excel_writer
 
 # Use functions from submodules
-metrics = data_loader.load_metrics_from_sources(data_dir, 'html')
+metrics = data_loader.load_metrics_from_sources(data_dir)
 comparison = correlation.compare_scores(ref_scores, actual_scores)
 excel_writer.write_csv(comparison, output_path)
 ```
@@ -244,7 +238,7 @@ from ttsi_corr import (
     add_scurve_chart
 )
 
-metrics = load_metrics_from_sources(data_dir, 'html')
+metrics = load_metrics_from_sources(data_dir)
 comparison = compare_scores(ref_scores, actual_scores)
 write_csv(comparison, 'output.csv')
 ```

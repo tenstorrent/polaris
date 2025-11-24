@@ -478,9 +478,6 @@ def main(argv: list[str]) -> int:
 
         tensix_perf_data_dir = get_data_directory(args.input_dir, args.tag, dry_run)
 
-        # Get data source from metadata
-        data_source = get_data_source_from_metadata(tensix_perf_data_dir, dry_run)
-
         # Load workload configurations
         workloads_file, workload_filter = load_workload_configs(
             args.workloads_config,
@@ -488,7 +485,7 @@ def main(argv: list[str]) -> int:
         )
 
         # Load metrics from data source specified in metadata
-        all_configs = load_metrics_from_sources(tensix_perf_data_dir, data_source)
+        all_configs = load_metrics_from_sources(tensix_perf_data_dir)
 
         # Validate and filter configurations
         valid_configs = validate_and_filter_configs(all_configs, workload_filter)

@@ -7,6 +7,7 @@ import sys
 sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
 import argparse
 import re
+import tempfile
 from datetime import datetime
 from pathlib import Path
 from typing import List, TypeAlias
@@ -19,6 +20,7 @@ from pydantic import BaseModel, TypeAdapter
 
 from tools.parsers.md_parser import extract_table_from_md_link, save_md_metrics
 from tools.ttsi_corr.ttsi_corr_utils import TTSI_REF_VALID_TAGS
+from tools.ttsi_corr.data_loader import load_metrics_from_sources
 from ttsim.utils.common import setup_logger
 from ttsim.utils.readfromurl import read_from_url
 
@@ -87,8 +89,6 @@ COLNAME_MAP: dict[str, str] = {
     'fps': 'perf',
     'target_fps': 'target_perf',
 }
-
-
 def get_colname_map(colname: str) -> str:
     c = colname.lower().strip().replace(' ', '_').replace('-', '_')
     return COLNAME_MAP.get(c, c).lower()
@@ -97,10 +97,10 @@ def get_colname_map(colname: str) -> str:
 def detect_content_format(content: str) -> str:
     """
     Detect if content is HTML or Markdown format.
-    
+
     Args:
         content (str): Content to analyze.
-        
+
     Returns:
         str: 'html' if HTML tags detected, 'md' if MD table syntax detected, 'unknown' otherwise.
     """
@@ -109,13 +109,13 @@ def detect_content_format(content: str) -> str:
     for pattern in html_patterns:
         if re.search(pattern, content, re.IGNORECASE):
             return 'html'
-    
+
     # Check for MD table syntax
     md_patterns = [r'\|.*\|.*\|', r'\|[-:]+\|']
     for pattern in md_patterns:
         if re.search(pattern, content):
             return 'md'
-    
+
     return 'unknown'
 
 
@@ -199,21 +199,21 @@ def extract_table_from_html_link(link: str, use_cache: bool = True) -> List[Tens
     """
     # Read content
     html_content: str = read_from_url(link, use_cache=use_cache)
-    
+
     # Verify it's actually HTML format
     content_format = detect_content_format(html_content)
     if content_format == 'md':
         raise ValueError(f'Expected HTML format but found MD content in {link}')
     elif content_format == 'unknown':
         raise ValueError(f'Unable to detect valid HTML table format in {link}')
-    
+
     doc: html.HtmlElement = html.fromstring(html_content)
 
     all_tables = doc.findall('.//table')
-    
+
     if not all_tables:
         raise ValueError(f'No HTML tables found in {link}')
-    
+
     tablelines = [table.sourceline for table in doc.findall('.//table')]
     allh2_containing_tables = [h2 for h2 in doc.findall('.//h2') if h2.sourceline + 1 in tablelines]
     h2_line_text = {h2.sourceline: h2.text_content() for h2 in allh2_containing_tables}
@@ -254,10 +254,10 @@ def extract_table_from_html_link(link: str, use_cache: bool = True) -> List[Tens
                 logger.error(f'Error parsing row {trimmed_row}: {e}')
                 raise
             hw_data.append(metric)
-    
+
     if not hw_data:
         raise ValueError(f'No supported workloads found in HTML tables from {link}.')
-    
+
     return hw_data
 
 
@@ -316,10 +316,10 @@ def save_metadata(
 ) -> None:
     """
     Save metadata about the parsing operation to a YAML file.
-    
+
     Only writes the file if tag, data_source, or input_url have changed.
     The file is preserved if only parsed_date or use_cache differ.
-    
+
     Args:
         output_dir (Path): Directory where metadata file will be saved.
         tag (str): Tag identifying this data snapshot.
@@ -334,35 +334,153 @@ def save_metadata(
         'parsed_date': datetime.now().isoformat(),
         'use_cache': use_cache,
     }
-    
+
     metadata_file = output_dir / '_metadata.yaml'
-    
+
     # Check if metadata file already exists
     if metadata_file.exists():
         try:
             with open(metadata_file, 'r') as f:
                 existing_metadata = yaml.safe_load(f)
-            
+
             # Compare only the fields that should trigger an overwrite: tag, data_source, input_url
             # Exclude parsed_date and use_cache from comparison
             significant_fields = ['tag', 'data_source', 'input_url']
-            
+
             # Significant fields is a subset of metadata fields, so do not need to check for missing keys
             metadata_significant = {k: metadata[k] for k in significant_fields}
             # Existing metadata may have additional fields, so use get() to avoid KeyError
             existing_significant = {k: existing_metadata.get(k) for k in significant_fields}
-            
+
             if metadata_significant == existing_significant:
                 logger.info('Metadata unchanged (tag, data_source, input_url), preserving existing file: {}', metadata_file)
                 return
         except Exception as e:
             logger.warning('Could not read existing metadata file: {}. Will overwrite.', e)
-    
+
     # Write metadata if it doesn't exist or has changed
     with open(metadata_file, 'w') as f:
         yaml.dump(metadata, f, default_flow_style=False, sort_keys=False)
-    
+
     logger.info('Saved metadata to {}', metadata_file)
+
+
+def compare_metrics(orig_output_dir: Path, output_dir: Path) -> bool:
+    """
+    Compare the metrics in the original output directory with the metrics in the temporary directory.
+
+    Args:
+        orig_output_dir (Path): Path to the original/baseline output directory containing metrics to compare against.
+        output_dir (Path): Path to the new output directory with freshly parsed metrics.
+    Returns:
+        bool: True if there are any differences (additions, removals, or changes), False if identical.
+    """
+    try:
+        orig_metrics = load_metrics_from_sources(orig_output_dir)
+    except (FileNotFoundError, ValueError) as e:
+        logger.warning("No baseline found at '{}': {}. Treating as all new metrics.", orig_output_dir, e)
+        orig_metrics = []
+    try:
+        new_metrics = load_metrics_from_sources(output_dir)
+    except (FileNotFoundError, ValueError) as e:
+        logger.error("Failed to load newly parsed metrics from '{}': {}", output_dir, e)
+        return False
+
+    # Create unique keys for each metric configuration
+    def create_metric_key(metric: dict) -> str:
+        """Create a unique key for a metric configuration dict."""
+        key_fields = ['benchmark', 'wlname', 'gpu', 'gpu_batch_size', 'system', 'precision']
+        key_parts = []
+        for field in key_fields:
+            value = metric.get(field, 'unknown')
+            key_parts.append(f'{field}={value}')
+        return '|'.join(key_parts)
+
+    # Create dictionaries mapping keys to metrics for easier lookup
+    orig_metrics_dict = {}
+    for metric in orig_metrics:
+        key = create_metric_key(metric)
+        if key in orig_metrics_dict:
+            logger.warning("Duplicate metric key found in original metrics: {}", key)
+        orig_metrics_dict[key] = metric
+    new_metrics_dict = {}
+    for metric in new_metrics:
+        key = create_metric_key(metric)
+        if key in new_metrics_dict:
+            logger.warning("Duplicate metric key found in new metrics: {}", key)
+        new_metrics_dict[key] = metric
+
+    # Create sets of keys for comparison
+    orig_keys = set(orig_metrics_dict.keys())
+    new_keys = set(new_metrics_dict.keys())
+
+    # Find common, only original, and only new keys
+    common_keys = orig_keys & new_keys
+    only_orig_keys = orig_keys - new_keys
+    only_new_keys = new_keys - orig_keys
+
+    # Compare values for common keys
+    changed_configs = []
+    identical_configs = []
+
+    for key in common_keys:
+        orig_metric = orig_metrics_dict[key]
+        new_metric = new_metrics_dict[key]
+
+        # Compare all fields except metadata fields (starting with _)
+        differences = []
+        all_fields = set(orig_metric.keys()) | set(new_metric.keys())
+
+        for field in sorted(all_fields):
+            if field.startswith('_'):  # Skip metadata fields
+                continue
+
+            orig_value = orig_metric.get(field)
+            new_value = new_metric.get(field)
+
+            if orig_value != new_value:
+                differences.append(f'{field}: {orig_value} -> {new_value}')
+
+        if differences:
+            changed_configs.append((key, differences))
+        else:
+            identical_configs.append(key)
+
+    # Log comparison results
+    logger.info('Loaded {} original metrics and {} new metrics for comparison',
+                len(orig_metrics), len(new_metrics))
+    logger.info('Common configurations: {}', len(common_keys))
+    logger.info('  - Identical: {}', len(identical_configs))
+    logger.info('  - Changed: {}', len(changed_configs))
+    logger.info('Only in original: {}', len(only_orig_keys))
+    logger.info('Only in new: {}', len(only_new_keys))
+
+    if changed_configs:
+        logger.info('Configurations with changes:')
+        for key, differences in changed_configs:
+            logger.info('  ~ {}', key)
+            for diff in differences:
+                logger.info('    {}', diff)
+
+    if only_orig_keys:
+        logger.info('Configurations removed:')
+        for key in sorted(only_orig_keys):
+            logger.info('  - {}', key)
+
+    if only_new_keys:
+        logger.info('Configurations added:')
+        for key in sorted(only_new_keys):
+            logger.info('  + {}', key)
+
+    # Determine if there are any differences
+    has_differences = bool(changed_configs or only_orig_keys or only_new_keys)
+
+    if has_differences:
+        logger.info('RESULT: Differences detected between original and new metrics')
+    else:
+        logger.info('RESULT: No differences found - metrics are identical')
+
+    return has_differences
 
 
 def create_args(argv: List[str] | None = None) -> argparse.Namespace:
@@ -376,7 +494,7 @@ def create_args(argv: List[str] | None = None) -> argparse.Namespace:
         argparse.Namespace: Parsed command line arguments.
     """
     parser = argparse.ArgumentParser(description='Parse and extract metrics from TT-Metal Tensix results.')
-    parser.add_argument('--input', '-i', dest='input_url', type=str, 
+    parser.add_argument('--input', '-i', dest='input_url', type=str,
                         default='https://raw.githubusercontent.com/tenstorrent/tt-metal/refs/heads/main/models/README.md',
                         help='Input URL to parse (HTML or MD file). Defaults to TT-Metal models README.md raw content')
     parser.add_argument('--output-dir', '-o', dest='output_dir', type=str, default=DEFAULT_OUTPUTDIR_BASE,
@@ -385,6 +503,12 @@ def create_args(argv: List[str] | None = None) -> argparse.Namespace:
                         help=f'Tag for the output subdirectory (required). Valid values: {TTSI_REF_VALID_TAGS}')
     parser.add_argument('--use-cache', '-c', dest='use_cache', action=argparse.BooleanOptionalAction, default=True,
                         help='Use cache for fetching content. Defaults to True. When set to False, it will always fetch the content from the URL.')
+    parser.add_argument('--check-uptodate', dest='check_uptodate', action='store_true',
+                        help='Check if metrics have changed compared to existing baseline without saving.'
+                             'Returns exit code 1 if differences detected, 0 if identical or 2 if an error occurred.')
+    parser.add_argument('--loglevel', '-l', dest='loglevel', type=str, default='INFO',
+                        choices=['DEBUG', 'INFO', 'WARNING', 'ERROR', 'CRITICAL'],
+                        help='Set the logging level. Defaults to INFO.')
     return parser.parse_args(argv)
 
 
@@ -398,68 +522,105 @@ def parse_ttsi_perf_results(argv: List[str] | None = None) -> int:
 
     Returns:
         int: Exit code of the script.
+            0: Success (no differences in check-uptodate mode, or successful processing otherwise)
+            1: Differences detected (only in check-uptodate mode)
+            2: Error during processing
     """
     args = create_args(argv)
-    setup_logger()
+    setup_logger(level=args.loglevel)
     link = args.input_url
-    output_dir: Path = Path(args.output_dir) / args.tag
-    os.makedirs(output_dir, exist_ok=True)
-    
+
+    # Use temporary directory if check-uptodate is True, otherwise use specified output directory
+    if args.check_uptodate:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            orig_output_dir = Path(args.output_dir) / args.tag
+            output_dir = Path(temp_dir) / args.tag
+            logger.info('Using temporary directory for check-up-to-date mode: {}', temp_dir)
+            os.makedirs(output_dir, exist_ok=True)
+
+            result = _process_metrics(link, args, output_dir)
+            if result != 0:
+                return result
+
+            # Compare the metrics in the temporary directory with the metrics in the original output directory
+            try:
+                has_differences = compare_metrics(orig_output_dir, output_dir)
+                return 1 if has_differences else 0
+            except Exception as e:
+                logger.error('Error comparing metrics: {}', e)
+                return 2
+    else:
+        output_dir = Path(args.output_dir) / args.tag
+        os.makedirs(output_dir, exist_ok=True)
+        return _process_metrics(link, args, output_dir)
+
+
+def _process_metrics(link: str, args: argparse.Namespace, output_dir: Path) -> int:
+    """Process metrics from the given link and save to output directory.
+
+    Args:
+        link: URL to fetch metrics from
+        args: Parsed command line arguments
+        output_dir: Directory to save metrics to
+
+    Returns:
+        int: Exit code (0 for success, 2 for error)
+    """
     # Track which data source was actually used
     actual_data_source = None
-    
+
     try:
         # Determine file format based on extension
         parsed_url = urlparse(link)
         path = parsed_url.path.lower()
-        
+
         if path.endswith('.md'):
             # MD file - parse as markdown
             logger.debug('Detected MD file format from extension')
             md_metrics = extract_table_from_md_link(link, use_cache=args.use_cache)
-            
+
             # Check if any metrics were extracted
             if not md_metrics:
-                logger.error('No metrics found in {}', link)
-                return 1
-            
+                logger.error('No metrics found in {}. Verify the file contains valid metric data.', link)
+                return 2
+
             save_md_metrics(md_metrics, output_dir)
             logger.debug('Extracted {} MD metrics from {}', len(md_metrics), link)
             actual_data_source = 'md'
-            
+
         else:
             # No extension or other - assume HTML, with MD fallback
             logger.info('Assuming HTML file format (no .md extension)')
-            
+
             try:
                 html_metrics = extract_table_from_html_link(link, use_cache=args.use_cache)
                 report_systems_of_interest(html_metrics)
                 save_html_metrics(html_metrics, output_dir)
                 logger.info('Extracted {} HTML metrics from {}', len(html_metrics), link)
                 actual_data_source = 'html'
-                
+
             except (ValueError, Exception) as html_error:
                 logger.warning('HTML parsing failed: {}. Trying MD format as fallback...', html_error)
-                
+
                 try:
                     md_metrics = extract_table_from_md_link(link, use_cache=args.use_cache)
                     save_md_metrics(md_metrics, output_dir)
                     logger.info('Successfully extracted {} MD metrics from {} using fallback', len(md_metrics), link)
                     actual_data_source = 'md'
-                    
+
                 except Exception as md_error:
                     logger.error('Both HTML and MD parsing failed. HTML error: {}. MD error: {}', html_error, md_error)
-                    return 1
-        
+                    return 2
+
         # Save metadata about this parsing operation
         if actual_data_source:
             save_metadata(output_dir, args.tag, actual_data_source, link, args.use_cache)
-        
+
         return 0
-        
+
     except Exception as e:
         logger.error('Error processing {}: {}', link, e)
-        return 1
+        return 2
 
 
 def main(argv: List[str] | None = None) -> int:

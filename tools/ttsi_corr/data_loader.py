@@ -34,8 +34,7 @@ Usage:
     from ttsi_corr.data_loader import load_metrics_from_sources
     
     metrics = load_metrics_from_sources(
-        tensix_perf_data_dir=Path('data/metal/inf/15oct25'),
-        data_source='md'
+        tensix_perf_data_dir=Path('data/metal/inf/15oct25')
     )
 
 See Also:
@@ -273,36 +272,43 @@ def read_metadata(data_dir: Path) -> dict[str, Any] | None:
 
 
 def load_metrics_from_sources(
-    tensix_perf_data_dir: Path,
-    data_source: str
+    tensix_perf_data_dir: Path
 ) -> list[dict[str, Any]]:
     """
     Load metrics from HTML or MD format files.
     
-    High-level facade for loading performance metrics. Delegates to
-    appropriate loader based on data_source parameter.
+    High-level facade for loading performance metrics. Automatically determines
+    the data source format by reading from _metadata.yaml file.
     
     Args:
-        tensix_perf_data_dir: Directory containing metric files
-        data_source: Source type ('html' or 'md')
+        tensix_perf_data_dir: Directory containing metric files and _metadata.yaml
         
     Returns:
         list: All loaded configurations with metadata
         
     Raises:
-        ValueError: If no valid configurations found or invalid data_source
+        ValueError: If no valid configurations found, no _metadata.yaml found,
+                   or invalid data_source in metadata
         
     Example:
         >>> metrics = load_metrics_from_sources(
-        ...     Path('data/metal/inf/15oct25'),
-        ...     'md'
+        ...     Path('data/metal/inf/15oct25')
         ... )
         >>> len(metrics) > 0
         True
         
     Note:
         Migrated from tools.run_ttsi_corr.load_metrics_from_sources() in Phase 4.
+        Data source is automatically determined from _metadata.yaml file.
     """
+    # Read data_source from metadata
+    metadata = read_metadata(tensix_perf_data_dir)
+    if not metadata or 'data_source' not in metadata:
+        raise ValueError(f'No _metadata.yaml found or missing data_source field in {tensix_perf_data_dir}')
+    
+    data_source = metadata['data_source']
+    logger.debug('Read data_source from metadata: {}', data_source)
+    
     # Load metrics based on source type
     if data_source == 'html':
         all_configs = load_html_metrics(tensix_perf_data_dir)

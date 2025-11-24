@@ -58,3 +58,8 @@ indent-width = 4
 [tool.ruff.format]
 quote-style = "single"
 skip-magic-trailing-comma = true    # Avoid always splitting function arguments (in definitions) one per line
+
+[tool.ruff.lint]
+# By default, Ruff enables Pyflakes (F) and a subset of pycodestyle (E) codes.
+# You can extend this selection.
+extend-select = ["W291", "W293"]
