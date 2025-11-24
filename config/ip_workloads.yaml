@@ -80,3 +80,116 @@ workloads:
       LeViT_192: { img_height: 224, img_width: 224, img_channels: 3, bs: 1, patch_size: 16, dims: [192, 288, 384], depths: [4, 4, 4], heads: [3, 5, 6], key_dim: [32, 32, 32], attn_ratio: [2, 2, 2], mlp_ratio: [2, 2, 2], down_ops: [["Subsample", 32, 6, 4, 2, 2], ["Subsample", 32, 9, 4, 2, 2]], drop_path: 0, global_pool: avg, compute_pipe: matrix }
       LeViT_256: { img_height: 224, img_width: 224, img_channels: 3, bs: 1, patch_size: 16, dims: [256, 384, 512], depths: [4, 4, 4], heads: [4, 6, 8], key_dim: [32, 32, 32], attn_ratio: [2, 2, 2], mlp_ratio: [2, 2, 2], down_ops: [["Subsample", 32, 8, 4, 2, 2], ["Subsample", 32, 12, 4, 2, 2]], drop_path: 0, global_pool: avg, compute_pipe: matrix }
       LeViT_384: { img_height: 224, img_width: 224, img_channels: 3, bs: 1, patch_size: 16, dims: [384, 512, 768], depths: [6, 9, 12], heads: [6, 9, 12], key_dim: [32, 32, 32], attn_ratio: [2, 2, 2], mlp_ratio: [2, 2, 2], down_ops: [["Subsample", 32, 12, 4, 2, 2], ["Subsample", 32, 16, 4, 2, 2]], drop_path: 0.1, global_pool: avg, compute_pipe: matrix }
+
+  - api: TTSIM
+    name: EfficientViT_CLS
+    basedir: workloads/EfficientViT
+    module: EFFICIENTVIT@EfficientViT_Cls.py
+    instances:
+      EfficientViT_CLS_B0: { img_height: 224, img_width: 224, img_channels: 3, bs: 1, num_classes: 1000,
+        stage_res: [56, 28, 14, 7], dims: [8, 16, 32, 64], blocks: [1, 2, 2, 2],
+        stem_out: 8, head_in: 128, head_widths: [1024, 1280], activation: hswish,
+        global_pool: avg, compute_pipe: matrix, model_size: small }
+
+      EfficientViT_CLS_B1: { img_height: 224, img_width: 224, img_channels: 3, bs: 1, num_classes: 1000,
+        stage_res: [56, 28, 14, 7], dims: [16, 32, 64, 128], blocks: [1, 2, 3, 4],
+        stem_out: 16, head_in: 256, head_widths: [1536, 1600], activation: hswish,
+        global_pool: avg, compute_pipe: matrix, model_size: small }
+
+      EfficientViT_CLS_B2: { img_height: 224, img_width: 224, img_channels: 3, bs: 1, num_classes: 1000,
+        stage_res: [56, 28, 14, 7], dims: [24, 48, 96, 192], blocks: [1, 3, 4, 6],
+        stem_out: 24, head_in: 384, head_widths: [2304, 2560], activation: hswish,
+        global_pool: avg, compute_pipe: matrix, model_size: small }
+
+      EfficientViT_CLS_B3: { img_height: 224, img_width: 224, img_channels: 3, bs: 1, num_classes: 1000,
+        stage_res: [56, 28, 14, 7], dims: [32, 64, 128, 256], blocks: [1, 4, 6, 9],
+        stem_out: 32, head_in: 512, head_widths: [2304, 2560], activation: hswish,
+        global_pool: avg, compute_pipe: matrix, model_size: small }
+
+      EfficientViT_CLS_L1: { img_height: 224, img_width: 224, img_channels: 3, bs: 1, num_classes: 1000,
+        stage_res: [56, 28, 14, 7], dims: [64, 128, 256, 512], blocks: [1, 1, 6, 6],
+        stem_out: 32, head_in: 512, head_widths: [3072, 3200], activation: gelu,
+        global_pool: avg, compute_pipe: matrix, model_size: large }
+
+      EfficientViT_CLS_L2: { img_height: 224, img_width: 224, img_channels: 3, bs: 1, num_classes: 1000,
+        stage_res: [56, 28, 14, 7], dims: [64, 128, 256, 512], blocks: [1, 2, 8, 8],
+        stem_out: 32, head_in: 512, head_widths: [3072, 3200], activation: gelu,
+        global_pool: avg, compute_pipe: matrix, model_size: large }
+
+      EfficientViT_CLS_L3: { img_height: 224, img_width: 224, img_channels: 3, bs: 1, num_classes: 1000,
+        stage_res: [56, 28, 14, 7], dims: [80, 224, 384, 1024], blocks: [3, 4, 8, 3],
+        stem_out: 48, head_in: 1024, head_widths: [6144, 6400], activation: gelu,
+        global_pool: avg, compute_pipe: matrix, model_size: large }
+  
+  - api: TTSIM
+    name: EfficientViT_SEG
+    basedir: workloads/EfficientViT
+    module: EFFICIENTVIT_SEG@EfficientViT_Seg.py
+    instances:
+      # ---- Cityscapes (n_classes=19); matches seg.py exactly (OS=8 => 64x64 at 512x512) ----
+      EfficientViT_SEG_B0_CITY: { img_height: 512, img_width: 512, img_channels: 3, bs: 1,
+        dims: [32, 64, 128, 128], blocks: [1, 2, 2, 2], stem_out: 16, activation: hswish,
+        fid_list: [stage4, stage3, stage2], in_channel_list: auto, stride_list: [16, 8, 4],
+        head_stride: 8, head_width: 32, head_depth: 1, expand_ratio: 4, middle_op: mbconv, final_expand: 4,
+        n_classes: 19, compute_pipe: matrix }
+
+      EfficientViT_SEG_B1_CITY: { img_height: 512, img_width: 512, img_channels: 3, bs: 1,
+        dims: [32, 64, 128, 256], blocks: [1, 3, 3, 3], stem_out: 16, activation: hswish,
+        fid_list: [stage4, stage3, stage2], in_channel_list: auto, stride_list: [16, 8, 4],
+        head_stride: 8, head_width: 64, head_depth: 3, expand_ratio: 4, middle_op: mbconv, final_expand: 4,
+        n_classes: 19, compute_pipe: matrix }
+
+      EfficientViT_SEG_B2_CITY: { img_height: 512, img_width: 512, img_channels: 3, bs: 1,
+        dims: [32, 64, 128, 384], blocks: [2, 3, 6, 4], stem_out: 16, activation: hswish,
+        fid_list: [stage4, stage3, stage2], in_channel_list: auto, stride_list: [16, 8, 4],
+        head_stride: 8, head_width: 96, head_depth: 3, expand_ratio: 4, middle_op: mbconv, final_expand: 4,
+        n_classes: 19, compute_pipe: matrix }
+
+      EfficientViT_SEG_B3_CITY: { img_height: 512, img_width: 512, img_channels: 3, bs: 1,
+        dims: [32, 64, 160, 512], blocks: [2, 4, 8, 4], stem_out: 24, activation: hswish,
+        fid_list: [stage4, stage3, stage2], in_channel_list: auto, stride_list: [16, 8, 4],
+        head_stride: 8, head_width: 128, head_depth: 3, expand_ratio: 4, middle_op: mbconv, final_expand: 4,
+        n_classes: 19, compute_pipe: matrix }
+
+      EfficientViT_SEG_L1_CITY: { img_height: 512, img_width: 512, img_channels: 3, bs: 1,
+        dims: [64, 128, 256, 512], blocks: [2, 3, 4, 3], stem_out: 32, activation: gelu,
+        fid_list: [stage4, stage3, stage2], in_channel_list: auto, stride_list: [16, 8, 4],
+        head_stride: 8, head_width: 256, head_depth: 3, expand_ratio: 1, middle_op: fmbconv, final_expand: null,
+        n_classes: 19, compute_pipe: matrix }
+
+      EfficientViT_SEG_L2_CITY: { img_height: 512, img_width: 512, img_channels: 3, bs: 1,
+        dims: [64, 160, 320, 512], blocks: [2, 3, 5, 4], stem_out: 32, activation: gelu,
+        fid_list: [stage4, stage3, stage2], in_channel_list: auto, stride_list: [16, 8, 4],
+        head_stride: 8, head_width: 256, head_depth: 5, expand_ratio: 1, middle_op: fmbconv, final_expand: null,
+        n_classes: 19, compute_pipe: matrix }
+
+      #---- ADE20K (n_classes=150); matches seg.py (note final_expand differences) ----
+      EfficientViT_SEG_B1_ADE: { img_height: 512, img_width: 512, img_channels: 3, bs: 1,
+        dims: [32, 64, 128, 256], blocks: [1, 3, 3, 3], stem_out: 16, activation: hswish,
+        fid_list: [stage4, stage3, stage2], in_channel_list: auto, stride_list: [16, 8, 4],
+        head_stride: 8, head_width: 64, head_depth: 3, expand_ratio: 4, middle_op: mbconv, final_expand: null,
+        n_classes: 150, compute_pipe: matrix }
+
+      EfficientViT_SEG_B2_ADE: { img_height: 512, img_width: 512, img_channels: 3, bs: 1,
+        dims: [32, 64, 128, 384], blocks: [2, 3, 6, 4], stem_out: 16, activation: hswish,
+        fid_list: [stage4, stage3, stage2], in_channel_list: auto, stride_list: [16, 8, 4],
+        head_stride: 8, head_width: 96, head_depth: 3, expand_ratio: 4, middle_op: mbconv, final_expand: null,
+        n_classes: 150, compute_pipe: matrix }
+
+      EfficientViT_SEG_B3_ADE: { img_height: 512, img_width: 512, img_channels: 3, bs: 1,
+        dims: [32, 64, 160, 512], blocks: [2, 4, 8, 4], stem_out: 24, activation: hswish,
+        fid_list: [stage4, stage3, stage2], in_channel_list: auto, stride_list: [16, 8, 4],
+        head_stride: 8, head_width: 128, head_depth: 3, expand_ratio: 4, middle_op: mbconv, final_expand: null,
+        n_classes: 150, compute_pipe: matrix }
+
+      EfficientViT_SEG_L1_ADE: { img_height: 512, img_width: 512, img_channels: 3, bs: 1,
+        dims: [64, 128, 256, 512], blocks: [2, 3, 4, 3], stem_out: 32, activation: gelu,
+        fid_list: [stage4, stage3, stage2], in_channel_list: auto, stride_list: [16, 8, 4],
+        head_stride: 8, head_width: 128, head_depth: 3, expand_ratio: 4, middle_op: fmbconv, final_expand: 8,
+        n_classes: 150, compute_pipe: matrix }
+
+      EfficientViT_SEG_L2_ADE: { img_height: 512, img_width: 512, img_channels: 3, bs: 1,
+        dims: [64, 160, 320, 512], blocks: [2, 3, 5, 4], stem_out: 32, activation: gelu,
+        fid_list: [stage4, stage3, stage2], in_channel_list: auto, stride_list: [16, 8, 4],
+        head_stride: 8, head_width: 128, head_depth: 3, expand_ratio: 4, middle_op: fmbconv, final_expand: 8,
+        n_classes: 150, compute_pipe: matrix }
