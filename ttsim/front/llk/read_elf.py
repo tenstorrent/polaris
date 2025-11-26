@@ -12,44 +12,177 @@ from elftools.elf.elffile import ELFFile
 import ttsim.front.llk.decoded_instruction as decoded_instruction
 import ttsim.front.llk.instructions as instructions
 
-def get_riscv_attribute_from_elf_object (elf: ELFFile) -> str:
-    # Parse the .riscv.attributes section data.
-
-    sec_name: str = ".riscv.attributes"
+def _get_attributes_section(elf: ELFFile) -> bytes:
+    """Get the .riscv.attributes section data from ELF file."""
+    sec_name = ".riscv.attributes"
     attr_sec = elf.get_section_by_name(sec_name)
     if not attr_sec:
         msg = f"- error: could not find section {sec_name} in given elf file"
-
         if hasattr(elf, 'stream') and hasattr(elf.stream, 'name'):
-                msg += f" {elf.stream.name}"
-
+            msg += f" {elf.stream.name}"
         raise Exception(msg)
-    else:
-        data = attr_sec.data()
-        # The section is a binary blob; parse it as needed
-        # print("Attributes Section Content:")
+    return attr_sec.data()
 
-        idx: int = 0
+def _validate_format_version(data: bytes) -> None:
+    """Validate the RISC-V attributes format version."""
+    if len(data) == 0 or data[0] != 0x41:  # ASCII 'A'
+        raise ValueError("Unknown or missing attributes format version")
 
-        # Check for the format version (should be 'A' or 0x41 for ASCII)
-        if data[idx] != 0x41:  # ASCII 'A'
-            raise ValueError("Unknown attributes format version")
+def _parse_vendor_section_info(data: bytes, start_idx: int) -> tuple[int, int, str]:
+    """Parse vendor section length and name.
+
+    Returns:
+        tuple: (vendor_section_end, next_idx, vendor_name)
+    """
+    if start_idx + 4 > len(data):
+        raise ValueError("Insufficient data for vendor section length")
+
+    vendor_section_length = int.from_bytes(data[start_idx:start_idx+4], byteorder='little')
+    vendor_section_start_after_length = start_idx + 4
+
+    # Calculate vendor section end (length includes the length field itself but not the format version)
+    vendor_section_end = vendor_section_start_after_length + vendor_section_length - 4
+    if vendor_section_end > len(data):
+        raise ValueError("Invalid vendor section length")
+
+    # Read vendor name (null-terminated string within vendor section)
+    idx = vendor_section_start_after_length
+    vendor_name_chars = []
+    while idx < vendor_section_end and data[idx] != 0:
+        if 31 < data[idx] < 127:
+            vendor_name_chars.append(chr(data[idx]))
+        idx += 1
+    if idx < vendor_section_end:
+        idx += 1  # Skip null terminator
+
+    vendor_name = ''.join(vendor_name_chars)
+    return vendor_section_end, idx, vendor_name
+
+def _skip_uleb128(data: bytes, start_idx: int, end_boundary: int) -> int:
+    """Skip a ULEB128 encoded number and return the new index."""
+    idx = start_idx
+    while idx < len(data) and idx < end_boundary:
+        byte = data[idx]
+        idx += 1
+        if (byte & 0x80) == 0:  # Last byte of ULEB128
+            break
+    return idx
+
+def _parse_architecture_string(data: bytes, start_idx: int, end_boundary: int) -> tuple[int, str]:
+    """Parse a null-terminated architecture string.
+
+    Returns:
+        tuple: (next_idx, arch_string)
+    """
+    idx = start_idx
+    arch_chars = []
+    while idx < end_boundary and idx < len(data) and data[idx] != 0:
+        if 31 < data[idx] < 127:
+            arch_chars.append(chr(data[idx]))
+        idx += 1
+    if idx < end_boundary and idx < len(data):
+        idx += 1  # Skip null terminator
+    return idx, ''.join(arch_chars)
+
+def _parse_file_attributes_subsection(data: bytes, start_idx: int, subsection_end: int, vendor_section_end: int) -> tuple[int, str | None]:
+    """Parse a File Attributes subsection and extract architecture string.
+
+    Returns:
+        tuple: (next_idx, arch_string_or_none)
+    """
+    idx = start_idx
+    arch_string = None
+
+    while idx < vendor_section_end and idx < subsection_end:
+        if idx >= len(data):
+            break
+
+        attr_tag = data[idx]
         idx += 1
 
-        # Length of the vendor string
-        vendor_length = data[idx]
+        if attr_tag == 5:  # ARCH attribute (tag 5 is architecture string)
+            if arch_string is not None:
+                raise Exception(f"- error: multiple ARCH attributes found, previous: {arch_string}")
+            idx, arch_string = _parse_architecture_string(data, idx, vendor_section_end)
+        else:
+            # Skip numeric attributes (ULEB128 encoded)
+            idx = _skip_uleb128(data, idx, min(vendor_section_end, subsection_end))
+
+    return idx, arch_string
+
+def _parse_subsections(data: bytes, start_idx: int, vendor_section_end: int) -> str | None:
+    """Parse all subsections within the vendor section to find architecture string.
+
+    Returns:
+        The architecture string if found, None otherwise.
+    """
+    idx = start_idx
+    arch_string = None
+
+    while idx < vendor_section_end:
+        if idx >= len(data):
+            break
+
+        # Read subsection tag
+        subsection_tag = data[idx]
         idx += 1
 
-        # Vendor name
-        # vendor_name = data[idx:(idx + vendor_length)].decode('utf-8').strip()
-        vendor_name = "".join([char if (ord(char) > 31) else "" for char in data[idx:(idx + vendor_length)].decode('utf-8').strip()])
-        idx += vendor_length
+        # Read subsection length
+        if (idx + 4) > vendor_section_end:
+            break
+        subsection_length = int.from_bytes(data[idx:idx+4], byteorder='little')
+        idx += 4
 
-        # Iterate through the attributes
-        if idx < len(data):
-            print(f"- WARNING: complete {sec_name} section not decoded")
+        # Calculate subsection end
+        # subsection_length includes tag (1 byte) + length field (4 bytes) + data
+        subsection_end = idx + (subsection_length - 5)
+        if subsection_end > vendor_section_end:
+            raise ValueError("Invalid subsection length")
 
-        return vendor_name
+        # Process subsection based on tag
+        if subsection_tag == 1:  # File Attributes subsection
+            idx, found_arch = _parse_file_attributes_subsection(data, idx, subsection_end, vendor_section_end)
+            if found_arch is not None:
+                if arch_string is not None:
+                    raise Exception(f"- error: multiple ARCH attributes found, previous: {arch_string}, new: {found_arch}")
+                arch_string = found_arch
+        else:
+            # Unknown subsection type, skip it
+            print(f"- WARNING: skipping unknown subsection type {subsection_tag}")
+
+        # Ensure we advance to the end of the subsection
+        if idx < subsection_end:
+            idx = subsection_end
+
+    # Check if we decoded the complete section
+    if idx < vendor_section_end:
+        print(f"- WARNING: complete .riscv.attributes section not decoded")
+
+    return arch_string
+
+def _format_riscv_attribute_string(vendor_name: str, arch_string: str) -> str:
+    """Format the final RISC-V attribute string."""
+    separator = '_' if (vendor_name and not vendor_name.endswith('_')) else ''
+    return f"{vendor_name}{separator}{arch_string}"
+
+def get_riscv_attribute_from_elf_object(elf: ELFFile) -> str:
+    """Parse the .riscv.attributes section and extract the architecture string."""
+    # Get section data
+    data = _get_attributes_section(elf)
+
+    # Validate format version
+    _validate_format_version(data)
+
+    # Parse vendor section information
+    vendor_section_end, subsection_start_idx, vendor_name = _parse_vendor_section_info(data, 1)
+
+    # Parse subsections to find architecture string
+    arch_string = _parse_subsections(data, subsection_start_idx, vendor_section_end)
+
+    if arch_string is None:
+        raise Exception("- error: could not find RISC-V architecture attribute")
+
+    return _format_riscv_attribute_string(vendor_name, arch_string)
 
 def get_riscv_attribute(elf: ELFFile | str) -> str:
     if isinstance (elf, str):

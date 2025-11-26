@@ -405,9 +405,9 @@ def get_default_instruction_set_file_name(instr_kind: instruction_kind) -> str:
     return file_name_incl_path
 
 def get_instruction_kinds_rv32_tensix_attributes_dict():
-    rv32_ttwh_attr: list[str] = ["riscvrv32i2p0_m2p0_xttwh1p0"]
-    rv32_ttbh_attr: list[str] = ["riscv#rv32i2p0_m2p0_xttbh1p0", "riscvrv32i2p0_m2p0_xttbh1p0"]
-    rv32_ttqs_attr: list[str] = ["riscvDrv32i2p0_m2p0_a2p0_f2p0_v1p0_zfh0p1_zvamo1p0_zvlsseg1p0", "riscv@rv32i2p0_m2p0_a2p0_f2p0_v1p0_zfh0p1_zvamo1p0_zvlsseg1p0"]
+    rv32_ttwh_attr: list[str] = ["riscv_rv32i2p0_m2p0_xttwh1p0", "riscv_rv32i2p0_m2p0_zmmul1p0_xttwh1p0", "riscvrv32i2p0_m2p0_xttwh1p0"]
+    rv32_ttbh_attr: list[str] = ["riscv_rv32i2p0_m2p0_xttbh1p0", "riscv#rv32i2p0_m2p0_xttbh1p0", "riscvrv32i2p0_m2p0_xttbh1p0"]
+    rv32_ttqs_attr: list[str] = ["riscv_rv32i2p0_m2p0_a2p0_f2p0_v1p0_zfh0p1_zvamo1p0_zvlsseg1p0", "riscvDrv32i2p0_m2p0_a2p0_f2p0_v1p0_zfh0p1_zvamo1p0_zvlsseg1p0", "riscv@rv32i2p0_m2p0_a2p0_f2p0_v1p0_zfh0p1_zvamo1p0_zvlsseg1p0"]
 
     kinds_attrs: dict[tuple[instruction_kind, instruction_kind], list[str]] = dict()
     for kind in instruction_kind:
@@ -433,7 +433,7 @@ def get_instruction_kinds_from_riscv_attribute(riscv_attribute: str) -> set[inst
     msg = "- error: incorrect riscv attribute.\n"
     msg += f"- given riscv attribute: {riscv_attribute}\n"
     msg += "- accepted attributes:\n"
-    for instruction_kinds, attributes in get_instruction_kinds_rv32_tensix_attributes_dict():
+    for instruction_kinds, attributes in get_instruction_kinds_rv32_tensix_attributes_dict().items():
         msg += f"{instruction_kinds}: {attributes}\n"
 
     raise Exception(msg)
