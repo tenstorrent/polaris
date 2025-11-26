@@ -1259,6 +1259,39 @@ class TagStatus:
                 test_classes_bins_tests[status.test_class][status.failure_bin].append(test_name)
         return test_classes_bins_tests
 
+    def get_failure_bin_wise_tests(self: typing.Self) -> dict[str, list[str]]:
+        failure_bins_tests: dict[str, list[str]] = dict()
+        for test_name, status in self.statuses.items():
+            if not status.model_passed:
+                assert status.failure_bin is not None, f"- error: expected failure bin to be set for test {test_name}"
+                if status.failure_bin not in failure_bins_tests:
+                    failure_bins_tests[status.failure_bin] = list()
+                failure_bins_tests[status.failure_bin].append(test_name)
+
+        for key in failure_bins_tests:
+            failure_bins_tests[key].sort()
+
+        return dict(sorted(failure_bins_tests.items()))
+
+    def failure_bin_wise_tests_to_str(self: typing.Self, num_white_chars_at_start: int = 0) -> str:
+        msg = ""
+        failure_bins_tests = self.get_failure_bin_wise_tests()
+        num_failures_bins: dict[int, list[str]] = dict()
+        if failure_bins_tests:
+            for failure_bin, tests in failure_bins_tests.items():
+                if len(tests) not in num_failures_bins:
+                    num_failures_bins[len(tests)] = []
+                num_failures_bins[len(tests)].append(failure_bin)
+
+            for num_failures, bins in sorted(num_failures_bins.items(), reverse=True):
+                for failure_bin in sorted(bins):
+                    tests = failure_bins_tests[failure_bin]
+                    assert len(tests) == num_failures, "- length mismatch"
+                    msg += f"{' ' * (num_white_chars_at_start)}- Failure bin: {failure_bin} ({len(tests)} tests)\n"
+                    for test in tests:
+                        msg += f"{' ' * (num_white_chars_at_start + 2)}- Test: {test}\n"
+        return msg.rstrip()
+
     def get_test_class_wise_failure_bins_str(self: typing.Self, num_white_chars_at_start: int = 0) -> str:
         msg = ""
         failed_tests = self.get_test_class_wise_failure_bins()
@@ -1296,7 +1329,12 @@ class TagStatus:
 
             assert len(failed_tests_on_model) == num_failed_tests, f"- error: number of failed tests mismatch"
             msg += f"{' ' * num_white_chars_at_start}+ Failed tests on model ({num_failed_tests} tests):\n"
-            msg += self.get_test_class_wise_failure_bins_str(num_white_chars_at_start + 2)
+            msg += f"{' ' * (num_white_chars_at_start + 2)}+ Test class wise failures:\n"
+            msg += self.get_test_class_wise_failure_bins_str(num_white_chars_at_start + 4)
+            if not msg.endswith("\n"):
+                msg += "\n"
+            msg += f"{' ' * (num_white_chars_at_start + 2)}+ Failure bins and tests:\n"
+            msg += self.failure_bin_wise_tests_to_str(num_white_chars_at_start + 4)
 
         return msg.rstrip()
 
