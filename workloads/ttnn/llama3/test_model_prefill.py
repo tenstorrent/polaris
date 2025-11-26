@@ -21,11 +21,13 @@ def test_model_inference(model_name: str = "llama3-8B"):
         num_layers = 28
     elif model_name == "llama3-1B":
         num_layers = 16
+    elif model_name == "llama3-70B":
+        num_layers = 80
 
     mesh_device = ttnn.open_device(device_id=0)
 
     dtype = ttnn.bfloat8_b
-    batch_size = 32  # For prefill we only support batch_size = 1
+    batch_size = 1  # For prefill we only support batch_size = 1
 
     # Use instruct weights instead of general weights
     instruct = True

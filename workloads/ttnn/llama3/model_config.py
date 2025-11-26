@@ -24,9 +24,13 @@ class ModelArgs:
             self.dim = 2048 # llama3 1B
             self.n_heads = 32 # llama3 1B
             self.head_dim = 64
+        elif model_name == "llama3-70B":
+            self.model_name = "llama3-70B"
+            self.dim = 8192
+            self.n_heads = 64
+            self.head_dim = 128
 
-        self.hidden_dim = 8192
-        self.n_kv_heads = 8 # llama3 8B and llama3 3B and llama3 1B
+        self.n_kv_heads = 8 # llama3 8B and llama3 3B and llama3 1B and llama3 70B
         self.rms_norm_add_unit_offset = False
         self.num_devices = 1
         self.max_batch_size = max_batch_size

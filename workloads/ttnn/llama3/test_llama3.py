@@ -24,6 +24,9 @@ def test_model_inference(model_name: str = "llama3-8B"):
     elif model_name == "llama3-1B":
         max_seq_len = 2048 #256
         layers = 16
+    elif model_name == "llama3-70B":
+        max_seq_len = 8192
+        layers = 80
     else:
         raise ValueError(f"Unknown model name: {model_name}")
     mesh_device = ttnn.open_device(device_id=0)

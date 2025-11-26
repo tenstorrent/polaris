@@ -41,6 +41,8 @@ class RMSNorm():
             self.weight = ttnn._rand(shape=(1, 1, 128, 32), device=device, dtype=self.weight_dtype)
         elif dim == 2048:
             self.weight = ttnn._rand(shape=(1, 1, 64, 32), device=device, dtype=self.weight_dtype)
+        elif dim == 8192:
+            self.weight = ttnn._rand(shape=(1, 1, 256, 32), device=device, dtype=self.weight_dtype)
 
     def __call__(self, x, mode="decode"):
         #print(f'shape of weight is {self.weight.shape} and x is {x.shape}')
