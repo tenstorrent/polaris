@@ -100,6 +100,33 @@ The workload mapping specification file (`wlmapspec`) defines:
 ### Overview
 Polaris includes tools to correlate simulation results with actual hardware measurements from TT-Metal, enabling validation and calibration of simulation accuracy.
 
+### Understanding Reference Data Tags
+
+The correlation workflow uses **tags** to version and manage TT-Metal reference performance data:
+
+**What are Tags?**
+- Tags are version identifiers for snapshots of TT-Metal hardware measurements
+- Example: `03nov25` represents measurements taken on November 3, 2025
+- Each tag corresponds to a directory: `data/metal/inf/<TAG>/` containing metric YAML files
+
+
+**Available Tags**
+To see all valid tags, check `tools/ttsi_corr/ttsi_corr_utils.py`:
+```python
+TTSI_REF_VALID_TAGS = ['03nov25', '15oct25']  # Current valid tags
+TTSI_REF_DEFAULT_TAG = TTSI_REF_VALID_TAGS[0]  # Default: '03nov25'
+```
+
+**Using Tags**
+- **Default behavior**: Omitting `--tag` uses `TTSI_REF_DEFAULT_TAG` (currently `03nov25`)
+- **Explicit tag**: Use `--tag <TAG>` to specify a particular version
+- **Custom tags**: Create your own by parsing metrics with a new tag name
+
+**Important Notes**
+- Both parsing and correlation must use the **same tag** for consistency
+- Tag directories must exist in `data/metal/inf/<TAG>/` before running correlation
+- Tags are case-sensitive
+
 ### Workflow Steps
 
 #### 1. Extract Hardware Metrics
@@ -140,14 +167,14 @@ Execute the correlation tool to compare Polaris simulation with hardware measure
 
 ```bash
 python tools/run_ttsi_corr.py \
-    --tag 15oct25 \
+    --tag <TAG> \
     --workloads-config config/ttsi_correlation_workloads.yaml \
     --arch-config config/tt_wh.yaml \
     --output-dir __CORRELATION_OUTPUT
 ```
 
 **Key Options:**
-- `--tag`: Tag identifying the parsed metrics dataset (required)
+- `--tag`: Tag identifying the parsed metrics dataset (e.g., `03nov25`, `15oct25`). See `TTSI_REF_VALID_TAGS` in `tools/ttsi_corr/ttsi_corr_utils.py`
 - `--input-dir`: Base directory containing tagged metrics (default: `data/metal/inf`)
 - `--workloads-config`: Workload configuration for Polaris simulation
 - `--arch-config`: Architecture specification (e.g., Wormhole)
@@ -234,7 +261,7 @@ Run correlation for specific models:
 ```bash
 # Only correlate specific workloads using workload filter
 python tools/run_ttsi_corr.py \
-    --tag 15oct25 \
+    --tag <TAG> \
     --workloads-config config/ttsi_correlation_workloads.yaml \
     --arch-config config/tt_wh.yaml \
     --workload-filter bert,llama,resnet50 \
@@ -246,11 +273,12 @@ Use correlation tools in Python scripts:
 
 ```python
 from tools.run_ttsi_corr import main
+from tools.ttsi_corr.ttsi_corr_utils import TTSI_REF_DEFAULT_TAG
 
-# Run correlation programmatically
+# Run correlation programmatically using default tag
 result = main([
     'run_ttsi_corr',
-    '--tag', '15oct25',
+    '--tag', TTSI_REF_DEFAULT_TAG,
     '--workloads-config', 'config/ttsi_correlation_workloads.yaml',
     '--arch-config', 'config/tt_wh.yaml',
     '--output-dir', 'output'

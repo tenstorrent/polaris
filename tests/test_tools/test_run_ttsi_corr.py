@@ -17,6 +17,7 @@ from unittest.mock import patch
 import pytest
 
 from tools.run_ttsi_corr import main as run_ttsi_corr
+from tools.ttsi_corr.ttsi_corr_utils import TTSI_REF_DEFAULT_TAG
 from tools.ttsi_corr.workload_processor import get_workload_module_config
 
 
@@ -158,14 +159,14 @@ class TestCorrelationBasic:
 
         output_dir = tmp_path / 'output'
         base_dir = tmp_path / 'data'
-        tag_dir = base_dir / '15oct25'
+        tag_dir = base_dir / TTSI_REF_DEFAULT_TAG
         tag_dir.mkdir(parents=True)
 
         # Note: This will skip workload processing since no metrics match
         res = run_ttsi_corr([
             'run_ttsi_corr',  # argv[0]
             '--input-dir', str(base_dir),
-            '--tag', '15oct25',
+            '--tag', TTSI_REF_DEFAULT_TAG,
             '--output-dir', str(output_dir),
             '--workloads-config', 'config/ttsi_correlation_workloads.yaml',  # Will be mocked
             '--arch-config', 'config/tt_wh.yaml'
@@ -228,7 +229,7 @@ class TestCorrelationArguments:
         ]), None)  # Returns tuple (workloads_file, workload_filter)
 
         base_dir = tmp_path / 'data'
-        tag_dir = base_dir / '15oct25'
+        tag_dir = base_dir / TTSI_REF_DEFAULT_TAG
         tag_dir.mkdir(parents=True)
         output_dir = tmp_path / 'output'
 
@@ -238,7 +239,7 @@ class TestCorrelationArguments:
             run_ttsi_corr([
                 'run_ttsi_corr',  # argv[0]
                 '--input-dir', str(base_dir),
-                '--tag', '15oct25',
+                '--tag', TTSI_REF_DEFAULT_TAG,
                 '--output-dir', str(output_dir),
                 '--workloads-config', 'config/test.yaml',
                 '--arch-config', 'config/tt_wh.yaml'
@@ -263,7 +264,7 @@ class TestCorrelationErrorHandling:
         res = run_ttsi_corr([
             'run_ttsi_corr',  # argv[0]
             '--input-dir', 'data',
-            '--tag', '15oct25',
+            '--tag', TTSI_REF_DEFAULT_TAG,
             '--output-dir', str(output_dir),
             '--workloads-config', 'nonexistent.yaml',
             '--arch-config', 'config/tt_wh.yaml'
@@ -282,7 +283,7 @@ class TestCorrelationErrorHandling:
         res = run_ttsi_corr([
             'run_ttsi_corr',  # argv[0]
             '--input-dir', 'nonexistent',
-            '--tag', '15oct25',
+            '--tag', TTSI_REF_DEFAULT_TAG,
             '--output-dir', str(output_dir),
             '--workloads-config', 'config/test.yaml',
             '--arch-config', 'config/tt_wh.yaml'
@@ -303,7 +304,7 @@ class TestCorrelationIntegration:
         Note: This test requires a data directory to be present.
         """
         input_dir = 'data/metal/inf'
-        tag = '15oct25'
+        tag = TTSI_REF_DEFAULT_TAG
         # Now requires --input-dir and --tag arguments
         res = run_ttsi_corr(['run_ttsi_corr', '--input-dir', input_dir, '--tag', tag])
         # Current implementation behavior
@@ -322,7 +323,7 @@ class TestCorrelationIntegration:
             output_dir = tmp_path / 'correlation_output'
             res = run_ttsi_corr([
                 '--input-dir', 'data/metal/inf',
-                '--tag', '15oct25',
+                '--tag', TTSI_REF_DEFAULT_TAG,
                 '--workloads-config', 'config/ttsi_correlation_workloads.yaml',
                 '--arch-config', 'config/tt_wh.yaml',
                 '--output-dir', str(output_dir)

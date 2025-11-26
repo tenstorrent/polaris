@@ -19,8 +19,8 @@ from lxml import html
 from pydantic import BaseModel, TypeAdapter
 
 from tools.parsers.md_parser import extract_table_from_md_link, save_md_metrics
-from tools.ttsi_corr.ttsi_corr_utils import TTSI_REF_VALID_TAGS
 from tools.ttsi_corr.data_loader import load_metrics_from_sources
+from tools.ttsi_corr.ttsi_corr_utils import TTSI_REF_VALID_TAGS
 from ttsim.utils.common import setup_logger
 from ttsim.utils.readfromurl import read_from_url
 

@@ -27,6 +27,126 @@ The correlation tools have been refactored into a **modular architecture** with 
 
 For complete package documentation, see [tools/ttsi_corr/README.md](../../tools/ttsi_corr/README.md).
 
+## Reference Data Tag System
+
+The correlation tools use a **tag system** to manage and version TT-Metal reference performance data.
+
+**TL;DR:** Tags version TT-Metal reference data. Current default: `03nov25`. See `TTSI_REF_VALID_TAGS` in `tools/ttsi_corr/ttsi_corr_utils.py` for all valid tags. Use `--tag <TAG>` to specify a version, or omit to use the default.
+
+### What are Tags?
+
+Tags are version identifiers that label specific snapshots of TT-Metal hardware measurements:
+- **Format**: Typically date-based (e.g., `03nov25` = November 3, 2025)
+- **Storage**: Each tag has a directory at `data/metal/inf/<TAG>/`
+- **Contents**: YAML files containing categorized performance metrics
+- **Metadata**: Each tag includes a `_metadata.yaml` file tracking data source and parsing date
+
+### Configuration
+
+Tags are configured in `tools/ttsi_corr/ttsi_corr_utils.py`:
+
+```python
+# Valid tags for TTSI reference data. The first tag is the default, so the order of tags matters.
+TTSI_REF_VALID_TAGS = ['03nov25', '15oct25']
+TTSI_REF_DEFAULT_TAG = TTSI_REF_VALID_TAGS[0]  # Current default: '03nov25'
+```
+
+### Using Tags
+
+**Default Behavior:**
+- Scripts use `TTSI_REF_DEFAULT_TAG` automatically
+- Current default points to the latest validated reference data
+
+**Explicit Tag Selection:**
+```bash
+# Use a specific tag
+python tools/run_ttsi_corr.py --tag 15oct25 ...
+
+# Or use the default (no --tag needed in some cases)
+python tools/run_ttsi_corr.py ...
+```
+
+**Programmatic Access:**
+```python
+from tools.ttsi_corr.ttsi_corr_utils import TTSI_REF_DEFAULT_TAG, TTSI_REF_VALID_TAGS
+
+# Get current default
+print(f"Default tag: {TTSI_REF_DEFAULT_TAG}")
+
+# List all valid tags
+print(f"Valid tags: {TTSI_REF_VALID_TAGS}")
+```
+
+### Creating Custom Tags
+
+To create a new reference data tag:
+
+1. **Parse metrics with new tag:**
+   ```bash
+   python tools/parse_ttsi_perf_results.py \
+       --tag my_new_tag \
+       --input <DATA_SOURCE> \
+       --output-dir data/metal/inf
+   ```
+
+   This creates:
+   - `data/metal/inf/my_new_tag/` directory
+   - Metric YAML files (llm, vision, detection, nlp, diffusion)
+   - `_metadata.yaml` with data source information
+
+2. **Use the new tag for correlation:**
+   ```bash
+   python tools/run_ttsi_corr.py \
+       --tag my_new_tag \
+       --workloads-config config/ttsi_correlation_workloads.yaml
+   ```
+
+3. **Optional: Add to valid tags** (for team use):
+   Edit `tools/ttsi_corr/ttsi_corr_utils.py`:
+   ```python
+   TTSI_REF_VALID_TAGS = ['my_new_tag', '03nov25', '15oct25']
+   ```
+
+### Tag Best Practices
+
+**For Developers:**
+- ✅ Update `TTSI_REF_DEFAULT_TAG` when new reference data is validated
+- ✅ Use date-based naming convention (e.g., `DDmmmYY` format)
+- ✅ Commit tag directories to version control for reproducibility
+
+**For Users:**
+- ✅ Always use the same tag for both parsing and correlation
+- ✅ Check tag directory exists before running correlation
+- ✅ Use explicit `--tag` for reproducible results
+
+**Tag Naming Conventions:**
+- Date-based: `03nov25`, `15oct25` (recommended for official releases)
+
+### Troubleshooting
+
+**Error: Tag directory not found**
+```bash
+# Check if tag directory exists
+ls -la data/metal/inf/<TAG>/
+
+# If missing, parse metrics first
+python tools/parse_ttsi_perf_results.py --tag <TAG> --input <SOURCE>
+```
+
+**Error: Mismatched tags**
+```bash
+# Ensure parsing and correlation use the same tag
+python tools/parse_ttsi_perf_results.py --tag mytag ...
+python tools/run_ttsi_corr.py --tag mytag ...  # Must match!
+```
+
+**Error: Invalid tag**
+```python
+# Check valid tags
+from tools.ttsi_corr.ttsi_corr_utils import TTSI_REF_VALID_TAGS
+print(f"Valid tags: {TTSI_REF_VALID_TAGS}")
+```
+
 ## Tools
 
 ### 1. run_ttsi_corr.py
@@ -40,13 +160,13 @@ Main correlation tool that orchestrates the entire correlation workflow.
 **Usage**:
 ```bash
 python tools/run_ttsi_corr.py \
-    --tag 15oct25 \
+    --tag <TAG> \
     --workloads-config config/ttsi_correlation_workloads.yaml \
     --arch-config config/tt_wh.yaml \
     --output-dir __CORRELATION_OUTPUT
 ```
 
-**Note**: Requires that metrics have been parsed first with `parse_ttsi_perf_results.py` to create the metadata file.
+**Note**: Requires that metrics have been parsed first with `parse_ttsi_perf_results.py` to create the metadata file. `<TAG>` should match the tag used during parsing (see `TTSI_REF_VALID_TAGS` in `tools/ttsi_corr/ttsi_corr_utils.py`).
 
 **Key Features**:
 - Automated Polaris simulation execution
@@ -145,12 +265,12 @@ graph TD
 1. **Extract Hardware Metrics**
    ```bash
    python tools/parse_ttsi_perf_results.py \
-       --tag 15oct25 \
+       --tag <TAG> \
        --input https://raw.githubusercontent.com/tenstorrent/tt-metal/main/models/README.md \
        --output-dir data/metal/inf
    ```
    
-   This creates metric files and a `_metadata.yaml` file in `data/metal/inf/15oct25/` containing:
+   This creates metric files and a `_metadata.yaml` file in `data/metal/inf/<TAG>/` containing:
    - Data source format (html or md)
    - Tag name
    - Source URL
@@ -171,14 +291,14 @@ graph TD
 3. **Run Correlation**
    ```bash
    python tools/run_ttsi_corr.py \
-       --tag 15oct25 \
+       --tag <TAG> \
        --workloads-config config/ttsi_correlation_workloads.yaml \
        --arch-config config/tt_wh.yaml \
        --output-dir __CORRELATION_OUTPUT
    ```
    
    The script automatically:
-   - Reads metadata from `data/metal/inf/15oct25/_metadata.yaml`
+   - Reads metadata from `data/metal/inf/<TAG>/_metadata.yaml`
    - Determines data source format (html or md)
    - Loads appropriate metric files
    - Runs Polaris simulation
@@ -194,7 +314,7 @@ graph TD
 ### run_ttsi_corr.py
 
 **Reference Data** (required):
-- `--tag TAG` - Tag subdirectory name (e.g., `15oct25`)
+- `--tag TAG` - Tag subdirectory name. Valid tags are defined in `tools/ttsi_corr/ttsi_corr_utils.py::TTSI_REF_VALID_TAGS`
 - `--input-dir PATH` - Base directory containing tagged metrics (default: `data/metal/inf`)
 
 **WL/Arch Configurations**:
@@ -212,7 +332,7 @@ graph TD
 ### parse_ttsi_perf_results.py
 
 **Required**:
-- `--tag, -t TAG` - Tag for output subdirectory (e.g., `15oct25`)
+- `--tag, -t TAG` - Tag for output subdirectory. Valid tags are defined in `tools/ttsi_corr/ttsi_corr_utils.py::TTSI_REF_VALID_TAGS`
 
 **Optional**:
 - `--input, -i URL` - Input URL or file path (default: TT-Metal models README)
@@ -379,11 +499,12 @@ save_md_metrics(metrics, output_dir)
 **Run Correlation Programmatically** (using main script):
 ```python
 from tools.run_ttsi_corr import main
+from tools.ttsi_corr.ttsi_corr_utils import TTSI_REF_DEFAULT_TAG
 
-# Run correlation
+# Run correlation using default tag
 result = main([
     'run_ttsi_corr',
-    '--tag', '15oct25',
+    '--tag', TTSI_REF_DEFAULT_TAG,
     '--workloads-config', 'config/ttsi_correlation_workloads.yaml',
     '--arch-config', 'config/tt_wh.yaml',
     '--output-dir', 'output'
@@ -403,10 +524,12 @@ from ttsi_corr import (
     write_csv,
     add_scurve_chart
 )
+from tools.ttsi_corr.ttsi_corr_utils import TTSI_REF_DEFAULT_TAG
 
 # 1. Load data
-data_dir = Path('data/metal/inf/15oct25')
-metrics = load_metrics_from_sources(data_dir)
+data_dir = Path(f'data/metal/inf/{TTSI_REF_DEFAULT_TAG}')
+metadata = read_metadata(data_dir)
+metrics = load_metrics_from_sources(data_dir, metadata['data_source'])
 
 # 2. Validate and filter
 valid_configs = validate_and_filter_configs(metrics, workload_filter=None)

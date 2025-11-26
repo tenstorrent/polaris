@@ -1,0 +1,526 @@
+-   batch: 32
+    fps: null
+    gpu: Tensix
+    hardware: QuietBox (Wormhole)
+    id: metal
+    images_per_sec: null
+    input_dtype: bf8
+    model: Qwen 3 32B (TP=8)
+    precision: bf8
+    release: v0.59.0-rc52
+    sec_per_image: null
+    sentences_per_sec: null
+    target_fps: null
+    target_images_per_sec: null
+    target_sec_per_image: null
+    target_sentences_per_sec: null
+    target_tokens_per_sec_per_user: 30.0
+    tokens_per_sec: 707.2
+    tokens_per_sec_per_user: 22.1
+    ttft_ms: 109.0
+    vllm_repo_release: f028da1
+-   batch: 32
+    fps: null
+    gpu: Tensix
+    hardware: QuietBox (Wormhole)
+    id: metal
+    images_per_sec: null
+    input_dtype: bf8
+    model: QwQ 32B (TP=8)
+    precision: bf8
+    release: v0.56.0-rc51
+    sec_per_image: null
+    sentences_per_sec: null
+    target_fps: null
+    target_images_per_sec: null
+    target_sec_per_image: null
+    target_sentences_per_sec: null
+    target_tokens_per_sec_per_user: 30.0
+    tokens_per_sec: 806.4
+    tokens_per_sec_per_user: 25.2
+    ttft_ms: 133.0
+    vllm_repo_release: e2e0002
+-   batch: 32
+    fps: null
+    gpu: Tensix
+    hardware: QuietBox  (Wormhole)
+    id: metal
+    images_per_sec: null
+    input_dtype: bf8
+    model: DeepSeek R1 Distill Llama 3.3 70B (TP=8)
+    precision: bf8
+    release: v0.59.0-rc53
+    sec_per_image: null
+    sentences_per_sec: null
+    target_fps: null
+    target_images_per_sec: null
+    target_sec_per_image: null
+    target_sentences_per_sec: null
+    target_tokens_per_sec_per_user: 20.0
+    tokens_per_sec: 508.8
+    tokens_per_sec_per_user: 15.9
+    ttft_ms: 159.0
+    vllm_repo_release: f028da1
+-   batch: 32
+    fps: null
+    gpu: Tensix
+    hardware: Galaxy (Wormhole)
+    id: metal
+    images_per_sec: null
+    input_dtype: bf8
+    model: Llama 3.1 70B (TP=32)
+    precision: bf8
+    release: v0.62.0-dev20251015
+    sec_per_image: null
+    sentences_per_sec: null
+    target_fps: null
+    target_images_per_sec: null
+    target_sec_per_image: null
+    target_sentences_per_sec: null
+    target_tokens_per_sec_per_user: 80.0
+    tokens_per_sec: 2268.8
+    tokens_per_sec_per_user: 72.5
+    ttft_ms: 53.0
+    vllm_repo_release: 1d799da
+-   batch: 32
+    fps: null
+    gpu: Tensix
+    hardware: QuietBox  (Wormhole)
+    id: metal
+    images_per_sec: null
+    input_dtype: bf8
+    model: Llama 3.1 70B (TP=8)
+    precision: bf8
+    release: v0.59.0-rc53
+    sec_per_image: null
+    sentences_per_sec: null
+    target_fps: null
+    target_images_per_sec: null
+    target_sec_per_image: null
+    target_sentences_per_sec: null
+    target_tokens_per_sec_per_user: 20.0
+    tokens_per_sec: 508.8
+    tokens_per_sec_per_user: 15.9
+    ttft_ms: 159.0
+    vllm_repo_release: f028da1
+-   batch: 32
+    fps: null
+    gpu: Tensix
+    hardware: QuietBox (Blackhole)
+    id: metal
+    images_per_sec: null
+    input_dtype: bf8
+    model: Llama 3.1 70B (TP=4)
+    precision: bf8
+    release: v0.62.0-dev20251015
+    sec_per_image: null
+    sentences_per_sec: null
+    target_fps: null
+    target_images_per_sec: null
+    target_sec_per_image: null
+    target_sentences_per_sec: null
+    target_tokens_per_sec_per_user: null
+    tokens_per_sec: 476.5
+    tokens_per_sec_per_user: 14.9
+    ttft_ms: 188.0
+    vllm_repo_release: 1d799da
+-   batch: 16
+    fps: null
+    gpu: Tensix
+    hardware: n300 (Wormhole)
+    id: metal
+    images_per_sec: null
+    input_dtype: bf8
+    model: Llama 3.2 11B Vision (TP=2)
+    precision: bf8
+    release: v0.62.0-dev20251015
+    sec_per_image: null
+    sentences_per_sec: null
+    target_fps: null
+    target_images_per_sec: null
+    target_sec_per_image: null
+    target_sentences_per_sec: null
+    target_tokens_per_sec_per_user: 17.0
+    tokens_per_sec: 289.6
+    tokens_per_sec_per_user: 18.1
+    ttft_ms: 714.0
+    vllm_repo_release: 1d799da
+-   batch: 32
+    fps: null
+    gpu: Tensix
+    hardware: QuietBox (Wormhole)
+    id: metal
+    images_per_sec: null
+    input_dtype: bf8
+    model: Llama 3.3 70B (TP=8)
+    precision: bf8
+    release: v0.59.0-rc53
+    sec_per_image: null
+    sentences_per_sec: null
+    target_fps: null
+    target_images_per_sec: null
+    target_sec_per_image: null
+    target_sentences_per_sec: null
+    target_tokens_per_sec_per_user: 20.0
+    tokens_per_sec: 508.8
+    tokens_per_sec_per_user: 15.9
+    ttft_ms: 159.0
+    vllm_repo_release: f028da1
+-   batch: 32
+    fps: null
+    gpu: Tensix
+    hardware: n300 (Wormhole)
+    id: metal
+    images_per_sec: null
+    input_dtype: bf8
+    model: Qwen 2.5 7B (TP=2)
+    precision: bf8
+    release: v0.62.0-rc35
+    sec_per_image: null
+    sentences_per_sec: null
+    target_fps: null
+    target_images_per_sec: null
+    target_sec_per_image: null
+    target_sentences_per_sec: null
+    target_tokens_per_sec_per_user: 30.0
+    tokens_per_sec: 707.2
+    tokens_per_sec_per_user: 22.1
+    ttft_ms: 109.0
+    vllm_repo_release: ced0161
+-   batch: 32
+    fps: null
+    gpu: Tensix
+    hardware: QuietBox (Wormhole)
+    id: metal
+    images_per_sec: null
+    input_dtype: bf8
+    model: Qwen 2.5 72B (TP=8)
+    precision: bf8
+    release: v0.62.0-rc25
+    sec_per_image: null
+    sentences_per_sec: null
+    target_fps: null
+    target_images_per_sec: null
+    target_sec_per_image: null
+    target_sentences_per_sec: null
+    target_tokens_per_sec_per_user: 20.0
+    tokens_per_sec: 492.8
+    tokens_per_sec_per_user: 15.4
+    ttft_ms: 223.0
+    vllm_repo_release: e7c329b
+-   batch: 32
+    fps: null
+    gpu: Tensix
+    hardware: n150 (Wormhole)
+    id: metal
+    images_per_sec: null
+    input_dtype: bf8
+    model: Falcon 7B
+    precision: bf8
+    release: v0.62.0-dev20251015
+    sec_per_image: null
+    sentences_per_sec: null
+    target_fps: null
+    target_images_per_sec: null
+    target_sec_per_image: null
+    target_sentences_per_sec: null
+    target_tokens_per_sec_per_user: 26.0
+    tokens_per_sec: 592.0
+    tokens_per_sec_per_user: 18.5
+    ttft_ms: 70.0
+    vllm_repo_release: null
+-   batch: 256
+    fps: null
+    gpu: Tensix
+    hardware: QuietBox (Wormhole)
+    id: metal
+    images_per_sec: null
+    input_dtype: bf8
+    model: Falcon 7B (DP=8)
+    precision: bf8
+    release: v0.62.0-dev20250926
+    sec_per_image: null
+    sentences_per_sec: null
+    target_fps: null
+    target_images_per_sec: null
+    target_sec_per_image: null
+    target_sentences_per_sec: null
+    target_tokens_per_sec_per_user: 26.0
+    tokens_per_sec: 4070.4
+    tokens_per_sec_per_user: 15.9
+    ttft_ms: 87.0
+    vllm_repo_release: null
+-   batch: 1024
+    fps: null
+    gpu: Tensix
+    hardware: Galaxy (Wormhole)
+    id: metal
+    images_per_sec: null
+    input_dtype: bf8
+    model: Falcon 7B (DP=32)
+    precision: bf8
+    release: v0.62.0-rc25
+    sec_per_image: null
+    sentences_per_sec: null
+    target_fps: null
+    target_images_per_sec: null
+    target_sec_per_image: null
+    target_sentences_per_sec: null
+    target_tokens_per_sec_per_user: 26.0
+    tokens_per_sec: 13516.8
+    tokens_per_sec_per_user: 13.2
+    ttft_ms: 121.0
+    vllm_repo_release: null
+-   batch: 32
+    fps: null
+    gpu: Tensix
+    hardware: QuietBox (Wormhole)
+    id: metal
+    images_per_sec: null
+    input_dtype: bf8
+    model: Falcon 40B (TP=8)
+    precision: bf8
+    release: v0.59.0-rc38
+    sec_per_image: null
+    sentences_per_sec: null
+    target_fps: null
+    target_images_per_sec: null
+    target_sec_per_image: null
+    target_sentences_per_sec: null
+    target_tokens_per_sec_per_user: 36.0
+    tokens_per_sec: 380.8
+    tokens_per_sec_per_user: 11.9
+    ttft_ms: null
+    vllm_repo_release: null
+-   batch: 32
+    fps: null
+    gpu: Tensix
+    hardware: p100 (Blackhole)
+    id: metal
+    images_per_sec: null
+    input_dtype: bf8
+    model: Llama 3.1 8B
+    precision: bf8
+    release: v0.64.0-dev20251030
+    sec_per_image: null
+    sentences_per_sec: null
+    target_fps: null
+    target_images_per_sec: null
+    target_sec_per_image: null
+    target_sentences_per_sec: null
+    target_tokens_per_sec_per_user: null
+    tokens_per_sec: 928.0
+    tokens_per_sec_per_user: 29.0
+    ttft_ms: 61.0
+    vllm_repo_release: 0edd242
+-   batch: 32
+    fps: null
+    gpu: Tensix
+    hardware: p150 (Blackhole)
+    id: metal
+    images_per_sec: null
+    input_dtype: bf8
+    model: Llama 3.1 8B
+    precision: bf8
+    release: v0.64.0-dev20251030
+    sec_per_image: null
+    sentences_per_sec: null
+    target_fps: null
+    target_images_per_sec: null
+    target_sec_per_image: null
+    target_sentences_per_sec: null
+    target_tokens_per_sec_per_user: null
+    tokens_per_sec: 1059.2
+    tokens_per_sec_per_user: 33.1
+    ttft_ms: 57.0
+    vllm_repo_release: 0edd242
+-   batch: 64
+    fps: null
+    gpu: Tensix
+    hardware: 2 x p150 (Blackhole)
+    id: metal
+    images_per_sec: null
+    input_dtype: bf8
+    model: Llama 3.1 8B (DP=2)
+    precision: bf8
+    release: v0.59.0-rc3
+    sec_per_image: null
+    sentences_per_sec: null
+    target_fps: null
+    target_images_per_sec: null
+    target_sec_per_image: null
+    target_sentences_per_sec: null
+    target_tokens_per_sec_per_user: null
+    tokens_per_sec: 1190.4
+    tokens_per_sec_per_user: 18.6
+    ttft_ms: 64.0
+    vllm_repo_release: 739dcaa
+-   batch: 32
+    fps: null
+    gpu: Tensix
+    hardware: n150 (Wormhole)
+    id: metal
+    images_per_sec: null
+    input_dtype: bf8
+    model: Llama 3.1 8B
+    precision: bf8
+    release: v0.62.0-rc35
+    sec_per_image: null
+    sentences_per_sec: null
+    target_fps: null
+    target_images_per_sec: null
+    target_sec_per_image: null
+    target_sentences_per_sec: null
+    target_tokens_per_sec_per_user: 23.0
+    tokens_per_sec: 832.0
+    tokens_per_sec_per_user: 26.0
+    ttft_ms: 104.0
+    vllm_repo_release: ced0161
+-   batch: 32
+    fps: null
+    gpu: Tensix
+    hardware: n150 (Wormhole)
+    id: metal
+    images_per_sec: null
+    input_dtype: bf8
+    model: Llama 3.2 1B
+    precision: bf8
+    release: v0.62.0-dev20251015
+    sec_per_image: null
+    sentences_per_sec: null
+    target_fps: null
+    target_images_per_sec: null
+    target_sec_per_image: null
+    target_sentences_per_sec: null
+    target_tokens_per_sec_per_user: 160.0
+    tokens_per_sec: 2576.0
+    tokens_per_sec_per_user: 80.5
+    ttft_ms: 23.0
+    vllm_repo_release: 1d799da
+-   batch: 32
+    fps: null
+    gpu: Tensix
+    hardware: n150 (Wormhole)
+    id: metal
+    images_per_sec: null
+    input_dtype: bf8
+    model: Llama 3.2 3B
+    precision: bf8
+    release: v0.62.0-rc35
+    sec_per_image: null
+    sentences_per_sec: null
+    target_fps: null
+    target_images_per_sec: null
+    target_sec_per_image: null
+    target_sentences_per_sec: null
+    target_tokens_per_sec_per_user: 60.0
+    tokens_per_sec: 1491.2
+    tokens_per_sec_per_user: 46.6
+    ttft_ms: 52.0
+    vllm_repo_release: ced0161
+-   batch: 32
+    fps: null
+    gpu: Tensix
+    hardware: n150 (Wormhole)
+    id: metal
+    images_per_sec: null
+    input_dtype: bf8
+    model: Mamba 2.8B
+    precision: bf8
+    release: v0.59.0-rc38
+    sec_per_image: null
+    sentences_per_sec: null
+    target_fps: null
+    target_images_per_sec: null
+    target_sec_per_image: null
+    target_sentences_per_sec: null
+    target_tokens_per_sec_per_user: 41.0
+    tokens_per_sec: 451.2
+    tokens_per_sec_per_user: 14.1
+    ttft_ms: 35.0
+    vllm_repo_release: null
+-   batch: 32
+    fps: null
+    gpu: Tensix
+    hardware: n150 (Wormhole)
+    id: metal
+    images_per_sec: null
+    input_dtype: bf8
+    model: Mistral 7B
+    precision: bf8
+    release: v0.64.0-dev20251030
+    sec_per_image: null
+    sentences_per_sec: null
+    target_fps: null
+    target_images_per_sec: null
+    target_sec_per_image: null
+    target_sentences_per_sec: null
+    target_tokens_per_sec_per_user: 23.0
+    tokens_per_sec: 918.4
+    tokens_per_sec_per_user: 28.7
+    ttft_ms: 99.0
+    vllm_repo_release: 0edd242
+-   batch: 32
+    fps: null
+    gpu: Tensix
+    hardware: QuietBox (Wormhole)
+    id: metal
+    images_per_sec: null
+    input_dtype: bf8
+    model: Mixtral 8x7B (TP=8)
+    precision: bf8
+    release: v0.62.0-dev20251015
+    sec_per_image: null
+    sentences_per_sec: null
+    target_fps: null
+    target_images_per_sec: null
+    target_sec_per_image: null
+    target_sentences_per_sec: null
+    target_tokens_per_sec_per_user: 33.0
+    tokens_per_sec: 796.8
+    tokens_per_sec_per_user: 24.9
+    ttft_ms: 122.0
+    vllm_repo_release: null
+-   batch: 1
+    fps: null
+    gpu: Tensix
+    hardware: n150 (Wormhole)
+    id: metal
+    images_per_sec: null
+    input_dtype: bf8
+    model: Whisper (distil-large-v3)
+    precision: bf8
+    release: v0.59.0-rc52
+    sec_per_image: null
+    sentences_per_sec: null
+    target_fps: null
+    target_images_per_sec: null
+    target_sec_per_image: null
+    target_sentences_per_sec: null
+    target_tokens_per_sec_per_user: 45.0
+    tokens_per_sec: 58.1
+    tokens_per_sec_per_user: 58.1
+    ttft_ms: 232.0
+    vllm_repo_release: null
+-   batch: 1
+    fps: null
+    gpu: Tensix
+    hardware: p150 (Blackhole)
+    id: metal
+    images_per_sec: null
+    input_dtype: bf8
+    model: Whisper (distil-large-v3)
+    precision: bf8
+    release: v0.64.0-dev20251030
+    sec_per_image: null
+    sentences_per_sec: null
+    target_fps: null
+    target_images_per_sec: null
+    target_sec_per_image: null
+    target_sentences_per_sec: null
+    target_tokens_per_sec_per_user: null
+    tokens_per_sec: 101.5
+    tokens_per_sec_per_user: 101.5
+    ttft_ms: 113.0
+    vllm_repo_release: null
+

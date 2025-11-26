@@ -10,25 +10,27 @@ and run_ttsi_corr.py for consistent handling of workload names,
 hardware configurations, and model-to-benchmark mappings.
 """
 
-# Valid tags for TTSI reference data
-TTSI_REF_VALID_TAGS = ['15oct25']
-TTSI_REF_DEFAULT_TAG = TTSI_REF_VALID_TAGS[0]
+# Valid tags for TTSI reference data.
+# The first tag in TTSI_REF_VALID_TAGS is always the default.
+# To change the default, add the new tag at the beginning of the list.
+TTSI_REF_DEFAULT_TAG = '03nov25'
+TTSI_REF_VALID_TAGS = [TTSI_REF_DEFAULT_TAG, '15oct25']  # Default must be first
 
 
 def parse_hardware_to_device(hardware: str) -> str:
     """
     Parse hardware string to device name.
-    
+
     Examples:
         'n150 (Wormhole)' -> 'n150'
         'n300 (Wormhole)' -> 'n300'
         'n150' -> 'n150'
         'QuietBox (Wormhole)' -> 'quietbox'
         'Galaxy (Wormhole)' -> 'galaxy'
-    
+
     Args:
         hardware (str): Hardware string from MD metrics.
-        
+
     Returns:
         str: Normalized device name.
     """
@@ -40,35 +42,35 @@ def parse_hardware_to_device(hardware: str) -> str:
 def get_workload_name_from_model(model: str) -> str:
     """
     Derive a short workload name from the model name.
-    
+
     Args:
         model (str): Model name from MD metrics.
-        
+
     Returns:
         str: Short workload identifier.
     """
     model_lower = model.lower()
-    
+
     # BERT variants
     if 'bert-large' in model_lower:
         return 'bert'
     elif 'bert' in model_lower:
         return 'bert'
-    
+
     # ResNet variants
     if 'resnet-50' in model_lower or 'resnet50' in model_lower:
         return 'resnet50'
-    
+
     # Llama variants
     if 'llama' in model_lower:
         if 'llama 3' in model_lower:
             return 'llama3'
         return 'llama'
-    
+
     # Mamba
     if 'mamba' in model_lower:
         return 'mamba'
-    
+
     # YOLO variants
     if 'yolo' in model_lower:
         if 'v8' in model_lower or 'yolov8' in model_lower or 'yolo8' in model_lower:
@@ -76,11 +78,11 @@ def get_workload_name_from_model(model: str) -> str:
         elif 'v7' in model_lower or 'yolov7' in model_lower or 'yolo7' in model_lower:
             return 'yolov7'
         return 'yolo'
-    
+
     # Stable Diffusion / UNet
     if 'stable diffusion' in model_lower or 'unet' in model_lower:
         return 'unet'
-    
+
     # Default: use first word of model name
     return model.split()[0].lower()
 
@@ -88,15 +90,15 @@ def get_workload_name_from_model(model: str) -> str:
 def get_benchmark_from_model(model: str) -> str:
     """
     Map model name to benchmark identifier.
-    
+
     Args:
         model (str): Model name from MD metrics.
-        
+
     Returns:
         str: Benchmark identifier (e.g., 'Benchmark.BERT').
     """
     model_lower = model.lower()
-    
+
     if 'bert' in model_lower:
         return 'Benchmark.BERT'
     elif 'resnet' in model_lower:

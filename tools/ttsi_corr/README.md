@@ -10,14 +10,17 @@ This package provides a clean, modular architecture for performing correlation a
 
 ```
 ttsi_corr/
-├── __init__.py           # Package API and exports
-├── data_loader.py        # Load and validate reference metrics
-├── workload_processor.py # Process workload configurations
-├── correlation.py        # Calculate correlation metrics
-├── excel_writer.py       # Generate Excel reports
-├── chart_builder.py      # Create visualization charts
-├── simulator.py          # Orchestrate Polaris simulation
-└── README.md            # This file
+├── __init__.py                     # Package API and exports
+├── data_loader.py                  # Load and validate reference metrics
+├── workload_processor.py           # Process workload configurations
+├── correlation.py                  # Calculate correlation metrics
+├── excel_writer.py                 # Generate Excel reports
+├── chart_builder.py                # Create visualization charts
+├── simulator.py                    # Orchestrate Polaris simulation
+├── ttsi_corr_utils.py              # Shared utilities and validation
+├── compare_reference_data.py       # Tool: Compare reference data tags
+├── update_metadata_provenance.py   # Tool: Update metadata with git commits
+└── README.md                       # This file
 ```
 
 ## Modules
@@ -34,11 +37,19 @@ Load and validate reference performance metrics from various sources (HTML table
 
 **Example:**
 ```python
+from pathlib import Path
 from ttsi_corr.data_loader import load_metrics_from_sources, read_metadata
+from tools.ttsi_corr.ttsi_corr_utils import TTSI_REF_DEFAULT_TAG
 
-# Load metrics (data source automatically determined from _metadata.yaml)
+# Read metadata to determine data source
+data_dir = Path(f'data/metal/inf/{TTSI_REF_DEFAULT_TAG}')
+metadata = read_metadata(data_dir)
+data_source = metadata.get('data_source')
+
+# Load metrics
 metrics = load_metrics_from_sources(
-    tensix_perf_data_dir=Path('data/metal/inf/15oct25')
+    tensix_perf_data_dir=data_dir,
+    data_source=data_source
 )
 ```
 
@@ -192,10 +203,12 @@ from ttsi_corr import (
     write_csv,
     add_scurve_chart
 )
+from tools.ttsi_corr.ttsi_corr_utils import TTSI_REF_DEFAULT_TAG
 
 # 1. Load data
-data_dir = Path('data/metal/inf/15oct25')
-metrics = load_metrics_from_sources(data_dir)
+data_dir = Path(f'data/metal/inf/{TTSI_REF_DEFAULT_TAG}')
+metadata = read_metadata(data_dir)
+metrics = load_metrics_from_sources(data_dir, metadata['data_source'])
 
 # 2. Validate and filter
 valid_configs = validate_and_filter_configs(metrics, workload_filter=None)
@@ -311,9 +324,65 @@ When adding new functionality to this package:
 4. **Write tests** - Add unit tests for new functions
 5. **Update this README** - Document new public API functions
 
+## Command-Line Tools
+
+This package also includes standalone command-line tools for reference data management:
+
+### `compare_reference_data.py`
+
+Compare reference performance data between different tags.
+
+```bash
+# Compare default with previous tag
+python tools/ttsi_corr/compare_reference_data.py
+
+# Compare specific tags with detailed output
+python tools/ttsi_corr/compare_reference_data.py --old 15oct25 --new 03nov25 --verbose
+```
+
+**Features:**
+- Metadata comparison (source URL, parse date, commit hash)
+- Summary statistics (added/removed benchmarks)
+- Hardware platform and model changes
+- Detailed entry-level differences
+- Colorized terminal output
+
+### `update_metadata_provenance.py`
+
+Add or update git commit hash in metadata files for data provenance.
+
+```bash
+# Update specific tag (auto-fetch commit hash)
+python tools/ttsi_corr/update_metadata_provenance.py --tag 03nov25
+
+# Update all tags
+python tools/ttsi_corr/update_metadata_provenance.py --all
+
+# Dry run to preview changes
+python tools/ttsi_corr/update_metadata_provenance.py --tag 03nov25 --dry-run
+```
+
+**Features:**
+- Automatically fetches git commit hash from GitHub
+- Updates `source_commit` field in `_metadata.yaml`
+- Batch update support
+- Dry-run mode for previewing changes
+
+### `ttsi_corr_utils.py`
+
+Shared utilities for tag validation and data quality checks.
+
+**Key Functions:**
+- `validate_tag_format()` - Validate tag naming format (DDmmmYY)
+- `validate_release_field()` - Warn about null release fields
+- `parse_hardware_to_device()` - Parse hardware strings
+- `get_workload_name_from_model()` - Derive workload names from models
+
 ## See Also
 
 - `tools/run_ttsi_corr.py` - Main correlation script (uses this package)
 - `tools/parse_ttsi_perf_results.py` - Data parsing tool
 - `tests/test_ttsi_corr/` - Unit tests for this package
 - `tests/test_tools/test_run_metal_correlation.py` - Integration tests
+- `doc/tools/ttsi_corr/README_correlation.md` - Correlation workflow documentation
+- `doc/tools/ttsi_corr/README_reference_data_validation.md` - Complete tool documentation

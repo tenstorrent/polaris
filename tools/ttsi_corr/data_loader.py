@@ -34,7 +34,8 @@ Usage:
     from ttsi_corr.data_loader import load_metrics_from_sources
     
     metrics = load_metrics_from_sources(
-        tensix_perf_data_dir=Path('data/metal/inf/15oct25')
+        tensix_perf_data_dir=Path('data/metal/inf/<tag>'),
+        data_source='md'
     )
 
 See Also:

@@ -220,15 +220,30 @@ The correlation tool compares Polaris simulation results with actual hardware me
 **Quick Start:**
 ```bash
 # Step 1: Parse hardware metrics (creates metadata)
-python tools/parse_ttsi_perf_results.py --tag 15oct25
+python tools/parse_ttsi_perf_results.py --tag <TAG>
 
 # Step 2: Run correlation (reads data source from metadata)
 python tools/run_ttsi_corr.py \
-    --tag 15oct25 \
+    --tag <TAG> \
     --workloads-config config/ttsi_correlation_workloads.yaml \
     --arch-config config/tt_wh.yaml \
     --output-dir __CORRELATION_OUTPUT
 ```
+
+**Note:** `<TAG>` identifies the reference data version (e.g., `03nov25`, `15oct25`). See [Reference Data Tags](#reference-data-tags) below for details.
+
+#### Reference Data Tags
+
+Polaris maintains versioned snapshots of TT-Metal reference performance data using tags:
+
+- **What are tags?** Tags identify specific versions of TT-Metal hardware measurements (e.g., `03nov25` = November 3, 2025 measurements)
+- **Current default:** The default tag is automatically updated to use the latest reference data
+- **Available tags:** See `TTSI_REF_VALID_TAGS` in `tools/ttsi_corr/ttsi_corr_utils.py` for all valid tags
+- **Using older data:** You can explicitly specify any valid tag with `--tag <TAG>` to reproduce results with older reference data
+- **Creating custom tags:** To create a new tag:
+  1. Parse metrics with a new tag name: `python tools/parse_ttsi_perf_results.py --tag <YOUR_TAG>`
+  2. This creates `data/metal/inf/<YOUR_TAG>/` with metric files
+  3. Run correlation with the same tag: `python tools/run_ttsi_corr.py --tag <YOUR_TAG>`
 
 **Features:**
 - Automated correlation analysis between Polaris and TT-Metal

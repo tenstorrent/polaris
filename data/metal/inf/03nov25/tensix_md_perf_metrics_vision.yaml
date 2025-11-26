@@ -1,0 +1,232 @@
+-   batch: 16
+    fps: null
+    gpu: Tensix
+    hardware: n150 (Wormhole)
+    id: metal
+    images_per_sec: 4700.0
+    input_dtype: bf8
+    model: ResNet-50 (224x224)
+    precision: bf8
+    release: v0.59.0
+    sec_per_image: null
+    sentences_per_sec: null
+    target_fps: null
+    target_images_per_sec: 7000.0
+    target_sec_per_image: null
+    target_sentences_per_sec: null
+    target_tokens_per_sec_per_user: null
+    tokens_per_sec: null
+    tokens_per_sec_per_user: null
+    ttft_ms: null
+    vllm_repo_release: null
+-   batch: 32
+    fps: null
+    gpu: Tensix
+    hardware: n300 (Wormhole)
+    id: metal
+    images_per_sec: 9200.0
+    input_dtype: bf8
+    model: ResNet-50 (224x224) (DP=2)
+    precision: bf8
+    release: v0.59.0
+    sec_per_image: null
+    sentences_per_sec: null
+    target_fps: null
+    target_images_per_sec: 14000.0
+    target_sec_per_image: null
+    target_sentences_per_sec: null
+    target_tokens_per_sec_per_user: null
+    tokens_per_sec: null
+    tokens_per_sec_per_user: null
+    ttft_ms: null
+    vllm_repo_release: null
+-   batch: 16
+    fps: null
+    gpu: Tensix
+    hardware: p150 (Blackhole)
+    id: metal
+    images_per_sec: 12600.0
+    input_dtype: bf8
+    model: ResNet-50 (224x224)
+    precision: bf8
+    release: v0.59.0
+    sec_per_image: null
+    sentences_per_sec: null
+    target_fps: null
+    target_images_per_sec: 14000.0
+    target_sec_per_image: null
+    target_sentences_per_sec: null
+    target_tokens_per_sec_per_user: null
+    tokens_per_sec: null
+    tokens_per_sec_per_user: null
+    ttft_ms: null
+    vllm_repo_release: null
+-   batch: 128
+    fps: null
+    gpu: Tensix
+    hardware: QuietBox (Wormhole)
+    id: metal
+    images_per_sec: 35800.0
+    input_dtype: bf8
+    model: ResNet-50 (224x224) (DP=8)
+    precision: bf8
+    release: v0.59.0
+    sec_per_image: null
+    sentences_per_sec: null
+    target_fps: null
+    target_images_per_sec: 56000.0
+    target_sec_per_image: null
+    target_sentences_per_sec: null
+    target_tokens_per_sec_per_user: null
+    tokens_per_sec: null
+    tokens_per_sec_per_user: null
+    ttft_ms: null
+    vllm_repo_release: null
+-   batch: 512
+    fps: null
+    gpu: Tensix
+    hardware: Galaxy (Wormhole)
+    id: metal
+    images_per_sec: 96800.0
+    input_dtype: bf8
+    model: ResNet-50 (224x224) (DP=32)
+    precision: bf8
+    release: v0.59.0
+    sec_per_image: null
+    sentences_per_sec: null
+    target_fps: null
+    target_images_per_sec: 224000.0
+    target_sec_per_image: null
+    target_sentences_per_sec: null
+    target_tokens_per_sec_per_user: null
+    tokens_per_sec: null
+    tokens_per_sec_per_user: null
+    ttft_ms: null
+    vllm_repo_release: null
+-   batch: 8
+    fps: null
+    gpu: Tensix
+    hardware: n150 (Wormhole)
+    id: metal
+    images_per_sec: 1370.0
+    input_dtype: bf8
+    model: ViT-base (224x224)
+    precision: bf8
+    release: v0.60.0-rc4
+    sec_per_image: null
+    sentences_per_sec: null
+    target_fps: null
+    target_images_per_sec: 1600.0
+    target_sec_per_image: null
+    target_sentences_per_sec: null
+    target_tokens_per_sec_per_user: null
+    tokens_per_sec: null
+    tokens_per_sec_per_user: null
+    ttft_ms: null
+    vllm_repo_release: null
+-   batch: 16
+    fps: null
+    gpu: Tensix
+    hardware: n300 (Wormhole)
+    id: metal
+    images_per_sec: 1900.0
+    input_dtype: bf8
+    model: ViT-base (224x224)  (DP=2)
+    precision: bf8
+    release: v0.60.0-rc4
+    sec_per_image: null
+    sentences_per_sec: null
+    target_fps: null
+    target_images_per_sec: 3200.0
+    target_sec_per_image: null
+    target_sentences_per_sec: null
+    target_tokens_per_sec_per_user: null
+    tokens_per_sec: null
+    tokens_per_sec_per_user: null
+    ttft_ms: null
+    vllm_repo_release: null
+-   batch: 10
+    fps: null
+    gpu: Tensix
+    hardware: p150 (Blackhole)
+    id: metal
+    images_per_sec: 3700.0
+    input_dtype: bf8
+    model: ViT-base (224x224)
+    precision: bf8
+    release: null
+    sec_per_image: null
+    sentences_per_sec: null
+    target_fps: null
+    target_images_per_sec: 3200.0
+    target_sec_per_image: null
+    target_sentences_per_sec: null
+    target_tokens_per_sec_per_user: null
+    tokens_per_sec: null
+    tokens_per_sec_per_user: null
+    ttft_ms: null
+    vllm_repo_release: null
+-   batch: 64
+    fps: null
+    gpu: Tensix
+    hardware: QuietBox (Wormhole)
+    id: metal
+    images_per_sec: 7700.0
+    input_dtype: bf8
+    model: ViT-base (224x224)  (DP=8)
+    precision: bf8
+    release: v0.60.0-rc4
+    sec_per_image: null
+    sentences_per_sec: null
+    target_fps: null
+    target_images_per_sec: 12800.0
+    target_sec_per_image: null
+    target_sentences_per_sec: null
+    target_tokens_per_sec_per_user: null
+    tokens_per_sec: null
+    tokens_per_sec_per_user: null
+    ttft_ms: null
+    vllm_repo_release: null
+-   batch: 10
+    fps: null
+    gpu: Tensix
+    hardware: n150 (Wormhole)
+    id: metal
+    images_per_sec: 3030.0
+    input_dtype: bf8
+    model: MobileNet-v2 (224x224)
+    precision: bf8
+    release: null
+    sec_per_image: null
+    sentences_per_sec: null
+    target_fps: null
+    target_images_per_sec: 3500.0
+    target_sec_per_image: null
+    target_sentences_per_sec: null
+    target_tokens_per_sec_per_user: null
+    tokens_per_sec: null
+    tokens_per_sec_per_user: null
+    ttft_ms: null
+    vllm_repo_release: null
+-   batch: 20
+    fps: null
+    gpu: Tensix
+    hardware: n300 (Wormhole)
+    id: metal
+    images_per_sec: 5280.0
+    input_dtype: bf8
+    model: MobileNet-v2 (224x224) (DP=2)
+    precision: bf8
+    release: null
+    sec_per_image: null
+    sentences_per_sec: null
+    target_fps: null
+    target_images_per_sec: 7000.0
+    target_sec_per_image: null
+    target_sentences_per_sec: null
+    target_tokens_per_sec_per_user: null
+    tokens_per_sec: null
+    tokens_per_sec_per_user: null
+    ttft_ms: null
+    vllm_repo_release: null
+

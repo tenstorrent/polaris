@@ -130,10 +130,12 @@ Metal-Tensix correlation analysis tool with modular architecture.
 **Usage**:
 ```bash
 python tools/run_ttsi_corr.py \
-    --tag 15oct25 \
+    --tag <TAG> \
     --workloads-config config/ttsi_correlation_workloads.yaml \
     --arch-config config/tt_wh.yaml
 ```
+
+**Note**: `<TAG>` should match a valid reference data tag (see `TTSI_REF_VALID_TAGS` in `tools/ttsi_corr/ttsi_corr_utils.py`).
 
 **Modular Components** (in `tools/ttsi_corr/` package):
 - `data_loader` - Load and validate reference metrics
@@ -143,7 +145,7 @@ python tools/run_ttsi_corr.py \
 - `chart_builder` - Create S-curve visualization charts
 - `simulator` - Orchestrate Polaris simulation
 
-See [doc/tools/README_correlation.md](../doc/tools/README_correlation.md) for complete documentation.
+See [doc/tools/ttsi_corr/README_correlation.md](../doc/tools/ttsi_corr/README_correlation.md) for complete documentation.
 
 **Output Formats**:
 - CSV files include `archname` column representing the architecture package name (e.g., Wormhole, Grendel)
@@ -158,12 +160,14 @@ Markdown and HTML metrics parser for extracting performance data.
 **Usage**:
 ```bash
 python tools/parse_ttsi_perf_results.py \
-    --tag 15oct25 \
+    --tag <TAG> \
     --input https://raw.githubusercontent.com/tenstorrent/tt-metal/main/models/README.md \
     --output-dir data/metal/inf
 ```
 
-See [doc/tools/README_correlation.md](../doc/tools/README_correlation.md) for complete workflow documentation.
+**Note**: `<TAG>` is used to version the reference data (see `TTSI_REF_VALID_TAGS` in `tools/ttsi_corr/ttsi_corr_utils.py`).
+
+See [doc/tools/ttsi_corr/README_correlation.md](../doc/tools/ttsi_corr/README_correlation.md) for complete workflow documentation.
 
 ### ttsi_corr Package
 Modular Python package for correlation analysis (v0.1.0).

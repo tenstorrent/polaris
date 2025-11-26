@@ -1,6 +1,6 @@
-tag: 15oct25
+tag: 03nov25
 data_source: md
 input_url: https://raw.githubusercontent.com/tenstorrent/tt-metal/refs/heads/main/models/README.md
-parsed_date: '2025-10-23T12:29:58.742316'
+parsed_date: '2025-11-25T13:52:42.092475'
 use_cache: false
-source_commit: ac88ed9
+source_commit: b5d7ae9
