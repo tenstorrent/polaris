@@ -1070,10 +1070,10 @@ class TestStatus:
         assert isinstance(self.name, str), "- error: test name is not set"
         classes = TestStatusUtils.get_test_classes()
         test_words = self.name.split("-")
-        unclassified_class_prefix = "Unclassified test class: "
-        test_class = f"{unclassified_class_prefix}{self.name}"
+        unclassified_class_prefix = "Unclassified"
+        test_class = unclassified_class_prefix
         for key, values in classes.items():
-            if test_class.startswith(unclassified_class_prefix) is False:
+            if not test_class.startswith(unclassified_class_prefix):
                 break
             for value in values:
                 if value in test_words:
