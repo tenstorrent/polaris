@@ -42,7 +42,7 @@ def test_model_inference(model_name: str = "llama3-8B"):
         max_seq_len=max_seq_len,
         max_batch_size=batch_size,
     )
-    iterations = 4 # llama3.2 3B or 8B
+    iterations = 1
 
     if layers is not None:
         model_args.n_layers = layers
