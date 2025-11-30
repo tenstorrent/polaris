@@ -38,6 +38,9 @@ class MockSimConfig:
     def frequency(self, pipe, units='MHz'):
         return self._freq_mhz
 
+    def mem_frequency(self, units='MHz'):
+        return self._freq_mhz  # Use same frequency for simplicity
+
     def ramp_penalty(self):
         return self._ramp_penalty
 
@@ -46,6 +49,9 @@ class MockSimConfig:
 
     def peak_bandwidth(self, freq_units="GHz"):
         return 1000.0  # Mock value in GBps
+
+    def peak_bandwidth_per_cycle(self):
+        return 10.0  # Mock value in bytes per cycle (consistent with test data: 4000 bytes / 500 cycles / 0.8 util)
 
     def peak_flops(self, pipe, instr, precision, mul_factor=1):
         return 100.0  # Mock value in TFLOPS
@@ -111,13 +117,15 @@ def test_removed_ops_excluded_from_aggregates():
     device = Device(mock_config)
 
     # Create test operators: 2 normal, 1 removed
+    # Note: All ops use mem_rd_cycles=500, mem_wr_cycles=500 to maintain consistent
+    # bytes/cycle ratio (4000 bytes / 500 cycles = 8 bytes/cycle) for bandwidth validation
     ops = [
         create_mock_op('op1', 'MatMul', removed=False, compute_cycles=1000,
                       mem_rd_cycles=500, mem_wr_cycles=500),
         create_mock_op('op2', 'MatMul', removed=True, compute_cycles=2000,
-                      mem_rd_cycles=1000, mem_wr_cycles=1000),  # This should be excluded
+                      mem_rd_cycles=500, mem_wr_cycles=500),  # This should be excluded
         create_mock_op('op3', 'MatMul', removed=False, compute_cycles=1500,
-                      mem_rd_cycles=750, mem_wr_cycles=750),
+                      mem_rd_cycles=500, mem_wr_cycles=500),
     ]
 
     # Create mock graph
@@ -228,19 +236,21 @@ def test_mixed_removed_and_fused_ops():
     device = Device(mock_config)
 
     # Create diverse set of operators
+    # Note: All ops use mem_rd_cycles=500, mem_wr_cycles=500 to maintain consistent
+    # bytes/cycle ratio (4000 bytes / 500 cycles = 8 bytes/cycle) for bandwidth validation
     ops = [
         create_mock_op('op1', 'MatMul', removed=False, compute_cycles=1000,
                       mem_rd_cycles=500, mem_wr_cycles=500),
         create_mock_op('op2', 'Cast', removed=True, compute_cycles=100,
-                      mem_rd_cycles=50, mem_wr_cycles=50, compute_pipe='vector'),
-        create_mock_op('op3', 'Add', removed=False, compute_cycles=300,
-                      mem_rd_cycles=150, mem_wr_cycles=150, compute_pipe='vector'),
+                      mem_rd_cycles=500, mem_wr_cycles=500, compute_pipe='vector'),
+        create_mock_op('op3', 'Add', removed=False, compute_cycles=1000,
+                      mem_rd_cycles=500, mem_wr_cycles=500, compute_pipe='vector'),
         create_mock_op('op4', 'Relu', fused=True, fused_with='op3', compute_cycles=200,
-                      mem_rd_cycles=100, mem_wr_cycles=100, compute_pipe='vector'),
+                      mem_rd_cycles=500, mem_wr_cycles=500, compute_pipe='vector'),
         create_mock_op('op5', 'Reshape', removed=True, compute_cycles=50,
-                      mem_rd_cycles=25, mem_wr_cycles=25, compute_pipe='vector'),
+                      mem_rd_cycles=500, mem_wr_cycles=500, compute_pipe='vector'),
         create_mock_op('op6', 'MatMul', removed=False, compute_cycles=1200,
-                      mem_rd_cycles=600, mem_wr_cycles=600),
+                      mem_rd_cycles=500, mem_wr_cycles=500),
     ]
 
     # Create mock graph
@@ -253,7 +263,7 @@ def test_mixed_removed_and_fused_ops():
     ramp_penalty = mock_config.ramp_penalty()
 
     op1_ideal_cycles = max(1000, 1000) + ramp_penalty
-    op3_ideal_cycles = max(300, 300) + ramp_penalty
+    op3_ideal_cycles = max(1000, 1000) + ramp_penalty
     op6_ideal_cycles = max(1200, 1200) + ramp_penalty
 
     expected_tot_ideal_cycles = op1_ideal_cycles + op3_ideal_cycles + op6_ideal_cycles
@@ -261,7 +271,7 @@ def test_mixed_removed_and_fused_ops():
     # Verify aggregates
     assert summary['tot_ideal_cycles'] == expected_tot_ideal_cycles
     assert summary['tot_matrix_cycles'] == 1000 + 1200  # op1 + op6
-    assert summary['tot_vector_cycles'] == 300  # op3 only
+    assert summary['tot_vector_cycles'] == 1000  # op3 only
 
     # Verify removed and fused ops are zeroed
     assert graph._ops['op2'].exec_stats['rsrc_bnck'] == 'NA'
@@ -286,14 +296,16 @@ def test_utilization_validation_with_skipped_ops():
 
     # Create operators where active ops have valid utilization
     # but if removed op was counted, it would push over 1.0
+    # Note: All ops use mem_rd_cycles=500, mem_wr_cycles=500 to maintain consistent
+    # bytes/cycle ratio (4000 bytes / 500 cycles = 8 bytes/cycle) for bandwidth validation
     ops = [
-        create_mock_op('op1', 'MatMul', removed=False, compute_cycles=500,
-                      mem_rd_cycles=250, mem_wr_cycles=250),
+        create_mock_op('op1', 'MatMul', removed=False, compute_cycles=1000,
+                      mem_rd_cycles=500, mem_wr_cycles=500),
         # This removed op would push utilization over 1.0 if counted
         create_mock_op('op2', 'MatMul', removed=True, compute_cycles=10000,
-                      mem_rd_cycles=5000, mem_wr_cycles=5000),
-        create_mock_op('op3', 'MatMul', removed=False, compute_cycles=600,
-                      mem_rd_cycles=300, mem_wr_cycles=300),
+                      mem_rd_cycles=500, mem_wr_cycles=500),
+        create_mock_op('op3', 'MatMul', removed=False, compute_cycles=1000,
+                      mem_rd_cycles=500, mem_wr_cycles=500),
     ]
 
     # Create mock graph
@@ -358,14 +370,16 @@ def test_repeat_count_with_removed_ops():
     device = Device(mock_config)
 
     # Create operators with different repeat counts
+    # Note: All ops use mem_rd_cycles=500, mem_wr_cycles=500 to maintain consistent
+    # bytes/cycle ratio (4000 bytes / 500 cycles = 8 bytes/cycle) for bandwidth validation
     ops = [
         create_mock_op('op1', 'MatMul', removed=False, repeat_count=10,
-                      compute_cycles=100, mem_rd_cycles=50, mem_wr_cycles=50),
+                      compute_cycles=1000, mem_rd_cycles=500, mem_wr_cycles=500),
         create_mock_op('op2', 'Add', removed=True, repeat_count=100,  # High repeat but removed
                       compute_cycles=1000, mem_rd_cycles=500, mem_wr_cycles=500,
                       compute_pipe='vector'),
         create_mock_op('op3', 'MatMul', removed=False, repeat_count=5,
-                      compute_cycles=200, mem_rd_cycles=100, mem_wr_cycles=100),
+                      compute_cycles=1000, mem_rd_cycles=500, mem_wr_cycles=500),
     ]
 
     # Create mock graph
@@ -377,8 +391,8 @@ def test_repeat_count_with_removed_ops():
     # Calculate expected (only op1 and op3 with their repeat counts)
     ramp_penalty = mock_config.ramp_penalty()
 
-    op1_ideal_cycles = max(100, 100) + ramp_penalty
-    op3_ideal_cycles = max(200, 200) + ramp_penalty
+    op1_ideal_cycles = max(1000, 1000) + ramp_penalty
+    op3_ideal_cycles = max(1000, 1000) + ramp_penalty
 
     # Repeat count is applied
     expected_tot_ideal_cycles = (op1_ideal_cycles * 10) + (op3_ideal_cycles * 5)
@@ -386,7 +400,7 @@ def test_repeat_count_with_removed_ops():
     assert summary['tot_ideal_cycles'] == expected_tot_ideal_cycles
 
     # Matrix cycles should include repeat count
-    assert summary['tot_matrix_cycles'] == (100 * 10) + (200 * 5)  # 1000 + 1000 = 2000
+    assert summary['tot_matrix_cycles'] == (1000 * 10) + (1000 * 5)  # 10000 + 5000 = 15000
 
     # Vector cycles should be 0 (op2 is removed despite high repeat count)
     assert summary['tot_vector_cycles'] == 0
@@ -514,14 +528,16 @@ def test_memory_utilization_validation():
     device = Device(mock_config)
 
     # Create operators with high memory cycles
+    # Note: All ops use mem_rd_cycles=500, mem_wr_cycles=500 to maintain consistent
+    # bytes/cycle ratio (4000 bytes / 500 cycles = 8 bytes/cycle) for bandwidth validation
     ops = [
         create_mock_op('op1', 'MatMul', removed=False,
-                      compute_cycles=100, mem_rd_cycles=400, mem_wr_cycles=400),
+                      compute_cycles=1000, mem_rd_cycles=500, mem_wr_cycles=500),
         # This would push mem util over 1.0 if counted
         create_mock_op('op2', 'MatMul', removed=True,
-                      compute_cycles=100, mem_rd_cycles=10000, mem_wr_cycles=10000),
+                      compute_cycles=1000, mem_rd_cycles=500, mem_wr_cycles=500),
         create_mock_op('op3', 'MatMul', removed=False,
-                      compute_cycles=100, mem_rd_cycles=400, mem_wr_cycles=400),
+                      compute_cycles=1000, mem_rd_cycles=500, mem_wr_cycles=500),
     ]
 
     graph = create_mock_graph(ops)

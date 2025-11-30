@@ -109,9 +109,12 @@ class Device:
         # 'archname' and 'devname' respectively.
         self.devname        = simcfg_obj.devname  # Architecture package name (e.g., "Grendel", "Wormhole")
         self.name           = simcfg_obj.name     # Device instance name (e.g., "Q1_A1", "n150")
-        self.freqMHZ        = simcfg_obj.frequency('matrix', units='MHz')
+        self.freq_MHz        = simcfg_obj.frequency('matrix', units='MHz')
+        self.memfreq_MHz    = simcfg_obj.mem_frequency(units='MHz')
         self.compute_ip     = compute_ips[0]
         self.memory_ip      = memory_ips[0]
+        self.peak_bw_bytes_per_cycle  = simcfg_obj.peak_bandwidth_per_cycle()
+        self.eff_bw_bytes_per_cycle   = self.peak_bw_bytes_per_cycle * self.DG_MEMORY_UTIL_CONSTANT
         return
 
     def execute_graph(self, wlgraph, wlmapspec):
@@ -192,15 +195,26 @@ class Device:
             peak_ipc = self.simconfig_obj.peak_ipc(op.uses_compute_pipe, instr, op.precision)
             real_ipc = peak_ipc * self.DG_COMPUTE_UTIL_CONSTANT
             op.compute_cycles += math.ceil(instr_count / real_ipc)
-        #find memory cycles
-        mem_rd_GB     = op.perf_stats['inBytes'] / 1024 / 1024 / 1024
-        mem_wr_GB     = op.perf_stats['outBytes'] / 1024 / 1024 / 1024
-        freq_MHz      = self.simconfig_obj.frequency(op.uses_compute_pipe, units='MHz')
-        peak_bw_GBps  = self.simconfig_obj.peak_bandwidth(freq_units="GHz")
-        bw_GBps       = peak_bw_GBps * self.DG_MEMORY_UTIL_CONSTANT
-        #convert to device clk cycles
-        op.mem_rd_cycles = math.ceil((mem_rd_GB / bw_GBps) * freq_MHz * 1e6)
-        op.mem_wr_cycles = math.ceil((mem_wr_GB / bw_GBps) * freq_MHz * 1e6)
+
+        # Find memory cycles.
+        # NOTE: This calculation is done at the unit of bytes to avoid potential ambiguity of GB (1024 or 1000)
+        devfreq_MHz      = self.simconfig_obj.frequency(op.uses_compute_pipe, units='MHz')
+        mem_to_dev_ratio = devfreq_MHz / self.memfreq_MHz
+
+        # find memory cycles
+        mem_rd_bytes = op.perf_stats['inBytes']
+        mem_wr_bytes = op.perf_stats['outBytes']
+
+        # NOTE: Apply math.ceil only once, after the second division below, to avoid rounding errors
+        # Convert memory bytes to memory cycles in memory clock domain
+        mem_rd_cycles_memclk = mem_rd_bytes / self.eff_bw_bytes_per_cycle
+        mem_wr_cycles_memclk = mem_wr_bytes / self.eff_bw_bytes_per_cycle
+
+        # Convert memory cycles to device clock domain
+        mem_rd_cycles_devclk = math.ceil(mem_rd_cycles_memclk * mem_to_dev_ratio)
+        mem_wr_cycles_devclk = math.ceil(mem_wr_cycles_memclk * mem_to_dev_ratio)
+        op.mem_rd_cycles = mem_rd_cycles_devclk
+        op.mem_wr_cycles = mem_wr_cycles_devclk
 
         return
 
@@ -396,6 +410,31 @@ class Device:
                 'device_peak_bw_GBps'   : self.simconfig_obj.peak_bandwidth(freq_units="GHz"),
                 'device_peak_fp8_tflops': self.simconfig_obj.peak_flops('matrix', 'mac', 'fp8', mul_factor=2),
                 }
+        if tot_mem_rd_cycles > 0 or tot_mem_wr_cycles > 0:
+            # ensure that the memory bandwidth is correct for the number of cycles
+            mem_to_dev_ratio = self.freq_MHz / self.memfreq_MHz
+            # tot_mem_rd_cycles is in device clock domain
+            expected_bytes_per_device_clock = self.eff_bw_bytes_per_cycle / mem_to_dev_ratio
+            if tot_mem_rd_cycles > 0:
+                actual_bytes_per_device_clock = tot_inBytes / tot_mem_rd_cycles
+                if not math.isclose(actual_bytes_per_device_clock, expected_bytes_per_device_clock, rel_tol=1e-1):
+                    raise ValueError(
+                        f"Memory bandwidth validation failed (read):\n"
+                        f"  Calculated bytes_per_device_clock: {actual_bytes_per_device_clock:.2f}\n"
+                        f"  Expected bytes_per_device_clock:   {expected_bytes_per_device_clock:.2f}\n"
+                        f"  Ratio (actual/expected):           {actual_bytes_per_device_clock / expected_bytes_per_device_clock:.2f}\n"
+                        f"This indicates an inconsistency in memory traffic accounting."
+                    )
+            if tot_mem_wr_cycles > 0:
+                actual_bytes_per_device_clock = tot_outBytes / tot_mem_wr_cycles
+                if not math.isclose(actual_bytes_per_device_clock, expected_bytes_per_device_clock, rel_tol=1e-1):
+                    raise ValueError(
+                        f"Memory bandwidth validation failed (write):\n"
+                        f"  Calculated bytes_per_device_clock: {actual_bytes_per_device_clock:.2f}\n"
+                        f"  Expected bytes_per_device_clock:   {expected_bytes_per_device_clock:.2f}\n"
+                        f"  Ratio (actual/expected):           {actual_bytes_per_device_clock / expected_bytes_per_device_clock:.2f}\n"
+                        f"This indicates an inconsistency in memory traffic accounting."
+                    )
 
         return summary_stats
 

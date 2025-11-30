@@ -58,7 +58,7 @@ class HLMStats:
         # and device instance name in 'name'. Here we map them to their output field names:
         self.archname                = _dev.devname  # Architecture package name (e.g., "Grendel", "Wormhole")
         self.devname                 = _dev.name     # Device instance name (e.g., "Q1_A1", "n150")
-        self.devFreqMHz              = _dev.freqMHZ
+        self.devFreqMHz              = _dev.freq_MHz
         self.wlgraph                 = _wlgraph
         self.wlgroup                 = _wlinfo['wlg']
         self.wlname                  = _wlinfo['wln']

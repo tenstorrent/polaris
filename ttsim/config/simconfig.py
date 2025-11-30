@@ -333,6 +333,18 @@ class ComputeBlockModel(BaseModel, extra='forbid'):
     l2_cache: Optional[L2CacheModel] = None
     pipes: List[ComputePipeModel]
 
+    @model_validator(mode='after')
+    def warn_if_pipes_have_different_frequencies(self):
+        if len(self.pipes) > 1:
+            frequencies = {pipe.name: pipe.freq_MHz for pipe in self.pipes}
+            unique_freqs = set(frequencies.values())
+            if len(unique_freqs) > 1:
+                logger.warning(
+                    f"ComputeBlockModel '{self.name}' has pipes with different frequencies: {frequencies}. "
+                    f"This may cause issues in determining device frequency."
+                )
+        return self
+
     def get_pipe(self, pipename: str) -> ComputePipeModel:
         matches = [pipe for pipe in self.pipes if pipe.name == pipename]
         if len(matches) != 1:
@@ -359,6 +371,17 @@ class MemoryBlockModel(BaseModel, extra='forbid'):
 
     def frequency(self, units="MHz"):
         return convert_units(self.freq_MHz, 'MHZ', units)
+
+    def peak_bandwidth_per_cycle(self):
+        if TYPE_CHECKING:
+            assert self.data_rate is not None
+            assert self.stacks is not None
+        # Calculate transfers per memory clock cycle:
+        # - 2: TODO: document interpretation of 2
+        # - stacks: number of memory stacks
+        transfers_per_cycle = 2 * self.stacks * self.data_rate
+        bw   = transfers_per_cycle * self.data_bits / 8
+        return bw
 
     def peak_bandwidth(self, freq_units="GHz"):
         freq = self.frequency(freq_units)
@@ -458,7 +481,16 @@ class PackageInstanceModel(BaseModel, extra='forbid'):
         S = memory_group.ipobj.size(units)
         return N * S
 
-    def peak_bandwidth(self, freq_units='GHz'):
+    def peak_bandwidth_per_cycle(self) -> float:
+        memory_group =  self.get_ipgroup('memory')
+        if TYPE_CHECKING:
+            assert memory_group.ipobj is not None
+            assert isinstance(memory_group.ipobj, MemoryBlockModel)
+        N = memory_group.num_units
+        B = memory_group.ipobj.peak_bandwidth_per_cycle()
+        return N * B
+
+    def peak_bandwidth(self, freq_units='GHz') -> float:
         memory_group =  self.get_ipgroup('memory')
         if TYPE_CHECKING:
             assert memory_group.ipobj is not None
