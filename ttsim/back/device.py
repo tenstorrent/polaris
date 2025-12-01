@@ -235,6 +235,16 @@ class Device:
             mem_rd_util      = op.mem_rd_cycles / ideal_cycles * self.DG_MEMORY_UTIL_CONSTANT
             mem_wr_util      = op.mem_wr_cycles / ideal_cycles * self.DG_MEMORY_UTIL_CONSTANT
 
+            # Flag errors and raise exceptions if utilization > 1.0
+            if matrix_pipe_util > 1.0:
+                raise ValueError(f"Matrix pipe utilization exceeds 1.0 for op {opname}: {matrix_pipe_util}")
+            if vector_pipe_util > 1.0:
+                raise ValueError(f"Vector pipe utilization exceeds 1.0 for op {opname}: {vector_pipe_util}")
+            if mem_rd_util > 1.0:
+                raise ValueError(f"Memory read utilization exceeds 1.0 for op {opname}: {mem_rd_util}")
+            if mem_wr_util > 1.0:
+                raise ValueError(f"Memory write utilization exceeds 1.0 for op {opname}: {mem_wr_util}")
+
             if op.removed_in_optimization or op.fused_in_optimization:
                 rsrc_bnck        = 'NA'
                 ideal_cycles     = 0
@@ -268,10 +278,14 @@ class Device:
                     }
 
         #compute aggregate stats
-        def op_stat_iter(statname, /, repeat=False, use_precision=False):
+        def op_stat_iter(statname, /, repeat=False, use_precision=False, skip_removed=True, skip_fused=True):
             """ utility: iterates over wlgraph for a specific op.stat """
             for opname in graph_ordered_nodes:
                 op = wlgraph.get_op(opname)
+                if skip_removed and op.removed_in_optimization:
+                    continue
+                if skip_fused and op.fused_in_optimization:
+                    continue
                 if hasattr(op, statname):
                     val = getattr(op, statname)
                 elif statname in op.perf_stats:
@@ -320,6 +334,16 @@ class Device:
         tot_vector_pipe_util  = tot_vector_cycles / tot_ideal_cycles * self.DG_COMPUTE_UTIL_CONSTANT
         tot_mem_rd_util       = tot_mem_rd_cycles / tot_ideal_cycles * self.DG_MEMORY_UTIL_CONSTANT
         tot_mem_wr_util       = tot_mem_wr_cycles / tot_ideal_cycles * self.DG_MEMORY_UTIL_CONSTANT
+
+        # Flag errors and raise exceptions if utilization > 1.0
+        if tot_matrix_pipe_util > 1.0:
+            raise ValueError(f"Matrix pipe utilization exceeds 1.0: {tot_matrix_pipe_util}")
+        if tot_vector_pipe_util > 1.0:
+            raise ValueError(f"Vector pipe utilization exceeds 1.0: {tot_vector_pipe_util}")
+        if tot_mem_rd_util > 1.0:
+            raise ValueError(f"Memory read utilization exceeds 1.0: {tot_mem_rd_util}")
+        if tot_mem_wr_util > 1.0:
+            raise ValueError(f"Memory write utilization exceeds 1.0: {tot_mem_wr_util}")
 
         #check if fits device memory...
         tot_mem_size_GB  = (tot_inParamBytes + tot_maxActBytes)/1024/1024/1024
