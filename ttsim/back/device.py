@@ -2,11 +2,12 @@
 # SPDX-FileCopyrightText: (C) 2025 Tenstorrent AI ULC
 # SPDX-License-Identifier: Apache-2.0
 
-from ttsim.utils.types import get_sim_dtype, get_bpe
-
-from typing import TYPE_CHECKING
-from loguru import logger
 import math
+from typing import TYPE_CHECKING
+
+from loguru import logger
+
+from ttsim.utils.types import get_bpe, get_sim_dtype
 
 LOG     = logger
 INFO    = LOG.info
@@ -31,7 +32,7 @@ class MEM(Component):
         return
 
     def __str__(self):
-        return f"MEM " + super().__str__() + \
+        return "MEM " + super().__str__() + \
                f" size={self.size_nbytes:,d}B" + \
                f" bw={self.bw_bytes_per_clk:,d}B/Clk"
 
@@ -42,7 +43,7 @@ class NOC(Component):
         return
 
     def __str__(self):
-        return f"NOC " + super().__str__() + \
+        return "NOC " + super().__str__() + \
                f" nrows={self.nrows}, ncols={self.ncols}"
 
 class PE(Component):
@@ -51,7 +52,7 @@ class PE(Component):
         return
 
     def __str__(self):
-        return f"PE " + super().__str__()
+        return "PE " + super().__str__()
 
 class TTDevice:
     def __init__(self, name, **kwargs):
@@ -296,8 +297,10 @@ class Device:
         tot_inParamBytes = sum(op_stat_iter('inParamCount', repeat=True, use_precision=True))
         tot_inActCount   = sum(op_stat_iter('inActCount'))
         tot_inActBytes   = sum(op_stat_iter('inActCount',  repeat=False, use_precision=True))
+        tot_inBytes      = sum(op_stat_iter('inBytes', repeat=True))
         tot_outActCount  = sum(op_stat_iter('outActCount'))
         tot_outActBytes  = sum(op_stat_iter('outActCount', repeat=False, use_precision=True))
+        tot_outBytes     = sum(op_stat_iter('outBytes', repeat=True))
         tot_maxActCount  = max(x+y for x,y in zip(op_stat_iter('inActCount'), op_stat_iter('outActCount')))
         tot_maxActBytes  = max(x+y for x,y in zip(op_stat_iter('inActCount', repeat=False, use_precision=True),
                                                   op_stat_iter('outActCount', repeat=False, use_precision=True)))
@@ -341,6 +344,8 @@ class Device:
                 'inActBytes'            : tot_inActBytes,
                 'outActBytes'           : tot_outActBytes,
                 'maxActBytes'           : tot_maxActBytes,
+                'inBytes'               : tot_inBytes,
+                'outBytes'              : tot_outBytes,
                 'tot_ideal_cycles'      : tot_ideal_cycles,
                 'tot_ideal_msecs'       : tot_ideal_msecs,
                 'tot_cycles'            : tot_cycles,
@@ -373,7 +378,7 @@ class Device:
     def __str__(self):
         prefix = " "*4
 
-        xstr  = f"Device:\n"
+        xstr  = "Device:\n"
         xstr += f"{prefix}devname: {self.devname}\n"
         xstr += f"{prefix}name   : {self.name}\n"
 

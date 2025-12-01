@@ -2,16 +2,12 @@
 # SPDX-FileCopyrightText: (C) 2025 Tenstorrent AI ULC
 # SPDX-License-Identifier: Apache-2.0
 import os
-import sys
 import re
 from collections import Counter
-from copy import deepcopy
-from typing import TYPE_CHECKING, Any, List, NewType, Optional, Type, Union
+from typing import TYPE_CHECKING, Any, List, Optional, Type, Union
 
-import deepdiff
-import yaml
 from loguru import logger
-from pydantic import BaseModel, ValidationError, model_validator
+from pydantic import BaseModel, model_validator
 
 from ttsim.utils.common import convert_units
 
@@ -130,7 +126,7 @@ class SimCfgBlk: #Generic Sim Configuration Block
             if isinstance(obj, SimCfgBlk):
                 lines.append(f"{prefix}{obj.kind()}({getattr(obj, 'name', 'UNK')}):")
                 for key, val in obj.__dict__.items():
-                    assert not isinstance(val, list), f"List[SimCfgBlk] not supported yet!!"
+                    assert not isinstance(val, list), "List[SimCfgBlk] not supported yet!!"
                     if isinstance(val, dict):
                         lines.append(f"{prefix}  {key}:")
                         for item_name, item_val in val.items():

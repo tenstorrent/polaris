@@ -330,6 +330,8 @@ class TTSimHLRunSummaryRow(BaseModel, extra='forbid'):
     inActBytes            : int
     outActBytes           : int
     maxActBytes           : int
+    inBytes               : int
+    outBytes              : int
     tot_cycles            : int
     tot_ideal_cycles      : int
     tot_msecs             : TypeTimeMS

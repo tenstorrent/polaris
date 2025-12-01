@@ -58,6 +58,8 @@ class StatAttributeDescriptors:
             {'name': 'inActBytes', 'catg':'mem', 'prio':1, 'attrtype': 'int'},
             {'name': 'outActBytes', 'catg':'mem', 'prio':1, 'attrtype': 'int'},
             {'name': 'maxActBytes', 'catg':'mem', 'prio':1, 'attrtype': 'int'},
+            {'name': 'inBytes', 'catg':'mem', 'prio':1, 'attrtype': 'int'},
+            {'name': 'outBytes', 'catg':'mem', 'prio':1, 'attrtype': 'int'},
             {'name': 'tot_cycles', 'catg':'key', 'prio':0, 'attrtype': 'int', 'is_filter': True, 'label': 'Cycles'},
             {'name': 'tot_msecs', 'catg':'perf', 'prio':0, 'attrtype': 'float', 'label': 'Time (ms)'},
             {'name': 'ideal_throughput', 'catg':'perf', 'prio':0, 'attrtype': 'float'},
