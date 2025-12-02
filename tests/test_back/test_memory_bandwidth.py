@@ -25,7 +25,8 @@ def test_peak_bandwidth_per_cycle():
         freq_MHz=1000,
         size_GB=2,
         stacks=1,
-        data_rate=1
+        data_rate=1,
+        transfer_rate_GTs=2
     )
     # Expected: 2 * 1 * 1 * 32 / 8 = 8 bytes per cycle
     assert mem1.peak_bandwidth_per_cycle() == 8.0
@@ -39,7 +40,8 @@ def test_peak_bandwidth_per_cycle():
         freq_MHz=1000,
         size_GB=2,
         stacks=1,
-        data_rate=2
+        data_rate=2,
+        transfer_rate_GTs=4
     )
     # Expected: 2 * 1 * 2 * 32 / 8 = 16 bytes per cycle
     assert mem2.peak_bandwidth_per_cycle() == 16.0
@@ -53,7 +55,8 @@ def test_peak_bandwidth_per_cycle():
         freq_MHz=1000,
         size_GB=2,
         stacks=4,
-        data_rate=2
+        data_rate=2,
+        transfer_rate_GTs=16
     )
     # Expected: 2 * 4 * 2 * 32 / 8 = 64 bytes per cycle
     assert mem3.peak_bandwidth_per_cycle() == 64.0
@@ -67,7 +70,8 @@ def test_peak_bandwidth_per_cycle():
         freq_MHz=1000,
         size_GB=2,
         stacks=1,
-        data_rate=2
+        data_rate=2,
+        transfer_rate_GTs=4
     )
     # Expected: 2 * 1 * 2 * 64 / 8 = 32 bytes per cycle
     assert mem4.peak_bandwidth_per_cycle() == 32.0
@@ -84,7 +88,8 @@ def test_peak_bandwidth_per_cycle_package():
         freq_MHz=1000,
         size_GB=2,
         stacks=1,
-        data_rate=2
+        data_rate=2,
+        transfer_rate_GTs=4
     )
 
     # Create IP group with 4 memory units

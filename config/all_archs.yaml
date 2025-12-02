@@ -49,6 +49,7 @@ ipblocks:
         data_rate : 8
         freq_MHz  : 1250
         size_GB   : 4
+        transfer_rate_GTs : 20.0
     -   name: gddr7
         iptype: memory
         technology: GDDR
@@ -56,6 +57,7 @@ ipblocks:
         data_rate : 16
         freq_MHz  : 1250
         size_GB   : 2
+        transfer_rate_GTs : 40.0
     -   name: hbm1
         iptype: memory
         technology: HBM
@@ -63,6 +65,7 @@ ipblocks:
         stacks    : 8
         data_bits : 128
         size_GB   : 4
+        transfer_rate_GTs : 8.0
     -   name: hbm2
         iptype: memory
         technology: HBM
@@ -70,6 +73,7 @@ ipblocks:
         stacks    : 8
         data_bits : 128
         size_GB   : 8
+        transfer_rate_GTs : 19.2
     -   name: hbm2e
         iptype: memory
         technology: HBM
@@ -77,6 +81,7 @@ ipblocks:
         stacks    : 8
         data_bits : 128
         size_GB   : 16
+        transfer_rate_GTs : 28.8
     -   name: hbm3
         iptype: memory
         technology: HBM
@@ -84,6 +89,7 @@ ipblocks:
         stacks    : 16
         data_bits : 64
         size_GB   : 16
+        transfer_rate_GTs : 102.4
     -   name: hbm3e
         iptype: memory
         technology: HBM
@@ -91,6 +97,7 @@ ipblocks:
         stacks    : 16
         data_bits : 64
         size_GB   : 48
+        transfer_rate_GTs : 156.8
     -   name: hbm4
         iptype: memory
         technology: HBM
@@ -98,6 +105,15 @@ ipblocks:
         stacks    : 32
         data_bits : 64
         size_GB   : 64
+        transfer_rate_GTs : 204.8
+    -   name: lpddr5x
+        iptype: memory
+        technology: LPDDR
+        data_bits : 16
+        data_rate : 4
+        freq_MHz  : 1200
+        size_GB   : 4
+        transfer_rate_GTs : 9.6
 
 packages:
     -   name: Grendel

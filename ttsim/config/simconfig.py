@@ -4,6 +4,7 @@
 import os
 import re
 from collections import Counter
+from math import isclose
 from typing import TYPE_CHECKING, Any, List, Optional, Type, Union
 
 from loguru import logger
@@ -392,6 +393,36 @@ class MemoryBlockModel(BaseModel, extra='forbid'):
     size_GB: int
     stacks: Optional[int] = 1
     data_rate: Optional[int] = 1
+    transfer_rate_GTs: float  # Transfer rate in giga transfers per second (GT/s).
+                              # This is a redundant, explicitly specified value used to cross-check
+                              # the bandwidth derived from freq_MHz, stacks, and data_rate.
+                              # We require the user to specify this field so that any mismatch between
+                              # the computed and expected bandwidth is detected early.
+                              # Expected value (for DDR): 2 * freq_GHz * stacks * data_rate
+
+    @model_validator(mode='after')
+    def validate_transfer_rate(self):
+        """Validate that transfer_rate_GTs matches the calculated transfers per second.
+
+        This ensures that the two alternative forms of specifying bandwidth are consistent:
+        1. Explicit transfer_rate_GTs (giga transfers per second)
+        2. Derived from freq_MHz, stacks, and data_rate
+
+        The formula assumes DDR (Double Data Rate) operation: Tps = 2 * freq_GHz * stacks * data_rate
+        where Tps is transfers per second in GT/s.
+        """
+        freq_ghz = convert_units(self.freq_MHz, 'MHz', 'GHz')
+        stacks = self.get_stacks()
+        data_rate = self.get_data_rate()
+        expected_tps = 2 * freq_ghz * stacks * data_rate
+        if not isclose(self.transfer_rate_GTs, expected_tps, rel_tol=1e-6, abs_tol=1e-6):
+            raise ValueError(
+                f"[simconfig.py:validate_transfer_rate] transfer_rate_GTs ({self.transfer_rate_GTs}) "
+                f"does not match calculated transfers per second ({expected_tps:.6f} GT/s) "
+                f"for memory block '{self.name}'. "
+                f"Expected: 2 * freq_GHz ({freq_ghz}) * stacks ({stacks}) * data_rate ({data_rate})"
+            )
+        return self
 
     def size(self, /, units="GB"):
         return convert_units(self.size_GB, 'GB', units)
@@ -399,20 +430,23 @@ class MemoryBlockModel(BaseModel, extra='forbid'):
     def frequency(self, units="MHz"):
         return convert_units(self.freq_MHz, 'MHZ', units)
 
+    def get_stacks(self):
+        return self.stacks if self.stacks is not None else 1
+
+    def get_data_rate(self):
+        return self.data_rate if self.data_rate is not None else 1
+
     def peak_bandwidth_per_cycle(self):
-        if TYPE_CHECKING:
-            assert self.data_rate is not None
-            assert self.stacks is not None
         # Calculate transfers per memory clock cycle:
         # - 2: TODO: document interpretation of 2
         # - stacks: number of memory stacks
-        transfers_per_cycle = 2 * self.stacks * self.data_rate
+        transfers_per_cycle = 2 * self.get_stacks() * self.get_data_rate()
         bw   = transfers_per_cycle * self.data_bits / 8
         return bw
 
     def peak_bandwidth(self, freq_units="GHz"):
         freq = self.frequency(freq_units)
-        Tps  = 2 * freq * self.stacks * self.data_rate #transfers-per-sec
+        Tps  = 2 * freq * self.get_stacks() * self.get_data_rate() #transfers-per-sec
         bw   = Tps * self.data_bits / 8
         return bw
 

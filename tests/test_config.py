@@ -122,3 +122,82 @@ def test_archname_in_output():
         # Verify that HLMStats correctly maps the fields
         assert hlm_stats.archname == 'Grendel', f"HLMStats.archname should be 'Grendel', got '{hlm_stats.archname}'"
         assert hlm_stats.devname == 'Q1_A1', f"HLMStats.devname should be 'Q1_A1', got '{hlm_stats.devname}'"
+
+
+@pytest.mark.unit
+def test_memory_transfer_rate_validation():
+    """Test that MemoryBlockModel validates transfer_rate_GTs matches calculated Tps."""
+    from ttsim.config.simconfig import MemoryBlockModel
+    from pydantic import ValidationError
+
+    # Test case 1: Valid GDDR6 configuration
+    gddr6_config = {
+        'name': 'gddr6',
+        'iptype': 'memory',
+        'technology': 'GDDR',
+        'data_bits': 32,
+        'data_rate': 8,
+        'freq_MHz': 1250,
+        'size_GB': 4,
+        'transfer_rate_GTs': 20.0  # 2 * (1250/1000) * 1 * 8 = 20.0
+    }
+    memory = MemoryBlockModel(**gddr6_config)
+    assert memory.transfer_rate_GTs == 20.0
+
+    # Test case 2: Valid HBM2 configuration
+    hbm2_config = {
+        'name': 'hbm2',
+        'iptype': 'memory',
+        'technology': 'HBM',
+        'freq_MHz': 1200,
+        'stacks': 8,
+        'data_bits': 128,
+        'size_GB': 8,
+        'transfer_rate_GTs': 19.2  # 2 * (1200/1000) * 8 * 1 = 19.2
+    }
+    memory_hbm2 = MemoryBlockModel(**hbm2_config)
+    assert memory_hbm2.transfer_rate_GTs == 19.2
+
+    # Test case 3: Invalid configuration - mismatch in transfer_rate_GTs
+    invalid_config = {
+        'name': 'invalid_mem',
+        'iptype': 'memory',
+        'technology': 'GDDR',
+        'data_bits': 32,
+        'data_rate': 8,
+        'freq_MHz': 1250,
+        'size_GB': 4,
+        'transfer_rate_GTs': 15.0  # Wrong! Should be 20.0
+    }
+    with pytest.raises(ValidationError) as exc_info:
+        MemoryBlockModel(**invalid_config)
+    assert 'transfer_rate_GTs' in str(exc_info.value)
+
+    # Test case 4: Valid LPDDR5x configuration
+    lpddr5x_config = {
+        'name': 'lpddr5x',
+        'iptype': 'memory',
+        'technology': 'LPDDR',
+        'data_bits': 16,
+        'data_rate': 4,
+        'freq_MHz': 1200,
+        'size_GB': 4,
+        'transfer_rate_GTs': 9.6  # 2 * (1200/1000) * 1 * 4 = 9.6
+    }
+    memory_lpddr = MemoryBlockModel(**lpddr5x_config)
+    assert memory_lpddr.transfer_rate_GTs == 9.6
+
+    # Test case 5: Default values for stacks and data_rate
+    default_config = {
+        'name': 'simple_mem',
+        'iptype': 'memory',
+        'technology': 'HBM',
+        'freq_MHz': 1000,
+        'data_bits': 128,
+        'size_GB': 4,
+        'transfer_rate_GTs': 2.0  # 2 * (1000/1000) * 1 * 1 = 2.0
+    }
+    memory_default = MemoryBlockModel(**default_config)
+    assert memory_default.transfer_rate_GTs == 2.0
+    assert memory_default.stacks == 1
+    assert memory_default.data_rate == 1
