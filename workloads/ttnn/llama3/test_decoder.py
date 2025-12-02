@@ -89,7 +89,7 @@ def test_decoder_inference():
             page_table=page_table_tt,
         )
         print(f"tt_out shape: {tt_out.shape}")
-        
+
         if (tt_out.shape[0] == batch_size and
             tt_out.shape[1] == 1 and
             tt_out.shape[2] == 32 and

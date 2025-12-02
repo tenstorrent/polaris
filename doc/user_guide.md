@@ -88,6 +88,11 @@ The workload specification file (`wlspec`) defines:
 - Input/output specifications
 - Operator configurations
 
+**Supported Workload APIs:**
+- `TTSIM`: PyTorch-like functional API for model simulation
+- `TTNN`: TT-NN (Tenstorrent Neural Network) API for hardware-native models
+- `ONNX`: ONNX model format support
+
 ### Workload Mapping Specification
 The workload mapping specification file (`wlmapspec`) defines:
 - Operator to datatype mappings
@@ -350,6 +355,272 @@ output_dir/
    - JSON for web integration
    - Pickle for Python processing
 5. Monitor memory requirements using `--enable_memalloc`
+
+## TTNN Workload Development Guide
+
+### Overview
+TTNN (TT-NN - Tenstorrent Neural Network) workloads represent models implemented using TT-NN operations that execute directly on Tenstorrent hardware. Polaris supports TTNN workloads for performance simulation and analysis.
+
+### TTNN Workload Architecture
+
+#### Workload Dispatch Flow
+```
+YAML Config → Polaris → TTNN Workload Function → Device Execution → Performance Graph
+```
+
+1. **Configuration** (`config/all_workloads.yaml`):
+   - Defines workload API type, name, and instances
+   - Specifies module path and hyperparameters
+
+2. **Dispatch** (`polaris.py:111-122`):
+   - Loads TTNN function from module
+   - Opens device for execution
+   - Calls workload with standard signature
+   - Captures operation graph for analysis
+
+3. **Execution** (e.g., `workloads/ttnn/resnet50/ttnn_functional_resnet50.py`):
+   - Implements model using TTNN operations
+   - Returns output tensor
+   - Device tracks all operations for performance analysis
+
+### Creating TTNN Workloads
+
+#### Standard Function Signature
+All TTNN workload functions must follow this signature:
+
+```python
+def run_<model_name>(wlname: str, device: TTNNDevice, cfg: dict):
+    """
+    Workload entry point for Polaris TTNN framework.
+    
+    Args:
+        wlname: Workload identifier from Polaris (e.g., "Resnet50")
+                This corresponds to the 'name' field in YAML config.
+                
+        device: TTNN device instance (lifecycle managed by Polaris)
+        
+        cfg: Configuration dict with model hyperparameters
+    
+    Returns:
+        Output tensor from model forward pass
+    """
+    # Implementation
+    pass
+```
+
+#### Key Conventions
+
+1. **Function Naming**: `run_<model_name>` where model_name matches the module context
+   - Example: `run_resnet50`, `run_vit`, `run_bert`
+
+2. **Parameter Contract**:
+   - `wlname` (str): Workload identifier from YAML config (used for logging/identification)
+   - `device` (TTNNDevice): Device instance provided by Polaris
+   - `cfg` (dict): Configuration merged from YAML + runtime overrides
+
+3. **Configuration Extraction**:
+   ```python
+   batch_size = cfg.get('batch_size', 8)  # With defaults
+   img_height = cfg.get('img_height', 224)
+   # ... extract other hyperparameters
+   ```
+
+4. **Device Lifecycle**: DO NOT open/close device - Polaris manages it
+   - Device opened by Polaris before function call
+   - Device closed by Polaris after function returns
+   - Operations automatically tracked on provided device
+
+#### Example TTNN Workload
+
+```python
+# workloads/ttnn/my_model/ttnn_functional_my_model.py
+from ttsim.front.ttnn.device import Device as TTNNDevice
+import ttsim.front.ttnn as ttnn
+
+def run_my_model(wlname: str, device: TTNNDevice, cfg: dict):
+    """
+    My Model workload entry point for Polaris TTNN framework.
+    
+    Args:
+        wlname: Workload identifier from Polaris
+        device: TTNN device instance (lifecycle managed by Polaris)
+        cfg: Configuration dict with model hyperparameters
+    
+    Returns:
+        Output tensor from model forward pass
+        
+    Note:
+        Invoked by polaris.py:120 as: ttnn_func(wln, ttnn_device, gcfg)
+    """
+    # Extract configuration
+    batch_size = cfg.get('batch_size', 1)
+    seq_length = cfg.get('seq_length', 512)
+    hidden_dim = cfg.get('hidden_dim', 768)
+    
+    # Create input tensors
+    input_tensor = ttnn.Tensor(
+        shape=[batch_size, seq_length, hidden_dim],
+        dtype=ttnn.bfloat16,
+        device=device
+    )
+    
+    # Implement model operations
+    # (operations automatically tracked by device)
+    x = ttnn.linear(input_tensor, weight, bias)
+    x = ttnn.gelu(x)
+    output = ttnn.linear(x, output_weight, output_bias)
+    
+    return output
+```
+
+### YAML Configuration
+
+#### Workload Configuration Format
+
+```yaml
+workloads:
+  - api: TTNN                              # API type
+    name: MyModel                          # Workload name (passed as wlname)
+    basedir: workloads/ttnn/my_model/      # Base directory
+    module: run_my_model@ttnn_functional_my_model.py  # Note: filename is basename, no "/"
+    params: 
+      wl_param_1: 20                       # Parameter common across all instances of this workload
+    instances:
+      default:                             # Instance name
+          batch_size: 8                    # Instance-specific config
+          seq_length: 512
+          hidden_dim: 768
+      large:                               # Alternative instance
+          batch_size: 16
+          seq_length: 1024
+          hidden_dim: 1024
+```
+
+#### Configuration Merging
+
+The `cfg` parameter passed to your function is merged from multiple sources:
+
+1. **Instance Config**: From YAML `instances.<instance_name>`
+2. **Runtime Overrides**: From command-line options
+   - `--batchsize`: Overrides `batch_size` in cfg
+   - Other sweep parameters
+
+Example:
+```bash
+# Original YAML has batch_size: 8
+python polaris.py --wlspec config/my_workloads.yaml --batchsize 1 32 1
+
+# Your function receives cfg with batch_size: 32 (overridden)
+```
+
+### Parameter Flow Reference
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│ Configuration YAML (config/all_workloads.yaml)                  │
+│ ┌─────────────────────────────────────────────────────────────┐ │
+│ │ workloads:                                                   │ │
+│ │   - api: TTNN                                                │ │
+│ │     name: "Resnet50"  ────► wln (workload name)             │ │
+│ │     instances:                                               │ │
+│ │       default:                                               │ │
+│ │           batch_size: 8 ──► gcfg (config dict)               │ │
+│ └─────────────────────────────────────────────────────────────┘ │
+└─────────────────────────────────────────────────────────────────┘
+                              ↓
+┌─────────────────────────────────────────────────────────────────┐
+│ Polaris Dispatcher (polaris.py:111-122)                         │
+│                                                                  │
+│ ttnn_func = get_ttnn_functional_instance(wpath, wln, gcfg)      │
+│ ttnn_device = open_device(device_id=0)                          │
+│                                                                  │
+│ ttnn_res = ttnn_func(wln, ttnn_device, gcfg)                    │
+│                       │         │         │                      │
+│                       │         │         └─► cfg dict           │
+│                       │         └──────────► device instance     │
+│                       └────────────────────► wlname string       │
+└─────────────────────────────────────────────────────────────────┘
+                              ↓
+┌─────────────────────────────────────────────────────────────────┐
+│ TTNN Workload Function (workloads/ttnn/.../run_*.py)            │
+│                                                                  │
+│ def run_resnet50(wlname: str, device: TTNNDevice, cfg: dict):   │
+│     # wlname = "Resnet50" (for logging/identification)          │
+│     # device = TTNN device instance (managed by Polaris)        │
+│     # cfg = {batch_size: 8, ...} (merged configuration)         │
+│                                                                  │
+│     batch_size = cfg.get('batch_size', 8)                       │
+│     # ... implement model ...                                   │
+│     return output_tensor                                        │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+### Best Practices
+
+1. **Always Use `.get()` with Defaults**: Provides fallback values
+   ```python
+   batch_size = cfg.get('batch_size', 8)  # ✓ Good
+   batch_size = cfg['batch_size']          # ✗ Bad - may fail
+   ```
+
+2. **Don't Manage Device Lifecycle**: Polaris handles it
+   ```python
+   # ✗ Bad - Don't do this
+   device = ttnn.open_device(device_id=0)
+   ...
+   ttnn.close_device(device)
+   
+   # ✓ Good - Use provided device
+   def run_my_model(wlname: str, device: TTNNDevice, cfg: dict):
+       # Use device parameter
+       tensor = ttnn.Tensor(..., device=device)
+   ```
+
+3. **Include Comprehensive Docstrings**: Document the signature convention
+   - Reference polaris.py invocation
+   - List expected cfg parameters
+   - Specify return type
+
+4. **Use Meaningful Variable Names**: Match YAML config keys
+   ```python
+   # ✓ Good - matches YAML
+   batch_size = cfg.get('batch_size', 8)
+   
+   # ✗ Less clear
+   bs = cfg.get('bs', 8)
+   ```
+
+5. **Return TTNN Tensors**: Polaris expects tensor outputs
+   ```python
+   return output_tensor  # ✓ Good
+   return None          # ✗ Bad
+   ```
+
+### Debugging TTNN Workloads
+
+#### Enable Debug Logging
+```bash
+python polaris.py --log_level debug --wlspec config/my_workloads.yaml ...
+```
+
+#### Check Operation Graph
+After execution, Polaris captures the operation graph:
+- All TTNN operations are recorded
+- Performance statistics computed per operation
+- Graph available for analysis
+
+#### Common Issues
+
+1. **"ModuleNotFoundError"**: Check module path in YAML
+2. **"KeyError in cfg"**: Use `.get()` with defaults
+3. **"Device already opened"**: Don't open device in function
+4. **Shape mismatch"**: Verify tensor shapes match TTNN requirements
+
+### See Also
+- `workloads/ttnn/resnet50/ttnn_functional_resnet50.py` - Reference implementation
+- `polaris.py:111-122` - TTNN dispatch mechanism
+- `config/all_workloads.yaml` - Configuration examples
+- `ttsim/front/ttnn/` - TTNN API implementation
 
 ## Troubleshooting
 

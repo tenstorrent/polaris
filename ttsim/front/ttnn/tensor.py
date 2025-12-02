@@ -182,6 +182,7 @@ class Tensor(SimTensor):
 
         opobj  = SimOp(opinfo)
         pstats = opobj.get_perf_counts([self], [outT])
+        opobj.update_tensor_counts([self], [outT])
 
         self.device.add_op(opobj)
 
@@ -199,7 +200,7 @@ class Tensor(SimTensor):
 
         opobj  = SimOp(opinfo)
         pstats = opobj.get_perf_counts([self, shapeT], [outT])
-
+        opobj.update_tensor_counts([self, shapeT], [outT])
         self.device.add_op(opobj)
 
         return outT

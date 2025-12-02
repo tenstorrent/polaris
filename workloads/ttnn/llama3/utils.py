@@ -5,6 +5,7 @@
 from enum import Enum
 import os, sys
 
+from loguru import logger
 from numpy import reshape
 from ttsim.front.ttnn.tensor import DataType, Tensor, Layout
 sys.path.append(os.path.join(os.path.dirname(__file__), '../../..'))
@@ -130,11 +131,11 @@ def rotary_embedding_llama(
         input_last2 = x.shape[-2:]
         num_matmul_calls = mth.ceil(input_last2[0] / chunk_size[0]) * mth.ceil(input_last2[1] / chunk_size[1])
         if (num_matmul_calls > 0):
-            print(f'Below are stats for each matmul call of size {chunk_size} on input of size {input_last2}, a total of {num_matmul_calls} calls')
+            logger.info(f'Below are stats for each matmul call of size {chunk_size} on input of size {input_last2}, a total of {num_matmul_calls} calls')
             for i in range(num_matmul_calls):
                 in1 = Tensor(shape=trans_mat.shape, device=x.device, dtype=DataType.from_numpy(trans_mat.dtype))
                 dummy_out = ttnn.matmul(in1, in1)
-                print(f'  matmul call {i+1}/{num_matmul_calls} done, w output shape {dummy_out.shape}')
+                logger.info(f'  matmul call {i+1}/{num_matmul_calls} done, w output shape {dummy_out.shape}')
         x_rot = x  # No actual computation, just reporting the count
     else:
         # If no transformation matrix is provided, assume identity (no rotation)
@@ -258,7 +259,7 @@ def scaled_dot_product_attention_decode(
     num_query_heads = q_heads_1BQD.shape[2]
     num_kv_heads = keys.shape[1]
     # if num_query_heads > num_kv_heads:
-    #     print(f'Implementation of GQA {num_query_heads / num_kv_heads} mapping for decode mode')
+    #     logger.info(f'Implementation of GQA {num_query_heads / num_kv_heads} mapping for decode mode')
 
     def gqa_matmul(q_head, kv_head, transposed=True):
         # MatMul Q x K^T: [1, num_query_heads, seq_len_q, head_dim] x [1, num_query_heads, head_dim, seq_len_k] -> [1, num_query_heads, seq_len_q, seq_len_k]

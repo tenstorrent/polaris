@@ -170,6 +170,10 @@ def get_ttsim_functional_instance(python_module_path, python_instance_name, pyth
     python_instance = wl_cls(python_instance_name, python_instance_cfg)
     return python_instance
 
+def get_ttnn_functional_instance(python_module_path, python_instance_name, python_instance_cfg):
+    wl_func = get_ttsim_python_class(python_module_path)
+    return wl_func
+
 def str_to_bool(s):
     if isinstance(s, bool):
         return s

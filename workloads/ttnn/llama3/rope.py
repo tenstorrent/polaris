@@ -4,6 +4,7 @@
 
 import os, sys
 sys.path.append(os.path.join(os.path.dirname(__file__), '../../..'))
+from loguru import logger
 import ttsim.front.ttnn as ttnn
 import math
 
@@ -245,7 +246,7 @@ class RotarySetup():
             rot_idxs = ttnn.to_device(rot_idxs, device, memory_config=ttnn.DRAM_MEMORY_CONFIG)
 
         embedding_layout = ttnn.TILE_LAYOUT
-        # print(f'cos_mat is {self.cos_matrix.shape}, sin_mat is {self.sin_matrix.shape}, rot_idxs is {rot_idxs.shape}')
+        # logger.info(f'cos_mat is {self.cos_matrix.shape}, sin_mat is {self.sin_matrix.shape}, rot_idxs is {rot_idxs.shape}')
         cos = ttnn.embedding(rot_idxs, self.cos_matrix.squeeze(0).squeeze(0), layout=embedding_layout)  # [1, batch, head_dim]
         sin = ttnn.embedding(rot_idxs, self.sin_matrix.squeeze(0).squeeze(0), layout=embedding_layout)  # [1, batch, head_dim]
 

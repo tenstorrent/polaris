@@ -9,6 +9,7 @@ from typing import List
 from loguru import logger
 
 import ttsim.front.ttnn as ttnn
+from ttsim.front.ttnn.device import Device as TTNNDevice
 
 from workloads.ttnn.resnet50.utils import get_conv_input_memory_config
 from workloads.ttnn.resnet50.utils import _nearest_y, _nearest_32, is_blackhole, is_grayskull, is_wormhole_b0
@@ -733,7 +734,7 @@ class resnet50:
             )
             self.fold_compute_grid_size = core_grid
         else:
-            print("WHY ARE WE NOT HANDLING THIS batch_size=", self.batch_size)
+            logger.warning("WHY ARE WE NOT HANDLING THIS batch_size={}", self.batch_size)
             exit(0)
 
         #conv_dummy_tensor = torch.rand((self.fold_output_shape), dtype=torch.bfloat16)
@@ -1366,29 +1367,74 @@ class resnet50:
 
         return x
 
-if __name__ == '__main__':
+
+def run_resnet50(wlname: str, device: TTNNDevice, cfg: dict):
+    """
+    ResNet-50 workload entry point for Polaris TTNN framework.
+
+    Args:
+        wlname: Workload identifier from Polaris (corresponds to 'wln' in 
+               polaris.py call to ttnn_func in get_wlgraph TTNN scenario).
+               Example: "Resnet50"
+               Convention: All TTNN run_* functions accept this parameter 
+               for consistency with the Polaris workload dispatch mechanism.
+
+        device: TTNN device instance (lifecycle managed by Polaris)
+
+        cfg: Configuration dict with model hyperparameters (batch_size, 
+            num_channels, img_height, img_width, etc.)
+
+    Returns:
+        Output tensor from ResNet-50 forward pass
+
+    Note:
+        Invoked by polaris.py get_wlgraph as: ttnn_func(wln, ttnn_device, gcfg)
+        where wln comes from workload spec YAML (e.g., config/all_workloads.yaml)
+    """
 
     from workloads.ttnn.resnet50.utils import create_rn50_params
 
-
-    num_channels = 3
-    in_channels  = 64
-    batch_size   = 8
-    kernel_size  = 4
-    stride       = 1
+    batch_size  = cfg.get('batch_size', 8)
+    num_channels = cfg.get('num_channels', 3)
+    img_height = cfg.get('img_height', 224)
+    img_width  = cfg.get('img_width', 224)
+    in_channels  = cfg.get('in_channels', 64)
+    kernel_size  = cfg.get('kernel_size', 4)
+    stride       = cfg.get('stride', 1)
     model_config = {
-            'MATH_FIDELITY': 1,
-            'WEIGHTS_DTYPE': ttnn.bfloat16,
-            'ACTIVATIONS_DTYPE': ttnn.bfloat16,
-            }
-    input_shape  = [batch_size, 3, 224, 224]
+            'MATH_FIDELITY': cfg.get('math_fidelity', 1),
+            'WEIGHTS_DTYPE': ttnn.name_to_datatype(cfg.get('weights_dtype', 'bfloat16')),
+            'ACTIVATIONS_DTYPE': ttnn.name_to_datatype(cfg.get('activations_dtype', 'bfloat16')),
+    }
+    input_shape = [batch_size, num_channels, img_height, img_width]
+    input_tensor= ttnn.Tensor(shape=input_shape, dtype=ttnn.bfloat16, device=device)
+    parameters  = create_rn50_params(device=device, dtype=ttnn.bfloat16.to_numpy)
+    rn50_model  = resnet50(device, parameters, batch_size, model_config, input_shape, kernel_size=kernel_size, stride=stride)
+    rn50_output = rn50_model(input_tensor, device, None)
+    return rn50_output
 
+if __name__ == '__main__':
 
-    device       = ttnn.open_device(l1_small_size=24576, device_id=0)
-    input_tensor = ttnn.Tensor(shape=input_shape, dtype=ttnn.bfloat16, device=device)
-    parameters   = create_rn50_params(device=device, dtype=ttnn.bfloat16.to_numpy)
-    rn50_model   = resnet50(device, parameters, batch_size, model_config, input_shape, kernel_size, stride)
-    rn50_output  = rn50_model(input_tensor, device, None)
+    device      = ttnn.open_device(l1_small_size=24576, device_id=0)
+    result = run_resnet50('Resnet50', device, {'batch_size': 8, 'num_channels': 3, 'img_height': 224, 'img_width': 224})
     ttnn.close_device(device)
 
+    #num_channels = 3
+    #in_channels  = 64
+    #batch_size   = 8
+    #kernel_size  = 4
+    #stride       = 1
+    #model_config = {
+    #        'MATH_FIDELITY': 1,
+    #        'WEIGHTS_DTYPE': ttnn.bfloat16,
+    #        'ACTIVATIONS_DTYPE': ttnn.bfloat16,
+    #        }
+    #input_shape  = [batch_size, 3, 224, 224]
+#
 
+    #device       = ttnn.open_device(l1_small_size=24576, device_id=0)
+    #input_tensor = ttnn.Tensor(shape=input_shape, dtype=ttnn.bfloat16, device=device)
+    #parameters   = create_rn50_params(device=device, dtype=ttnn.bfloat16.to_numpy)
+    #rn50_model   = resnet50(device, parameters, batch_size, model_config, input_shape, kernel_size, stride)
+    #rn50_output  = rn50_model(input_tensor, device, None)
+    # ttnn.close_device(device)

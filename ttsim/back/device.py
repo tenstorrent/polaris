@@ -205,16 +205,22 @@ class Device:
         mem_rd_bytes = op.perf_stats['inBytes']
         mem_wr_bytes = op.perf_stats['outBytes']
 
-        # NOTE: Apply math.ceil only once, after the second division below, to avoid rounding errors
         # Convert memory bytes to memory cycles in memory clock domain
         mem_rd_cycles_memclk = mem_rd_bytes / self.eff_bw_bytes_per_cycle
         mem_wr_cycles_memclk = mem_wr_bytes / self.eff_bw_bytes_per_cycle
 
         # Convert memory cycles to device clock domain
-        mem_rd_cycles_devclk = math.ceil(mem_rd_cycles_memclk * mem_to_dev_ratio)
-        mem_wr_cycles_devclk = math.ceil(mem_wr_cycles_memclk * mem_to_dev_ratio)
-        op.mem_rd_cycles = mem_rd_cycles_devclk
-        op.mem_wr_cycles = mem_wr_cycles_devclk
+        # Store both fractional and ceiled values to avoid accumulated rounding errors
+        mem_rd_cycles_devclk_fractional = mem_rd_cycles_memclk * mem_to_dev_ratio
+        mem_wr_cycles_devclk_fractional = mem_wr_cycles_memclk * mem_to_dev_ratio
+        
+        # Store fractional values for accurate aggregation
+        op.mem_rd_cycles_fractional = mem_rd_cycles_devclk_fractional
+        op.mem_wr_cycles_fractional = mem_wr_cycles_devclk_fractional
+        
+        # Store ceiled values for per-op scheduling (backward compatibility)
+        op.mem_rd_cycles = math.ceil(mem_rd_cycles_devclk_fractional)
+        op.mem_wr_cycles = math.ceil(mem_wr_cycles_devclk_fractional)
 
         return
 
@@ -344,8 +350,12 @@ class Device:
 
         tot_matrix_cycles     = sum(op_stat_iter('matrix_cycles', repeat=True))
         tot_vector_cycles     = sum(op_stat_iter('vector_cycles', repeat=True))
-        tot_mem_rd_cycles     = sum(op_stat_iter('mem_rd_cycles', repeat=True))
-        tot_mem_wr_cycles     = sum(op_stat_iter('mem_wr_cycles', repeat=True))
+        
+        # Use fractional cycles for accurate aggregation, then ceil at the aggregate level
+        tot_mem_rd_cycles_fractional = sum(op_stat_iter('mem_rd_cycles_fractional', repeat=True))
+        tot_mem_wr_cycles_fractional = sum(op_stat_iter('mem_wr_cycles_fractional', repeat=True))
+        tot_mem_rd_cycles = math.ceil(tot_mem_rd_cycles_fractional)
+        tot_mem_wr_cycles = math.ceil(tot_mem_wr_cycles_fractional)
 
         tot_matrix_pipe_util  = tot_matrix_cycles / tot_ideal_cycles * self.DG_COMPUTE_UTIL_CONSTANT
         tot_vector_pipe_util  = tot_vector_cycles / tot_ideal_cycles * self.DG_COMPUTE_UTIL_CONSTANT
@@ -411,28 +421,37 @@ class Device:
                 'device_peak_fp8_tflops': self.simconfig_obj.peak_flops('matrix', 'mac', 'fp8', mul_factor=2),
                 }
         if tot_mem_rd_cycles > 0 or tot_mem_wr_cycles > 0:
-            # ensure that the memory bandwidth is correct for the number of cycles
+            # Validate that the memory bandwidth accounting is correct
+            # Since we now use fractional cycles and ceil at aggregate level, 
+            # the validation should be much more accurate
             mem_to_dev_ratio = self.freq_MHz / self.memfreq_MHz
-            # tot_mem_rd_cycles is in device clock domain
             expected_bytes_per_device_clock = self.eff_bw_bytes_per_cycle / mem_to_dev_ratio
+            
             if tot_mem_rd_cycles > 0:
                 actual_bytes_per_device_clock = tot_inBytes / tot_mem_rd_cycles
-                if not math.isclose(actual_bytes_per_device_clock, expected_bytes_per_device_clock, rel_tol=1e-1):
+                # Allow for a single cycle of rounding error from the final ceil operation
+                expected_cycles = (tot_inBytes / self.eff_bw_bytes_per_cycle) * mem_to_dev_ratio
+                # Check both directions: cycles should be close to expected (within +1 for ceiling)
+                if tot_mem_rd_cycles > expected_cycles + 1 or tot_mem_rd_cycles < expected_cycles - 1:
                     raise ValueError(
                         f"Memory bandwidth validation failed (read):\n"
                         f"  Calculated bytes_per_device_clock: {actual_bytes_per_device_clock:.2f}\n"
                         f"  Expected bytes_per_device_clock:   {expected_bytes_per_device_clock:.2f}\n"
                         f"  Ratio (actual/expected):           {actual_bytes_per_device_clock / expected_bytes_per_device_clock:.2f}\n"
+                        f"  Actual cycles: {tot_mem_rd_cycles}, Expected: {expected_cycles:.2f}\n"
                         f"This indicates an inconsistency in memory traffic accounting."
                     )
             if tot_mem_wr_cycles > 0:
                 actual_bytes_per_device_clock = tot_outBytes / tot_mem_wr_cycles
-                if not math.isclose(actual_bytes_per_device_clock, expected_bytes_per_device_clock, rel_tol=1e-1):
+                expected_cycles = (tot_outBytes / self.eff_bw_bytes_per_cycle) * mem_to_dev_ratio
+                # Check both directions: cycles should be close to expected (within +1 for ceiling)
+                if tot_mem_wr_cycles > expected_cycles + 1 or tot_mem_wr_cycles < expected_cycles - 1:
                     raise ValueError(
                         f"Memory bandwidth validation failed (write):\n"
                         f"  Calculated bytes_per_device_clock: {actual_bytes_per_device_clock:.2f}\n"
                         f"  Expected bytes_per_device_clock:   {expected_bytes_per_device_clock:.2f}\n"
                         f"  Ratio (actual/expected):           {actual_bytes_per_device_clock / expected_bytes_per_device_clock:.2f}\n"
+                        f"  Actual cycles: {tot_mem_wr_cycles}, Expected: {expected_cycles:.2f}\n"
                         f"This indicates an inconsistency in memory traffic accounting."
                     )
 

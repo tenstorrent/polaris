@@ -5,6 +5,7 @@
 import os, sys
 sys.path.append(os.path.join(os.path.dirname(__file__), '../../..'))
 import ttsim.front.ttnn as ttnn
+from loguru import logger
 from workloads.ttnn.llama3.rmsnorm import RMSNorm
 from workloads.ttnn.llama3.decoder import TransformerBlock
 from workloads.ttnn.llama3.embedding import Embedding
@@ -125,7 +126,7 @@ class Transformer():
             )
 
         if mode == "prefill" and get_last_token == -1:
-            print(f'x shape before to_layout is {x.shape}')
+            logger.info(f'x shape before to_layout is {x.shape}')
             return x
 
         # Slicing the tensor to the nearest ceiling/floor multiples of 32 for the prefill_len, to get the last token
@@ -198,4 +199,3 @@ class Transformer():
             get_last_token=get_last_token,
             kv_cache=kv_cache,
         )
-

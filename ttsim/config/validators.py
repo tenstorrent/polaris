@@ -93,8 +93,16 @@ class PYDWorkloadONNXModelValidator(PYDWorkloadBaseModel):
             result[iname]['path'] = os.path.join(self.basedir, xcfg['path'])
         return result
 
+class PYDWorkloadTTNNModelValidator(PYDWorkloadBaseModel):
+    api: Literal['TTNN']
+    name: str
+    module: str
+    basedir: str
+    instances: dict
+    params: Optional[dict] = {}
 
-AnyWorkload = Annotated[PYDWorkloadTTSIMModelValidator | PYDWorkloadONNXModelValidator, Field(discriminator='api')]
+
+AnyWorkload = Annotated[PYDWorkloadTTSIMModelValidator | PYDWorkloadONNXModelValidator | PYDWorkloadTTNNModelValidator  , Field(discriminator='api')]
 
 
 class PYDWorkloadListValidator(BaseModel):

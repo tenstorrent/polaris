@@ -71,6 +71,9 @@ def create_mock_op(name, optype, removed=False, fused=False, fused_with=None,
     op.compute_cycles = compute_cycles
     op.mem_rd_cycles = mem_rd_cycles
     op.mem_wr_cycles = mem_wr_cycles
+    # Add fractional cycles for accurate aggregation (matching device.py implementation)
+    op.mem_rd_cycles_fractional = float(mem_rd_cycles)
+    op.mem_wr_cycles_fractional = float(mem_wr_cycles)
     op.repeat_count = repeat_count
     op.precision = precision
     op.fused_op_cycles = None
@@ -418,16 +421,18 @@ def test_op_stat_iter_skip_flags():
     mock_config = MockSimConfig()
     device = Device(mock_config)
 
-    # Create operators
+    # Create operators with consistent bandwidth
+    # Note: All ops use mem_rd_cycles=500, mem_wr_cycles=500 to maintain consistent
+    # bytes/cycle ratio (4000 bytes / 500 cycles = 8 bytes/cycle) for bandwidth validation
     ops = [
         create_mock_op('op1', 'MatMul', removed=False, fused=False,
                       compute_cycles=1000, mem_rd_cycles=500, mem_wr_cycles=500),
         create_mock_op('op2', 'Add', removed=True, fused=False,
-                      compute_cycles=200, mem_rd_cycles=100, mem_wr_cycles=100),
+                      compute_cycles=200, mem_rd_cycles=500, mem_wr_cycles=500),
         create_mock_op('op3', 'Relu', removed=False, fused=True,
-                      compute_cycles=150, mem_rd_cycles=75, mem_wr_cycles=75),
+                      compute_cycles=150, mem_rd_cycles=500, mem_wr_cycles=500),
         create_mock_op('op4', 'MatMul', removed=False, fused=False,
-                      compute_cycles=1200, mem_rd_cycles=600, mem_wr_cycles=600),
+                      compute_cycles=1200, mem_rd_cycles=500, mem_wr_cycles=500),
     ]
 
     graph = create_mock_graph(ops)

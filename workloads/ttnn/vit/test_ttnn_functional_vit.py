@@ -2,13 +2,19 @@
 # SPDX-FileCopyrightText: (C) 2025 Tenstorrent AI ULC
 # SPDX-License-Identifier: Apache-2.0
 
-import os, sys
+import os
+import sys
+
 sys.path.append(os.path.join(os.path.dirname(__file__), '../../..'))
+from loguru import logger
+
 import ttsim.front.ttnn as ttnn
+from ttsim.front.ttnn.device import Device as TTNNDevice
+from ttsim.utils.common import setup_logger
 from workloads.ttnn.vit.ttnn_functional_vit import vit
 
-def run_vit():
-    device = ttnn.open_device(device_id=0)
+
+def run_vit(wlname: str, device: TTNNDevice, cfg: dict):
     class Config:
         def __init__(self):
             self.num_hidden_layers = 12
@@ -106,15 +112,18 @@ def run_vit():
         position_embeddings,
         parameters=parameters,
     )
-    print('Input shape:', pixel_values.shape)
-    print("Output shape:", output.shape)
+    logger.info('Input shape: {}', pixel_values.shape)
+    logger.info("Output shape: {}", output.shape)
     if output.shape == [8, 197, 1152]:
         return True
     else:
         return False
 
 if __name__ == "__main__":
-    if run_vit():
-        print("Test Passed")
+    setup_logger(level='INFO')
+    ttnn_device = ttnn.open_device(device_id=0)
+    if run_vit(wlname='vit', device=ttnn_device, cfg={'model_name': 'vit-b16'}):
+        logger.info("Test Passed")
     else:
-        print("Test Failed")
+        logger.error("Test Failed")
+    ttnn.close_device(ttnn_device)
