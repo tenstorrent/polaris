@@ -32,6 +32,22 @@ workloads:
       rn50_b1_hd : { img_height: 1024, img_width: 1024 }
       rn50_b1_uhd: { img_height: 2828, img_width: 2828 }
 
+  # generate resnet50.onnx using code in workloads/onnx/examples/:
+  - api: ONNX
+    name: RESNET50
+    basedir: workloads
+    module : ResNet@basicresnet.py
+    instances:
+      rn50_b1_hd : { path: 'onnx/resnet50.onnx', img_height: 1024, img_width: 1024, bs: 1 }
+
+  # generate bert-fixed-128.onnx using code in workloads/onnx/examples/:
+  - api: ONNX
+    name: BERT-BASE
+    basedir: workloads
+    module : BasicLLM@BasicLLM.py
+    instances:
+      bert_base : { path: 'onnx/bert-fixed-128.onnx', seq_len: 128, bs: 1 }
+
   - api: TTSIM
     name: BEVDepth
     basedir: workloads/bevdepth

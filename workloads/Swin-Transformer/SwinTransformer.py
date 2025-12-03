@@ -37,19 +37,23 @@ class Mlp(SimNN.Module):
         return x
 
 
-def window_partition(x, window_size):
+def window_partition(x, window_size, module=None):
     """Simplified window partition"""
     B, H, W, C = x.shape
     x = x.view(B, H // window_size, window_size, W // window_size, window_size, C)
-    windows = x.permute([0, 1, 3, 2, 4, 5]).contiguous().view(-1, window_size, window_size, C)
+    windows = x.permute([0, 1, 3, 2, 4, 5]).contiguous() # type: ignore[attr-defined]
+    windows.set_module(module)
+    windows = windows.view(-1, window_size, window_size, C)
     return windows
 
 
-def window_reverse(windows, window_size, H, W):
+def window_reverse(windows, window_size, H, W, module=None):
     """Simplified window reverse"""
     B = int(windows.shape[0] / (H * W / window_size / window_size))
     x = windows.view(B, H // window_size, W // window_size, window_size, window_size, -1)
-    x = x.permute([0, 1, 3, 2, 4, 5]).contiguous().view(B, H, W, -1)
+    x = x.permute([0, 1, 3, 2, 4, 5]).contiguous() # type: ignore[attr-defined]
+    x.set_module(module)
+    x = x.view(B, H, W, -1)
     return x
 
 
@@ -106,7 +110,9 @@ class WindowAttention(SimNN.Module):
         k.set_module(self)
         attn = self.matmulop(q, k.transpose(-2, -1))    # type: ignore[attr-defined]
         self.relative_position_bias.set_module(self)
-        attn = attn + self.relative_position_bias.permute([2, 0, 1]).unsqueeze(0)   # type: ignore[attr-defined]
+        perm_relative_position_bias = self.relative_position_bias.permute([2, 0, 1])  # type: ignore[attr-defined]
+        perm_relative_position_bias.set_module(self)
+        attn = attn + perm_relative_position_bias.unsqueeze(0)   # type: ignore[attr-defined]
         if mask is not None:
             nW = mask.shape[0]
             attn = attn.view(B_ // nW, nW, self.num_heads, N, N) + mask.unsqueeze(1).unsqueeze(0)
@@ -171,7 +177,7 @@ class SwinTransformerBlock(SimNN.Module):
         x = x.view(B, H, W, C)
 
         #  window partition
-        x_windows = window_partition(x, self.window_size)
+        x_windows = window_partition(x, self.window_size, module=self)
         x_windows = x_windows.view(-1, self.window_size * self.window_size, C)
 
         # W-MSA/SW-MSA
@@ -179,7 +185,7 @@ class SwinTransformerBlock(SimNN.Module):
         
         # Merge windows
         attn_windows = attn_windows.view(-1, self.window_size, self.window_size, C)
-        shifted_x = window_reverse(attn_windows, self.window_size, H, W)
+        shifted_x = window_reverse(attn_windows, self.window_size, H, W, module=self)
 
         # Skip reverse cyclic shift - convert back to flat format for residual addition
         x = shifted_x.view(B, L, C)  

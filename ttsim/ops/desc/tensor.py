@@ -230,6 +230,9 @@ def slice_sinf(iTList, oTList, op, **kwargs):
     #tmp_outT = build_tmp_data_tensor(np_out, op.name + '__tmp_out__')
     #update_output_tensor(op, tmp_outT, oTList[0])
 
+    if ('out_shape' not in op.attrs) or (op.attrs['out_shape'] is None):
+        op.attrs['out_shape'] = dataT.shape
+
     assert 'out_shape' in op.attrs, "No out_shape specified in Slice!! " + \
                          "Look at tensor_getitem implementation in ttsim/.../tensor_op.py"
     op.attrs['out_shape'] = [int(i) for i in op.attrs['out_shape']]
@@ -538,6 +541,8 @@ def shape_op_inf_func(iTList, oTList, op, **kwargs):
     tmp_tensor = build_tmp_data_tensor(tdata, op.name + '_tmp_out_tensor_')
     update_output_tensor(op, tmp_tensor, oTList[0])
     op.perf_stats = {
+            'inElems' : A.rank(),
+            'outElems': A.rank(),
             'inBytes' : A.rank() * 4,
             'outBytes': A.rank() * 4,
             'instrs'  : {'mov': A.rank()} # 4Bytes per Index

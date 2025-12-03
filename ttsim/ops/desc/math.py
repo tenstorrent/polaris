@@ -133,12 +133,17 @@ def grid_sample_inf(iTList, oTList, op, **kwargs):
 
 def expand_sinf(iTList, oTList, op, **kwargs):
     A = iTList[0]
-    B = iTList[1].clone_by_shape(data_maybe_missing=False) #B.data should exist
-    assert A.check_shape(), f"Input tensor-A shape not defined: {A}"
-    assert B.check_shape(), f"Input tensor-B shape not defined: {B}"
-    assert B.dtype == np.int64, f"Input Data-Type should be np.int64 {B}"
-    AShape       = iTList[0].shape
-    target_shape = [x.item() for x in B.data]
+    AShape = iTList[0].shape
+
+    if iTList[1].data is None:
+        target_shape = AShape
+    else:
+        B = iTList[1].clone_by_shape(data_maybe_missing=False) #B.data should exist
+        assert A.check_shape(), f"Input tensor-A shape not defined: {A}"
+        assert B.check_shape(), f"Input tensor-B shape not defined: {B}"
+        assert B.dtype == np.int64, f"Input Data-Type should be np.int64 {B}"
+        target_shape = [x.item() for x in B.data]
+
     CShape       = bidirectional_broadcast_shape_inference(AShape, target_shape)
     oTList[0].shape = CShape
     oTList[0].dtype = A.dtype
@@ -255,6 +260,43 @@ def nonzero_sinf(iTList, oTList, op, **kwargs):
             }
     return
 
+def gemm_sinf(iTList, oTList, op, **kwargs):
+    A = iTList[0]
+    B = iTList[1]
+    assert A.check_shape(), f"Input tensor-A shape not defined: {A}"
+    assert B.check_shape(), f"Input tensor-B shape not defined: {B}"
+    transA = op.attrs.get('transA', 0)
+    transB = op.attrs.get('transB', 0)
+    AShape, BShape, CShape = A.shape, B.shape, None
+    if transA:
+        AShape = AShape[:-2] + [AShape[-1], AShape[-2]]
+    if transB:
+        BShape = BShape[:-2] + [BShape[-1], BShape[-2]]
+
+    if len(AShape) < 2 or len(BShape) < 2:
+        raise ValueError("Shapes must have at least 2 dimensions")
+
+    batch1, mat1 = AShape[:-2], AShape[-2:]
+    batch2, mat2 = BShape[:-2], BShape[-2:]
+
+    # Check matrix multiplication compatibility
+    if mat1[-1] != mat2[-2]:
+        raise ValueError(f"Gemm incompatible: {mat1[-1]} != {mat2[-2]}")
+    broadcast_batch = bidirectional_broadcast_shape_inference(batch1, batch2)
+    CShape = broadcast_batch + [mat1[-2], mat2[-1]]
+
+    reduced_dim     = mat1[-1]
+    oTList[0].shape = CShape
+    oTList[0].dtype = A.dtype
+    op.perf_stats = {
+            'inElems' : iTList[0].nelems() + iTList[1].nelems(),
+            'outElems': oTList[0].nelems(),
+            'inBytes' : iTList[0].nbytes(op.precision) + iTList[1].nbytes(op.precision),
+            'outBytes': oTList[0].nbytes(op.precision),
+            'instrs'  : {'mac': oTList[0].nelems() * reduced_dim}
+            }
+    return
+
 def register_math_ops():
     _xoptbl = [
             ['Clip', 'ARITY_VARIADIC[1-3]->1', 'ai.onnx', 'COMMON',  13,  13,  3,  1,  1,  1,  unary_fwd,  True,  True,  True,  True,  True],
@@ -264,7 +306,7 @@ def register_math_ops():
             #['SoftmaxCrossEntropyLoss',   'ARITY_VARIADIC[2-3]->VARIADIC[1-2]',  'ai.onnx', 'COMMON',  13,  13,  3,  2,  2,  1,  'inline_lambda',  True,  True,  True,  True,  True],
             #['Einsum',           'ARITY_VARIADIC[1-*]->1', 'ai.onnx', 'COMMON',  12,  12,  2147483647,  1,  1,  1,  'inline_lambda',  True,  True,  True,  True,  True],
             #['DFT',              'ARITY_VARIADIC[1-3]->1', 'ai.onnx', 'COMMON',  20,  20,  3,  1,  1,  1,  'inline_lambda',  True,  True,  True,  True,  True],
-            #['Gemm',             'ARITY_VARIADIC[2-3]->1', 'ai.onnx', 'COMMON',  13,  13,  3,  2,  1,  1,  'inline_lambda',  True,  True,  True,  True,  True],
+            ['Gemm',             'ARITY_VARIADIC[2-3]->1', 'ai.onnx', 'COMMON',  13,  13,  3,  2,  1,  1,  gemm_sinf,  True,  True,  True,  True,  True],
             #['MatMulInteger',    'ARITY_VARIADIC[2-4]->1', 'ai.onnx', 'COMMON',  10,  10,  4,  2,  1,  1,  'inline_lambda',  True,  True,  True,  True,  True],
             #['STFT',             'ARITY_VARIADIC[2-4]->1', 'ai.onnx', 'COMMON',  17,  17,  4,  2,  1,  1,  'inline_lambda',  True,  True,  True,  True,  True],
             #['QLinearMatMul',    'ARITY_8->1',             'ai.onnx', 'COMMON',  21,  21,  8,  8,  1,  1,  'QLinearMatMulShapeInference',  True,  True,  True,  True,  True],

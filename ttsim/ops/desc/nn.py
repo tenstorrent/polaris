@@ -168,6 +168,59 @@ def maxpool_sinf(iTList, oTList, op, **kwargs):
         }
         return
 
+def globalavgpool_sinf(iTList, oTList, op, **kwargs):
+    assert iTList[0].check_shape(), f"Illegal Shape for {iTList[0]}"
+    input_shape = iTList[0].shape
+    N, C = input_shape[0], input_shape[1]
+    spatial_dims = input_shape[2:]
+
+    output_shape = [N, C] + [1] * len(spatial_dims)
+    oTList[0].shape = output_shape
+    oTList[0].dtype = iTList[0].dtype
+
+    instr_count = {
+        'add': iTList[0].nelems(),
+        'div': oTList[0].nelems(),
+        'mov': oTList[0].nelems()
+    }
+
+    op.perf_stats = {
+        'inElems' : iTList[0].nelems(),
+        'outElems': oTList[0].nelems(),
+        'inBytes' : iTList[0].nbytes(op.precision),
+        'outBytes': oTList[0].nbytes(op.precision),
+        'instrs'  : instr_count
+    }
+    return
+
+def flatten_sinf(iTList, oTList, op, **kwargs):
+    assert iTList[0].check_shape(), f"Illegal Shape for {iTList[0]}"
+    input_shape = iTList[0].shape
+    axis = op.attrs.get('axis', 1)
+    if axis < 0:
+        axis += len(input_shape)
+    assert 0 <= axis <= len(input_shape), f"Axis {axis} out of bounds for input shape {input_shape}"
+
+    dim0 = prod_ints(input_shape[:axis])
+    dim1 = prod_ints(input_shape[axis:])
+    output_shape = [dim0, dim1]
+
+    oTList[0].shape = output_shape
+    oTList[0].dtype = iTList[0].dtype
+
+    instr_count = {
+        'mov': iTList[0].nelems()
+    }
+
+    op.perf_stats = {
+        'inElems' : iTList[0].nelems(),
+        'outElems': oTList[0].nelems(),
+        'inBytes' : iTList[0].nbytes(op.precision),
+        'outBytes': oTList[0].nbytes(op.precision),
+        'instrs'  : instr_count
+    }
+    return
+
 def bn_sinf(iTList, oTList, op, **kwargs):
     assert all([itensor.check_shape() for itensor in iTList]), \
             f"input tensor shapes not well formed!!"
@@ -541,8 +594,8 @@ def register_nn_ops():
             #['DeformConv',            'ARITY_VARIADIC[3-5]->1',             'ai.onnx', 'COMMON',  22,  22,  5,  3,  1,  1, 'inline_lamda',  True,  True,  True,  True,  True],
             #['QLinearConv',           'ARITY_VARIADIC[8-9]->1',             'ai.onnx', 'COMMON',  10,  10,  9,  8,  1,  1, 'inline_lamda',  True,  True,  True,  True,  True],
 
-            ##['Flatten',                   'ARITY_1->1', 'ai.onnx', 'COMMON',  24,  21,  1,  1,  1,  1, 'inline_lamda',  True,  True,  True,  True,  True],
-            ##['GlobalAveragePool',         'ARITY_1->1', 'ai.onnx', 'COMMON',  22,  22,  1,  1,  1,  1, 'no_inference',  True,  True,  True,  True,  True],
+            ['Flatten',                   'ARITY_1->1', 'ai.onnx', 'COMMON',  24,  21,  1,  1,  1,  1, flatten_sinf,  True,  True,  True,  True,  True],
+            ['GlobalAveragePool',         'ARITY_1->1', 'ai.onnx', 'COMMON',  22,  22,  1,  1,  1,  1, globalavgpool_sinf,  True,  True,  True,  True,  True],
             ['AveragePool',               'ARITY_1->1', 'ai.onnx', 'COMMON',  22,  22,  1,  1,  1, 1, avgpool_sinf,  True,  True,  True,  True,  True],
 
             ['MaxPool',               'ARITY_1->VARIADIC[1-2]',             'ai.onnx', 'COMMON', 22, 22,  1,  1,  2,  1, maxpool_sinf,       True,  True,  True,  True,  True],

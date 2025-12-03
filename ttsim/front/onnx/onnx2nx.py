@@ -277,6 +277,10 @@ def resolve_tensor(_tname, _info):
         data1 = v['type']['data'] if 'type' in v and 'data' in v['type'] else None
         assert data1 is None, f"data appears in Output: {data1}"
     assert tresolve is not None, f"Unable to resolve tensor {_tname}"
+    # Dynamic or symbolic dimensions (non-integer) are not supported in this pipeline. Set to 1 instead.
+    if dims and any(not isinstance(d, int) for d in dims):
+        print(f"WARNING: Dynamic/symbolic dimensions found in tensor '{_tname}', setting to 1")
+    dims = [d if isinstance(d, int) else 1 for d in dims] # type: ignore[union-attr]
     return {'name': _tname, 'shape': dims, 'dtype': dtype, 'data': data,
             'resolve': tresolve, 'op_in': [], 'op_out': []}
 

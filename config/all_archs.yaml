@@ -27,9 +27,12 @@ ipblocks:
             -   {name: tanh,  tpt: {int8: 128.,  int32: 32., fp32: 32. }}
             -   {name: log,   tpt: {int8: 128.,  int32: 32., fp32: 32. }}
             -   {name: exp,   tpt: {int8: 128.,  int32: 32., fp32: 32. }}
+            -   {name: pow,   tpt: {int8: 128.,  int32: 32., fp32: 32. }}
+            -   {name: erf,   tpt: {int8: 128.,  int32: 32., fp32: 32. }}
             -   {name: sqrt,  tpt: {int8: 128.,  int32: 32., fp32: 32. }}
             -   {name: rsqrt, tpt: {int8: 128.,  int32: 32., fp32: 32. }}
             -   {name: reciprocal,  tpt: {int8: 128.,  int32: 32., fp32: 32. }}
+            -   {name: equal, tpt: {int8: 128.,  int32: 32., fp32: 32. }}
             -   {name: cmp,   tpt: {int8: 128.,  int32: 32., fp32: 32. }}
             -   {name: mov,   tpt: {int8: 128.,  int32: 32., fp32: 32. }}
             -   {name: max,   tpt: {int8: 128.,  int32: 32., fp32: 32. }}
