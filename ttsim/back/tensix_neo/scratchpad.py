@@ -93,6 +93,10 @@ class memReq:
     def __printReq__(self):
         print(f"ReqId: {self.__getReqId__()}, Op: {self.__getOp__()}, Addr: {self.__getAddr__()}, Bytes: {self.__getBytes__()}, Src: {self.__getSrc__()}, Target: {self.__getTarget__()} InsId: {self.__getInsId__()}")
 
+    def __traceReq__(self, cycle):
+        if self.target == "L1":
+            print(f"L1_TRACE: {cycle},{self.__getOp__()},{hex(self.__getAddr__())},{self.__getSrc__()},{hex(self.__getBytes__())}")
+
 class scratchpadRam:
 
     numPorts    = 0
