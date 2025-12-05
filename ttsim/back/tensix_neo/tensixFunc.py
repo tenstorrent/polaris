@@ -13,6 +13,15 @@ import ttsim.back.tensix_neo.isaFunctions as isaFunctions
 import ttsim.front.llk.decoded_instruction as decoded_instruction
 from ttsim.back.tensix_neo.isaFunctions import valueStatus
 
+#DEBUG LEVELS
+#TODO: Make these command line arguments and use it across all files
+DEBUG_TENSIX_LOW_LEVEL  = 0x1
+DEBUG_RISC_LOW_LEVEL    = 0x2
+DEBUG_RISC_MED_LEVEL    = 0x4
+DEBUG_TENSIX_MED_LEVEL  = 0x8
+DEBUG_RISC_HIGH_LEVEL   = 0x10
+DEBUG_TENSIX_HIGH_LEVEL = 0x20
+
 MEMORY_MAP_KEY_TRISC_MAP = 'trisc_map'
 MEMORY_MAP_KEY_TRISC_MAP_CFG = 'cfg_regs'
 MEMORY_MAP_KEY_TRISC_MAP_OFFSETS = 'OFFSETS'
@@ -28,8 +37,13 @@ MEMORY_MAP_VALUE_TRISC_MAP_SEMAPHORES   = 0x80
 MEMORY_MAP_VALUE_TRISC_MAP_MOPSYNC      = 0x08
 MEMORY_MAP_VALUE_TRISC_MAP_IDLESYNC     = 0x04
 
+# TILECOUNTERS
+MEMORY_MAP_KEY_TRISC_MAP_TILE_COUNTERS = 'tile_counters'
+MEMORY_MAP_KEY_TRISC_MAP_TILE_COUNTERS_0 = 'tile_counters.counters[0]'
 
 BANK_UPDATE_THRESHOLD = 512
+
+TILE_SCALE_FACTOR            = 1
 
 class tt_semaphore_idx(enum.IntEnum):
     # start enum from 0. https://stackoverflow.com/a/61438054/27310047
@@ -80,74 +94,144 @@ class ttSplRegs:
         self.args       = args
         self.coreId     = coreId
         ### REGISTERS
+        #       REGTYPE: NUM_REGISTERS, MMR_START, MMR_SIZE, NUM_BANKS
         self.regTypeDict = {
             'cfg' : [
                 (args[MEMORY_MAP_KEY_TRISC_MAP][MEMORY_MAP_KEY_TRISC_MAP_CFG][MEMORY_MAP_KEY_END] - \
                  args[MEMORY_MAP_KEY_TRISC_MAP][MEMORY_MAP_KEY_TRISC_MAP_CFG][MEMORY_MAP_KEY_START])/ \
-                 args[MEMORY_MAP_KEY_TRISC_MAP][MEMORY_MAP_KEY_TRISC_MAP_CFG][MEMORY_MAP_KEY_NUM_BYTES_PER_REG], #NUM_REGISTERS
-                args[MEMORY_MAP_KEY_TRISC_MAP][MEMORY_MAP_KEY_TRISC_MAP_CFG][MEMORY_MAP_KEY_START], #MMR_START
+                 args[MEMORY_MAP_KEY_TRISC_MAP][MEMORY_MAP_KEY_TRISC_MAP_CFG][MEMORY_MAP_KEY_NUM_BYTES_PER_REG],
+                args[MEMORY_MAP_KEY_TRISC_MAP][MEMORY_MAP_KEY_TRISC_MAP_CFG][MEMORY_MAP_KEY_START],
                 (args[MEMORY_MAP_KEY_TRISC_MAP][MEMORY_MAP_KEY_TRISC_MAP_CFG][MEMORY_MAP_KEY_END] - \
-                 args[MEMORY_MAP_KEY_TRISC_MAP][MEMORY_MAP_KEY_TRISC_MAP_CFG][MEMORY_MAP_KEY_START]), #MMR_SIZE
-                1,                  #NUM_BANKS
+                 args[MEMORY_MAP_KEY_TRISC_MAP][MEMORY_MAP_KEY_TRISC_MAP_CFG][MEMORY_MAP_KEY_START]),
+                1,
             ],
             'instrBuffer' : [
-                1,                 #NUM_REGISTERS,
-                args[MEMORY_MAP_KEY_TRISC_MAP][MEMORY_MAP_KEY_TRISC_MAP_INSTR_BUFFER][MEMORY_MAP_KEY_START],    #MMR_START
-                1,                 #MMR_SIZE
-                1,                  #NUM_BANKS
+                (args[MEMORY_MAP_KEY_TRISC_MAP][MEMORY_MAP_KEY_TRISC_MAP_INSTR_BUFFER][MEMORY_MAP_KEY_START]+4 -  args[MEMORY_MAP_KEY_TRISC_MAP][MEMORY_MAP_KEY_TRISC_MAP_INSTR_BUFFER][MEMORY_MAP_KEY_START])/\
+                 args[MEMORY_MAP_KEY_TRISC_MAP][MEMORY_MAP_KEY_TRISC_MAP_INSTR_BUFFER][MEMORY_MAP_KEY_NUM_BYTES_PER_REG],
+                args[MEMORY_MAP_KEY_TRISC_MAP][MEMORY_MAP_KEY_TRISC_MAP_INSTR_BUFFER][MEMORY_MAP_KEY_START],
+                (args[MEMORY_MAP_KEY_TRISC_MAP][MEMORY_MAP_KEY_TRISC_MAP_INSTR_BUFFER][MEMORY_MAP_KEY_START]+4 - args[MEMORY_MAP_KEY_TRISC_MAP][MEMORY_MAP_KEY_TRISC_MAP_INSTR_BUFFER][MEMORY_MAP_KEY_START]),
+                1,
             ],
             'mop' : [
-                64*MAX_THREADS,     #NUM_REGISTERS *,
-                args[MEMORY_MAP_KEY_TRISC_MAP][MEMORY_MAP_KEY_TRISC_MAP_MOP][MEMORY_MAP_KEY_START], #MMR_START
-                64,                 #MMR_SIZE
-                1,                  #NUM_BANKS
+                64*MAX_THREADS,
+                args[MEMORY_MAP_KEY_TRISC_MAP][MEMORY_MAP_KEY_TRISC_MAP_MOP][MEMORY_MAP_KEY_START],
+                64,
+                1,
             ],
             'mopSync' : [
-                MAX_THREADS,       #NUM_REGISTERS ,
-                args[MEMORY_MAP_KEY_TRISC_MAP][MEMORY_MAP_KEY_TRISC_MAP_PCBUFFER][MEMORY_MAP_KEY_START] + MEMORY_MAP_VALUE_TRISC_MAP_MOPSYNC,    #MMR_START = PCBUFFER + 0x08. TODO: Get this from cfg itself
-                4,                 #MMR_SIZE
-                1,                  #NUM_BANKS
+                MAX_THREADS,
+                args[MEMORY_MAP_KEY_TRISC_MAP][MEMORY_MAP_KEY_TRISC_MAP_PCBUFFER][MEMORY_MAP_KEY_START] + MEMORY_MAP_VALUE_TRISC_MAP_MOPSYNC,    # TODO: Get this from cfg itself
+                4,
+                1,
             ],
             'idleSync' : [
-                MAX_THREADS,       #NUM_REGISTERS ,
-                args[MEMORY_MAP_KEY_TRISC_MAP][MEMORY_MAP_KEY_TRISC_MAP_PCBUFFER][MEMORY_MAP_KEY_START] + MEMORY_MAP_VALUE_TRISC_MAP_IDLESYNC,    #MMR_START = PCBUFFER + 0x04. TODO: Get this from cfg itself
-                4,                 #MMR_SIZE
-                1,                  #NUM_BANKS
+                MAX_THREADS,
+                args[MEMORY_MAP_KEY_TRISC_MAP][MEMORY_MAP_KEY_TRISC_MAP_PCBUFFER][MEMORY_MAP_KEY_START] + MEMORY_MAP_VALUE_TRISC_MAP_IDLESYNC,   # TODO: Get this from cfg itself
+                4,
+                1,
             ],
             'ttsemaphores' : [
                 NUM_VARIABLES_PER_TTSEMAPHORE * NUM_TTSEMAPHORES_PER_BANK,
-                args[MEMORY_MAP_KEY_TRISC_MAP][MEMORY_MAP_KEY_TRISC_MAP_PCBUFFER][MEMORY_MAP_KEY_START] + MEMORY_MAP_VALUE_TRISC_MAP_SEMAPHORES,    #MMR_START = PCBUFFER + 0x80. TODO: Get this from cfg itself
-                64,                 #MMR_SIZE
-                32,                 #NUM_BANKS. There are most likely only 2 banks, but bank ID field width is 5 bits, so we set NUM_BANKS as 32.
+                args[MEMORY_MAP_KEY_TRISC_MAP][MEMORY_MAP_KEY_TRISC_MAP_PCBUFFER][MEMORY_MAP_KEY_START] + MEMORY_MAP_VALUE_TRISC_MAP_SEMAPHORES,    #TODO: Get this from cfg itself
+                64,
+                32,                                                                                                                                 #There are most likely only 2 banks, but bank ID field width is 5 bits, so we set NUM_BANKS as 32.
             ]
         }
+        if(args['llkVersionTag'] in ["jul1", "jul27", "sep23"]):
+            tileCounters_RegDict = {
+                'tileCounters' : [
+                    #NUM_REGISTERS
+                    int(int(args[MEMORY_MAP_KEY_TRISC_MAP][MEMORY_MAP_KEY_TRISC_MAP_TILE_COUNTERS][MEMORY_MAP_KEY_END] + 1 -  args[MEMORY_MAP_KEY_TRISC_MAP][MEMORY_MAP_KEY_TRISC_MAP_TILE_COUNTERS][MEMORY_MAP_KEY_START])/\
+                        (8*4)),
+                    #MMR_START
+                    args[MEMORY_MAP_KEY_TRISC_MAP][MEMORY_MAP_KEY_TRISC_MAP_TILE_COUNTERS][MEMORY_MAP_KEY_START],
+                    # MMR_SIZE
+                    int(args[MEMORY_MAP_KEY_TRISC_MAP][MEMORY_MAP_KEY_TRISC_MAP_TILE_COUNTERS][MEMORY_MAP_KEY_END] + 1 -  args[MEMORY_MAP_KEY_TRISC_MAP][MEMORY_MAP_KEY_TRISC_MAP_TILE_COUNTERS][MEMORY_MAP_KEY_START]),
+                    1,                  #NUM_BANKS
+                ]
+            }
+        else:
+            assert args['llkVersionTag'] in ["nov17", "dec22"], "Unsupported llkVersionTag for Tensix Neo:" + args['llkVersionTag'] 
+            tileCounters_RegDict = {
+                'tileCounters' : [
+                    #NUM_REGISTERS
+                    int(int(args[MEMORY_MAP_KEY_TRISC_MAP][MEMORY_MAP_KEY_TRISC_MAP_TILE_COUNTERS][MEMORY_MAP_KEY_END] + 1 -  args[MEMORY_MAP_KEY_TRISC_MAP][MEMORY_MAP_KEY_TRISC_MAP_TILE_COUNTERS][MEMORY_MAP_KEY_START])/\
+                        int(args[MEMORY_MAP_KEY_TRISC_MAP][MEMORY_MAP_KEY_TRISC_MAP_TILE_COUNTERS_0][MEMORY_MAP_KEY_END] + 1 - args[MEMORY_MAP_KEY_TRISC_MAP][MEMORY_MAP_KEY_TRISC_MAP_TILE_COUNTERS_0][MEMORY_MAP_KEY_START])),
+                    #MMR_START
+                    args[MEMORY_MAP_KEY_TRISC_MAP][MEMORY_MAP_KEY_TRISC_MAP_TILE_COUNTERS][MEMORY_MAP_KEY_START],
+                    # MMR_SIZE
+                    int(args[MEMORY_MAP_KEY_TRISC_MAP][MEMORY_MAP_KEY_TRISC_MAP_TILE_COUNTERS][MEMORY_MAP_KEY_END] + 1 -  args[MEMORY_MAP_KEY_TRISC_MAP][MEMORY_MAP_KEY_TRISC_MAP_TILE_COUNTERS][MEMORY_MAP_KEY_START]),
+                    1,                  #NUM_BANKS
+                ]
+            }
+        self.regTypeDict.update(tileCounters_RegDict)
+
         self.regTypes = [ key for key, val in self.regTypeDict.items() ]
         self.regSizes = [ int(self.regTypeDict[key][0])*self.regTypeDict[key][3] for key,val in self.regTypeDict.items() ]
 
         self.reg = {}
 
         for i in range(len(self.regTypes)):
-            regList = []
-            for j in range(self.regSizes[i]):
-                regList.append(-1)
+            if(self.regTypes[i] == 'tileCounters'):
+                regList = []
+                for j in range(self.regSizes[i]):
+                    regList.append(
+                        {
+                        "reserved0": -1,
+                        "reset": -1,
+                        "tiles_available": 0,
+                        "space_available": 0,
+                        "buffer_capacity": -1,
+                        "reserved1": -1,
+                        "tiles_avail_irq_thresh": -1,
+                        "space_avail_irq_thresh": -1
+                        }
+                    )
+            else:
+                regList = []
+                for j in range(self.regSizes[i]):
+                    regList.append(-1)
+
             self.reg[self.regTypes[i]] = copy.deepcopy(regList)
 
     # Tensix Pipes Register File
-    def __writeReg__(self,r, val, type='riscgpr'):
+    def __writeReg__(self,r, val, type='riscgpr', subr = None):
         assert type in self.regTypes, "RegType not supported:" + type
         assert val != None , "Only legal values supported" + str(val)
-        if(self.debug & 0x10):      print(f"{type}[{hex(r)}] = {hex(val)}")
-        self.reg[type][r] = val
+        if subr is None:
+            if(self.debug & DEBUG_TENSIX_HIGH_LEVEL):      print("{0}[{1}] = {2}".format(type, r, val))
+            self.reg[type][r] = val
+        else:
+            assert subr in self.reg[type][r], f"Sub-register {subr} not present in register {type}[{r}]"
+            if(self.debug & DEBUG_TENSIX_HIGH_LEVEL):      print("{0}[{1}][{2}] = {3}".format(type, r, subr, val))
+            self.reg[type][r][subr] = val
 
-    def __readReg__(self, r, type ='riscgpr'):
-        assert type in self.regTypes, "RegType not supported:" + type + "Supported RegTypes" +  self.regTypes
+    def __readReg__(self,r, type='riscgpr', subr=None):
+        assert type in self.regTypes, f"RegType not supported: {type} Supported RegTypes: {self.regTypes}"
         if (type == 'riscgpr' and (r in self.regTempsriscgpr)): # Temporary Registers - RISCV
+            assert subr is None, f"Sub-register read not supported for register type: {type}"
             assert self.reg[type][r] != -1, "Illegal Read " + type + "[" + str(r) + "]"
             assert self.reg[type][r] != None, "Illegal Read " + type + "[" + str(r) + "]"
+            return self.reg[type][r]
         elif(type == 'riscgpr' and self.reg[type][r] == -1):     # For non temporary variables, reset initial value to zero
+            assert subr is None, f"Sub-register read not supported for register type: {type}"
             self.reg[type][r] = 0
+            return self.reg[type][r]
+        elif(type == 'tileCounters'):
+            # print(f"Reading tileCounters register: {type}[{r}][{subr}]")
+            assert subr != None, f"Sub-register not specified for register type: {type}"
+            assert subr in self.reg[type][r], f"Sub-register {subr} not present in tileCounters register"
+            assert self.reg[type][r][subr] != -1, f"Illegal Read[{type}][{r}][{subr}] = {self.reg[type][r][subr]}"
+            return self.reg[type][r][subr]
+        else:
+            assert subr is None, f"Sub-register read not supported for register type: {type}"
+            return self.reg[type][r]
 
-        return self.reg[type][r]
+        # return self.reg[type][r]
+
+    def __numReg__(self, type='riscgpr'):
+        assert type in self.regTypes, "RegType not supported:" + type
+        return len(self.reg[type])
 
     def __ismmr__(self,addr ):
         regTypeSel = ''
@@ -155,10 +239,10 @@ class ttSplRegs:
         # 1. Check MMR or not
         for key, val in self.regTypeDict.items():
             if (addr in range(self.regTypeDict[key][1], (self.regTypeDict[key][1] + self.regTypeDict[key][2]))):
-                if(self.debug & 0x10):       print(f"Is MMR, addr={hex(addr)},type={key},AddrStart={hex(self.regTypeDict[key][1])},AddrEnd={hex(self.regTypeDict[key][1] + self.regTypeDict[key][2])}")
+                if(self.debug & DEBUG_TENSIX_HIGH_LEVEL):       print(f"Is MMR, addr={hex(addr)},type={key},AddrStart={hex(self.regTypeDict[key][1])},AddrEnd={hex(self.regTypeDict[key][1] + self.regTypeDict[key][2])}")
                 regTypeSel = key
                 break
-            if(self.debug & 0x10):       print("Address:", hex(addr), "not in", key, "Address Range:", hex(self.regTypeDict[key][1]), hex(self.regTypeDict[key][1] + self.regTypeDict[key][2]))
+            if(self.debug & DEBUG_TENSIX_HIGH_LEVEL):       print("Address:", hex(addr), "not in", key, "Address Range:", hex(self.regTypeDict[key][1]), hex(self.regTypeDict[key][1] + self.regTypeDict[key][2]))
         if regTypeSel != '':
             # 2. Find reg mapping
             # 2a. Test range
@@ -1972,61 +2056,16 @@ class tensixFunc:
         srcPipes = [];  dstPipes = []
         pipeLst  = [];  pipeLst2 = []
 
+        stallRsrcList = ['TDMA', 'SYNC','PACK', 'UNPACK', 'XMOV', 'THCON', 'MATH', 'CFG', 'SFPU']
         if('stall_res' in ins.operands.all):
-            if ins.operands.all['stall_res'] & 0x8:
-                assert len(self.pipeGrps['UNPACK']) > 0 , "Can't find unpack in engine groups"
-                pipeLst  = self.pipeGrps['UNPACK']                  # "stall_unpack",
-                for p in pipeLst:
-                    if(self.pipes.index(p) not in dstPipes):
-                        dstPipes.append(self.pipes.index(p))
-            if ins.operands.all['stall_res'] &  0x100:
-                assert len(self.pipeGrps['SFPU']) > 0 , "Can't find sfpu in engine groups"
-                pipeLst  = self.pipeGrps['SFPU']                    # "stall_sfpu",
-                for p in pipeLst:
-                    if(self.pipes.index(p) not in dstPipes):
-                        dstPipes.append(self.pipes.index(p))
-            if ins.operands.all['stall_res'] &  0x40:
-                assert len(self.pipeGrps['MATH']) > 0 , "Can't find math in engine groups"
-                pipeLst  = self.pipeGrps['MATH']                    # "stall_math",
-                for p in pipeLst:
-                    if(self.pipes.index(p) not in dstPipes):
-                        dstPipes.append(self.pipes.index(p))
-            if ins.operands.all['stall_res'] &  0x4:
-                assert len(self.pipeGrps['PACK']) > 0 , "Can't find pack in engine groups"
-                pipeLst  = self.pipeGrps['PACK']                    # "stall_pack",
-                for p in pipeLst:
-                    if(self.pipes.index(p) not in dstPipes):
-                        dstPipes.append(self.pipes.index(p))
-            if ins.operands.all['stall_res'] &  0x1:
-                assert len(self.pipeGrps['TDMA']) > 0 , "Can't find tdma in engine groups"
-                pipeLst  = self.pipeGrps['TDMA']                    # "stall_compute/tdma",
-                for p in pipeLst:
-                    if(self.pipes.index(p) not in dstPipes):
-                        dstPipes.append(self.pipes.index(p))
-            if ins.operands.all['stall_res'] &  0x80:
-                assert len(self.pipeGrps['CFG']) > 0 , "Can't find cfg in engine groups"
-                pipeLst  = self.pipeGrps['CFG']                    # "stall_cfg",
-                for p in pipeLst:
-                    if(self.pipes.index(p) not in dstPipes):
-                        dstPipes.append(self.pipes.index(p))
-            if ins.operands.all['stall_res'] &  0x2:
-                assert len(self.pipeGrps['SYNC']) > 0 , "Can't find sync in engine groups"
-                pipeLst  = self.pipeGrps['SYNC']                    # "stall_sync",
-                for p in pipeLst:
-                    if(self.pipes.index(p) not in dstPipes):
-                        dstPipes.append(self.pipes.index(p))
-            if ins.operands.all['stall_res'] &  0x20:
-                assert len(self.pipeGrps['THCON']) > 0 , "Can't find thcon in engine groups"
-                pipeLst  = self.pipeGrps['THCON']                    # "stall_thcon",
-                for p in pipeLst:
-                    if(self.pipes.index(p) not in dstPipes):
-                        dstPipes.append(self.pipes.index(p))
-            if ins.operands.all['stall_res'] &  0x10:
-                assert len(self.pipeGrps['XMOV']) > 0 , "Can't find xmov in engine groups"
-                pipeLst  = self.pipeGrps['XMOV']                     # "stall_xmov",
-                for p in pipeLst:
-                    if(self.pipes.index(p) not in dstPipes):
-                        dstPipes.append(self.pipes.index(p))
+            for i in range(len(stallRsrcList)):
+                resName = stallRsrcList[i]
+                if ins.operands.all['stall_res'] & (1 << i):
+                    assert len(self.pipeGrps[resName]) > 0 , f"Can't find {resName.lower()} in engine groups"
+                    pipeLst  = self.pipeGrps[resName]
+                    for p in pipeLst:
+                        if(self.pipes.index(p) not in dstPipes):
+                            dstPipes.append(self.pipes.index(p))
 
         if sorted(dstPipes) != sorted(isaFunctions.getT3SimPipesFromStallRes(ins.operands.attributes['stall_res'], self.pipeGrps, self.pipes)):
             msg  = f"- error: {ins.getOp()} exec: mismatch in dst pipes calculations.\n"
@@ -2035,8 +2074,8 @@ class tensixFunc:
 
             raise Exception(msg)
 
-        waitRsrcList = ['wait_res_idx_0', 'wait_res_idx_1', 'wait_res_idx_2']
-        for w in waitRsrcList:
+        waitRsrcAttribList = ['wait_res_idx_0', 'wait_res_idx_1', 'wait_res_idx_2']
+        for w in waitRsrcAttribList:
             if(w in ins.getAttr()):
                 waitRsrc = ins.getAttr()[w]
                 if(0 == self.args['llkVersionTag'].group):
@@ -2624,7 +2663,165 @@ class tensixFunc:
         nextRelAddr = ins.getRelAddr() + 4
         return nextRelAddr
 
-    def execTTIns(self,ins, cycle):
+    def __execpushtiles__(self,ins, cycle):
+        assert ins.getOp() == "PUSH_TILES", "Expected opcode PUSH_TILES. Received " + str(ins.getOp())
+        assert "destinations" not in dir(ins.getOperands()) , "Zero Dst expected"
+        assert "sources" not in dir(ins.getOperands()) , "Zero Src expected"
+        assert "immediates" not in dir(ins.getOperands()) , "Zero Imm expected"
+        match ins.kind:
+            case decoded_instruction.instruction_kind.ttqs:
+                assert len(ins.getAttr()) == 3, "Three attribs expected. Received " + str(len(ins.getAttr()))
+            case _:
+                assert len(ins.getAttr()) == 3, "Three attribs expected. Received " + str(len(ins.getAttr()))
+
+        ins.printInstr(ins.getThread())
+        buffer = ins.getAttr()['buffer_sel']
+        incrVal = ins.getAttr()['num_tiles'] * TILE_SCALE_FACTOR
+
+        assert incrVal >= 0, f"PUSH_TILES num_tiles should be non-negative. Received {incrVal}"
+        assert buffer >= 0 and buffer <= 31, f"PUSH_TILES buffer_sel should be between 0 and 31. Received {buffer}"
+        if self.debug & 0x8:    print(f"Cycle:{cycle} Addr:{hex(ins.getRelAddr())} TCore{self.coreId} Thread{ins.getThread()} Instruction:{ins.getOp()} tile_counters[{hex(buffer)}] Writing to (TENSIX) incrVal={hex(incrVal)} tile_counters[{hex(buffer)}][tiles_available]={hex(self.tensixSplRegs.__readReg__(buffer, "tileCounters", "tiles_available") + incrVal)}")
+        self.tensixSplRegs.__writeReg__(buffer, self.tensixSplRegs.__readReg__(buffer, "tileCounters", "tiles_available") + incrVal, "tileCounters", "tiles_available")
+        # assert self.tensixSplRegs.__readReg__(buffer, "tileCounters", "space_available") - incrVal >= 0, f"PUSH_TILES space_available should be non-negative. Received {self.tensixSplRegs.__readReg__(buffer, "tileCounters", "space_available")}"
+        if self.debug & 0x8:    print(f"Cycle:{cycle} Addr:{hex(ins.getRelAddr())} TCore{self.coreId} Thread{ins.getThread()} Instruction:{ins.getOp()} tile_counters[{hex(buffer)}] Writing to (TENSIX) decrVal={hex(incrVal)} tile_counters[{hex(buffer)}][space_available]={hex(self.tensixSplRegs.__readReg__(buffer, "tileCounters", "space_available") - incrVal)}")
+        self.tensixSplRegs.__writeReg__(buffer, self.tensixSplRegs.__readReg__(buffer, "tileCounters", "space_available") - incrVal, "tileCounters", "space_available")
+
+        if self.debug & 0x8:
+            print(f"Buffer{buffer} Tiles Available after PUSH_TILES={self.tensixSplRegs.__readReg__(buffer, "tileCounters", "tiles_available")}")
+            print(f"Buffer{buffer} Space Available after PUSH_TILES={self.tensixSplRegs.__readReg__(buffer, "tileCounters", "space_available")}")
+
+        # assert self.tensixSplRegs.__readReg__(buffer, "tileCounters", "tiles_available") <= self.tensixSplRegs.__readReg__(buffer, "tileCounters", "buffer_capacity"), f"PUSH_TILES tiles_available={self.tensixSplRegs.__readReg__(buffer, "tileCounters", "tiles_available")} should be less than buffer_capacity={self.tensixSplRegs.__readReg__(buffer, "tileCounters", "buffer_capacity")}"
+        # assert self.tensixSplRegs.__readReg__(buffer, "tileCounters", "space_available") <= self.tensixSplRegs.__readReg__(buffer, "tileCounters", "buffer_capacity"), f"PUSH_TILES space_available={self.tensixSplRegs.__readReg__(buffer, "tileCounters", "space_available")} should be less than buffer_capacity={self.tensixSplRegs.__readReg__(buffer, "tileCounters", "buffer_capacity")}"
+        assert self.tensixSplRegs.__readReg__(buffer, "tileCounters", "tiles_available") >= 0, f"PUSH_TILES tiles_available={self.tensixSplRegs.__readReg__(buffer, "tileCounters", "tiles_available")} should be positive"
+        assert self.tensixSplRegs.__readReg__(buffer, "tileCounters", "space_available") >= 0, f"PUSH_TILES space_available={self.tensixSplRegs.__readReg__(buffer, "tileCounters", "space_available")} should be positive"
+
+    def __execpoptiles__(self,ins, cycle):
+        assert ins.getOp() == "POP_TILES", "Expected opcode POP_TILES. Received " + str(ins.getOp())
+        assert "destinations" not in dir(ins.getOperands()) , "Zero Dst expected"
+        assert "sources" not in dir(ins.getOperands()) , "Zero Src expected"
+        assert "immediates" not in dir(ins.getOperands()) , "Zero Imm expected"
+        match ins.kind:
+            case decoded_instruction.instruction_kind.ttqs:
+                assert len(ins.getAttr()) == 3, "Three attribs expected. Received " + str(len(ins.getAttr()))
+            case _:
+                assert len(ins.getAttr()) == 3, "Three attribs expected. Received " + str(len(ins.getAttr()))
+
+        buffer = ins.getAttr()['buffer_sel'] 
+        incrVal = ins.getAttr()['num_tiles'] * TILE_SCALE_FACTOR
+
+        # assert self.tensixSplRegs.__readReg__(buffer, "tileCounters", "tiles_available") - incrVal >= 0, f"POP_TILES tiles_available should be non-negative. Received {self.tensixSplRegs.__readReg__(buffer, "tileCounters", "tiles_available")}"
+        if self.debug & 0x8:    print(f"Cycle:{cycle} Addr:{hex(ins.getRelAddr())} TCore{self.coreId} Thread{ins.getThread()} Instruction:{ins.getOp()} tile_counters[{hex(buffer)}] Writing to (TENSIX) decrVal={hex(incrVal)} tile_counters[{hex(buffer)}][tiles_available]={hex(self.tensixSplRegs.__readReg__(buffer, "tileCounters", "tiles_available") - incrVal)}")
+        self.tensixSplRegs.__writeReg__(buffer, self.tensixSplRegs.__readReg__(buffer, "tileCounters", "tiles_available") - incrVal, "tileCounters", "tiles_available")
+        if self.debug & 0x8:    print(f"Cycle:{cycle} Addr:{hex(ins.getRelAddr())} TCore{self.coreId} Thread{ins.getThread()} Instruction:{ins.getOp()} tile_counters[{hex(buffer)}] Writing to (TENSIX) incrVal={hex(incrVal)} tile_counters[{hex(buffer)}][space_available]={hex(self.tensixSplRegs.__readReg__(buffer, "tileCounters", "space_available") + incrVal)}")
+        self.tensixSplRegs.__writeReg__(buffer, self.tensixSplRegs.__readReg__(buffer, "tileCounters", "space_available") + incrVal, "tileCounters", "space_available")
+
+        if self.debug & 0x8:
+            print(f"Buffer{buffer} Tiles Available after POP_TILES={self.tensixSplRegs.__readReg__(buffer, "tileCounters", "tiles_available")}")
+            print(f"Buffer{buffer} Space Available after POP_TILES={self.tensixSplRegs.__readReg__(buffer, "tileCounters", "space_available")}")
+
+        # assert self.tensixSplRegs.__readReg__(buffer, "tileCounters", "tiles_available") <= self.tensixSplRegs.__readReg__(buffer, "tileCounters", "buffer_capacity"), f"POP_TILES tiles_available={self.tensixSplRegs.__readReg__(buffer, "tileCounters", "tiles_available")} should be less than buffer_capacity={self.tensixSplRegs.__readReg__(buffer, "tileCounters", "buffer_capacity")}"
+        # assert self.tensixSplRegs.__readReg__(buffer, "tileCounters", "space_available") <= self.tensixSplRegs.__readReg__(buffer, "tileCounters", "buffer_capacity"), f"POP_TILES space_available={self.tensixSplRegs.__readReg__(buffer, "tileCounters", "space_available")} should be less than buffer_capacity={self.tensixSplRegs.__readReg__(buffer, "tileCounters", "buffer_capacity")}"
+        assert self.tensixSplRegs.__readReg__(buffer, "tileCounters", "tiles_available") >= 0, f"POP_TILES tiles_available={self.tensixSplRegs.__readReg__(buffer, "tileCounters", "tiles_available")} should be positive"
+        assert self.tensixSplRegs.__readReg__(buffer, "tileCounters", "space_available") >= 0, f"POP_TILES space_available={self.tensixSplRegs.__readReg__(buffer, "tileCounters", "space_available")} should be positive"
+
+    def __execwaittiles__(self,ins, cycle):
+        assert ins.getOp() == "WAIT_TILES", "Expected opcode WAIT_TILES. Received " + str(ins.getOp())
+        assert "destinations" not in dir(ins.getOperands()) , "Zero Dst expected"
+        assert "sources" not in dir(ins.getOperands()) , "Zero Src expected"
+        assert "immediates" not in dir(ins.getOperands()) , "Zero Imm expected"
+        match ins.kind:
+            case decoded_instruction.instruction_kind.ttqs:
+                assert len(ins.getAttr()) == 3, "Three attribs expected. Received " + str(len(ins.getAttr()))
+            case _:
+                assert len(ins.getAttr()) == 3, "Three attribs expected. Received " + str(len(ins.getAttr()))
+
+        buffer      = ins.getAttr()['buffer_sel'] 
+        targetTiles = ins.getAttr()['num_tiles']*TILE_SCALE_FACTOR
+
+        srcPipes = [];  dstPipes = []
+        pipeLst  = [];  pipeLst2 = []
+
+        stallRsrcList = ['TDMA', 'SYNC','PACK', 'UNPACK', 'XMOV', 'THCON', 'MATH', 'CFG', 'SFPU']
+        if('stall_res' in ins.operands.all):
+            for i in range(len(stallRsrcList)):
+                resName = stallRsrcList[i]
+                if ins.operands.all['stall_res'] & (1 << i):
+                    assert len(self.pipeGrps[resName]) > 0 , f"Can't find {resName.lower()} in engine groups"
+                    pipeLst  = self.pipeGrps[resName]
+                    for p in pipeLst:
+                        if(self.pipes.index(p) not in dstPipes):
+                            dstPipes.append(self.pipes.index(p))
+
+        #TODO: Get this from cfg
+        # assert ins.getExPipe() == 'SYNC', "Expected EX pipe SYNC for WAIT_TILES. Received " + str(ins.getExPipe())
+        if self.tensixSplRegs.__readReg__(buffer, "tileCounters", "tiles_available") < targetTiles:
+            if self.debug & 0x8:    print(f"Cycle:{cycle} Addr:{hex(ins.getRelAddr())} TCore{self.coreId} Thread{ins.getThread()} Pipe[{ins.getExPipe()}] Instruction:{ins.getOp()} tile_counters[{hex(buffer)}] Stalling on WAIT_TILES instruction until tiles_available:{hex(self.tensixSplRegs.__readReg__(buffer, "tileCounters", "tiles_available"))} < {hex(targetTiles)}")
+            ins.setExPipe('SYNC')
+            pipeLst2  = self.pipeGrps['SYNC']
+        else:
+            if self.debug & 0x8:    print(f"Cycle:{cycle} Addr:{hex(ins.getRelAddr())} TCore{self.coreId} Thread{ins.getThread()} Pipe[{ins.getExPipe()}] Instruction:{ins.getOp()} tile_counters[{hex(buffer)}] Resuming from WAIT_TILES instruction as tiles_available:{hex(self.tensixSplRegs.__readReg__(buffer, "tileCounters", "tiles_available"))}  >= {hex(targetTiles)}")
+
+        for p in pipeLst2:
+            if(self.pipes.index(p) not in srcPipes):
+                srcPipes.append(self.pipes.index(p))
+
+        if(self.debug & 0x8):         print("DstPipes = ", dstPipes, "SrcPipes=", srcPipes, f". instruction info: {ins}")
+
+        ins.setDstPipes(dstPipes)
+        ins.setSrcPipes(srcPipes)
+
+        assert ins.getSrcPipes() == srcPipes, f"Src pipes not getting set: {ins.getSrcPipes()} vs {srcPipes}"
+
+    def __execwaitfree__(self,ins, cycle):
+        assert ins.getOp() == "WAIT_FREE", "Expected opcode WAIT_FREE. Received " + str(ins.getOp())
+        assert "destinations" not in dir(ins.getOperands()) , "Zero Dst expected"
+        assert "sources" not in dir(ins.getOperands()) , "Zero Src expected"
+        assert "immediates" not in dir(ins.getOperands()) , "Zero Imm expected"
+        match ins.kind:
+            case decoded_instruction.instruction_kind.ttqs:
+                assert len(ins.getAttr()) == 3, "Three attribs expected. Received " + str(len(ins.getAttr()))
+            case _:
+                assert len(ins.getAttr()) == 3, "Three attribs expected. Received " + str(len(ins.getAttr()))
+
+        buffer      = ins.getAttr()['buffer_sel'] 
+        targetTiles = ins.getAttr()['num_tiles']
+
+        srcPipes = [];  dstPipes = []
+        pipeLst  = [];  pipeLst2 = []
+
+        stallRsrcList = ['TDMA', 'SYNC','PACK', 'UNPACK', 'XMOV', 'THCON', 'MATH', 'CFG', 'SFPU']
+        if('stall_res' in ins.operands.all):
+            for i in range(len(stallRsrcList)):
+                resName = stallRsrcList[i]
+                if ins.operands.all['stall_res'] & (1 << i):
+                    assert len(self.pipeGrps[resName]) > 0 , f"Can't find {resName.lower()} in engine groups"
+                    pipeLst  = self.pipeGrps[resName]
+                    for p in pipeLst:
+                        if(self.pipes.index(p) not in dstPipes):
+                            dstPipes.append(self.pipes.index(p))
+
+        #TODO: Get this from cfg
+        # assert ins.getExPipe() == 'SYNC', "Expected EX pipe SYNC for WAIT_TILES. Received " + str(ins.getExPipe())
+
+        if self.tensixSplRegs.__readReg__(buffer, "tileCounters", "space_available") < targetTiles:
+            if self.debug & 0x8:    print(f"Cycle:{cycle} Addr:{hex(ins.getRelAddr())} TCore{self.coreId} Thread{ins.getThread()} Pipe[{ins.getExPipe()}] Instruction:{ins.getOp()} tile_counters[{hex(buffer)}] Stalling on WAIT_FREE instruction until space_available:{hex(self.tensixSplRegs.__readReg__(buffer, "tileCounters", "space_available"))} < {hex(targetTiles)}")
+            ins.setExPipe('SYNC')
+            pipeLst2  = self.pipeGrps['SYNC']
+        else:
+            if self.debug & 0x8:    print(f"Cycle:{cycle} Addr:{hex(ins.getRelAddr())} TCore{self.coreId} Thread{ins.getThread()} Pipe[{ins.getExPipe()}] Instruction:{ins.getOp()} tile_counters[{hex(buffer)}] Resuming from WAIT_FREE instruction as space_available:{hex(self.tensixSplRegs.__readReg__(buffer, "tileCounters", "space_available"))}  >= {hex(targetTiles)}")
+
+        for p in pipeLst2:
+            if(self.pipes.index(p) not in srcPipes):
+                srcPipes.append(self.pipes.index(p))
+
+        if(self.debug & 0x8):         print("DstPipes = ", dstPipes, "SrcPipes=", srcPipes, f". instruction info: {ins}")
+
+        ins.setDstPipes(dstPipes)
+        ins.setSrcPipes(srcPipes)
+
+        assert ins.getSrcPipes() == srcPipes, f"Src pipes not getting set: {ins.getSrcPipes()} vs {srcPipes}"
+
+    def execTTIns(self,ins, cycle,pr=True):
         nextAddr = -1
         match ins.getOp():
             case "UNPACR0_TILE_INC":    nextAddr            = self.__execunpacrti__(ins)
@@ -2731,6 +2928,10 @@ class tensixFunc:
                 nextAddr = self.__execSFPU_MATHI12__(ins)
             case "SFPADD" | "SFPMAD" | "SFPMUL" | "SFPMUL24":
                 nextAddr = self.__execSFPU_MATH__(ins)
+            case "PUSH_TILES":          nextAddr            = self.__execpushtiles__(ins, cycle)
+            case "POP_TILES":           nextAddr            = self.__execpoptiles__(ins, cycle)
+            case "WAIT_TILES":          nextAddr            = self.__execwaittiles__(ins, cycle)
+            case "WAIT_FREE":           nextAddr            = self.__execwaitfree__(ins, cycle)
             # case "MOP":                 nextAddr            = self.__execmop__(ins)
             case _:
                 print("WARNING: Unsupported TT Instruction ", ins.getOp())
@@ -2738,13 +2939,13 @@ class tensixFunc:
                 ins.printInstr(ins.getThread())
 
         assert nextAddr != -1 , "Error in execution"
-        if (self.debug & 0x1):
+        if (self.debug & 0x1 and pr):
             print(f"TFunctional Cycle:{cycle} Addr:{hex(ins.getRelAddr())} TCore{self.coreId} Thread{ins.getThread()} ", end='')
             ins.printInstr(ins.getThread())
         return nextAddr
 
     def __printReg__(self, type='mop'):
-        assert type in self.tensixSplRegs.regTypes, "RegType not supported:" + type + "Supported RegTypes" +  self.regTypes
+        assert type in self.tensixSplRegs.regTypes, f"RegType not supported: {type} Supported RegTypes: {self.tensixSplRegs.regTypes}"
         regCnt = 0
         print("RegList. :", end='')
         while (regCnt < len(self.tensixSplRegs.reg[type])):

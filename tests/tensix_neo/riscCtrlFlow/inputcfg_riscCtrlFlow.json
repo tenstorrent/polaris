@@ -1,0 +1,37 @@
+{
+  "arch": "ttqs",
+  "llkVersionTag": "sep23",
+  "debug": 15,
+  "odir": "__llk_out/unit_tests",
+  "ttISAFileName": "ttsim/config/llk/instruction_sets/ttqs/assembly.yaml",
+  "numTCores": 1,
+  "input": {
+    "syn": 1,
+    "name": "riscCtrlFlow",
+    "tc0": {
+      "numThreads": 3,
+      "startFunction": "main",
+      "th0Elf": "thread_0.txt",
+      "th0Path": "tests/tensix_neo/riscCtrlFlow/",
+      "th1Elf": "thread_1.txt",
+      "th1Path": "tests/tensix_neo/riscCtrlFlow/",
+      "th2Elf": "thread_2.txt",
+      "th2Path": "tests/tensix_neo/riscCtrlFlow/",
+      "th3Elf": "",
+      "th3Path": "",
+      "syn0Range": [
+          ["main", 4096, 4148]
+      ],
+      "syn1Range": [
+          ["main", 4096, 4148],
+          ["op1" , 4148, 4188]
+      ],
+      "syn2Range": [
+          ["main", 4096, 4148],
+          ["op1" , 4148, 4188],
+          ["op2" , 4188, 4232]
+      ]
+    }
+  },
+  "description": {}
+}

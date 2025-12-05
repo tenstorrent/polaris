@@ -12,6 +12,8 @@ import ttsim.back.tensix_neo.t3sim as t3sim
 
 import itertools
 
+ENABLE_SCRATCHPAD_TRACE = False
+
 class memReq:
     cnt = itertools.count(start=0, step=1)
     def __init__(self, op, addr, bytes):
@@ -92,6 +94,10 @@ class memReq:
 
     def __printReq__(self):
         print(f"ReqId: {self.__getReqId__()}, Op: {self.__getOp__()}, Addr: {self.__getAddr__()}, Bytes: {self.__getBytes__()}, Src: {self.__getSrc__()}, Target: {self.__getTarget__()} InsId: {self.__getInsId__()}")
+
+    def __traceReq__(self, cycle):
+        if self.target == "L1" and ENABLE_SCRATCHPAD_TRACE:
+            print(f"L1_TRACE: {cycle},{self.__getOp__()},{hex(self.__getAddr__())},{self.__getSrc__()},{hex(self.__getBytes__())}")
 
 class scratchpadRam:
 

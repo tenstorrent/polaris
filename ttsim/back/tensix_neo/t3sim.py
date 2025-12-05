@@ -753,7 +753,7 @@ class thread:
 
         if(self.args_dict['input']['syn']):
             # equivalent to get_all_function_ranges functionality for synthetic tests
-            self.allFnsRanges       = self.args_dict['input']['syn' + str(threadId) + 'Range']
+            self.allFnsRanges       = self.args_dict['input']['tc' + str(self.coreId)]['syn' + str(threadId) + 'Range']
             # equivalent to decodeElf functionality for synthetic tests
             beginOffset = 100000000000
             for i in range(len(self.allFnsRanges)):     beginOffset = min(self.allFnsRanges[i][1],beginOffset)
@@ -1218,15 +1218,39 @@ class thread:
     def _check_src_pipes(self, pipeIns):
         # Check source pipes are free
         pipeCondCheck1      = []
+        maxTimerValue     = 2000
+
+        maxTimer = 0
+        srcPipeList = [];
         for i in range(len(pipeIns.getSrcPipes())):
+            srcPipeList.append(self.pipes[pipeIns.getSrcPipes()[i]])
+
+        while(self.targetResource(pipeIns) in srcPipeList):
+            if self.debug & DEBUG_TENSIX_MED_LEVEL:
+                print(f"Cycle:{self.env.now} Addr:{hex(pipeIns.getRelAddr())} TCore{self.coreId} Thread{pipeIns.getThread()} Pipe[{self.targetResource(pipeIns)}] Instruction: {pipeIns.mnemonic}: Execution pipe is also in source pipes {self.pipes[pipeIns.getSrcPipes()[i]]}. Source Pipe Check = Self indicates a waiting condition. Timeout Value={maxTimer}")
+            # Functional code is expected to remove the source pipe as dependency once the condition is met.
+            self.tensixFunc.execTTIns(pipeIns, self.env.now, False)
+            yield self.env.timeout(1)
+
+            srcPipeList = [];
+            for i in range(len(pipeIns.getSrcPipes())):
+                srcPipeList.append(self.pipes[pipeIns.getSrcPipes()[i]])
+
+            maxTimer += 1
+            if(maxTimer > maxTimerValue):
+                raise Exception(f"Cycle:{self.env.now} Addr:{hex(pipeIns.getRelAddr())} TCore{self.coreId} Thread{pipeIns.getThread()} Pipe[{self.targetResource(pipeIns)}] Instruction: {pipeIns.mnemonic}: Execution pipe is also in source pipes {srcPipeList}. Source Pipe Check timed out after {maxTimerValue} cycles. Potential Deadlock. {pipeIns.getAttr()}")
+
+        for i in range(len(pipeIns.getSrcPipes())):
+            assert self.targetResource(pipeIns) != pipeIns.getSrcPipes()[i], f"Execution pipe {self.targetResource(pipeIns)} cannot be in source pipes {pipeIns.getSrcPipes()} for instruction: {pipeIns}"
             pipeCondCheck1.append(self.env.process(
                 self.rState.checkRsrcState(pipeIns.getSrcPipes()[i], pipeIns.getPipesThreadId(), 0, self.debug, 2, instr_info = f"@tensiPipe. cycle: {self.env.now}. check if src pipes (i = {i}, pipe id = {pipeIns.getSrcPipes()[i]}) are free for instruction: {pipeIns}"))
             )
-            if(self.debug & DEBUG_TENSIX_MED_LEVEL):                      print(f"Cycle:{self.env.now} Addr:{4},Thread[{0}]: Waiting for pipe[{1}] thread [{6}] as part of {2}, Len of pipeCondCheck1={4}, Len of srcPipes={5}".format(pipeIns.getThread(), pipeIns.getSrcPipes()[i],  pipeIns.mnemonic, self.env.now, len(pipeCondCheck1), len(pipeIns.getSrcPipes()), hex(pipeIns.getRelAddr()), pipeIns.getPipesThreadId()))
+            if(self.debug & DEBUG_TENSIX_MED_LEVEL):
+                print(f"Cycle:{self.env.now} Addr:{hex(pipeIns.getRelAddr())} TCore{self.coreId} Thread{pipeIns.getThread()} Pipe[{self.targetResource(pipeIns)}] Instruction:{pipeIns.mnemonic}: Waiting for pipe[{self.pipes[pipeIns.getSrcPipes()[i]]}] thread [{pipeIns.getPipesThreadId()}] Len of pipeCondCheck1={len(pipeCondCheck1)}, Len of srcPipes={len(pipeIns.getSrcPipes())}")
 
         yield simpy.events.AllOf(self.env, pipeCondCheck1)
         if (self.debug & DEBUG_TENSIX_MED_LEVEL) and (len(pipeIns.getSrcPipes()) > 0):
-            print(f"Cycle:{self.env.now} Addr:{hex(pipeIns.getRelAddr())} Thread{pipeIns.getThread()}: WaitRes completed for {3}".format(self.env.now, hex(pipeIns.getRelAddr()), pipeIns.getThread(), pipeIns.mnemonic))
+            print(f"Cycle:{self.env.now} Addr:{hex(pipeIns.getRelAddr())} TCore{self.coreId} Thread{pipeIns.getThread()} Pipe[{self.targetResource(pipeIns)}] Instruction:{pipeIns.mnemonic}: WaitRes completed")
 
     def _wait_on_exe_pipe(self, pipeIns):
         # Wait on execution pipe to be free
@@ -1659,15 +1683,41 @@ class tensixCore:
     def _check_src_pipes(self, pipeIns):
         # Check source pipes are free
         pipeCondCheck1      = []
+        maxTimerValue     = 2000
+
+        maxTimer = 0
+        srcPipeList = [];
         for i in range(len(pipeIns.getSrcPipes())):
+            srcPipeList.append(self.pipes[pipeIns.getSrcPipes()[i]])
+
+        while(self.targetResource(pipeIns) in srcPipeList):
+            if self.debug & DEBUG_TENSIX_MED_LEVEL:
+                print(f"Cycle:{self.env.now} Addr:{hex(pipeIns.getRelAddr())} TCore{self.coreId} Thread{pipeIns.getThread()} Pipe[{self.targetResource(pipeIns)}] Instruction: {pipeIns.mnemonic}: Execution pipe is also in source pipes {self.pipes[pipeIns.getSrcPipes()[i]]}. Source Pipe Check = Self indicates a waiting condition.")
+            # Functional code is expected to remove the source pipe as dependency once the condition is met.
+            self.tensixFunc.execTTIns(pipeIns, self.env.now, False)
+            yield self.env.timeout(1)
+
+            srcPipeList = [];
+            for i in range(len(pipeIns.getSrcPipes())):
+                srcPipeList.append(self.pipes[pipeIns.getSrcPipes()[i]])
+
+            maxTimer += 1
+            if(maxTimer > maxTimerValue):
+                raise Exception(f"Cycle:{self.env.now} Addr:{hex(pipeIns.getRelAddr())} TCore{self.coreId} Thread{pipeIns.getThread()} Pipe[{self.targetResource(pipeIns)}] Instruction: {pipeIns.mnemonic}: Execution pipe is also in source pipes {srcPipeList}. Source Pipe Check timed out after {maxTimerValue} cycles. Potential Deadlock. {pipeIns.getAttr()}")
+
+        for i in range(len(pipeIns.getSrcPipes())):
+            assert self.targetResource(pipeIns) != pipeIns.getSrcPipes()[i], f"Execution pipe {self.targetResource(pipeIns)} cannot be in source pipes {pipeIns.getSrcPipes()} for instruction: {pipeIns}"
+            # if pipeIns.getExPipe() == self.pipes[pipeIns.getSrcPipes()[i]]:
+            #     continue
             pipeCondCheck1.append(self.env.process(
                 self.rState.checkRsrcState(pipeIns.getSrcPipes()[i], pipeIns.getPipesThreadId(), 0, self.debug, 2, instr_info = f"@tensiPipe. cycle: {self.env.now}. check if src pipes (i = {i}, pipe id = {pipeIns.getSrcPipes()[i]}) are free for instruction: {pipeIns}"))
             )
-            if(self.debug & DEBUG_TENSIX_MED_LEVEL):                      print(f"Cycle:{self.env.now} Addr:{4},Thread[{0}]: Waiting for pipe[{1}] thread [{6}] as part of {2}, Len of pipeCondCheck1={4}, Len of srcPipes={5}".format(pipeIns.getThread(), pipeIns.getSrcPipes()[i],  pipeIns.mnemonic, self.env.now, len(pipeCondCheck1), len(pipeIns.getSrcPipes()), hex(pipeIns.getRelAddr()), pipeIns.getPipesThreadId()))
+            if(self.debug & DEBUG_TENSIX_MED_LEVEL):
+                print(f"Cycle:{self.env.now} Addr:{hex(pipeIns.getRelAddr())} TCore{self.coreId} Thread{pipeIns.getThread()} Pipe[{self.targetResource(pipeIns)}] Instruction:{pipeIns.mnemonic}: Waiting for pipe[{self.pipes[pipeIns.getSrcPipes()[i]]}] thread [{pipeIns.getPipesThreadId()}] Len of pipeCondCheck1={len(pipeCondCheck1)}, Len of srcPipes={len(pipeIns.getSrcPipes())}")
 
         yield simpy.events.AllOf(self.env, pipeCondCheck1)
         if (self.debug & DEBUG_TENSIX_MED_LEVEL) and (len(pipeIns.getSrcPipes()) > 0):
-            print(f"Cycle:{self.env.now} Addr:{hex(pipeIns.getRelAddr())} Thread{pipeIns.getThread()}: WaitRes completed for {3}".format(self.env.now, hex(pipeIns.getRelAddr()), pipeIns.getThread(), pipeIns.mnemonic))
+            print(f"Cycle:{self.env.now} Addr:{hex(pipeIns.getRelAddr())} TCore{self.coreId} Thread{pipeIns.getThread()} Pipe[{self.targetResource(pipeIns)}] Instruction:{pipeIns.mnemonic}: WaitRes completed")
 
     def _wait_on_exe_pipe(self, pipeIns):
         # Wait on execution pipe to be free
@@ -1917,10 +1967,12 @@ class tensixCore:
                         if self.debug & DEBUG_TENSIX_MED_LEVEL: print(f"Cycle:{self.env.now} Addr:{hex(pipeIns.getRelAddr())} TCore{self.coreId} Thread{pipeIns.getThread()} insId{memReq.__getInsId__()} Instruction:{pipeIns.getOp()} req{memReq.__getReqId__()} parents={memReq.__getParentReqIds__()} Target: {sourceReq.__getTarget__()} access (inprogress) at [{pipeIns.getExPipe()}]")
                         if(memReq.__getTarget__() == "L1" and self.args_dict['enableSharedL1']):
                             yield iBuff.put(memReq)
+                            memReq.__traceReq__(self.env.now)
                         else:
                             if self.debug & DEBUG_TENSIX_MED_LEVEL: print(f"Cycle:{self.env.now} TCore{self.coreId} req{memReq.__getReqId__()} insId{memReq.__getInsId__()} parents={memReq.__getParentReqIds__()} Target:{memReq.__getTarget__()} access initiation (inprogress) from pipe:{pipeIns.getExPipe()} to {memReq.__getTarget__()}")
                             if self.debug & DEBUG_TENSIX_MED_LEVEL: print(f"Cycle:{self.env.now} TCore{self.coreId} req{memReq.__getReqId__()} insId{memReq.__getInsId__()} parents={memReq.__getParentReqIds__()} Target:{memReq.__getTarget__()} access initiation (done) from pipe:{pipeIns.getExPipe()} to {memReq.__getTarget__()}")
                             yield oBuff.put(memReq)
+                            memReq.__traceReq__(self.env.now)
                             if self.debug & DEBUG_TENSIX_MED_LEVEL: print(f"Cycle:{self.env.now} req{memReq.__getReqId__()} insId{memReq.__getInsId__()} arbitration (done)")
 
                         reqTrk[memReq.__getReqId__()] = memReq          # Insert into tracker.
@@ -2021,10 +2073,12 @@ class tensixCore:
                         if self.debug & DEBUG_TENSIX_MED_LEVEL: print(f"Cycle:{self.env.now} Addr:{hex(pipeIns.getRelAddr())} TCore{self.coreId} Thread{pipeIns.getThread()} insId{memReq.__getInsId__()} Instruction:{pipeIns.getOp()} req{memReq.__getReqId__()} parents={memReq.__getParentReqIds__()} Target: {sourceReq.__getTarget__()} access (inprogress) at {pipeIns.getExPipe()}")
                         if(memReq.__getTarget__() == "L1" and self.args_dict['enableSharedL1']):
                             yield iBuff.put(memReq)
+                            memReq.__traceReq__(self.env.now)
                         else:
                             if self.debug & DEBUG_TENSIX_MED_LEVEL: print(f"Cycle:{self.env.now} TCore{self.coreId} insId{memReq.__getInsId__()} req{memReq.__getReqId__()} parents={memReq.__getParentReqIds__()} Target:{memReq.__getTarget__()} access initiation (inprogress) from pipe:{pipeIns.getExPipe()} to {memReq.__getTarget__()}")
                             if self.debug & DEBUG_TENSIX_MED_LEVEL: print(f"Cycle:{self.env.now} TCore{self.coreId} insId{memReq.__getInsId__()} req{memReq.__getReqId__()} parents={memReq.__getParentReqIds__()} Target:{memReq.__getTarget__()} access initiation (done) from pipe:{pipeIns.getExPipe()} to {memReq.__getTarget__()}")
                             yield oBuff.put(memReq)
+                            memReq.__traceReq__(self.env.now)
                             if self.debug & DEBUG_TENSIX_MED_LEVEL: print(f"Cycle:{self.env.now} req{memReq.__getReqId__()} insId{memReq.__getInsId__()} arbitration (done)")
 
                         reqTrk[memReq.__getReqId__()] = memReq          # Insert into tracker.

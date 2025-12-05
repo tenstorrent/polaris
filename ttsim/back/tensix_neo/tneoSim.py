@@ -129,16 +129,21 @@ def get_default_tt_isa_file_path(arch: str):
 
 def get_architecture(args_dict):
     accepted_arches = get_accepted_architectures()
-    arch_from_elf_files = read_elfs.get_architecture_from_tneo_sim_args_dict(args_dict)
-    assert arch_from_elf_files in accepted_arches, f"Arch from ELF files: {arch_from_elf_files} not present in accepted arches. "\
-        f"Accepted arches are: {accepted_arches}. "\
-        f"Please update accepted_arches."
 
-    if 'arch' in args_dict:
-        assert args_dict['arch'] == arch_from_elf_files, \
-            f"Mismatch between expected arch and arch from inputcfg. given arch: {args_dict['arch']}, arch from reading of elf files: {arch_from_elf_files}"
-
-    return arch_from_elf_files
+    if(args_dict['input']['syn']):
+        assert args_dict['arch'] in accepted_arches, f"Arch from args_dict: {args_dict['arch']} not present in accepted arches. "\
+            f"Accepted arches are: {accepted_arches}. "\
+            f"Please update accepted_arches."
+        return args_dict['arch']
+    else:
+        arch_from_elf_files = read_elfs.get_architecture_from_tneo_sim_args_dict(args_dict)
+        assert arch_from_elf_files in accepted_arches, f"Arch from ELF files: {arch_from_elf_files} not present in accepted arches. "\
+            f"Accepted arches are: {accepted_arches}. "\
+            f"Please update accepted_arches."
+        if 'arch' in args_dict:
+            assert args_dict['arch'] == arch_from_elf_files, \
+                f"Mismatch between expected arch and arch from inputcfg. given arch: {args_dict['arch']}, arch from reading of elf files: {arch_from_elf_files}"
+        return arch_from_elf_files
 
 def get_llk_version_tag(args_dict):
     arch = get_architecture(args_dict)

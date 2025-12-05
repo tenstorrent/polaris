@@ -1,0 +1,20 @@
+000100b7  # LUI x1, 0x10000 (Load upper immediate)
+10008093  # ADDI x1, x1, 0x100 (Add immediate)
+00020137  # LUI x2, 0x20000 (Load upper immediate)
+20010113  # ADDI x2, x2, 0x200 (Add immediate)
+002081b3  # ADD x3, x1, x2 (Add registers)
+40208233  # SUB x4, x1, x2 (Subtract registers)
+10000293  # ADDI x5, x0, 0x100 (Load immediate value)
+00030337  # LUI x6, 0x30000 (Load upper immediate)
+30030313  # ADDI x6, x6, 0x300 (Complete address setup)
+30030313  # ADDI x6, x6, 0x300 (Complete address setup)
+04200393  # ADDI x7, x0, 0x42 (Instruction after op1 call)
+04200393  # ADDI x7, x0, 0x42 (Instruction after op1 call)
+0080ba37  # LUI    rd[20] rs[] ri['0x80b'] attr[]           --> tile_counters[0]
+00900b13  # ADDI   rd[22] rs[0] ri['0x9'] attr[] 
+016a2823  # SW    rd[] rs[20, 22] ri['0x10'] attr[]         --> tile_counters[0][buffer_capacity] = 0x9
+000a2223  # SW    rd[] rs[20, 0] ri['0x4'] attr[]           --> RESET: tile_counters[0][space_available] = 0x9
+016a2423  # SW    rd[] rs[20, 22] ri['0x8'] attr[]          --> tile_counters[0][tiles_available] = 0x9 ; tile_counters[0][space_available] = 0x0 
+a4100482  # WAIT_TILES    rd[] rs[] ri[] attr{'buffer_sel': '0x0', 'num_tiles': '0x9', 'stall_res': ['unpack']} --> Is tileCounters[0][tiles_available] == 0x9? 
+f80e0480  # POP_TILES    rd[] rs[] ri[] attr{'buffer_sel': '0x0', 'num_tiles': '0x9', 'unpacker_rd_done_wait_mask': '0x7'} --> tileCounters[0][tiles_available] = 0x0
+00000067  # JALR x0, x0, 0 (Return from main)

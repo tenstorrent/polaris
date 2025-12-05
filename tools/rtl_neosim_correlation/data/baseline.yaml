@@ -3,101 +3,100 @@ batch:
   name: baseline
   parallel: 4
   tag:
-  - sep23
+  - dec22
   test:
-  - t6-quas-n1-ttx-elwadd-srcAB-mixed-fmts-llk
-  - t6-quas-n1-ttx-matmul-block-srcAB-mixed-fmts-llk
   - t6-quas-n4-ttx-matmul-l1-acc-multicore-height-sharded-mxfp4_a-llk
+  - t6-quas-n1-ttx-matmul-block-in0-4-2-in1-2-6-Int8-Int32-w-bias-llk
+  - t6-quas-n1-ttx-matmul-block-in0-4-2-in1-2-6-Uint8-Int32-w-bias-llk
+  - t6-quas-n1-ttx-matmul-block-in0-4-2-in1-2-6-Float32-w-bias-llk
+  - t6-quas-n1-ttx-matmul-block-in0-4-2-in1-2-6-Float32-MXInt2-out-both-packers-w-bias-llk
+  - t6-quas-n1-ttx-fp16b-greater-than-equal-zero-dest-dvalid-llk
+  - t6-quas-n1-ttx-fp16b-less-than-equal-zero-dest-dvalid-llk
+  - t6-quas-n1-ttx-Float32-less-than-equal-zero-dest-dvalid-llk
+  - t6-quas-n1-ttx-Float32-less-than-zero-dest-dvalid-llk
+  - t6-quas-n1-ttx-fp16b-less-than-zero-dest-dvalid-llk
+  - t6-quas-n1-ttx-fp16b-greater-than-zero-dest-dvalid-llk
+  - t6-quas-n1-ttx-Float32-greater-than-zero-dest-dvalid-llk
+  - t6-quas-n1-ttx-Float32-greater-than-equal-zero-dest-dvalid-llk
   - t6-quas-n1-ttx-recip-Float16_b-upk-to-dest-llk
   - t6-quas-n1-ttx-fp32-tanh-dest-dvalid-llk
-  - t6-quas-n1-ttx-cast-Fp16b-Uint16-dest-dvalid-llk
   - t6-quas-n1-ttx-fp16-exp-dest-dvalid-llk
   - t6-quas-n1-ttx-fp8e4m3-exp-dest-semaphores-llk
+  - t6-quas-n1-ttx-cast-Fp16b-Uint16-dest-dvalid-llk
+  - t6-quas-n1-ttx-matmul-block-in0-9-2-in1-2-4-mxint2-w-bias-llk
   - t6-quas-n1-ttx-fp16_b-sqrt-dest-semaphores-llk
+  - t6-quas-n1-ttx-matmul-block-in0-6-2-in1-2-6-fp16_b-w-bias-llk
   - t6-quas-n1-ttx-matmul-block-in0-1-8-in1-8-2-spill-reload-fp32-llk
   - t6-quas-n1-ttx-matmul-block-in0-1-8-in1-8-2-spill-reload-fp16_b-llk
-  - t6-quas-n1-ttx-fp16_b-sqrt-dest-dvalid-llk
   - t6-quas-n1-ttx-fp16_b-recip-dest-semaphores-llk
+  - t6-quas-n1-ttx-fp16_b-sqrt-dest-dvalid-llk
+  - t6-quas-n1-ttx-matmul-block-in0-6-2-in1-2-4-Float16_b-MXInt2-out-both-packers-w-bias-llk
   - t6-quas-n1-ttx-fp16_b-relu-max-dest-semaphores-llk
-  - t6-quas-n1-ttx-fp16_b-recip-dest-dvalid-llk
   - t6-quas-n1-ttx-fp16-tanh-dest-semaphores-llk
   - t6-quas-n1-ttx-fp16_b-lrelu-dest-semaphores-llk
   - t6-quas-n1-ttx-fp16_b-relu-min-dest-semaphores-llk
-  - t6-quas-n1-ttx-fp32-dest-datacopy-llk
-  - t6-quas-n1-ttx-int16-b-datacopy-stride-explicit-llk
-  - t6-quas-n1-ttx-int16-s-datacopy-stride-row-mask-no-write-llk
-  - t6-quas-n1-ttx-int16-a-datacopy-stride-row-mask-no-write-llk
-  - t6-quas-n1-ttx-int16-s-datacopy-stride-explicit-llk
-  - t6-quas-n1-ttx-int16-b-datacopy-stride-row-mask-no-write-llk
-  - t6-quas-n1-ttx-int16-a-datacopy-stride-explicit-llk
+  - t6-quas-n1-ttx-fp16_b-recip-dest-dvalid-llk
+  - t6-quas-n1-ttx-cast-Int32-Fp32-dest-dvalid-llk
   - t6-quas-n1-ttx-fp8e5m2-relu-dest-semaphores-llk
+  - t6-quas-n1-ttx-fp32-dest-datacopy-llk
   - t6-quas-n1-ttx-matmul-block-in0-2-8-in1-8-4-fp16_b-llk
   - t6-quas-n1-ttx-fp32-datacopy-transpose-llk
-  - t6-quas-n1-ttx-cast-Int32-Fp32-dest-dvalid-llk
-  - t6-quas-n1-ttx-int16-s-datacopy-stride-row-col-mask-dirty-llk
-  - t6-quas-n1-ttx-int16-b-datacopy-stride-row-col-mask-dirty-llk
   - t6-quas-n1-ttx-matmul-block-in0-1-16-in1-16-4-fp32-fid4-llk
-  - t6-quas-n1-ttx-int16-a-datacopy-stride-row-col-mask-dirty-llk
   - t6-quas-n1-ttx-matmul-block-in0-12-2-in1-2-2-fp16_b-llk
-  - t6-quas-n1-ttx-int16-s-datacopy-stride-row-mask-dirty-llk
-  - t6-quas-n1-ttx-int16-a-datacopy-stride-row-mask-dirty-llk
-  - t6-quas-n1-ttx-int16-b-datacopy-stride-row-mask-dirty-llk
-  - t6-quas-n1-ttx-matmul-block-l1-acc-in0-llk
   - t6-quas-n1-ttx-matmul-block-in0-3-1-in1-1-2-fp16_b-llk
   - t6-quas-n1-ttx-matmul-block-in0-4-2-in1-2-6-fp16_b-llk
-  - t6-quas-n1-ttx-int16-s-datacopy-stride-col-mask-dirty-llk
-  - t6-quas-n1-ttx-int16-a-datacopy-stride-col-mask-dirty-llk
-  - t6-quas-n1-ttx-int16-b-datacopy-stride-col-mask-dirty-llk
+  - t6-quas-n1-ttx-matmul-block-l1-acc-in0-llk
   - t6-quas-n4-ttx-matmul-l1-acc-multicore-height-sharded-llk
   - t6-quas-n4-ttx-matmul-l1-acc-multicore-2d-matmul-4-tiles-llk
   - t6-quas-n1-ttx-matmul-m-2-n-4-k-8-fp16_b-llk
-  - t6-quas-n1-ttx-fp16_b-pck-untilize-strided-llk
+  - t6-quas-n1-ttx-elwadd-broadcast-col0-fp16-llk
+  - t6-quas-n1-ttx-float32-sqrt-dest-semaphores-llk
   - t6-quas-n1-ttx-elwadd-broadcast-col0-fp32-llk
   - t6-quas-n1-ttx-fp16_b-datacopy-transpose-llk
-  - t6-quas-n1-ttx-fp16_b-datacopy-llk
-  - t6-quas-n1-ttx-elwadd-broadcast-col0-fp16-llk
+  - t6-quas-n1-ttx-fp16_b-pck-untilize-strided-llk
   - t6-quas-n1-ttx-elwadd-fp32-dest-llk
-  - t6-quas-n1-ttx-matmul-block-in0-1-1-in1-1-1-fp16_b-w-bias-llk
+  - t6-quas-n1-ttx-fp16_b-datacopy-llk
+  - t6-quas-n1-ttx-Int32-upk-to-dest-llk
   - t6-quas-n1-ttx-fp16_b-pck-untilize-upk-tilize-strided-llk
-  - t6-quas-n1-ttx-float32-sqrt-dest-semaphores-llk
-  - t6-quas-n1-ttx-elwsub-fp16_b-llk
+  - t6-quas-n1-ttx-matmul-block-direct-FaceRow-FaceColumn-fp16-example-llk
   - t6-quas-n1-ttx-matmul-block-fp16-fid2-llk
-  - t6-quas-n1-ttx-fp16_b-pck-untilize-upk-tilize-strided-2x32-llk
   - t6-quas-n4-ttx-matmul-l1-acc-multicore-2d-matmul-32-tiles-llk
+  - t6-quas-n1-ttx-elwsub-fp16_b-llk
+  - t6-quas-n1-ttx-fp16_b-pck-untilize-upk-tilize-strided-2x32-llk
   - t6-quas-n1-ttx-fp16_b-pck-untilize-upk-tilize-strided-1x32-llk
+  - t6-quas-n1-ttx-matmul-block-srcAB-mixed-fmts-llk
+  - t6-quas-n1-ttx-fp16_b-pck-untilize-upk-tilize-strided-16x32-llk
   - t6-quas-n1-ttx-int16-datacopy-llk
   - t6-quas-n1-ttx-elwadd-broadcast-row0-fp16-llk
   - t6-quas-n1-ttx-matmul-m-1-n-8-k-3-fp16_b-llk
-  - t6-quas-n1-ttx-elwmul-fp16_b-llk
   - t6-quas-n1-ttx-reduce-col-avg-int32-llk
+  - t6-quas-n1-ttx-elwmul-fp16_b-llk
   - t6-quas-n1-ttx-reduce-row-avg-int32-llk
-  - t6-quas-n1-ttx-fp16_b-pck-untilize-upk-tilize-strided-16x32-llk
+  - t6-quas-n1-ttx-fp16_b-pck-untilize-upk-tilize-strided-8x32-llk
   - t6-quas-n1-ttx-reduce-col-avg-fp32-llk
+  - t6-quas-n1-ttx-matmul-m-8-n-1-k-2-fp16_b-llk
   - t6-quas-n1-ttx-int8-datacopy-llk
   - t6-quas-n1-ttx-fp16_b-upk-tilize-strided-llk
-  - t6-quas-n1-ttx-elwadd-broadcast-scalar-fp16-llk
-  - t6-quas-n1-ttx-matmul-m-8-n-1-k-2-fp16_b-llk
-  - t6-quas-n1-ttx-fp16_b-pck-untilize-upk-tilize-strided-8x32-llk
   - t6-quas-n1-ttx-fp16_b-pck-untilize-upk-tilize-strided-4x32-llk
-  - t6-quas-n1-ttx-Int32-upk-to-dest-llk
-  - t6-quas-n1-ttx-uint8-datacopy-srcB-llk
+  - t6-quas-n1-ttx-elwadd-broadcast-scalar-fp16-llk
   - t6-quas-n1-ttx-fp16_b-upk-tilize-SrcB-llk
+  - t6-quas-n1-ttx-matmul-m-2-n-4-k-8-mxfp4_a-llk
+  - t6-quas-n1-ttx-uint8-datacopy-srcB-llk
+  - t6-quas-n1-ttx-reduce-col-avg-fp16_b-llk
   - t6-quas-n1-ttx-fp16_b-upk-tilize-src-offset-llk
   - t6-quas-n1-ttx-fp16_b-pck-untilize-llk
-  - t6-quas-n1-ttx-fp16_b-a-datacopy-stride-llk
-  - t6-quas-n1-ttx-reduce-col-avg-fp16_b-llk
-  - t6-quas-n1-ttx-matmul-m-2-n-4-k-8-mxfp4_a-llk
+  - t6-quas-n1-ttx-fp16_b-upk-to-dest-llk
   - t6-quas-n1-ttx-fp16_b-upk-tilize-llk
   - t6-quas-n1-ttx-reduce-row-avg-fp16_b-llk
   - t6-quas-n1-ttx-reduce-col-avg-tf32-fid4-llk
-  - t6-quas-n1-ttx-fp16_b-pck-untilize-upk-tilize-llk
   - t6-quas-n1-ttx-reduce-col-max-fp16_b-llk
-  - t6-quas-n1-ttx-fp16_b-upk-to-dest-llk
-  - t6-quas-n1-ttx-reduce-row-avg-fp32-fid4-llk
+  - t6-quas-n1-ttx-fp16_b-pck-untilize-upk-tilize-llk
   - t6-quas-n1-ttx-reduce-row-max-fp16_b-llk
   - t6-quas-n1-ttx-reduce-scalar-avg-fp16_b-llk
-  - t6-quas-n1-ttx-reduce-scalar-max-int8-llk
+  - t6-quas-n1-ttx-reduce-row-avg-fp32-fid4-llk
   - t6-quas-n1-ttx-reduce-scalar-avg-fp32-fid4-llk
+  - t6-quas-n1-ttx-elwadd-srcAB-mixed-fmts-llk
   - t6-quas-n1-ttx-reduce-scalar-max-fp16_b-llk
+  - t6-quas-n1-ttx-reduce-scalar-max-int8-llk
   - t6-quas-n1-ttx-elwmul-tf32-fidelity-llk
   - t6-quas-n1-ttx-elwmul-float16_b-broadcast-scalar-fidelity-llk

@@ -330,15 +330,19 @@ class instr(decoded_instruction.decoded_instruction, decoded_instruction.operand
 
     def setSrcPipes(self,pipeList):
         if pipeList:
-            self.srcPipes = []
+            self.srcPipes.clear()
             for i in range(len(pipeList)):
                 self.srcPipes.append(pipeList[i])
+        else:
+            self.srcPipes.clear()
 
     def setDstPipes(self,pipeList):
         if pipeList:
-            self.dstPipes = []
+            self.dstPipes.clear()
             for i in range(len(pipeList)):
                 self.dstPipes.append(pipeList[i])
+        else:
+            self.dstPipes.clear()
 
     def setPipesThreadId(self, thread_id):
         if thread_id is not None:
@@ -483,15 +487,17 @@ def synTest(elfFile,kernel, arch, start, stop):
 
     iAddr   = 1000
     iBytes  = 4
+    # print(f"synTest Kernel: {kernel}, Thread ID:  {0} , Kernel: {kernel} , StartAddress =  {start} ,EndAddress= {stop}")
+    # print(f"elfFile: {elfFile}")
     with open(elfFile) as f:
         lines = f.read().splitlines()
 
-    # print(f"synTest Kernel: {kernel}, Thread ID:  {0} , Kernel: {kernel} , StartAddress =  {start} ,EndAddress= {stop}")
     for insCnt in range(len(lines)):
         if(insCnt < start or insCnt >= stop):
             continue
         ins     = lines[insCnt].split('#')[0]
-        if((int(ins , 16) & 0x3) == 0x3):
+        if(ins == ''): continue
+        elif((int(ins , 16) & 0x3) == 0x3):
             iClass =    decoded_instruction.instruction_kind.rv32
         else:
             match arch:

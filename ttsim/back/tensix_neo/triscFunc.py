@@ -22,6 +22,8 @@ NUM_CFG_REGISTERS             = 64
 BANK_UPDATE_THRESHOLD = 512
 DEST_REG_INDEX = 3
 
+TILE_SCALE_FACTOR            = 1
+
 forceSkipJump                 = []
 # forceSkipJump                 = ["0x4eac", "0x4f80", "0x5d80", "0x55c0", "0x8320"]
 
@@ -245,7 +247,7 @@ class triscFunc:
         return (reg_index >= min and reg_index <= max)
 
     #S-Type Store
-    def __execsw__(self, ins):
+    def __execsw__(self, ins, cycle):
         assert ins.getOp() == "SW", "Expected opcode SW Received " + str(ins.getOp())
         assert "destinations" not in dir(ins.getOperands()) , "Zero Dst expected"
         assert len(ins.getSrcInt()) == 2, "Two  Src expected"
@@ -310,6 +312,44 @@ class triscFunc:
                 case _:             assert False, "Unknown reg Index=" + str(cfgRegIndex) + ",Type=" + str(cfgRegType)
             if self.debug & 0x8:     print(f"Writing to (TENSIX) Thread[{self.threadId}]:{hex(cfgRegIndex)} {cfgRegType}[{hex(cfgRegIndex)}]={hex(self.triscRegs.__readReg__(ins.getSrcInt()[0]) + ins.getImm()[0])} {hex(self.triscRegs.__readReg__(ins.getSrcInt()[1]))}")
             self.ttSplRegs.__writeReg__(cfgRegIndex, self.triscRegs.__readReg__(ins.getSrcInt()[1]), cfgRegType)
+        elif(cfgRegType == 'tileCounters'):              # Write to MMR (Tensix)
+            if self.debug & 0x8:    print(f"__execsw(tileCounters): {cfgRegType}, {cfgRegIndex}, {hex(self.triscRegs.__readReg__(ins.getSrcInt()[0]) + ins.getImm()[0])}")
+            bufferRegIndex          = int(cfgRegIndex / 8) #self.ttSplRegs.__getNumReg__('tileCounters')
+            bufferIntraRegIndex     = cfgRegIndex % 8
+            match bufferIntraRegIndex:
+                case 1: #RESET
+                    # print(f"WARNING: Don't know what to do with write RESET tile_counters[{hex(bufferRegIndex)}] register")
+                    self.ttSplRegs.__writeReg__(bufferRegIndex, self.triscRegs.__readReg__(ins.getSrcInt()[1]), cfgRegType,'reset')
+                    self.ttSplRegs.__writeReg__(bufferRegIndex, 0, cfgRegType,'tiles_available')
+                    bufCapacity = self.ttSplRegs.__readReg__(bufferRegIndex, cfgRegType,'buffer_capacity')
+                    self.ttSplRegs.__writeReg__(bufferRegIndex, bufCapacity - self.ttSplRegs.__readReg__(bufferRegIndex, cfgRegType,'tiles_available'), cfgRegType,'space_available')
+                    if self.debug & 0x8:    print(f"Cycle:{cycle} Addr:{hex(ins.getRelAddr())} TCore{self.coreId} Thread{self.threadId} Pipe:[RISC] Instruction:{ins.getOp()} tile_counters[{hex(bufferRegIndex)}] Writing to (TENSIX) RESET:{hex(self.triscRegs.__readReg__(ins.getSrcInt()[0]) + ins.getImm()[0])} tile_counters[{hex(bufferRegIndex)}][tiles_available]={hex(self.ttSplRegs.__readReg__(bufferRegIndex, cfgRegType,'tiles_available'))}")
+                    if self.debug & 0x8:    print(f"Cycle:{cycle} Addr:{hex(ins.getRelAddr())} TCore{self.coreId} Thread{self.threadId} Pipe:[RISC] Instruction:{ins.getOp()} tile_counters[{hex(bufferRegIndex)}] Writing to (TENSIX) RESET:{hex(self.triscRegs.__readReg__(ins.getSrcInt()[0]) + ins.getImm()[0])} tile_counters[{hex(bufferRegIndex)}][space_available]={hex(self.ttSplRegs.__readReg__(bufferRegIndex, cfgRegType,'space_available'))}")
+                case 2: # TILES_AVAILABLE
+                    self.ttSplRegs.__writeReg__(bufferRegIndex, self.triscRegs.__readReg__(ins.getSrcInt()[1]) * TILE_SCALE_FACTOR, cfgRegType,'tiles_available')
+                    if self.debug & 0x8:    print(f"Cycle:{cycle} Addr:{hex(ins.getRelAddr())} TCore{self.coreId} Thread{self.threadId} Pipe:[RISC] Instruction:{ins.getOp()} tile_counters[{hex(bufferRegIndex)}] Writing to (TENSIX):{hex(self.triscRegs.__readReg__(ins.getSrcInt()[0]) + ins.getImm()[0])} tile_counters[{hex(bufferRegIndex)}][tiles_available]={hex(self.triscRegs.__readReg__(ins.getSrcInt()[1]) * TILE_SCALE_FACTOR)}")
+                    self.ttSplRegs.__writeReg__(bufferRegIndex, (self.ttSplRegs.__readReg__(bufferRegIndex, cfgRegType,'buffer_capacity') - self.ttSplRegs.__readReg__(bufferRegIndex, cfgRegType,'tiles_available')) * TILE_SCALE_FACTOR, cfgRegType,'space_available')
+                    if self.debug & 0x8:    print(f"Cycle:{cycle} Addr:{hex(ins.getRelAddr())} TCore{self.coreId} Thread{self.threadId} Pipe:[RISC] Instruction:{ins.getOp()} tile_counters[{hex(bufferRegIndex)}] Writing to (TENSIX):{hex(self.triscRegs.__readReg__(ins.getSrcInt()[0]) + ins.getImm()[0])} tile_counters[{hex(bufferRegIndex)}][space_available]={hex((self.ttSplRegs.__readReg__(bufferRegIndex, cfgRegType,'buffer_capacity') - self.ttSplRegs.__readReg__(bufferRegIndex, cfgRegType,'tiles_available')))}")
+                    assert (self.ttSplRegs.__readReg__(bufferRegIndex, cfgRegType,'space_available') + self.ttSplRegs.__readReg__(bufferRegIndex, cfgRegType,'tiles_available')) == self.ttSplRegs.__readReg__(bufferRegIndex, cfgRegType,'buffer_capacity'), f"buffer_capacity {hex(self.ttSplRegs.__readReg__(bufferRegIndex, cfgRegType,'buffer_capacity') )} != space_available {hex(self.ttSplRegs.__readReg__(bufferRegIndex, cfgRegType,'space_available'))} + tiles_available {hex(self.ttSplRegs.__readReg__(bufferRegIndex, cfgRegType,'tiles_available'))}" 
+                case 3: # SPACE_AVAILABLE
+                    if self.debug & 0x8:    print(f"Cycle:{cycle} Addr:{hex(ins.getRelAddr())} TCore{self.coreId} Thread{self.threadId} Pipe:[RISC] Instruction:{ins.getOp()} tile_counters[{hex(bufferRegIndex)}] Writing to (TENSIX):{hex(self.triscRegs.__readReg__(ins.getSrcInt()[0]) + ins.getImm()[0])} tile_counters[{hex(bufferRegIndex)}][space_available]={hex(self.triscRegs.__readReg__(ins.getSrcInt()[1]) * TILE_SCALE_FACTOR)}")
+                    self.ttSplRegs.__writeReg__(bufferRegIndex, self.triscRegs.__readReg__(ins.getSrcInt()[1]) * TILE_SCALE_FACTOR, cfgRegType,'space_available')
+                case 4: # BUFFER_CAPACITY
+                    self.ttSplRegs.__writeReg__(bufferRegIndex, self.triscRegs.__readReg__(ins.getSrcInt()[1]) * TILE_SCALE_FACTOR , cfgRegType,'buffer_capacity')
+                    if self.debug & 0x8:    print(f"Cycle:{cycle} Addr:{hex(ins.getRelAddr())} TCore{self.coreId} Thread{self.threadId} Pipe:[RISC] Instruction:{ins.getOp()} tile_counters[{hex(bufferRegIndex)}] Writing to (TENSIX):{hex(self.triscRegs.__readReg__(ins.getSrcInt()[0]) + ins.getImm()[0])} tile_counters[{hex(bufferRegIndex)}][buffer_capacity]={hex(self.triscRegs.__readReg__(ins.getSrcInt()[1]) * TILE_SCALE_FACTOR)}")
+                    # self.ttSplRegs.__writeReg__(bufferRegIndex, self.triscRegs.__readReg__(ins.getSrcInt()[1]), cfgRegType,'space_available')
+                    # print(f"Addr:{hex(ins.getRelAddr())} TCore{self.coreId} Thread{self.threadId} tile_counters[{hex(bufferRegIndex)}] Writing to (TENSIX):{hex(self.triscRegs.__readReg__(ins.getSrcInt()[0]) + ins.getImm()[0])} tile_counters[{hex(bufferRegIndex)}][space_available]={hex(self.ttSplRegs.__readReg__(bufferRegIndex, cfgRegType,'space_available'))}")
+                    # self.ttSplRegs.__writeReg__(bufferRegIndex, self.ttSplRegs.__readReg__(bufferRegIndex, cfgRegType,'buffer_capacity') - self.ttSplRegs.__readReg__(bufferRegIndex, cfgRegType,'space_available'), cfgRegType,'tiles_available')
+                    # print(f"Addr:{hex(ins.getRelAddr())} Thread{self.threadId} Writing to (TENSIX):{hex(self.triscRegs.__readReg__(ins.getSrcInt()[0]) + ins.getImm()[0])} tile_counters[{hex(bufferRegIndex)}][tiles_available]={hex(self.ttSplRegs.__readReg__(bufferRegIndex, cfgRegType,'tiles_available'))}")
+                case 6: # TILES_AVAIL_IRQ_THRESH
+                    if self.debug & 0x8:    print(f"Cycle:{cycle} Addr:{hex(ins.getRelAddr())} TCore{self.coreId} Thread{self.threadId} Pipe:[RISC] Instruction:{ins.getOp()} tile_counters[{hex(bufferRegIndex)}] Writing to (TENSIX):{hex(self.triscRegs.__readReg__(ins.getSrcInt()[0]) + ins.getImm()[0])} tile_counters[{hex(bufferRegIndex)}][tiles_avail_irq_thresh]={hex(self.triscRegs.__readReg__(ins.getSrcInt()[1]))}")
+                    self.ttSplRegs.__writeReg__(bufferRegIndex, self.triscRegs.__readReg__(ins.getSrcInt()[1]), cfgRegType,'tiles_avail_irq_thresh')
+                case 7: # SPACE_AVAIL_IRQ_THRESH
+                    if self.debug & 0x8:    print(f"Cycle:{cycle} Addr:{hex(ins.getRelAddr())} TCore{self.coreId} Thread{self.threadId} Pipe:[RISC] Instruction:{ins.getOp()} tile_counters[{hex(bufferRegIndex)}] Writing to (TENSIX):{hex(self.triscRegs.__readReg__(ins.getSrcInt()[0]) + ins.getImm()[0])} tile_counters[{hex(bufferRegIndex)}][space_avail_irq_thresh]={hex(self.triscRegs.__readReg__(ins.getSrcInt()[1]))}")
+                    self.ttSplRegs.__writeReg__(bufferRegIndex, self.triscRegs.__readReg__(ins.getSrcInt()[1]), cfgRegType,'space_avail_irq_thresh')
+                case _:
+                    assert False, "Unhandled tileCounters register index " + str(bufferIntraRegIndex)
+            # Read back the value to update internal state
         else:                                   # Write to MMR (TRISC)
             assert regIndex != -1, "Reg Index cannot be uninitialized"
             if self.debug & 0x8: print(f"__execsw:{regType}[{hex(regIndex)}]={hex(self.triscRegs.__readReg__(ins.getSrcInt()[0]) + ins.getImm()[0])}")
@@ -364,13 +404,13 @@ class triscFunc:
         elif(cfgRegType == 'mop'):              # Write to MMR (TRISC)
             if self.debug & 0x8: print(f"__execsw:{cfgRegType} , {cfgRegIndex}, {hex(self.triscRegs.__readReg__(ins.getSrcInt()[0]) + ins.getImm()[0])}")
             if(cfgRegIndex >=0 and cfgRegIndex <= 8): # MOP
-                if self.debug & 0x8:     print("Writing to (TENSIX) Thread[{0}]:{2} mop[{1}]={3}".format(self.threadId, hex(cfgRegIndex), hex(self.triscRegs.__readReg__(ins.getSrcInt()[0]) + ins.getImm()[0]), hex(self.triscRegs.__readReg__(ins.getSrcInt()[1]))))
+                if self.debug & 0x8:     print("Writing to (TENSIX) Thread{0}:{2} mop[{1}]={3}".format(self.threadId, hex(cfgRegIndex), hex(self.triscRegs.__readReg__(ins.getSrcInt()[0]) + ins.getImm()[0]), hex(self.triscRegs.__readReg__(ins.getSrcInt()[1]))))
                 self.ttSplRegs.__writeReg__(self.threadId*64 + cfgRegIndex, self.triscRegs.__readReg__(ins.getSrcInt()[1]) & 0xFFFF, cfgRegType)
             else:
                 assert False, "Unknown reg Index=" + str(cfgRegIndex) + ",Type=" + str(cfgRegType)
         elif(cfgRegType == 'instrBuffer'):      # Write to MMR (TENSIX)
             if(cfgRegIndex ==0):  #InstrBuffer
-                if self.debug & 0x8:     print("Writing to (TENSIX) Thread[{0}]:{2} instrbuf[{1}]={3}".format(self.threadId, hex(cfgRegIndex), hex(self.triscRegs.__readReg__(ins.getSrcInt()[0]) + ins.getImm()[0]), hex(self.triscRegs.__readReg__(ins.getSrcInt()[1]))))
+                if self.debug & 0x8:     print("Writing to (TENSIX) Thread{0}:{2} instrbuf[{1}]={3}".format(self.threadId, hex(cfgRegIndex), hex(self.triscRegs.__readReg__(ins.getSrcInt()[0]) + ins.getImm()[0]), hex(self.triscRegs.__readReg__(ins.getSrcInt()[1]))))
                 self.ttSplRegs.__writeReg__(cfgRegIndex, self.triscRegs.__readReg__(ins.getSrcInt()[1]) & 0xFFFF, cfgRegType)
             else:
                 assert False, "Unknown reg Index=" + str(cfgRegIndex) + ",Type=" + str(cfgRegType)
@@ -417,13 +457,13 @@ class triscFunc:
         elif(cfgRegType == 'mop'):              # Write to MMR (TRISC)
             if self.debug & 0x8: print(f"__execsw:{cfgRegType} , {cfgRegIndex}, {hex(self.triscRegs.__readReg__(ins.getSrcInt()[0]) + ins.getImm()[0])}")
             if(cfgRegIndex >=0 and cfgRegIndex <= 8): # MOP
-                if self.debug & 0x8:     print("Writing to (TENSIX) Thread[{0}]:{2} mop[{1}]={3}".format(self.threadId, hex(cfgRegIndex), hex(self.triscRegs.__readReg__(ins.getSrcInt()[0]) + ins.getImm()[0]), hex(self.triscRegs.__readReg__(ins.getSrcInt()[1]))))
+                if self.debug & 0x8:     print("Writing to (TENSIX) Thread{0}:{2} mop[{1}]={3}".format(self.threadId, hex(cfgRegIndex), hex(self.triscRegs.__readReg__(ins.getSrcInt()[0]) + ins.getImm()[0]), hex(self.triscRegs.__readReg__(ins.getSrcInt()[1]))))
                 self.ttSplRegs.__writeReg__(self.threadId*64 + cfgRegIndex, self.triscRegs.__readReg__(ins.getSrcInt()[1]) & 0xFF, cfgRegType)
             else:
                 assert False, "Unknown reg Index=" + str(cfgRegIndex) + ",Type=" + str(cfgRegType)
         elif(cfgRegType == 'instrBuffer'):      # Write to MMR (TENSIX)
             if(cfgRegIndex ==0):  #InstrBuffer
-                if self.debug & 0x8:     print("Writing to (TENSIX) Thread[{0}]:{2} instrbuf[{1}]={3}".format(self.threadId, hex(cfgRegIndex), hex(self.triscRegs.__readReg__(ins.getSrcInt()[0]) + ins.getImm()[0]), hex(self.triscRegs.__readReg__(ins.getSrcInt()[1]))))
+                if self.debug & 0x8:     print("Writing to (TENSIX) Thread{0}:{2} instrbuf[{1}]={3}".format(self.threadId, hex(cfgRegIndex), hex(self.triscRegs.__readReg__(ins.getSrcInt()[0]) + ins.getImm()[0]), hex(self.triscRegs.__readReg__(ins.getSrcInt()[1]))))
                 self.ttSplRegs.__writeReg__(cfgRegIndex, self.triscRegs.__readReg__(ins.getSrcInt()[1]) & 0xFF, cfgRegType)
             else:
                 assert False, "Unknown reg Index=" + str(cfgRegIndex) + ",Type=" + str(cfgRegType)
@@ -589,7 +629,7 @@ class triscFunc:
         assert len(ins.getImm()) == 1, "One Imm expected"
 
         if(self.debug & 0x10):
-            print(f"\t{ins.getOp()}: {hex(self.triscRegs.__readReg__(ins.getSrcInt()[0]))} + {hex(ins.getImm()[0])} = {hex(self.triscRegs.__readReg__(ins.getSrcInt()[0]) + ins.getImm()[0])}")
+            print(f"\t{ins.getOp()}: {hex(self.triscRegs.__readReg__(ins.getSrcInt()[0]))} + {hex(ins.getImm()[0])} = {hex(self.triscRegs.__readReg__(ins.getSrcInt()[0]) + (ins.getImm()[0]))}")
         self.triscRegs.__writeReg__(ins.getDstInt()[0], self.triscRegs.__readReg__(ins.getSrcInt()[0],'riscgpr') + ins.getImm()[0])
 
         nextRelAddr = ins.getRelAddr() + 4
@@ -728,7 +768,7 @@ class triscFunc:
         return nextRelAddr
 
     #I-Type Load
-    def __execlw__(self, ins):
+    def __execlw__(self, ins, cycle):
         assert ins.getOp() == "LW", "Expected opcode LW Received " + str(ins.getOp())
         assert len(ins.getDstInt()) == 1, "One Dst expected"
         assert len(ins.getSrcInt()) == 1, "One Src expected"
@@ -757,7 +797,7 @@ class triscFunc:
                 print(f"__execlw(cfg):{cfgRegType} , {cfgRegIndex}, {hex(self.triscRegs.__readReg__(ins.getSrcInt()[0]) + ins.getImm()[0])}")
 
             if "DEST_TARGET_REG_CFG_MATH" == self.ttSplRegs.getCfgRegUpdateClass(cfgRegIndex): # DEST_TARGET_REG_CFG_MATH_SEC0_Offset_ADDR32
-                print(f"Reading from (TENSIX) Thread[{self.threadId}]:{hex(self.triscRegs.__readReg__(ins.getSrcInt()[0]) + ins.getImm()[0])} DEST_TARGET_REG_CFG cfg[{hex(cfgRegIndex)}]={hex(self.ttSplRegs.__readReg__(cfgRegIndex, cfgRegType))}")
+                print(f"Reading from (TENSIX) Thread{self.threadId}:{hex(self.triscRegs.__readReg__(ins.getSrcInt()[0]) + ins.getImm()[0])} DEST_TARGET_REG_CFG cfg[{hex(cfgRegIndex)}]={hex(self.ttSplRegs.__readReg__(cfgRegIndex, cfgRegType))}")
                 self.triscRegs.__writeReg__(ins.getDstInt()[0], self.ttSplRegs.__readReg__(cfgRegIndex, cfgRegType))
                 # if self.triscRegs.__readReg__(ins.getSrcInt()[1]) >=512:  bankUpd[3] = 1
             else:
@@ -772,7 +812,7 @@ class triscFunc:
                 case 'mopSync':   
                     assert cfgRegIndex == 0, f"Only one mopSync register supported. Unexpected Index={cfgRegIndex}"
                     if(self.ttSplRegs.__readReg__(self.threadId + cfgRegIndex, cfgRegType) != 0):
-                        print(f"Addr:{hex(ins.getRelAddr())} TCore{self.coreId} Thread[{self.threadId}] (TENSIX) MOPSync register read as non-zero value {hex(self.ttSplRegs.__readReg__(self.threadId + cfgRegIndex, cfgRegType))}. Stalling")
+                        print(f"Addr:{hex(ins.getRelAddr())} TCore{self.coreId} Thread[{self.threadId}] (TENSIX) MOPSync register read as non-zero value {hex(self.ttSplRegs.__readReg__(self.threadId + cfgRegIndex, cfgRegType))}. mopSync stall behavior to be implemented")
                         #TODO: Implement MOPSync stall behavior
                         # nextRelAddr = ins.getRelAddr() - 4
                         # return nextRelAddr
@@ -794,6 +834,32 @@ class triscFunc:
                 case _:              assert False, "Unknown reg Index=" + str(cfgRegIndex) + ",Type=" + str(cfgRegType)
             if self.debug & 0x8:    print(f"Reading from (TENSIX) Thread[{self.threadId}]:{hex(self.triscRegs.__readReg__(ins.getSrcInt()[0]) + ins.getImm()[0])} {cfgRegType}[{hex(cfgRegIndex)}]={hex(self.ttSplRegs.__readReg__(cfgRegIndex, cfgRegType))}")
             self.triscRegs.__writeReg__(ins.getDstInt()[0], self.ttSplRegs.__readReg__(cfgRegIndex, cfgRegType))
+        elif(cfgRegType == 'tileCounters'):              # Write to MMR (Tensix)
+            print(f"__execlw(tileCounters):{cfgRegType} , {cfgRegIndex}, {hex(self.triscRegs.__readReg__(ins.getSrcInt()[0]) + ins.getImm()[0])}")
+            bufferRegIndex          = int(cfgRegIndex / 8) #self.ttSplRegs.__getNumReg__('tileCounters')
+            bufferIntraRegIndex     = cfgRegIndex % 8
+            match bufferIntraRegIndex:
+                case 1: #RESET
+                    if self.debug & 0x8:    print(f"WARNING: Addr:{hex(ins.getRelAddr())} Thread{self.threadId} Don't know what to do with read RESET tile_counters[{hex(bufferIntraRegIndex)}] register")
+                    self.triscRegs.__writeReg__(ins.getDstInt()[0], self.ttSplRegs.__readReg__(bufferRegIndex, cfgRegType,'reset'))
+                case 2: # TILES_AVAILABLE
+                    if self.debug & 0x8:    print(f"Cycle:{cycle} Addr:{hex(ins.getRelAddr())} Thread{self.threadId} Pipe:[RISC] Instruction:{ins.getOp()} tile_counters[{hex(bufferRegIndex)}] Reading from (TENSIX):{hex(self.triscRegs.__readReg__(ins.getSrcInt()[0]) + ins.getImm()[0])} tile_counters[{hex(bufferRegIndex)}][tiles_available]={hex(self.ttSplRegs.__readReg__(bufferRegIndex, cfgRegType,'tiles_available'))}")
+                    self.triscRegs.__writeReg__(ins.getDstInt()[0], self.ttSplRegs.__readReg__(bufferRegIndex, cfgRegType,'tiles_available'))
+                case 3: # SPACE_AVAILABLE
+                    if self.debug & 0x8:    print(f"Cycle:{cycle} Addr:{hex(ins.getRelAddr())} Thread{self.threadId} Pipe:[RISC] Instruction:{ins.getOp()} tile_counters[{hex(bufferRegIndex)}] Reading from (TENSIX):{hex(self.triscRegs.__readReg__(ins.getSrcInt()[0]) + ins.getImm()[0])} tile_counters[{hex(bufferRegIndex)}][space_available]={hex(self.ttSplRegs.__readReg__(bufferRegIndex, cfgRegType,'space_available'))}")
+                    self.triscRegs.__writeReg__(ins.getDstInt()[0], self.ttSplRegs.__readReg__(bufferRegIndex, cfgRegType,'space_available'))
+                case 4: # BUFFER_CAPACITY
+                    if self.debug & 0x8:    print(f"Cycle:{cycle} Addr:{hex(ins.getRelAddr())} Thread{self.threadId} Pipe:[RISC] Instruction:{ins.getOp()} tile_counters[{hex(bufferRegIndex)}] Reading from (TENSIX):{hex(self.triscRegs.__readReg__(ins.getSrcInt()[0]) + ins.getImm()[0])} tile_counters[{hex(bufferRegIndex)}][buffer_capacity]={hex(self.ttSplRegs.__readReg__(bufferRegIndex, cfgRegType,'buffer_capacity'))}")
+                    self.triscRegs.__writeReg__(ins.getDstInt()[0], self.ttSplRegs.__readReg__(bufferRegIndex, cfgRegType,'buffer_capacity'))
+                case 6: # TILES_AVAIL_IRQ_THRESH
+                    if self.debug & 0x8:    print(f"Cycle:{cycle} Addr:{hex(ins.getRelAddr())} Thread{self.threadId} Pipe:[RISC] Instruction:{ins.getOp()} tile_counters[{hex(bufferRegIndex)}] Reading from (TENSIX):{hex(self.triscRegs.__readReg__(ins.getSrcInt()[0]) + ins.getImm()[0])} tile_counters[{hex(bufferRegIndex)}][tiles_avail_irq_thresh]={hex(self.ttSplRegs.__readReg__(bufferRegIndex, cfgRegType,'tiles_avail_irq_thresh'))}")
+                    self.triscRegs.__writeReg__(ins.getDstInt()[0], self.ttSplRegs.__readReg__(bufferRegIndex, cfgRegType,'tiles_avail_irq_thresh'))
+                case 7: # SPACE_AVAIL_IRQ_THRESH
+                    if self.debug & 0x8:    print(f"Cycle:{cycle} Addr:{hex(ins.getRelAddr())} Thread{self.threadId} Pipe:[RISC] Instruction:{ins.getOp()} tile_counters[{hex(bufferRegIndex)}] Reading from (TENSIX):{hex(self.triscRegs.__readReg__(ins.getSrcInt()[0]) + ins.getImm()[0])} tile_counters[{hex(bufferRegIndex)}][space_avail_irq_thresh]={hex(self.ttSplRegs.__readReg__(bufferRegIndex, cfgRegType,'space_avail_irq_thresh'))}")
+                    self.triscRegs.__writeReg__(ins.getDstInt()[0], self.ttSplRegs.__readReg__(bufferRegIndex, cfgRegType,'space_avail_irq_thresh'))
+                case _:
+                    assert False, "Unhandled tileCounters register index " + str(bufferIntraRegIndex)
+            # Read back the value to update internal state
         else:   # Read from MMR
             self.triscRegs.__writeReg__(ins.getDstInt()[0], self.triscRegs.__readReg__(regIndex, regType))
             if(self.debug & 0x10):
@@ -1082,11 +1148,11 @@ class triscFunc:
         if(convert_to_format(self.triscRegs.__readReg__(ins.getSrcInt()[0], 'riscgpr'), 'i', 32) == convert_to_format(self.triscRegs.__readReg__(ins.getSrcInt()[1], 'riscgpr'), 'i', 32)):
             nextRelAddr = ins.getRelAddr() + ins.getImm()[0]
             if(self.debug & 0x10):
-                print(f"\tAddr:{ins.getRelAddr()} {ins.getOp()}: {hex(convert_to_format(self.triscRegs.__readReg__(ins.getSrcInt()[0]),'i',32))} = {hex(convert_to_format(self.triscRegs.__readReg__(ins.getSrcInt()[1]),'i',32))}. JMP {hex(nextRelAddr)}")
+                print(f"\tAddr:{hex(ins.getRelAddr())} {ins.getOp()}: {hex(convert_to_format(self.triscRegs.__readReg__(ins.getSrcInt()[0]),'i',32))} = {hex(convert_to_format(self.triscRegs.__readReg__(ins.getSrcInt()[1]),'i',32))}. JMP {hex(nextRelAddr)}")
         else:
             nextRelAddr = ins.getRelAddr() + 4
             if(self.debug & 0x10):
-                print(f"\tAddr:{ins.getRelAddr()} {ins.getOp()}: {hex(convert_to_format(self.triscRegs.__readReg__(ins.getSrcInt()[0]),'i',32))} != {hex(convert_to_format(self.triscRegs.__readReg__(ins.getSrcInt()[1]),'i',32))}. JMP[PCINCR] {hex(nextRelAddr)}")
+                print(f"\tAddr:{hex(ins.getRelAddr())} {ins.getOp()}: {hex(convert_to_format(self.triscRegs.__readReg__(ins.getSrcInt()[0]),'i',32))} != {hex(convert_to_format(self.triscRegs.__readReg__(ins.getSrcInt()[1]),'i',32))}. JMP[PCINCR] {hex(nextRelAddr)}")
 
         return nextRelAddr
 
@@ -1104,11 +1170,11 @@ class triscFunc:
         if(convert_to_format(self.triscRegs.__readReg__(ins.getSrcInt()[0]), 'i', 32) != convert_to_format(self.triscRegs.__readReg__(ins.getSrcInt()[1]), 'i', 32)):
             nextRelAddr = ins.getRelAddr() + ins.getImm()[0]
             if(self.debug & 0x10):
-                print(f"\tAddr:{ins.getRelAddr()} {ins.getOp()}: {hex(convert_to_format(self.triscRegs.__readReg__(ins.getSrcInt()[0]),'i',32))} != {hex(convert_to_format(self.triscRegs.__readReg__(ins.getSrcInt()[1]),'i',32))}. JMP {hex(nextRelAddr)}")
+                print(f"\tAddr:{hex(ins.getRelAddr())} {ins.getOp()}: {hex(convert_to_format(self.triscRegs.__readReg__(ins.getSrcInt()[0]),'i',32))} != {hex(convert_to_format(self.triscRegs.__readReg__(ins.getSrcInt()[1]),'i',32))}. JMP {hex(nextRelAddr)}")
         else:
             nextRelAddr = ins.getRelAddr() + 4
             if(self.debug & 0x10):
-                print(f"\tAddr:{ins.getRelAddr()} {ins.getOp()}: {hex(convert_to_format(self.triscRegs.__readReg__(ins.getSrcInt()[0]),'i',32))} = {hex(convert_to_format(self.triscRegs.__readReg__(ins.getSrcInt()[1]),'i',32))}. JMP[PCINCR] {hex(nextRelAddr)}")
+                print(f"\tAddr:{hex(ins.getRelAddr())} {ins.getOp()}: {hex(convert_to_format(self.triscRegs.__readReg__(ins.getSrcInt()[0]),'i',32))} = {hex(convert_to_format(self.triscRegs.__readReg__(ins.getSrcInt()[1]),'i',32))}. JMP[PCINCR] {hex(nextRelAddr)}")
 
         return nextRelAddr
 
@@ -1121,11 +1187,11 @@ class triscFunc:
         if(convert_to_format(self.triscRegs.__readReg__(ins.getSrcInt()[0], 'riscgpr'), 'i', 32) < convert_to_format(self.triscRegs.__readReg__(ins.getSrcInt()[1], 'riscgpr'), 'i', 32)):
             nextRelAddr = ins.getRelAddr() + ins.getImm()[0]
             if(self.debug & 0x10):
-                print(f"\tAddr:{ins.getRelAddr()} {ins.getOp()}: {hex(convert_to_format(self.triscRegs.__readReg__(ins.getSrcInt()[0]),'i',32))} < {hex(convert_to_format(self.triscRegs.__readReg__(ins.getSrcInt()[1]),'i',32))}. JMP {hex(nextRelAddr)}")
+                print(f"\tAddr:{hex(ins.getRelAddr())} {ins.getOp()}: {hex(convert_to_format(self.triscRegs.__readReg__(ins.getSrcInt()[0]),'i',32))} < {hex(convert_to_format(self.triscRegs.__readReg__(ins.getSrcInt()[1]),'i',32))}. JMP {hex(nextRelAddr)}")
         else:
             nextRelAddr = ins.getRelAddr() + 4
             if(self.debug & 0x10):
-                print(f"\tAddr:{ins.getRelAddr()} {ins.getOp()}: {hex(convert_to_format(self.triscRegs.__readReg__(ins.getSrcInt()[0]),'i',32))} !< {hex(convert_to_format(self.triscRegs.__readReg__(ins.getSrcInt()[1]),'i',32))}. JMP[PCINCR] {hex(nextRelAddr)}")
+                print(f"\tAddr:{hex(ins.getRelAddr())} {ins.getOp()}: {hex(convert_to_format(self.triscRegs.__readReg__(ins.getSrcInt()[0]),'i',32))} !< {hex(convert_to_format(self.triscRegs.__readReg__(ins.getSrcInt()[1]),'i',32))}. JMP[PCINCR] {hex(nextRelAddr)}")
 
         return nextRelAddr
 
@@ -1138,11 +1204,11 @@ class triscFunc:
         if(convert_to_format(self.triscRegs.__readReg__(ins.getSrcInt()[0], 'riscgpr'), 'i', 32) >= convert_to_format(self.triscRegs.__readReg__(ins.getSrcInt()[1], 'riscgpr'), 'i', 32)):
             nextRelAddr = ins.getRelAddr() + ins.getImm()[0]
             if(self.debug & 0x10):
-                print(f"\tAddr:{ins.getRelAddr()} {ins.getOp()}: {hex(convert_to_format(self.triscRegs.__readReg__(ins.getSrcInt()[0]),'i',32))} >= {hex(convert_to_format(self.triscRegs.__readReg__(ins.getSrcInt()[1]),'i',32))}. JMP {hex(nextRelAddr)}")
+                print(f"\tAddr:{hex(ins.getRelAddr())} {ins.getOp()}: {hex(convert_to_format(self.triscRegs.__readReg__(ins.getSrcInt()[0]),'i',32))} >= {hex(convert_to_format(self.triscRegs.__readReg__(ins.getSrcInt()[1]),'i',32))}. JMP {hex(nextRelAddr)}")
         else:
             nextRelAddr = ins.getRelAddr() + 4
             if(self.debug & 0x10):
-                print(f"\tAddr:{ins.getRelAddr()} {ins.getOp()}: {hex(convert_to_format(self.triscRegs.__readReg__(ins.getSrcInt()[0]),'i',32))} !>= {hex(convert_to_format(self.triscRegs.__readReg__(ins.getSrcInt()[1]),'i',32))}. JMP[PCINCR] {hex(nextRelAddr)}")
+                print(f"\tAddr:{hex(ins.getRelAddr())} {ins.getOp()}: {hex(convert_to_format(self.triscRegs.__readReg__(ins.getSrcInt()[0]),'i',32))} !>= {hex(convert_to_format(self.triscRegs.__readReg__(ins.getSrcInt()[1]),'i',32))}. JMP[PCINCR] {hex(nextRelAddr)}")
 
         return nextRelAddr
 
@@ -1156,11 +1222,11 @@ class triscFunc:
         if(self.triscRegs.__readReg__(ins.getSrcInt()[0], 'riscgpr') < self.triscRegs.__readReg__(ins.getSrcInt()[1], 'riscgpr')):
             nextRelAddr = ins.getRelAddr() + ins.getImm()[0]
             if(self.debug & 0x10):
-                print(f"\tAddr:{ins.getRelAddr()} {ins.getOp()}: {hex(self.triscRegs.__readReg__(ins.getSrcInt()[0]))} < {hex(self.triscRegs.__readReg__(ins.getSrcInt()[1]))}. JMP {hex(nextRelAddr)}")
+                print(f"\tAddr:{hex(ins.getRelAddr())} {ins.getOp()}: {hex(self.triscRegs.__readReg__(ins.getSrcInt()[0]))} < {hex(self.triscRegs.__readReg__(ins.getSrcInt()[1]))}. JMP {hex(nextRelAddr)}")
         else:
             nextRelAddr = ins.getRelAddr() + 4
             if(self.debug & 0x10):
-                print(f"\tAddr:{ins.getRelAddr()} {ins.getOp()}: {hex(self.triscRegs.__readReg__(ins.getSrcInt()[0]))} !< {hex(self.triscRegs.__readReg__(ins.getSrcInt()[1]))}. JMP[PCINCR] {hex(nextRelAddr)}")
+                print(f"\tAddr:{hex(ins.getRelAddr())} {ins.getOp()}: {hex(self.triscRegs.__readReg__(ins.getSrcInt()[0]))} !< {hex(self.triscRegs.__readReg__(ins.getSrcInt()[1]))}. JMP[PCINCR] {hex(nextRelAddr)}")
 
         return nextRelAddr
 
@@ -1233,7 +1299,7 @@ class triscFunc:
             self.triscRegs.__writeReg__(ins.getDstInt()[0], ins.getRelAddr() + 4)
 
         if(self.debug & 0x10):
-            print(f"\tAddr:{ins.getRelAddr()}: {ins.getOp()}: {hex(self.triscRegs.__readReg__(ins.getDstInt()[0]))} !=0 RET {hex(self.triscRegs.__readReg__(ins.getSrcInt()[0], 'riscgpr'))} + {hex(ins.getImm()[0])} = {hex(nextRelAddr)}")
+            print(f"\tAddr:{hex(ins.getRelAddr())}: {ins.getOp()}: {hex(self.triscRegs.__readReg__(ins.getDstInt()[0]))} !=0 RET {hex(self.triscRegs.__readReg__(ins.getSrcInt()[0], 'riscgpr'))} + {hex(ins.getImm()[0])} = {hex(nextRelAddr)}")
             print(f"\tAddr:{hex(ins.getRelAddr())}: {ins.getOp()}: Next Address at DstReg[{hex(ins.getDstInt()[0])}]={hex(self.triscRegs.__readReg__(ins.getDstInt()[0], 'riscgpr'))}")
 
         return nextRelAddr
@@ -1313,11 +1379,11 @@ class triscFunc:
             case "LH":                   nextAddr = self.__execlh__(ins)
             case "LBU":                  nextAddr = self.__execlbu__(ins)
             case "LHU":                  nextAddr = self.__execlhu__(ins)
-            case "LW":                   nextAddr = self.__execlw__(ins)
+            case "LW":                   nextAddr = self.__execlw__(ins, cycle)
 
             case "SB":                   nextAddr = self.__execsb__(ins)
             case "SH":                   nextAddr = self.__execsh__(ins)
-            case "SW":                   nextAddr = self.__execsw__(ins)
+            case "SW":                   nextAddr = self.__execsw__(ins, cycle)
 
             case "BEQ":                  nextAddr = self.__execbeq__(ins)
             case "BNE":                  nextAddr = self.__execbne__(ins)

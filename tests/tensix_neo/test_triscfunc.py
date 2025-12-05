@@ -18,11 +18,13 @@ import ttsim.front.llk.decoded_instruction as decoded_instruction
 
 
 TEST_ARCH: str = 'ttqs'
+TEST_LLK_VERSION_TAG: str = 'sep23'
 
 def argsInit():
     args            = {}
     args['debug']   = 0
     args['arch']    = TEST_ARCH
+    args['llkVersionTag'] = TEST_LLK_VERSION_TAG
     args['stack']   = {
         "0": ["0x8023FF","0x802000"],
         "1": ["0x801FFF","0x801C00"],
