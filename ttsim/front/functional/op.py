@@ -454,8 +454,7 @@ def MaxPool2d(name, kernel_size, **kwargs):
                           )
     return op_hndl
 
-
-def Dropout(name, prob=0.5, train_mode=True, /, **kwargs):
+def Dropout(name, prob=0.5, train_mode=True, /, *, module=None, **kwargs):
     #SimTensor(/drop/Dropout_output_1) shape=[1, 7, 48], dtype=bool, op_in=[], op_out=['/drop/Dropout'], data=None
     # There are no trainable parameters for Dropout, 'prob' fixes the 'ratio' input1,
     # 'train_mode' fixes the 'training_mode' input2; So we fix in1, and in2 here...
@@ -469,6 +468,9 @@ def Dropout(name, prob=0.5, train_mode=True, /, **kwargs):
     ratio.op_in.append(name)
     training_mode = _from_data(name + '.training_mode', np.bool_(train_mode), is_param=False, is_const=True)
     training_mode.op_in.append(name)
+    if module is not None:
+        module._tensors[ratio.name] = ratio
+        module._tensors[training_mode.name] = training_mode
     op_hndl =  SimOpHandle(name, 'Dropout', params=[(1,ratio), (2,training_mode)], ipos=[0], **kwargs)
     return op_hndl
 
@@ -540,6 +542,11 @@ def ReduceSum(name: str, axis: int, **kwargs):
     op_hndl = SimOpHandle(name, 'ReduceSum', params=[(1, axesT)], ipos=[0], **kwargs)
     return op_hndl
 
+def permute(name, dims, **kwargs):
+    kwargs['perm'] = dims
+    op_hndl = SimOpHandle(name, 'Transpose', params=[], ipos=[0], **kwargs)
+    return op_hndl
+
 ######################################################################################################
 # Simple Operator Mapping
 ######################################################################################################
@@ -556,6 +563,7 @@ Cos           = partial(UnaryOperator, optype='Cos')
 Sin           = partial(UnaryOperator, optype='Sin')
 Log           = partial(UnaryOperator, optype='Log')
 Sqrt          = partial(UnaryOperator, optype='Sqrt')
+Exp           = partial(UnaryOperator, optype='Exp')
 Softmax       = partial(UnaryOperator, optype='Softmax')
 softplus      = partial(UnaryOperator, optype='Softplus')
 Clip          = partial(UnaryOperator, optype='Clip')
@@ -593,6 +601,7 @@ Pad            = partial(BinaryOperator, optype='Pad')
 TernaryOperator = partial(UniversalOperator, params=[], ipos=[0,1,2])
 Where   = partial(TernaryOperator, optype='Where')
 Range   = partial(TernaryOperator, optype='Range')
+GroupNormalization = partial(TernaryOperator, optype='GroupNormalization')
 
 #4-ary Operators
 FourAryOperator = partial(UniversalOperator, params=[], ipos=[0,1,2,3])

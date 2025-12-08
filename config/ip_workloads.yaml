@@ -193,3 +193,10 @@ workloads:
         fid_list: [stage4, stage3, stage2], in_channel_list: auto, stride_list: [16, 8, 4],
         head_stride: 8, head_width: 128, head_depth: 3, expand_ratio: 4, middle_op: fmbconv, final_expand: 8,
         n_classes: 150, compute_pipe: matrix }
+
+  - api: TTSIM
+    name: SDv1p5
+    basedir: workloads/diffusers
+    module : SDModel@stablediffusion.py
+    instances:
+      sd_b1 : {bs: 1}

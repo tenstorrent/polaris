@@ -283,7 +283,7 @@ class experimental:
         pass
 
 def all_gather(*args, **kwargs):
-    assert "Not implemented yet!!"
+    raise NotImplementedError("all_gather is not implemented yet!!")
 
 #Pointwise Unary
 cos         = single_output_immediate_op('Cos')

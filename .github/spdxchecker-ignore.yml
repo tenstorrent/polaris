@@ -18,6 +18,7 @@ ignore:
   - '*.tar.gz'
   - CODEOWNERS
   - NOTICE
+  - '*.patch'
 warning:
   - '*.html'
   - '*.yaml'

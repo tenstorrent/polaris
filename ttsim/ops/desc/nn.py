@@ -486,6 +486,38 @@ def ln_sinf(iTList, oTList, op, **kwargs):
             }
     return
 
+def groupnorm_sinf(iTList, oTList, op, **kwargs):
+    # For GroupNormalization, the shape inference is similar to LayerNormalization
+    # The output shape is the same as input shape
+    X      = iTList[0]
+    scaleT = iTList[1]
+    biasT  = iTList[2] if len(iTList) == 3 else None
+    assert X.check_shape(), f"Illegal Shape for {X}"
+
+    oTList[0].shape = X.shape
+    oTList[0].dtype = X.dtype
+
+    instr_count = {
+        'add': X.nelems(),
+        'sub': X.nelems(),
+        'mul': X.nelems(),
+        'div': X.nelems(),
+        'mac': X.nelems() * 2,
+        'rsqrt': X.nelems() // 1000  # Rough estimate
+    }
+
+    biasElems = 0 if biasT is None else biasT.nelems()
+    biasBytes = 0 if biasT is None else biasT.nbytes(op.precision)
+
+    op.perf_stats = {
+        'inElems' : iTList[0].nelems() + iTList[1].nelems() + biasElems,
+        'outElems': oTList[0].nelems(),
+        'inBytes' : iTList[0].nbytes(op.precision) + iTList[1].nbytes(op.precision) + biasBytes,
+        'outBytes': oTList[0].nbytes(op.precision),
+        'instrs'  : instr_count
+    }
+    return
+
 def register_nn_ops():
     _optbl = [
             #['Shrink',                    'ARITY_1->1', 'ai.onnx', 'COMMON',   9,   9,  1,  1,  1,  1, unary_fwd,     True,  True,  True,  True,  True],
@@ -502,7 +534,7 @@ def register_nn_ops():
             #['MaxRoiPool',            'ARITY_2->1', 'ai.onnx', 'COMMON',  22,  22,  2,  2,  1,  1, 'inline_lamda',  True,  True,  True,  True,  True],
             #['InstanceNormalization', 'ARITY_3->1', 'ai.onnx', 'COMMON',  22,  22,  3,  3,  1,  1, 'inline_lamda',  True,  True,  True,  True,  True],
             #['Col2Im',                'ARITY_3->1', 'ai.onnx', 'COMMON',  18,  18,  3,  3,  1,  1, 'inline_lamda',  True,  True,  True,  True,  True],
-            #['GroupNormalization',    'ARITY_3->1', 'ai.onnx', 'COMMON',  21,  21,  3,  3,  1,  1, 'no_inference',  True,  True,  True,  True,  True],
+            ['GroupNormalization',    'ARITY_3->1', 'ai.onnx', 'COMMON',  21,  21,  3,  3,  1,  1, groupnorm_sinf,  True,  True,  True,  True,  True],
 
             #['MaxUnpool',             'ARITY_VARIADIC[2-3]->1',             'ai.onnx', 'COMMON',  22,  22,  3,  2,  1,  1, 'inline_lamda',  True,  True,  True,  True,  True],
             #['ConvInteger',           'ARITY_VARIADIC[2-4]->1',             'ai.onnx', 'COMMON',  10,  10,  4,  2,  1,  1, 'inline_lamda',  True,  True,  True,  True,  True],

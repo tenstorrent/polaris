@@ -326,7 +326,7 @@ class Transformer(SimNN.Module):
 
         mask = None
         if seqlen > 1:
-            assert "Simulation for sequence length > 1 is not implemented yet!"
+            raise NotImplementedError("Simulation for sequence length > 1 is not implemented yet!")
 
         for layer in self.layers:
             h = layer(h, start_pos, freqs_cis, mask)

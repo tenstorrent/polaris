@@ -55,6 +55,9 @@ class SimTensor:
             assert res1 == res, f"Mismatch SimTensor({self.name}).nelems = {res} and np.size={res1}"
         return res
 
+    def numel(self):
+        return self.nelems()
+
     # Note:
     #   data size may not be just data-count * precision, because you may have compression/sparsity
     #   how is the tensor stored in memory? channel first, batch later or something else. may have

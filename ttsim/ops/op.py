@@ -115,3 +115,25 @@ class SimOp:
             return self.precision
         assert tensor.dtype is not None, f"Tensor {tensor.name} has no dtype set"
         return tensor.dtype
+
+def get_tensor_broadcast_shape(shape1, shape2):
+    """Determine broadcasted shape for element-wise operations"""
+    s1 = shape1[::-1]
+    s2 = shape2[::-1]
+    max_len = max(len(s1), len(s2))
+    s1_list = list(s1)
+    s2_list = list(s2)
+    s1_list.extend([1] * (max_len - len(s1_list)))
+    s2_list.extend([1] * (max_len - len(s2_list)))
+
+    result = []
+    for d1, d2 in zip(s1_list, s2_list):
+        if d1 == d2:
+            result.append(d1)
+        elif d1 == 1:
+            result.append(d2)
+        elif d2 == 1:
+            result.append(d1)
+        else:
+            raise ValueError(f"Shapes {shape1} and {shape2} not broadcast-compatible")
+    return result[::-1]

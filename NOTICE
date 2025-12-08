@@ -7,6 +7,9 @@ Tenstorrent AI ULC (https://www.tenstorrent.com/).
 ---------------------------------------------------------------------------
 Third-Party Dependencies:
 
+The Initial Developer of files in workloads/diffusers is The HuggingFace Team (https://huggingface.co/).
+Copyright 2025 The HuggingFace Team. All Rights Reserved.
+
 Sections of this code come from the matplotlib project, found here: https://matplotlib.org/
 Licensed under the Matplotlib License (BSD-compatible)
 

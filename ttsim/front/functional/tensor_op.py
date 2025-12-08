@@ -578,6 +578,7 @@ SimTensor.flatten     = tensor_flatten     #type: ignore
 SimTensor.repeat      = tensor_repeat      #type: ignore
 SimTensor.softmax     = tensor_softmax     #type: ignore
 SimTensor.permute     = tensor_permute     #type: ignore
+SimTensor.interpolate = interpolate        #type: ignore
 
 #TODO:
 # 0. Cleanup op-naming/link-module/tensor etc... (refactor)

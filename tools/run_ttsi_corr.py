@@ -75,7 +75,7 @@ def write_correlation_xlsx(comparison: list[dict[str, Any]], output_path: Path) 
     wb = Workbook()
     ws = wb.active
     if ws is None:
-        raise RuntimeError('Failed to create worksheet')
+        raise RuntimeError('Failed to create active worksheet in workbook')
     ws.title = 'Correlation Results'
 
     # Write header row

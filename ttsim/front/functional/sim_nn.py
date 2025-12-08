@@ -7,6 +7,7 @@
 ###############################################################
 from typing import Iterator
 import ttsim.front.functional.op as F
+import ttsim.ops.op as Ops
 from ttsim.ops import SimTensor
 from ttsim.graph import WorkloadGraph
 
@@ -236,3 +237,63 @@ class Linear(Module):
         if self.bias:
             param_count += self.out_features
         return param_count
+
+class Silu(Module):
+    def __init__(self, name):
+        super().__init__()
+        self.name = name
+        self.sigmoidop = F.Sigmoid(name + '.sigmoid')
+        super().link_op2module()
+
+    def __call__(self, x):
+        return x * self.sigmoidop(x)
+
+    def analytical_param_count(self, lvl):
+        return 0
+
+class bmm(Module):
+    def __init__(self, name):
+        super().__init__()
+        self.name = name
+        super().link_op2module()
+
+    def __call__(self, a, b):
+        batch_shape = Ops.get_tensor_broadcast_shape(a.shape[:-2], b.shape[:-2])
+        m, k1 = a.shape[-2], a.shape[-1]
+        k2, n = b.shape[-2], b.shape[-1]
+        out_shape = batch_shape + [m, n]
+
+        for n in range(a.shape[0]):
+            matmulop = F.MatMul(self.name + f'.matmul_{n}')
+            matmulop.set_module(self)
+            self._op_hndls[matmulop.name] = matmulop
+            input_1 = F._from_shape(self.name + f'.input1_{n}', [a.shape[-2], a.shape[-1]], is_const=True)
+            input_2 = F._from_shape(self.name + f'.input2_{n}', [b.shape[-2], b.shape[-1]], is_const=True)
+            self._tensors[input_1.name] = input_1
+            self._tensors[input_2.name] = input_2
+            matmulop(input_1, input_2)
+        out = F._from_shape(self.name + '.out', out_shape)
+        out.set_module(self)
+        self._tensors[out.name] = out
+        return out
+
+    def analytical_param_count(self, lvl):
+        return 0
+
+class GroupNorm(Module):
+    def __init__(self, name, num_groups=1, num_channels=1, eps=1e-5, affine=True):
+        super().__init__()
+        self.name = name
+        self.num_groups = num_groups
+        self.num_channels = num_channels
+        self.eps = eps
+        self.weight = F._from_shape(name + '.weight', [num_channels], is_param=True)
+        self.bias   = F._from_shape(name + '.bias',   [num_channels], is_param=True)
+        self.gn_op = F.GroupNormalization(self.name + '.gn', num_groups=self.num_groups, num_channels=self.num_channels, eps=self.eps)
+        super().link_op2module()
+
+    def __call__(self, x, latent_embeds=None):
+        return self.gn_op(x, self.weight, self.bias)
+
+    def analytical_param_count(self, lvl):
+        return 2 * self.num_channels
