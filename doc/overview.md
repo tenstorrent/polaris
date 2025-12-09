@@ -320,6 +320,7 @@ This document provides an overview of all classes in the `ttsim` module and expl
 - `ComputeInsnModel`: Models instruction throughputs for different precisions
 - `L2CacheModel`: Models L2 cache configuration
 
+## Workload-to-Architecture Mapping
 ### `WL2ArchMap` (`config/wl2archmap.py`)
 
 **Purpose**: Maps workload operations to architecture-specific configurations (data types, compute pipes, optimizations).
