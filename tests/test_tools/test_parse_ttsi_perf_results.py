@@ -11,14 +11,37 @@ Tests cover:
 - Error handling
 - Output file generation
 """
-from unittest.mock import MagicMock, patch
+import subprocess
 import time
-import yaml
+from unittest.mock import MagicMock, patch
 
 import pytest
+import yaml
 
-from tools.ttsi_corr.ttsi_corr_utils import TTSI_REF_DEFAULT_TAG
 from tools.parse_ttsi_perf_results import parse_ttsi_perf_results, save_metadata
+from tools.parsers.md_parser import TensixMdPerfMetricModel
+from tools.ttsi_corr.ttsi_corr_utils import TTSI_REF_DEFAULT_TAG
+
+
+@pytest.fixture(autouse=True)
+def check_test_does_not_modify_files():
+    """
+    Check that no files in the repository are modified by any test.
+
+    Currently, this fixture has been added to this test file only, but it can be moved
+    to conftest.py if desired to apply to all tests. However, doing so may slow down
+    the test suite as it runs git commands after each test.
+
+    This fixture was added after observing that a test was modifying
+    reference data files, causing subsequent tests to fail. This check helps catch such
+    issues in the future.
+    """
+    # Run this check around each test; no specific setup needed prior to the test
+    yield
+    # Teardown: Check for uncommitted changes in the git repository
+    # Flag an error if any files were modified
+    if subprocess.run(['git', 'diff', '--exit-code', 'data']).returncode != 0:
+        pytest.fail("The test modified the files in the repository.")
 
 
 class TestParseMetalTensixResultsBasic:
@@ -446,11 +469,30 @@ class TestParseMetalTensixResultsArguments:
         with pytest.raises(SystemExit):
             parse_ttsi_perf_results(['--tag', 'invalid_tag', '--no-use-cache'])
 
-    def test_missing_output_dir(self):
-        """Test that default output-dir is used when not specified."""
-        # Should succeed with default output directory
-        res = parse_ttsi_perf_results(['--tag', TTSI_REF_DEFAULT_TAG, '--no-use-cache'])
+    @patch('tools.parse_ttsi_perf_results.extract_table_from_md_link')
+    def test_successful_parse_creates_output_dir(self, mock_extract, tmp_path):
+        """Test that successful parsing creates the expected output directory structure."""
+        # Mock the extraction to return minimal valid data to avoid modifying actual reference data
+        # Any modification to reference data would cause test failures in subsequent tests
+        # Return non-empty list to avoid the "No metrics found" error (return code 2)
+        mock_extract.return_value = [TensixMdPerfMetricModel(
+            model='test_model',
+            batch=1,
+            hardware='test_hw',
+            tokens_per_sec=100.0
+        )]
+
+        # Use temporary directory to avoid modifying actual reference data
+        output_dir = tmp_path / 'output'
+        res = parse_ttsi_perf_results([
+            '--output-dir', str(output_dir),
+            '--tag', TTSI_REF_DEFAULT_TAG,
+            '--no-use-cache'
+        ])
         assert res == 0
+
+        # Verify the output directory was created
+        assert (output_dir / TTSI_REF_DEFAULT_TAG).exists()
 
     @patch('tools.parse_ttsi_perf_results.extract_table_from_md_link')
     def test_all_arguments(self, mock_extract, tmp_path):
