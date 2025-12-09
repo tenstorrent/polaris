@@ -79,9 +79,19 @@ def get_workload_name_from_model(model: str) -> str:
             return 'yolov7'
         return 'yolo'
 
-    # Stable Diffusion / UNet
-    if 'stable diffusion' in model_lower or 'unet' in model_lower:
+    # Stable Diffusion
+    if 'stable diffusion' in model_lower:
+        return 'stablediffusion'
+
+    # UNet
+    if 'unet' in model_lower:
+        if 'vgg' in model_lower:
+            return 'vgg_unet'
         return 'unet'
+
+    # VIT
+    if 'vit' in model_lower:
+        return 'vit'
 
     # Default: use first word of model name
     return model.split()[0].lower()
@@ -109,8 +119,14 @@ def get_benchmark_from_model(model: str) -> str:
         return 'Benchmark.Mamba'
     elif 'yolo' in model_lower:
         return 'Benchmark.YOLO'
-    elif 'stable diffusion' in model_lower or 'unet' in model_lower:
+    elif 'stable diffusion' in model_lower:
+        return 'Benchmark.StableDiffusion'
+    elif 'unet' in model_lower:
+        if 'vgg' in model_lower:
+            return 'Benchmark.VggUnet'
         return 'Benchmark.UNet'
+    elif 'vit' in model_lower:
+        return 'Benchmark.ViT'
     else:
         # Default: use model name as benchmark
         return f'Benchmark.{model.split()[0]}'

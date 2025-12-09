@@ -76,10 +76,11 @@ workloads:
     name: RESNET50
     basedir: workloads
     module : ResNet@basicresnet.py
-    params : {layers: [3,4,6,3], num_classes: 1000, num_channels: 3, use_adaptive_pool: true, init_stride: 4, bs: 1}
+    params : {layers: [3,4,6,3], num_classes: 1000, num_channels: 3, bs: 1}
     instances:
-      rn50_b1_hd : { img_height: 1024, img_width: 1024 }
-      rn50_b1_uhd: { img_height: 2828, img_width: 2828 }
+      rn50_224x224 : { img_height: 224, img_width: 224 }
+      rn50_b1_hd : { img_height: 1024, img_width: 1024, use_adaptive_pool: true, init_stride: 4 }
+      rn50_b1_uhd: { img_height: 2828, img_width: 2828, use_adaptive_pool: true, init_stride: 4 }
 
   - api: TTSIM
     name: BEVDepth
@@ -136,20 +137,21 @@ workloads:
     module : test_vgg_unet@ttnn_vgg_unet.py
     instances:
       vgg_unet_test: { bs: 1}
+      vgg_unet_256x256: { bs: 1, img_height: 256, img_width: 256}
 
   - api: TTNN
     name: llama3_decode
     basedir: workloads/ttnn/llama3
     module : run_llama3@test_llama3_decode.py
     instances:
-      llama3_8b: { bs: 1, model_name: llama3-8B }
+      llama3_8b_decode: { bs: 1, model_name: llama3-8B }
 
   - api: TTNN
     name: llama3_prefill
     basedir: workloads/ttnn/llama3
     module : run_llama3@test_llama3_prefill.py
     instances:
-      llama3_8b: { bs: 1, model_name: llama3-8B }
+      llama3_8b_prefill: { bs: 1, model_name: llama3-8B }
 
   - api: TTNN
     name: vit
@@ -157,3 +159,4 @@ workloads:
     module : run_vit@test_ttnn_functional_vit.py
     instances:
       vit_b16: { bs: 1, model_name: vit-b16 }
+      vit_base_224x224: { bs: 1, model_name: vit-b16 }

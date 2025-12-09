@@ -94,9 +94,22 @@ class TestGetWorkloadNameFromModel:
 
     def test_stable_diffusion(self):
         """Test Stable Diffusion / UNet."""
-        assert get_workload_name_from_model('Stable Diffusion') == 'unet'
-        assert get_workload_name_from_model('stable diffusion') == 'unet'
+        assert get_workload_name_from_model('Stable Diffusion') == 'stablediffusion'
+        assert get_workload_name_from_model('stable diffusion') == 'stablediffusion'
         assert get_workload_name_from_model('UNet') == 'unet'
+
+    def test_vgg_unet(self):
+        """Test VGG UNet workload name detection."""
+        assert get_workload_name_from_model('UNet - VGG19 (256x256)') == 'vgg_unet'
+        assert get_workload_name_from_model('VGG UNet') == 'vgg_unet'
+        assert get_workload_name_from_model('vgg unet') == 'vgg_unet'
+
+    def test_vit(self):
+        """Test ViT workload name detection."""
+        assert get_workload_name_from_model('ViT-Base (224x224)') == 'vit'
+        assert get_workload_name_from_model('VIt-Base') == 'vit'
+        assert get_workload_name_from_model('vit-base') == 'vit'
+        assert get_workload_name_from_model('VIT') == 'vit'
 
     def test_unknown_model(self):
         """Test unknown model defaults to first word."""
@@ -140,8 +153,20 @@ class TestGetBenchmarkFromModel:
 
     def test_unet_benchmark(self):
         """Test UNet/Stable Diffusion benchmark mapping."""
-        assert get_benchmark_from_model('Stable Diffusion') == 'Benchmark.UNet'
+        assert get_benchmark_from_model('Stable Diffusion') == 'Benchmark.StableDiffusion'
         assert get_benchmark_from_model('UNet') == 'Benchmark.UNet'
+
+    def test_vgg_unet_benchmark(self):
+        """Test VGG UNet benchmark mapping."""
+        assert get_benchmark_from_model('UNet - VGG19 (256x256)') == 'Benchmark.VggUnet'
+        assert get_benchmark_from_model('VGG UNet') == 'Benchmark.VggUnet'
+        assert get_benchmark_from_model('vgg unet') == 'Benchmark.VggUnet'
+
+    def test_vit_benchmark(self):
+        """Test ViT benchmark mapping."""
+        assert get_benchmark_from_model('ViT-Base (224x224)') == 'Benchmark.ViT'
+        assert get_benchmark_from_model('VIt-Base') == 'Benchmark.ViT'
+        assert get_benchmark_from_model('vit-base') == 'Benchmark.ViT'
 
     def test_unknown_benchmark(self):
         """Test unknown model benchmark mapping."""
@@ -165,12 +190,12 @@ class TestIntegration:
         # Simulate extracting info from a table row
         model_name = 'Llama 3.1 8B'
         hardware = 'n150 (Wormhole)'
-        
+
         # Parse components
         device = parse_hardware_to_device(hardware)
         workload_name = get_workload_name_from_model(model_name)
         benchmark = get_benchmark_from_model(model_name)
-        
+
         # Verify results
         assert device == 'n150'
         assert workload_name == 'llama3'
@@ -182,7 +207,7 @@ class TestIntegration:
             'Llama 3.1 8B',
             'Llama 3.2 1B',
         ]
-        
+
         for model in models:
             assert get_workload_name_from_model(model) == 'llama3'
             assert get_benchmark_from_model(model) == 'Benchmark.Llama'
@@ -195,10 +220,9 @@ class TestIntegration:
             ('Llama 3.1 8B', 'llama3', 'Benchmark.Llama'),
             ('Mamba-2.8B', 'mamba', 'Benchmark.Mamba'),
             ('YOLOv8', 'yolov8', 'Benchmark.YOLO'),
-            ('Stable Diffusion', 'unet', 'Benchmark.UNet'),
+            ('Stable Diffusion', 'stablediffusion', 'Benchmark.StableDiffusion'),
         ]
-        
+
         for model, expected_workload, expected_benchmark in test_cases:
             assert get_workload_name_from_model(model) == expected_workload
             assert get_benchmark_from_model(model) == expected_benchmark
-
