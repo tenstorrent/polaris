@@ -384,7 +384,7 @@ This document provides an overview of all classes in the `ttsim` module and expl
 
 **Purpose**: Enumeration for output formats (YAML, JSON, Pickle, None).
 
-### Performance Statistics Models (`config/runcfgmodel.py`)
+### Performance Statistics Models (`config/validators.py`)
 
 **Purpose**: Pydantic models for structured performance statistics.
 
