@@ -290,7 +290,7 @@ This document provides an overview of all classes in the `ttsim` module and expl
 - `WorkloadONNX`: Configuration for ONNX API workloads
 - `WorkloadGroup`: Group of workloads
 
-### `PackageInstanceModel` (`config/runcfgmodel.py`)
+### `PackageInstanceModel` (`config/simconfig.py`)
 
 **Purpose**: Pydantic model representing a device package instance with IP groups (compute and memory).
 
