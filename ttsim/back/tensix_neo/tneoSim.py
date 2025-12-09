@@ -10,11 +10,12 @@ import os
 import simpy
 import typing
 
+import ttsim.back.tensix_neo.isaFunctions as isaFunctions
 import ttsim.back.tensix_neo.scratchpad as scratchpad
 import ttsim.back.tensix_neo.t3sim as t3sim
 import ttsim.front.llk.read_elfs as read_elfs
-import ttsim.front.llk.tensix as binutils_tensix
 import ttsim.front.llk.rv32 as binutils_rv32
+import ttsim.front.llk.tensix as binutils_tensix
 
 class neoCore:
     def __init__(self, env, args):
@@ -97,7 +98,7 @@ def get_accepted_llk_version_tags():
     tags = dict({
         "ttwh": None,
         "ttbh": None,
-        "ttqs": ["feb19", "mar18", "jul1", "jul27", "sep23", "nov17"]
+        "ttqs": [str(tag.value) for tag in isaFunctions.TTQSTags]
         })
 
     assert len(tags) == len(get_accepted_architectures()), \
@@ -145,7 +146,7 @@ def get_llk_version_tag(args_dict):
         accepted_llk_version_tags = get_accepted_llk_version_tags()[arch]
         if 'llkVersionTag' not in args_dict:
             if 1 == len(accepted_llk_version_tags):
-                return accepted_llk_version_tags[0]
+                return isaFunctions.TTQSTags[accepted_llk_version_tags[0]]
             else:
                 raise ValueError(f"llkVersionTag must be specified for {arch} architecture. "
                                  f"Accepted llkVersionTags are: {accepted_llk_version_tags}. "
@@ -155,7 +156,7 @@ def get_llk_version_tag(args_dict):
                 f"Given llkVersionTag {args_dict['llkVersionTag']} is not in the list of accepted llkVersionTags for {arch} architecture. " \
                 f"Accepted llkVersionTags are: {accepted_llk_version_tags}. " \
                 f"If this is a new tag, please update the llkVersionTag in args_dict."
-            return args_dict['llkVersionTag']
+            return isaFunctions.TTQSTags[args_dict['llkVersionTag']]
     else:
         print(f"Architecture {arch} does not require a llkVersionTag, returning None.")
 
@@ -213,7 +214,7 @@ def get_cfg(args, args_dict):
     if needs_llk_version_tag(arch):
         assert "llkVersionTag" in args_dict, "llkVersionTag must be specified in args_dict when using this architecture."
 
-    llk_version_tag = args_dict['llkVersionTag'] if needs_llk_version_tag(arch) else None
+    llk_version_tag = args_dict['llkVersionTag'].value if needs_llk_version_tag(arch) else None
 
     return os.path.normpath(os.path.join(get_default_cfg_path(), f"{arch}_neo4_{llk_version_tag}.json"))
 
@@ -229,7 +230,7 @@ def get_memory_map(args, args_dict):
     if "ttqs" != arch:
         raise ValueError(f"No default memory map file is available for architecture {arch}.")
 
-    llk_version_tag = args_dict['llkVersionTag'] if needs_llk_version_tag(arch) else None
+    llk_version_tag = args_dict['llkVersionTag'].value if needs_llk_version_tag(arch) else None
 
     return os.path.normpath(os.path.join(get_default_cfg_path(), f"{arch}_memory_map_{llk_version_tag}.json"))
 
@@ -252,7 +253,7 @@ def get_tt_isa_file_name(args, args_dict):
     if needs_llk_version_tag(arch):
         assert "llkVersionTag" in args_dict, "llkVersionTag must be specified in args_dict when using this architecture."
 
-        llk_version_tag = str(args_dict['llkVersionTag'])
+        llk_version_tag = args_dict['llkVersionTag'].value
         isa_file_name = f"assembly.{llk_version_tag}.yaml"
         isa_file_path = os.path.normpath(os.path.join(get_default_tt_isa_file_path(), isa_file_name))
         assert os.path.exists(isa_file_path), f"Default Tensix ISA file {isa_file_path} does not exist."
