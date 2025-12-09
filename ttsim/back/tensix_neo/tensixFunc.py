@@ -2453,6 +2453,11 @@ class tensixFunc:
     def __execSFPU_MATH__(self,ins):
         allowedMnemonics = ['SFPADD', 'SFPMAD', 'SFPMUL', 'SFPMUL24']
         expectedAttribs = ['instr_mod1', 'lreg_dest', 'lreg_src_c', 'lreg_src_b', 'lreg_src_a']
+        expectedAttribs = []
+        if (self.args['llkVersionTag'].group in [0,1]):
+            expectedAttribs = ['instr_mod1', 'lreg_dest', 'lreg_src_c', 'lreg_src_b', 'lreg_src_a']
+        else:
+            expectedAttribs = ['instr_mod1', 'lreg_a', 'lreg_b', 'lreg_c', 'lreg_dest']
 
         if ins.getOp() not in allowedMnemonics:
             raise Exception(f"- error: given mnemonic {ins.getOp()} is not part of mnemonics with operands with tag SFPU_MATH")
