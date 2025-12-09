@@ -2,6 +2,12 @@
 
 This document provides an overview of all classes in the `ttsim` module and explains how they fit together to form a high-level simulator for Tenstorrent AI hardware.
 
+## Version History
+
+| SHA | Description |
+|-----------|-----------|
+| f8b22f711b812cef0679229798f3b9ece5bf8147 | Initial Dec 9 2025 version reference SHA |
+
 ## Table of Contents
 
 1. [Core Graph and Operations](#core-graph-and-operations)
@@ -21,6 +27,7 @@ This document provides an overview of all classes in the `ttsim` module and expl
 **Purpose**: Represents a computational graph of operations (workload) as a directed acyclic graph (DAG). It manages the structure of neural network operations and tensors.
 
 **Key Responsibilities**:
+
 - Maintains a NetworkX MultiDiGraph for graph structure
 - Tracks operations (`SimOp`) and tensors (`SimTensor`)
 - Identifies input/output nodes and tensors
@@ -29,6 +36,7 @@ This document provides an overview of all classes in the `ttsim` module and expl
 - Sets precision and resource assignments for operations
 
 **Relationships**:
+
 - Contains multiple `SimOp` objects (operations)
 - Contains multiple `SimTensor` objects (data tensors)
 - Used by `Device` to execute workloads
@@ -39,6 +47,7 @@ This document provides an overview of all classes in the `ttsim` module and expl
 **Purpose**: Represents a tensor (multi-dimensional array) in the computation graph. Stores shape, data type, and metadata about data flow.
 
 **Key Responsibilities**:
+
 - Stores tensor shape, dtype, and optional data
 - Tracks which operations produce (`op_out`) and consume (`op_in`) the tensor
 - Distinguishes between parameters, constants, and activations
@@ -46,6 +55,7 @@ This document provides an overview of all classes in the `ttsim` module and expl
 - Supports cloning operations
 
 **Key Attributes**:
+
 - `name`: Unique identifier
 - `shape`: Tensor dimensions
 - `dtype`: NumPy data type
@@ -55,6 +65,7 @@ This document provides an overview of all classes in the `ttsim` module and expl
 - `op_out`: List of operations that produce this tensor
 
 **Relationships**:
+
 - Referenced by `SimOp` objects in their `inList` and `outList`
 - Stored in `WorkloadGraph._tensors`
 - Extended by `Tensor` in `front/ttnn/tensor.py` for TTNN interface
@@ -64,6 +75,7 @@ This document provides an overview of all classes in the `ttsim` module and expl
 **Purpose**: Represents a single operation (operator) in the computation graph. Encapsulates operation type, attributes, and performance characteristics.
 
 **Key Responsibilities**:
+
 - Stores operation metadata (name, type, attributes, domain)
 - Manages input/output tensor lists
 - Performs shape inference via registered shape inference functions
@@ -71,6 +83,7 @@ This document provides an overview of all classes in the `ttsim` module and expl
 - Supports optimization flags (removed, fused)
 
 **Key Attributes**:
+
 - `optype`: Operation type (e.g., 'MatMul', 'Conv', 'Add')
 - `precision`: Data precision for execution
 - `uses_compute_pipe`: Which compute pipeline to use ('matrix' or 'vector')
@@ -79,6 +92,7 @@ This document provides an overview of all classes in the `ttsim` module and expl
 - `exec_stats`: Execution statistics from device simulation
 
 **Relationships**:
+
 - Contains references to `SimTensor` objects via `inList` and `outList`
 - Stored in `WorkloadGraph._ops`
 - Executed by `Device.execute_op()`
@@ -89,11 +103,13 @@ This document provides an overview of all classes in the `ttsim` module and expl
 **Purpose**: Global registry for operation descriptions, including shape inference functions and operation metadata.
 
 **Key Responsibilities**:
+
 - Registers operation descriptions with shape inference functions
 - Provides lookup for operation descriptions
 - Maintains operation metadata (min/max inputs/outputs, domain, etc.)
 
 **Relationships**:
+
 - Used by `SimOp.get_perf_counts()` to get shape inference functions
 - Populated by operation descriptor modules in `ops/desc/`
 
@@ -106,6 +122,7 @@ This document provides an overview of all classes in the `ttsim` module and expl
 **Purpose**: Represents a Tenstorrent hardware device and simulates execution of workloads on it. This is the core execution engine.
 
 **Key Responsibilities**:
+
 - Executes workloads on simulated hardware
 - Calculates compute and memory cycles for operations
 - Applies graph optimizations (removal, fusion)
@@ -113,11 +130,13 @@ This document provides an overview of all classes in the `ttsim` module and expl
 - Determines resource bottlenecks (compute vs memory bound)
 
 **Key Methods**:
+
 - `execute_graph()`: Main entry point to execute a workload graph
 - `execute_op()`: Executes a single operation and calculates cycles
 - `get_exec_stats()`: Aggregates statistics for the entire workload
 
 **Key Attributes**:
+
 - `simconfig_obj`: Device configuration (from `PackageInstanceModel`)
 - `compute_ip`: Compute IP group configuration
 - `memory_ip`: Memory IP group configuration
@@ -125,6 +144,7 @@ This document provides an overview of all classes in the `ttsim` module and expl
 - `name`: Device instance name (e.g., "Q1_A1", "n150")
 
 **Relationships**:
+
 - Uses `WorkloadGraph` to execute workloads
 - Uses `WL2ArchMap` for workload-to-architecture mapping
 - Uses `PackageInstanceModel` (via `simconfig_obj`) for device capabilities
@@ -135,6 +155,7 @@ This document provides an overview of all classes in the `ttsim` module and expl
 **Purpose**: Base class for hardware components (memory, NOC, processing elements).
 
 **Subclasses**:
+
 - `MEM`: Represents memory components with size and bandwidth
 - `NOC`: Represents network-on-chip with grid dimensions
 - `PE`: Represents processing elements
@@ -154,12 +175,14 @@ This document provides an overview of all classes in the `ttsim` module and expl
 **Purpose**: Wrapper around `SimOp` that provides a PyTorch-like functional interface for building computation graphs.
 
 **Key Responsibilities**:
+
 - Manages parameter tensors and input positions
 - Creates `SimOp` and `SimTensor` objects when called
 - Links operations to modules
 - Performs shape inference automatically
 
 **Relationships**:
+
 - Creates `SimOp` objects internally
 - Used by `Module` to build computation graphs
 - Provides functional operators (Add, MatMul, Conv, etc.)
@@ -181,11 +204,13 @@ This document provides an overview of all classes in the `ttsim` module and expl
 **Purpose**: PyTorch-like module base class for building neural network models. Manages submodules, operations, and tensors.
 
 **Key Responsibilities**:
+
 - Tracks tensors, operations, and submodules
 - Builds computation graphs from module structure
 - Provides `_get_forward_graph()` to construct `WorkloadGraph` from module
 
 **Relationships**:
+
 - Contains `SimOpHandle` objects
 - Contains `SimTensor` objects
 - Can contain other `Module` objects (submodules)
@@ -206,11 +231,13 @@ This document provides an overview of all classes in the `ttsim` module and expl
 **Purpose**: Extends `SimTensor` with TTNN-specific functionality and PyTorch-like tensor operations.
 
 **Key Responsibilities**:
+
 - Provides tensor operations (view, transpose, unsqueeze, etc.)
 - Manages device and layout information
 - Supports tensor operations via operator overloading
 
 **Relationships**:
+
 - Extends `SimTensor`
 - Associated with `Device` (from `front/ttnn/device.py`)
 - Used by TTNN-style workloads
@@ -220,11 +247,13 @@ This document provides an overview of all classes in the `ttsim` module and expl
 **Purpose**: TTNN-style device interface. Simplified device representation for TTNN workloads.
 
 **Key Responsibilities**:
+
 - Manages tensors and operations
 - Provides `get_graph()` to convert to `WorkloadGraph`
 - Represents device configuration
 
 **Relationships**:
+
 - Contains `Tensor` objects
 - Contains `SimOp` objects
 - Can produce `WorkloadGraph` objects
@@ -234,6 +263,7 @@ This document provides an overview of all classes in the `ttsim` module and expl
 **Purpose**: Represents spatial coordinates and ranges for core placement on hardware.
 
 **Key Classes**:
+
 - `CoreCoord`: (x, y) coordinate pair
 - `CoreRange`: Rectangular range of cores
 - `CoreRangeSet`: Collection of non-overlapping core ranges
@@ -285,6 +315,7 @@ This document provides an overview of all classes in the `ttsim` module and expl
 **Purpose**: Base class for configuration blocks with required/optional field validation.
 
 **Subclasses**:
+
 - `WorkloadCfgBlk`: Base for workload configurations
 - `WorkloadTTSIM`: Configuration for TTSIM API workloads
 - `WorkloadONNX`: Configuration for ONNX API workloads
@@ -295,16 +326,19 @@ This document provides an overview of all classes in the `ttsim` module and expl
 **Purpose**: Pydantic model representing a device package instance with IP groups (compute and memory).
 
 **Key Responsibilities**:
+
 - Models device architecture (compute pipes, memory blocks)
 - Provides methods to query peak IPC, FLOPS, bandwidth
 - Manages frequency settings
 
 **Key Attributes**:
+
 - `devname`: Architecture package name
 - `name`: Device instance name
 - `ipgroups`: List of IP group configurations
 
 **Relationships**:
+
 - Contains `IPGroupComputeModel` and `IPGroupMemoryModel`
 - Used by `Device` via `simconfig_obj`
 - Referenced by `HLMStats` for device information
@@ -314,6 +348,7 @@ This document provides an overview of all classes in the `ttsim` module and expl
 **Purpose**: Pydantic models for compute and memory IP blocks.
 
 **Key Classes**:
+
 - `ComputeBlockModel`: Models compute IP with pipes and L2 cache
 - `MemoryBlockModel`: Models memory IP with technology, size, bandwidth
 - `ComputePipeModel`: Models individual compute pipes with instructions
@@ -321,17 +356,20 @@ This document provides an overview of all classes in the `ttsim` module and expl
 - `L2CacheModel`: Models L2 cache configuration
 
 ## Workload-to-Architecture Mapping
+
 ### `WL2ArchMap` (`config/wl2archmap.py`)
 
 **Purpose**: Maps workload operations to architecture-specific configurations (data types, compute pipes, optimizations).
 
 **Key Components**:
+
 - `WL2ArchDatatypes`: Maps operations to data types
 - `WL2ArchRemovalLayers`: Specifies operations to remove during optimization
 - `WL2ArchFusedLayers`: Specifies operation sequences to fuse
 - `WL2ArchLayer2ComputePipe`: Maps operations to compute pipes
 
 **Relationships**:
+
 - Used by `Device.execute_graph()` to configure workload execution
 - Used by `WorkloadGraph.set_precision()` and `set_resources()`
 - Singleton pattern via `WL2ArchTypeSpec` for global access
@@ -345,6 +383,7 @@ This document provides an overview of all classes in the `ttsim` module and expl
 **Purpose**: Pydantic validators for validating configuration files.
 
 **Key Validator Classes**:
+
 - `PYDWlMapDataSpecValidator`: Validates workload mapping data type specifications
 - `PYDWlMapResourceSpecValidator`: Validates workload mapping resource specifications
 - `PYDWlMapSpecValidator`: Validates complete workload mapping specifications
@@ -367,16 +406,19 @@ This document provides an overview of all classes in the `ttsim` module and expl
 **Purpose**: High-level statistics collector that aggregates performance data from device execution and outputs results.
 
 **Key Responsibilities**:
+
 - Collects execution statistics from `Device`
 - Formats and outputs statistics in multiple formats (CSV, YAML, JSON, Pickle)
 - Validates precision consistency
 - Produces summary statistics
 
 **Key Methods**:
+
 - `dump_stats()`: Main method to collect and output statistics
 - `check_precision()`: Validates precision settings
 
 **Relationships**:
+
 - Uses `Device` to get execution statistics
 - Uses `WorkloadGraph` to iterate over operations
 - Outputs `TTSimHLWlDevRunPerfStats` models
@@ -390,6 +432,7 @@ This document provides an overview of all classes in the `ttsim` module and expl
 **Purpose**: Pydantic models for structured performance statistics.
 
 **Key Models**:
+
 - `TTSimHLWlDevRunPerfStats`: Complete run statistics with operator details
 - `TTSimHLWlDevRunOperatorPerfStats`: Per-operator statistics
 - `TTSimHLRunSummaryRow`: Summary row for aggregated statistics
@@ -412,6 +455,7 @@ This document provides an overview of all classes in the `ttsim` module and expl
 **Purpose**: Common utility functions (CSV printing, YAML parsing, unit conversion, etc.).
 
 **Key Classes**:
+
 - `dict2obj`: Converts dictionaries to objects with attribute access
 - `CustomLogger`: Custom logging utility
 
@@ -420,6 +464,7 @@ This document provides an overview of all classes in the `ttsim` module and expl
 **Purpose**: Type definitions and enumerations for framework types, data types, tensor dimensions, etc.
 
 **Key Enumerations**:
+
 - `FrameworkType`: Framework identifiers
 - `SimDataType`: Simulation data types
 - `DataFormat`: Data format specifications
