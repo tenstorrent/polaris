@@ -452,6 +452,42 @@ class tensixFunc:
         self.triscRegs  = triscRegs
         print(args)
 
+    def _compute_num_datums_from_row_cnt_enc(self, ins):
+        """Helper method to compute ``numDatums`` based on the Row_Cnt_Enc attribute.
+
+        For ``llkVersionTag.group`` values 0 and 1, this method derives the number
+        of datums from ``ins.getAttr()["Row_Cnt_Enc"]`` using the encoded mapping
+        (0 → 4 * 16, 1 → 2 * 16, 2 → 1 * 16, 3 → 16 // 2, 4 → 16 // 4, 5 → 16 // 8).
+        For any other group (for example, group 2), the Row_Cnt_Enc value is ignored
+        and a fixed default of ``4 * 16`` datums is returned.
+
+        Args:
+            ins: The instruction containing the Row_Cnt_Enc attribute.
+
+        Returns:
+            int: Number of datums computed from Row_Cnt_Enc for groups 0 and 1,
+            or the default value ``4 * 16`` for all other groups.
+
+        Raises:
+            AssertionError: If ``Row_Cnt_Enc`` is outside the valid range [0, 5] or
+                if an unhandled encoded value is encountered for the given
+                instruction.
+        """
+        if (self.args['llkVersionTag'].group in [0,1]):
+            row_cnt_enc = ins.getAttr()["Row_Cnt_Enc"]
+            assert row_cnt_enc >= 0 and row_cnt_enc <= 5, f"Unknown Row_Cnt_Enc value={row_cnt_enc} for instruction {ins.getOp()}"
+            match row_cnt_enc:
+                case 0: return 4 * 16
+                case 1: return 2 * 16
+                case 2: return 1 * 16
+                case 3: return 16//2
+                case 4: return 16//4
+                case 5: return 16//8
+                case _:
+                    assert False, f"Unhandled Row_Cnt_Enc value={row_cnt_enc} for instruction {ins.getOp()}"
+        else:
+            return 4 * 16
+
     def __execunpacrti__(self,ins):
         opList0 = ["UNPACR0_TILE_INC", "UNPACR1_TILE_INC", "UNPACR2_TILE_INC", "UNPACR_DEST_TILE_INC"]
         opList1 = ["UNPACR0_FACE_INC", "UNPACR1_FACE_INC", "UNPACR2_FACE_INC", "UNPACR_DEST_FACE_INC"]
@@ -836,18 +872,11 @@ class tensixFunc:
 
         assert isaFunctions.getNumBytesFromDataFormat(srcFormat) != None, f"Unsupported format {srcFormat} in {bufferFormatReg}"
         assert isaFunctions.getNumBytesFromDataFormat(dstFormat) != None, f"Unsupported format {dstFormat} in {outFormatReg}"
-        assert ins.getAttr()["Row_Cnt_Enc"] >=0 and ins.getAttr()["Row_Cnt_Enc"]<=5, "Unknown Row_Cnt_Enc value=" + str(ins.getAttr()['Row_Cnt_Enc']) + " for instruction " + ins.getOp()
-        match ins.getAttr()["Row_Cnt_Enc"]:
-            case 0: numDatums = 4 * 16
-            case 1: numDatums = 2 * 16
-            case 2: numDatums = 1 * 16
-            case 3: numDatums = 16//2
-            case 4: numDatums = 16//4
-            case 5: numDatums = 16//8
-            case _:
-                numDatums = 0
-                assert False, "Unhandled Row_Cnt_Enc value=" + str(ins.getAttr()['Row_Cnt_Enc']) + " for instruction " + ins.getOp()
-        if self.debug & 0x8:            print(f"Computed srcSize={isaFunctions.getNumBytesFromDataFormat(srcFormat)}, dstSize={isaFunctions.getNumBytesFromDataFormat(dstFormat)} numDatums={numDatums}")
+
+        numDatums = self._compute_num_datums_from_row_cnt_enc(ins)
+
+        if self.debug & 0x8:
+            print(f"Computed srcSize={isaFunctions.getNumBytesFromDataFormat(srcFormat)}, dstSize={isaFunctions.getNumBytesFromDataFormat(dstFormat)} numDatums={numDatums}")
 
         ins.setSrcInt(src)
         ins.setDstInt(dst)
@@ -1170,17 +1199,11 @@ class tensixFunc:
 
         assert isaFunctions.getNumBytesFromDataFormat(srcFormat) != None, f"Unsupported format {srcFormat} in {bufferFormatReg}"
         assert isaFunctions.getNumBytesFromDataFormat(dstFormat) != None, f"Unsupported format {dstFormat} in {outFormatReg}"
-        assert ins.getAttr()["Row_Cnt_Enc"] >=0 and ins.getAttr()["Row_Cnt_Enc"]<=5, "Unknown Row_Cnt_Enc value=" + str(ins.getAttr()['Row_Cnt_Enc']) + " for instruction " + ins.getOp()
-        match ins.getAttr()["Row_Cnt_Enc"]:
-            case 0: numDatums = 4 * 16
-            case 1: numDatums = 2 * 16
-            case 2: numDatums = 1 * 16
-            case 3: numDatums = 16//2
-            case 4: numDatums = 16//4
-            case 5: numDatums = 16//8
-            case _:
-                assert False, "Unhandled Row_Cnt_Enc value=" + str(ins.getAttr()['Row_Cnt_Enc']) + " for instruction " + ins.getOp()
-        if self.debug & 0x8:            print(f"Computed srcSize={isaFunctions.getNumBytesFromDataFormat(srcFormat)}, dstSize={isaFunctions.getNumBytesFromDataFormat(dstFormat)} numDatums={numDatums}")
+
+        numDatums = self._compute_num_datums_from_row_cnt_enc(ins)
+
+        if self.debug & 0x8:
+            print(f"Computed srcSize={isaFunctions.getNumBytesFromDataFormat(srcFormat)}, dstSize={isaFunctions.getNumBytesFromDataFormat(dstFormat)} numDatums={numDatums}")
 
         ins.setSrcInt(src)
         ins.setDstInt(dst)
@@ -2377,6 +2400,55 @@ class tensixFunc:
         nextRelAddr = ins.getRelAddr() + 4
         return nextRelAddr
 
+    def _validate_sfpu_attribs_and_advance(self, ins, expected_attribs: list[str], context: str = "SFPU"):
+        """Helper method to validate SFPU instruction attributes and advance the PC.
+
+        This helper performs **only** structural/semantic validation of the
+        instruction's operand attributes and then advances the program counter.
+        Unlike helpers such as ``_compute_num_datums_from_row_cnt_enc``, it does
+        not compute or return any datum-count value; it always returns the next
+        instruction address.
+
+        Args:
+            ins: The instruction to validate.
+            expected_attribs: List of expected attribute names.
+            context: Context string for error messages (e.g., function name).
+
+        Returns:
+            The next relative address, i.e., ``ins.getRelAddr() + 4``.
+
+        Raises:
+            AssertionError: If the instruction is missing an ``operands``
+                attribute or if ``ins.operands`` is ``None``.
+            AssertionError: If ``ins.operands`` is missing an ``attributes``
+                attribute or if ``ins.operands.attributes`` is ``None``.
+            AssertionError: If ``ins.operands.attributes`` does not provide a
+                callable ``keys`` method.
+            AssertionError: If the actual attribute names on
+                ``ins.operands.attributes`` do not match ``expected_attribs``.
+        """
+        # Ensure the instruction has the expected operand/attribute structure.
+        if not hasattr(ins, "operands") or ins.operands is None:
+            raise AssertionError(
+                f"@{context}: instruction object {type(ins).__name__} is missing required 'operands' attribute."
+            )
+        operands = ins.operands
+        if not hasattr(operands, "attributes") or operands.attributes is None:
+            raise AssertionError(
+                f"@{context}: operands object {type(operands).__name__} is missing required 'attributes' attribute."
+            )
+        attributes = operands.attributes
+        if not hasattr(attributes, "keys") or not callable(getattr(attributes, "keys", None)):
+            raise AssertionError(
+                f"@{context}: operands.attributes of type {type(attributes).__name__} does not support 'keys()'."
+            )
+        actual_attribs = list(attributes.keys())
+        assert sorted(expected_attribs) == sorted(actual_attribs), (
+            f"@{context}: attributes mismatch. expected attributes: {sorted(expected_attribs)}, "
+            f"received: {sorted(actual_attribs)}."
+        )
+        return ins.getRelAddr() + 4
+
     def __execsfpconfig__(self,ins):
         assert ins.getOp() == "SFPCONFIG" , "Expected opcode SFPCONFIG. Received " + str(ins.getOp())
         assert "destinations" not in dir(ins.getOperands()) , "Zero Dst expected"
@@ -2443,25 +2515,56 @@ class tensixFunc:
         if ins.getOp() not in allowedMnemonics:
             raise Exception(f"- error: given mnemonic {ins.getOp()} is not part of mnemonics with operands with tag SFPU_MATHI12")
 
-        expectedAttribs = ['instr_mod1', 'lreg_dest', 'lreg_c', 'imm12_math']
-        assert len(ins.getAttr()) == len(expectedAttribs), f"@__execSFPU_MATHI12__: {len(expectedAttribs)} attribs expected. Received {len(ins.getAttr())}, instruction: {ins}."
-        assert sorted(expectedAttribs) == sorted(list(ins.operands.attributes.keys())), f"@__execSFPU_MATHI12__: attributes mismatch. expected attributes: {sorted(expectedAttribs)}, received: {sorted(list(ins.operands.attributes.keys()))}."
+        # For tags in groups 0 and 1, legacy arg layout applies
+        if (self.args['llkVersionTag'].group in [0,1]):
+            return self._validate_sfpu_attribs_and_advance(ins, ['instr_mod1', 'lreg_dest', 'lreg_c', 'imm12_math'], '__execSFPU_MATHI12__')
 
-        nextRelAddr = ins.getRelAddr() + 4
-        return nextRelAddr
+        # Group 2 (nov17): per-mnemonic argument layouts
+        op = ins.getOp()
+        if op in ['SFPCOMPC', 'SFPTRANSP']:
+            return self._validate_sfpu_attribs_and_advance(ins, [], '__execSFPU_MATHI12__')
+        if op in ['SFPPOPC', 'SFPPUSHC']:
+            return self._validate_sfpu_attribs_and_advance(ins, ['instr_mod1'], '__execSFPU_MATHI12__')
+        if op == 'SFPENCC':
+            return self._validate_sfpu_attribs_and_advance(ins, ['instr_mod1', 'imm12_math'], '__execSFPU_MATHI12__')
+        if op == 'SFPSETCC':
+            return self._validate_sfpu_attribs_and_advance(ins, ['instr_mod1', 'lreg_c', 'imm12_math'], '__execSFPU_MATHI12__')
+        if op in ['SFPDIVP2', 'SFPGT', 'SFPIADD', 'SFPLE', 'SFPSETEXP', 'SFPSETMAN', 'SFPSETSGN', 'SFPSHFT']:
+            return self._validate_sfpu_attribs_and_advance(ins, ['instr_mod1', 'lreg_dest', 'lreg_c', 'imm12_math'], '__execSFPU_MATHI12__')
+        if op in ['SFPABS', 'SFPEXEXP', 'SFPEXMAN', 'SFPLZ', 'SFPMOV']:
+            return self._validate_sfpu_attribs_and_advance(ins, ['instr_mod1', 'lreg_dest', 'lreg_c'], '__execSFPU_MATHI12__')
+        if op in ['SFPAND', 'SFPNOT', 'SFPOR', 'SFPXOR']:
+            return self._validate_sfpu_attribs_and_advance(ins, ['lreg_dest', 'lreg_c'], '__execSFPU_MATHI12__')
 
-    def __execSFPU_MATH__(self,ins):
+        print(f"WARNING: in function __execSFPU_MATHI12__, advancing pc without any checks. instruction: {ins}")
+        # Fallback
+        return ins.getRelAddr() + 4
+
+    def __execSFPU_MATH__(self, ins):
         allowedMnemonics = ['SFPADD', 'SFPMAD', 'SFPMUL', 'SFPMUL24']
-        expectedAttribs = ['instr_mod1', 'lreg_dest', 'lreg_src_c', 'lreg_src_b', 'lreg_src_a']
 
         if ins.getOp() not in allowedMnemonics:
             raise Exception(f"- error: given mnemonic {ins.getOp()} is not part of mnemonics with operands with tag SFPU_MATH")
 
-        assert len(ins.getAttr()) == len(expectedAttribs), f"@__execSFPU_MATH__: {len(expectedAttribs)} attribs expected. Received {len(ins.getAttr())}, instruction: {ins}."
-        assert sorted(expectedAttribs) == sorted(list(ins.operands.attributes.keys())), f"@__execSFPU_MATH__: attributes mismatch. expected attributes: {sorted(expectedAttribs)}, received: {sorted(list(ins.operands.attributes.keys()))}."
+        # For tags in groups 0 and 1, legacy arg layout applies
+        if (self.args['llkVersionTag'].group in [0,1]):
+            return self._validate_sfpu_attribs_and_advance(ins, ['instr_mod1', 'lreg_dest', 'lreg_src_c', 'lreg_src_b', 'lreg_src_a'], '__execSFPU_MATH__')
 
-        nextRelAddr = ins.getRelAddr() + 4
-        return nextRelAddr
+        # Group 2 (nov17): per-mnemonic argument layouts.
+        # NOTE: nov17 format intentionally renamed the logical register source
+        # attributes from lreg_src_a/b/c to lreg_a/b/c, while keeping lreg_dest.
+        # The decoder for nov17 emits these shorter names, so we must use them
+        # here to stay aligned with that ISA/version. Groups 0–1 retain the
+        # legacy lreg_src_* naming for backward compatibility.
+        op = ins.getOp()
+        if op in ['SFPADD', 'SFPMAD', 'SFPMUL']:
+            return self._validate_sfpu_attribs_and_advance(ins, ['instr_mod1', 'lreg_a', 'lreg_b', 'lreg_c', 'lreg_dest'], '__execSFPU_MATH__')
+        if op == 'SFPMUL24':
+            return self._validate_sfpu_attribs_and_advance(ins, ['instr_mod1', 'lreg_a', 'lreg_b', 'lreg_dest'], '__execSFPU_MATH__')
+
+        print(f"WARNING: in function __execSFPU_MATH__, advancing pc without any checks. instruction: {ins}")
+        # Fallback
+        return ins.getRelAddr() + 4
 
     def __execsfpnop__(self, ins):
         assert "SFPNOP" == ins.getOp(), "Expected opcode SFPNOP. Received " + str(ins.getOp())
@@ -2514,7 +2617,7 @@ class tensixFunc:
             case "UNPACR0_ROW_INC":     nextAddr            = self.__execunpacrti__(ins)
             case "UNPACR1_ROW_INC":     nextAddr            = self.__execunpacrti__(ins)
             case "UNPACR2_ROW_INC":     nextAddr            = self.__execunpacrti__(ins)
-            case "UNPACR_DEST_ROW_INC":nextAddr            = self.__execunpacrti__(ins)
+            case "UNPACR_DEST_ROW_INC": nextAddr            = self.__execunpacrti__(ins)
             case "UNPACR0_TILE":        nextAddr            = self.__execunpacrt__(ins)
             case "UNPACR1_TILE":        nextAddr            = self.__execunpacrt__(ins)
             case "UNPACR2_TILE":        nextAddr            = self.__execunpacrt__(ins)
@@ -2526,7 +2629,7 @@ class tensixFunc:
             case "UNPACR0_ROW":         nextAddr            = self.__execunpacrt__(ins)
             case "UNPACR1_ROW":         nextAddr            = self.__execunpacrt__(ins)
             case "UNPACR2_ROW":         nextAddr            = self.__execunpacrt__(ins)
-            case "UNPACR_DEST_ROW":    nextAddr            = self.__execunpacrt__(ins)
+            case "UNPACR_DEST_ROW":     nextAddr            = self.__execunpacrt__(ins)
             case "UNPACR0_STRIDE":      nextAddr            = self.__execunpacrs__(ins)
             case "UNPACR1_STRIDE":      nextAddr            = self.__execunpacrs__(ins)
             case "UNPACR2_STRIDE":      nextAddr            = self.__execunpacrs__(ins)
@@ -2535,24 +2638,24 @@ class tensixFunc:
             case "UNPACR_TILE_MISC":    nextAddr            = self.__execunpacrtm__(ins)
             case "UNPACR_TILIZE":       nextAddr            = self.__execunpacrtz__(ins)
             case "UNPACR_NOP":          nextAddr            = self.__execunpacrnop__(ins)
-            case "PACR0_TILE":      nextAddr            = self.__execpacrti__(ins)
-            case "PACR1_TILE":      nextAddr            = self.__execpacrti__(ins)
-            case "PACR2_TILE":      nextAddr            = self.__execpacrti__(ins)
-            case "PACR0_FACE":      nextAddr            = self.__execpacrti__(ins)
-            case "PACR1_FACE":      nextAddr            = self.__execpacrti__(ins)
-            case "PACR2_FACE":      nextAddr            = self.__execpacrti__(ins)
-            case "PACR0_ROW":      nextAddr            = self.__execpacrti__(ins)
-            case "PACR1_ROW":      nextAddr            = self.__execpacrti__(ins)
-            case "PACR2_ROW":      nextAddr            = self.__execpacrti__(ins)
+            case "PACR0_TILE":          nextAddr            = self.__execpacrti__(ins)
+            case "PACR1_TILE":          nextAddr            = self.__execpacrti__(ins)
+            case "PACR2_TILE":          nextAddr            = self.__execpacrti__(ins)
+            case "PACR0_FACE":          nextAddr            = self.__execpacrti__(ins)
+            case "PACR1_FACE":          nextAddr            = self.__execpacrti__(ins)
+            case "PACR2_FACE":          nextAddr            = self.__execpacrti__(ins)
+            case "PACR0_ROW":           nextAddr            = self.__execpacrti__(ins)
+            case "PACR1_ROW":           nextAddr            = self.__execpacrti__(ins)
+            case "PACR2_ROW":           nextAddr            = self.__execpacrti__(ins)
             case "PACR0_TILE_INC":      nextAddr            = self.__execpacrti__(ins)
             case "PACR1_TILE_INC":      nextAddr            = self.__execpacrti__(ins)
             case "PACR2_TILE_INC":      nextAddr            = self.__execpacrti__(ins)
             case "PACR0_FACE_INC":      nextAddr            = self.__execpacrti__(ins)
             case "PACR1_FACE_INC":      nextAddr            = self.__execpacrti__(ins)
             case "PACR2_FACE_INC":      nextAddr            = self.__execpacrti__(ins)
-            case "PACR0_ROW_INC":      nextAddr            = self.__execpacrti__(ins)
-            case "PACR1_ROW_INC":      nextAddr            = self.__execpacrti__(ins)
-            case "PACR2_ROW_INC":      nextAddr            = self.__execpacrti__(ins)
+            case "PACR0_ROW_INC":       nextAddr            = self.__execpacrti__(ins)
+            case "PACR1_ROW_INC":       nextAddr            = self.__execpacrti__(ins)
+            case "PACR2_ROW_INC":       nextAddr            = self.__execpacrti__(ins)
             case "PACR_STRIDE":         nextAddr            = self.__execpacr_stride__(ins)
             case "PACR_UNTILIZE":       nextAddr            = self.__execpacr_untilize__(ins)
             case "GAPOOL":              nextAddr            = self.__execgpool__(ins)
@@ -2604,9 +2707,9 @@ class tensixFunc:
                                         nextAddr            = self.__execsrctilefacerowi__(ins)
             case "REPLAY":              nextAddr            = self.__execreplay__(ins, cycle)
             case "SFPABS" | "SFPAND" | "SFPARECIP" | "SFPCOMPC" | "SFPDIVP2" | "SFPENCC" | "SFPEXEXP" | "SFPEXMAN" | "SFPGT" | "SFPIADD" | "SFPLE" | "SFPLZ" | "SFPMOV" | "SFPNOT" | "SFPOR" | "SFPPOPC" | "SFPPUSHC" | "SFPSETCC" | "SFPSETEXP" | "SFPSETMAN" | "SFPSETSGN" | "SFPSHFT" | "SFPTRANSP" | "SFPXOR":
-                                        nextAddr            = self.__execSFPU_MATHI12__(ins)
+                nextAddr = self.__execSFPU_MATHI12__(ins)
             case "SFPADD" | "SFPMAD" | "SFPMUL" | "SFPMUL24":
-                                        nextAddr            = self.__execSFPU_MATH__(ins)
+                nextAddr = self.__execSFPU_MATH__(ins)
             # case "MOP":                 nextAddr            = self.__execmop__(ins)
             case _:
                 print("WARNING: Unsupported TT Instruction ", ins.getOp())
