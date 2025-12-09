@@ -309,7 +309,7 @@ This document provides an overview of all classes in the `ttsim` module and expl
 - Used by `Device` via `simconfig_obj`
 - Referenced by `HLMStats` for device information
 
-### `ComputeBlockModel`, `MemoryBlockModel` (`config/runcfgmodel.py`)
+### `ComputeBlockModel`, `MemoryBlockModel` (`config/simconfig.py`)
 
 **Purpose**: Pydantic models for compute and memory IP blocks.
 
