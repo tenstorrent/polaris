@@ -270,7 +270,7 @@ This document provides an overview of all classes in the `ttsim` module and expl
 
 ---
 
-## Configuration and Mapping
+## Configuration Models
 
 ### `SimConfig` (`config/simconfig.py`)
 
