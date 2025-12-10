@@ -2443,12 +2443,107 @@ class tensixFunc:
         if ins.getOp() not in allowedMnemonics:
             raise Exception(f"- error: given mnemonic {ins.getOp()} is not part of mnemonics with operands with tag SFPU_MATHI12")
 
-        expectedAttribs = ['instr_mod1', 'lreg_dest', 'lreg_c', 'imm12_math']
-        assert len(ins.getAttr()) == len(expectedAttribs), f"@__execSFPU_MATHI12__: {len(expectedAttribs)} attribs expected. Received {len(ins.getAttr())}, instruction: {ins}."
-        assert sorted(expectedAttribs) == sorted(list(ins.operands.attributes.keys())), f"@__execSFPU_MATHI12__: attributes mismatch. expected attributes: {sorted(expectedAttribs)}, received: {sorted(list(ins.operands.attributes.keys()))}."
+        def _validate_and_advance(expected_attribs: list[str]):
+            assert len(ins.getAttr()) == len(expected_attribs), f"@__execSFPU_MATHI12__: {len(expected_attribs)} attribs expected. Received {len(ins.getAttr())}, instruction: {ins}."
+            assert sorted(expected_attribs) == sorted(list(ins.operands.attributes.keys())), f"@__execSFPU_MATHI12__: attributes mismatch. expected attributes: {sorted(expected_attribs)}, received: {sorted(list(ins.operands.attributes.keys()))}."
+            return ins.getRelAddr() + 4
 
-        nextRelAddr = ins.getRelAddr() + 4
-        return nextRelAddr
+        # For tags in groups 0 and 1, legacy arg layout applies
+        if (self.args['llkVersionTag'].group in [0,1]):
+            return _validate_and_advance(['instr_mod1', 'lreg_dest', 'lreg_c', 'imm12_math'])
+
+        # Group 2 (nov17): per-mnemonic argument layouts
+        op = ins.getOp()
+        if op in ['SFPCOMPC', 'SFPTRANSP']:
+            return _validate_and_advance([])
+        if op in ['SFPPOPC', 'SFPPUSHC']:
+            return _validate_and_advance(['instr_mod1'])
+        if op == 'SFPENCC':
+            return _validate_and_advance(['instr_mod1', 'imm12_math'])
+        if op == 'SFPSETCC':
+            return _validate_and_advance(['instr_mod1', 'lreg_c', 'imm12_math'])
+        if op in ['SFPDIVP2', 'SFPGT', 'SFPIADD', 'SFPLE', 'SFPSETEXP', 'SFPSETMAN', 'SFPSETSGN', 'SFPSHFT']:
+            return _validate_and_advance(['instr_mod1', 'lreg_dest', 'lreg_c', 'imm12_math'])
+        if op in ['SFPABS', 'SFPEXEXP', 'SFPEXMAN', 'SFPLZ', 'SFPMOV']:
+            return _validate_and_advance(['instr_mod1', 'lreg_dest', 'lreg_c'])
+        if op in ['SFPAND', 'SFPNOT', 'SFPOR', 'SFPXOR']:
+            return _validate_and_advance(['lreg_dest', 'lreg_c'])
+
+        # Fallback
+        return ins.getRelAddr() + 4
+
+    # Individual wrappers for SFPU_MATHI12 mnemonics (dispatching to the common validator).
+    def __execSFPABS__(self, ins):
+        return self.__execSFPU_MATHI12__(ins)
+
+    def __execSFPAND__(self, ins):
+        return self.__execSFPU_MATHI12__(ins)
+
+    def __execSFPARECIP__(self, ins):
+        return self.__execSFPU_MATHI12__(ins)
+
+    def __execSFPCOMPC__(self, ins):
+        return self.__execSFPU_MATHI12__(ins)
+
+    def __execSFPDIVP2__(self, ins):
+        return self.__execSFPU_MATHI12__(ins)
+
+    def __execSFPENCC__(self, ins):
+        return self.__execSFPU_MATHI12__(ins)
+
+    def __execSFPEXEXP__(self, ins):
+        return self.__execSFPU_MATHI12__(ins)
+
+    def __execSFPEXMAN__(self, ins):
+        return self.__execSFPU_MATHI12__(ins)
+
+    def __execSFPGT__(self, ins):
+        return self.__execSFPU_MATHI12__(ins)
+
+    def __execSFPIADD__(self, ins):
+        return self.__execSFPU_MATHI12__(ins)
+
+    def __execSFPLE__(self, ins):
+        return self.__execSFPU_MATHI12__(ins)
+
+    def __execSFPLZ__(self, ins):
+        return self.__execSFPU_MATHI12__(ins)
+
+    def __execSFPMOV__(self, ins):
+        return self.__execSFPU_MATHI12__(ins)
+
+    def __execSFPNOT__(self, ins):
+        return self.__execSFPU_MATHI12__(ins)
+
+    def __execSFPOR__(self, ins):
+        return self.__execSFPU_MATHI12__(ins)
+
+    def __execSFPPOPC__(self, ins):
+        return self.__execSFPU_MATHI12__(ins)
+
+    def __execSFPPUSHC__(self, ins):
+        return self.__execSFPU_MATHI12__(ins)
+
+    def __execSFPSETCC__(self, ins):
+        return self.__execSFPU_MATHI12__(ins)
+
+    def __execSFPSETEXP__(self, ins):
+        return self.__execSFPU_MATHI12__(ins)
+
+    def __execSFPSETMAN__(self, ins):
+        return self.__execSFPU_MATHI12__(ins)
+
+    def __execSFPSETSGN__(self, ins):
+        return self.__execSFPU_MATHI12__(ins)
+
+    def __execSFPSHFT__(self, ins):
+        return self.__execSFPU_MATHI12__(ins)
+
+    def __execSFPTRANSP__(self, ins):
+        return self.__execSFPU_MATHI12__(ins)
+
+    def __execSFPXOR__(self, ins):
+        return self.__execSFPU_MATHI12__(ins)
 
     def __execSFPU_MATH__(self,ins):
         allowedMnemonics = ['SFPADD', 'SFPMAD', 'SFPMUL', 'SFPMUL24']
@@ -2608,8 +2703,30 @@ class tensixFunc:
             case "INC_SRC_TILE_FACE_ROW_IDX":
                                         nextAddr            = self.__execsrctilefacerowi__(ins)
             case "REPLAY":              nextAddr            = self.__execreplay__(ins, cycle)
-            case "SFPABS" | "SFPAND" | "SFPARECIP" | "SFPCOMPC" | "SFPDIVP2" | "SFPENCC" | "SFPEXEXP" | "SFPEXMAN" | "SFPGT" | "SFPIADD" | "SFPLE" | "SFPLZ" | "SFPMOV" | "SFPNOT" | "SFPOR" | "SFPPOPC" | "SFPPUSHC" | "SFPSETCC" | "SFPSETEXP" | "SFPSETMAN" | "SFPSETSGN" | "SFPSHFT" | "SFPTRANSP" | "SFPXOR":
-                                        nextAddr            = self.__execSFPU_MATHI12__(ins)
+            case "SFPABS":            nextAddr            = self.__execSFPABS__(ins)
+            case "SFPAND":            nextAddr            = self.__execSFPAND__(ins)
+            case "SFPARECIP":         nextAddr            = self.__execSFPARECIP__(ins)
+            case "SFPCOMPC":          nextAddr            = self.__execSFPCOMPC__(ins)
+            case "SFPDIVP2":          nextAddr            = self.__execSFPDIVP2__(ins)
+            case "SFPENCC":           nextAddr            = self.__execSFPENCC__(ins)
+            case "SFPEXEXP":          nextAddr            = self.__execSFPEXEXP__(ins)
+            case "SFPEXMAN":          nextAddr            = self.__execSFPEXMAN__(ins)
+            case "SFPGT":             nextAddr            = self.__execSFPGT__(ins)
+            case "SFPIADD":           nextAddr            = self.__execSFPIADD__(ins)
+            case "SFPLE":             nextAddr            = self.__execSFPLE__(ins)
+            case "SFPLZ":             nextAddr            = self.__execSFPLZ__(ins)
+            case "SFPMOV":            nextAddr            = self.__execSFPMOV__(ins)
+            case "SFPNOT":            nextAddr            = self.__execSFPNOT__(ins)
+            case "SFPOR":             nextAddr            = self.__execSFPOR__(ins)
+            case "SFPPOPC":           nextAddr            = self.__execSFPPOPC__(ins)
+            case "SFPPUSHC":          nextAddr            = self.__execSFPPUSHC__(ins)
+            case "SFPSETCC":          nextAddr            = self.__execSFPSETCC__(ins)
+            case "SFPSETEXP":         nextAddr            = self.__execSFPSETEXP__(ins)
+            case "SFPSETMAN":         nextAddr            = self.__execSFPSETMAN__(ins)
+            case "SFPSETSGN":         nextAddr            = self.__execSFPSETSGN__(ins)
+            case "SFPSHFT":           nextAddr            = self.__execSFPSHFT__(ins)
+            case "SFPTRANSP":         nextAddr            = self.__execSFPTRANSP__(ins)
+            case "SFPXOR":            nextAddr            = self.__execSFPXOR__(ins)
             case "SFPADD" | "SFPMAD" | "SFPMUL" | "SFPMUL24":
                                         nextAddr            = self.__execSFPU_MATH__(ins)
             # case "MOP":                 nextAddr            = self.__execmop__(ins)
