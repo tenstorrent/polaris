@@ -29,9 +29,9 @@ class MLP():
         self.dim = args.dim
         self.model_config = model_config
         self.layer_num = layer_num
-        self.w1 = ttnn.Tensor(shape=(self.dim, 8192), device=mesh_device, dtype=ttnn.bfloat16)
-        self.w2 = ttnn.Tensor(shape=(8192, self.dim), device=mesh_device, dtype=ttnn.bfloat16)
-        self.w3 = ttnn.Tensor(shape=(self.dim, 8192), device=mesh_device, dtype=ttnn.bfloat16)
+        self.w1 = ttnn.Tensor(shape=(self.dim, int(3.5 * self.dim)), device=mesh_device, dtype=ttnn.bfloat16)
+        self.w2 = ttnn.Tensor(shape=(int(3.5 * self.dim), self.dim), device=mesh_device, dtype=ttnn.bfloat16)
+        self.w3 = ttnn.Tensor(shape=(self.dim, int(3.5 * self.dim)), device=mesh_device, dtype=ttnn.bfloat16)
 
     def forward(self, x: ttnn.Tensor, mode) -> ttnn.Tensor:
         """
