@@ -10,8 +10,9 @@ import copy
 import enum
 
 import ttsim.back.tensix_neo.isaFunctions as isaFunctions
-import ttsim.front.llk.decoded_instruction as decoded_instruction
+# import ttsim.front.llk.decoded_instruction as decoded_instruction
 from ttsim.back.tensix_neo.isaFunctions import valueStatus
+import ttsim.front.ttdecode.python.src.ttdecode as ttdecode
 
 MEMORY_MAP_KEY_TRISC_MAP = 'trisc_map'
 MEMORY_MAP_KEY_TRISC_MAP_CFG = 'cfg_regs'
@@ -458,11 +459,11 @@ class tensixFunc:
         opList2 = ["UNPACR0_ROW_INC", "UNPACR1_ROW_INC", "UNPACR2_ROW_INC", "UNPACR_DEST_ROW_INC"]
 
         assert ins.getOp() in opList0 or ins.getOp() in opList1 or ins.getOp() in opList2, "Expected opcode UNPACR0/1/2/DEST_TILE/FACE/ROW_INC. Received " + str(ins.getOp())
-        # assert "destinations" not in dir(ins.getOperands()) , "Zero Dst expected"
-        assert "sources" not in dir(ins.getOperands()) , "Zero Src expected"
-        assert "immediates" not in dir(ins.getOperands()) , "Zero Imm expected"
+        # assert ins.operands.destinations.empty(), "Zero Dst expected"
+        assert ins.operands.sources.empty(), "Zero Src expected"
+        assert len(ins.operands.immediates) == 0, "Zero Imm expected"
         match ins.kind:
-            case decoded_instruction.instruction_kind.ttqs:
+            case ttdecode.isa.instruction_kind.ttqs:
                 if(ins.getOp() in opList0):
                     assert len(ins.getAttr()) == 4, "Four attribs expected. Received " + str(len(ins.getAttr()))
                 elif(ins.getOp() in opList1):
@@ -549,11 +550,11 @@ class tensixFunc:
         opList2 = ["UNPACR0_ROW", "UNPACR1_ROW", "UNPACR2_ROW", "UNPACR_DEST_ROW"]
 
         assert ins.getOp() in opList0 or ins.getOp() in opList1 or ins.getOp() in opList2, "Expected opcode UNPACR0/1/2/_DEST_TILE/FACE/ROW. Received " + str(ins.getOp())
-        # assert "destinations" not in dir(ins.getOperands()) , "Zero Dst expected"
-        assert "sources" not in dir(ins.getOperands()) , "Zero Src expected"
-        assert "immediates" not in dir(ins.getOperands()) , "Zero Imm expected"
+        # assert ins.operands.destinations.empty(), "Zero Dst expected"
+        assert ins.operands.sources.empty(), "Zero Src expected"
+        assert len(ins.operands.immediates) == 0, "Zero Imm expected"
         match ins.kind:
-            case decoded_instruction.instruction_kind.ttqs:
+            case ttdecode.isa.instruction_kind.ttqs:
                 if(ins.getOp() in opList0):
                     assert len(ins.getAttr()) == 4, "Four attribs expected. Received " + str(len(ins.getAttr()))
                 elif(ins.getOp() in opList1):
@@ -638,11 +639,11 @@ class tensixFunc:
         opList0 = ["UNPACR0_STRIDE", "UNPACR1_STRIDE", "UNPACR2_STRIDE", "UNPACR_DEST_STRIDE"]
         assert ins.getOp() in opList0 , "Expected opcode UNPACR0/1/2/_DEST_STRIDE. Received " + str(ins.getOp())
         # TODO: Reset destination/source
-        # assert "destinations" not in dir(ins.getOperands()) , "Zero Dst expected"
-        # assert "sources" not in dir(ins.getOperands()) , "Zero Src expected"
-        assert "immediates" not in dir(ins.getOperands()) , "Zero Imm expected"
+        # assert ins.operands.destinations.empty(), "Zero Dst expected"
+        # assert ins.operands.sources.empty(), "Zero Src expected"
+        assert len(ins.operands.immediates) == 0, "Zero Imm expected"
         match ins.kind:
-            case decoded_instruction.instruction_kind.ttqs:
+            case ttdecode.isa.instruction_kind.ttqs:
                 if(ins.getOp() in opList0):
                     assert len(ins.getAttr()) == 7, "Seven attribs expected. Received " + str(len(ins.getAttr()))
             case _:
@@ -714,11 +715,11 @@ class tensixFunc:
 
     def __execunpacrtm__(self,ins):
         assert ins.getOp() == "UNPACR_TILE_MISC" , "Expected opcode UNPACR_TILE_MISC. Received " + str(ins.getOp())
-        assert "destinations" not in dir(ins.getOperands()) , "Zero Dst expected"
-        assert "sources" not in dir(ins.getOperands()) , "Zero Src expected"
-        assert "immediates" not in dir(ins.getOperands()) , "Zero Imm expected"
+        assert ins.operands.destinations.empty(), "Zero Dst expected"
+        assert ins.operands.sources.empty(), "Zero Src expected"
+        assert len(ins.operands.immediates) == 0, "Zero Imm expected"
         match ins.kind:
-            case decoded_instruction.instruction_kind.ttqs:
+            case ttdecode.isa.instruction_kind.ttqs:
                 assert len(ins.getAttr()) == 7, "Seven attribs expected. Received " + str(len(ins.getAttr()))
             case _:
                 assert len(ins.getAttr()) == 7, "Seven attribs expected. Received " + str(len(ins.getAttr()))
@@ -786,11 +787,11 @@ class tensixFunc:
 
     def __execunpacrtz__(self,ins):
         assert ins.getOp() == "UNPACR_TILIZE" , "Expected opcode UNPACR_TILIZE. Received " + str(ins.getOp())
-        assert "destinations" not in dir(ins.getOperands()) , "Zero Dst expected"
-        assert "sources" not in dir(ins.getOperands()) , "Zero Src expected"
-        assert "immediates" not in dir(ins.getOperands()) , "Zero Imm expected"
+        assert ins.operands.destinations.empty(), "Zero Dst expected"
+        assert ins.operands.sources.empty(), "Zero Src expected"
+        assert len(ins.operands.immediates) == 0, "Zero Imm expected"
         match ins.kind:
-            case decoded_instruction.instruction_kind.ttqs:
+            case ttdecode.isa.instruction_kind.ttqs:
                 assert len(ins.getAttr()) == 7, "Seven attribs expected. Received " + str(len(ins.getAttr()))
             case _:
                 assert len(ins.getAttr()) == 7, "Seven attribs expected. Received " + str(len(ins.getAttr()))
@@ -864,13 +865,13 @@ class tensixFunc:
 
     def __execunpacrnop__(self,ins):
         assert ins.getOp() == "UNPACR_NOP" , "Expected opcode UNPACR_NOP. Received " + str(ins.getOp())
-        assert "destinations" not in dir(ins.getOperands()) , "Zero Dst expected"
-        assert "sources" not in dir(ins.getOperands()) , "Zero Src expected"
-        assert "immediates" not in dir(ins.getOperands()) , "Zero Imm expected"
+        assert ins.operands.destinations.empty(), "Zero Dst expected"
+        assert ins.operands.sources.empty(), "Zero Src expected"
+        assert len(ins.operands.immediates) == 0, "Zero Imm expected"
         match ins.kind:
-            case decoded_instruction.instruction_kind.ttqs:
+            case ttdecode.isa.instruction_kind.ttqs:
                 assert len(ins.getAttr()) == 6, "Six attribs expected. Received " + str(len(ins.getAttr()))
-            case decoded_instruction.instruction_kind.ttwh:
+            case ttdecode.isa.instruction_kind.ttwh:
                 assert len(ins.getAttr()) == 2, "Two attribs expected. Received " + str(len(ins.getAttr()))
             case _:
                 assert len(ins.getAttr()) == 2, "Two attribs expected. Received " + str(len(ins.getAttr()))
@@ -878,7 +879,7 @@ class tensixFunc:
         src = [] ; dst = [] ; imm = [] ; vldUpd = {} ; bankUpd = {};
         exPipe  = None
 
-        if ins.kind == decoded_instruction.instruction_kind.ttqs:
+        if ins.kind == ttdecode.isa.instruction_kind.ttqs:
             match (ins.getAttr()['Unpacker_Select']):
                 case 0:
                     reg_id = isaFunctions.regIndex.srcA
@@ -933,11 +934,11 @@ class tensixFunc:
 
     def __execunpacr__(self,ins):
         assert ins.getOp() == "UNPACR", "Expected opcode UNPACR Received " + str(ins.getOp())
-        # assert "destinations" not in dir(ins.getOperands()) , "Zero Dst expected"
-        assert "sources" not in dir(ins.getOperands()) , "Zero Src expected"
-        assert "immediates" not in dir(ins.getOperands()) , "Zero Imm expected"
+        # assert ins.operands.destinations.empty(), "Zero Dst expected"
+        assert ins.operands.sources.empty(), "Zero Src expected"
+        assert len(ins.operands.immediates) == 0, "Zero Imm expected"
         match ins.kind:
-            case decoded_instruction.instruction_kind.ttqs:
+            case ttdecode.isa.instruction_kind.ttqs:
                 assert False, ins.getOp() + " not supported in QSR"
             case _:
                 assert len(ins.getAttr()) == 13, "Thirteen attribs expected. Received " + str(len(ins.getAttr()))
@@ -1003,9 +1004,9 @@ class tensixFunc:
         opList5 = ["PACR0_ROW", "PACR1_ROW", "PACR2_ROW", "PACR_DEST_ROW"]
         assert ins.getOp() in opList0 or ins.getOp() in opList1 or ins.getOp() in opList2 or ins.getOp() in opList3 or ins.getOp() in opList4 or ins.getOp() in opList5 , "Expected opcode PACR0/1/2/_DEST_TILE/FACE/ROW. Received " + str(ins.getOp())
 
-        assert "destinations" not in dir(ins.getOperands()) , "Zero Dst expected"
-        assert "sources" not in dir(ins.getOperands()) , "Zero Src expected"
-        assert "immediates" not in dir(ins.getOperands()) , "Zero Imm expected"
+        assert ins.operands.destinations.empty(), "Zero Dst expected"
+        assert ins.operands.sources.empty(), "Zero Src expected"
+        assert len(ins.operands.immediates) == 0, "Zero Imm expected"
 
         if("TILE" in ins.mnemonic):
             assert len(ins.getAttr()) == 4, "Four attribs expected. Received " + str(len(ins.getAttr()))
@@ -1068,9 +1069,9 @@ class tensixFunc:
     def __execpacr_stride__(self, ins):
         assert ins.getOp() == "PACR_STRIDE", "Expected opcode PACR_STRIDE Received " + str(ins.getOp())
         assert len(ins.getAttr()) == 8, "Eight attribs expected. Received "  + str(len(ins.getAttr()))
-        assert "destinations" not in dir(ins.getOperands()) , "Zero Dst expected"
-        # assert "sources" not in dir(ins.getOperands()) , "Zero Src expected"
-        assert "immediates" not in dir(ins.getOperands()) , "Zero Imm expected"
+        assert ins.operands.destinations.empty(), "Zero Dst expected"
+        # assert ins.operands.sources.empty(), "Zero Src expected"
+        assert len(ins.operands.immediates) == 0, "Zero Imm expected"
 
         src = []
         dst = []
@@ -1127,12 +1128,12 @@ class tensixFunc:
         return nextRelAddr
 
     def __execpacr_untilize__(self, ins):
-        assert ins.kind == decoded_instruction.instruction_kind.ttqs, "PACR_UNTILIZE not defined for " + str(ins.kind)
+        assert ins.kind == ttdecode.isa.instruction_kind.ttqs, "PACR_UNTILIZE not defined for " + str(ins.kind)
         assert ins.getOp() == "PACR_UNTILIZE", "Expected opcode PACR_UNTILIZE Received " + str(ins.getOp())
         assert len(ins.getAttr()) == 7, "Seven attribs expected for instruction PACR_UNTILIZE. Received "  + str(len(ins.getAttr()))
-        assert "destinations" not in dir(ins.getOperands()) , "Zero Dst expected"
-        # assert "sources" not in dir(ins.getOperands()) , "Zero Src expected"
-        assert "immediates" not in dir(ins.getOperands()) , "Zero Imm expected"
+        assert ins.operands.destinations.empty(), "Zero Dst expected"
+        # assert ins.operands.sources.empty(), "Zero Src expected"
+        assert len(ins.operands.immediates) == 0, "Zero Imm expected"
 
         src = []
         dst = []
@@ -1197,9 +1198,9 @@ class tensixFunc:
 
     def __execgpool__(self,ins):
         assert ins.getOp() == "GAPOOL" or ins.getOp() == "GMPOOL", "Expected opcode G[A/M]POOL. Received " + str(ins.getOp())
-        # assert "destinations" not in dir(ins.getOperands()) , "Zero Dst expected"
-        # assert "sources" not in dir(ins.getOperands()) , "Zero Src expected"
-        assert "immediates" not in dir(ins.getOperands()) , "Zero Imm expected"
+        # assert ins.operands.destinations.empty(), "Zero Dst expected"
+        # assert ins.operands.sources.empty(), "Zero Src expected"
+        assert len(ins.operands.immediates) == 0, "Zero Imm expected"
         assert len(ins.getAttr()) == 5, "Five attribs expected. Received " + str(len(ins.getAttr()))
 
         src = [] ; dst = [] ; imm = []; vldUpd ={}; bankUpd = {};
@@ -1225,11 +1226,11 @@ class tensixFunc:
 
     def __execelwadd__(self,ins):
         assert ins.getOp() == "ELWADD", "Expected opcode ELWADD. Received " + str(ins.getOp())
-        # assert "destinations" not in dir(ins.getOperands()) , "Zero Dst expected"
-        # assert "sources" not in dir(ins.getOperands()) , "Zero Src expected"
-        assert "immediates" not in dir(ins.getOperands()) , "Zero Imm expected"
+        # assert ins.operands.destinations.empty(), "Zero Dst expected"
+        # assert ins.operands.sources.empty(), "Zero Src expected"
+        assert len(ins.operands.immediates) == 0, "Zero Imm expected"
         match ins.kind:
-            case decoded_instruction.instruction_kind.ttqs:
+            case ttdecode.isa.instruction_kind.ttqs:
                 assert len(ins.getAttr()) == 5, "Five attribs expected. Received " + str(len(ins.getAttr()))
             case _:
                 assert len(ins.getAttr()) == 4, "Four attribs expected. Received " + str(len(ins.getAttr()))
@@ -1258,11 +1259,11 @@ class tensixFunc:
 
     def __execelwsub__(self,ins):
         assert ins.getOp() == "ELWSUB", "Expected opcode ELWSUB. Received " + str(ins.getOp())
-        # assert "destinations" not in dir(ins.getOperands()) , "Zero Dst expected"
-        # assert "sources" not in dir(ins.getOperands()) , "Zero Src expected"
-        assert "immediates" not in dir(ins.getOperands()) , "Zero Imm expected"
+        # assert ins.operands.destinations.empty(), "Zero Dst expected"
+        # assert ins.operands.sources.empty(), "Zero Src expected"
+        assert len(ins.operands.immediates) == 0, "Zero Imm expected"
         match ins.kind:
-            case decoded_instruction.instruction_kind.ttqs:
+            case ttdecode.isa.instruction_kind.ttqs:
                 assert len(ins.getAttr()) == 5, "Five attribs expected. Received " + str(len(ins.getAttr()))
             case _:
                 assert len(ins.getAttr()) == 4, "Four attribs expected. Received " + str(len(ins.getAttr()))
@@ -1291,11 +1292,11 @@ class tensixFunc:
 
     def __execelwmul__(self,ins):
         assert ins.getOp() == "ELWMUL", "Expected opcode ELWMUL. Received " + str(ins.getOp())
-        # assert "destinations" not in dir(ins.getOperands()) , "Zero Dst expected"
-        # assert "sources" not in dir(ins.getOperands()) , "Zero Src expected"
-        assert "immediates" not in dir(ins.getOperands()) , "Zero Imm expected"
+        # assert ins.operands.destinations.empty(), "Zero Dst expected"
+        # assert ins.operands.sources.empty(), "Zero Src expected"
+        assert len(ins.operands.immediates) == 0, "Zero Imm expected"
         match ins.kind:
-            case decoded_instruction.instruction_kind.ttqs:
+            case ttdecode.isa.instruction_kind.ttqs:
                 assert len(ins.getAttr()) == 5, "Five attribs expected. Received " + str(len(ins.getAttr()))
             case _:
                 assert len(ins.getAttr()) == 4, "Four attribs expected. Received " + str(len(ins.getAttr()))
@@ -1324,11 +1325,11 @@ class tensixFunc:
 
     def __execmvmul__(self,ins):
         assert ins.getOp() == "MVMUL", "Expected opcode MVMUL. Received " + str(ins.getOp())
-        # assert "destinations" not in dir(ins.getOperands()) , "Zero Dst expected"
-        # assert "sources" not in dir(ins.getOperands()) , "Zero Src expected"
-        assert "immediates" not in dir(ins.getOperands()) , "Zero Imm expected"
+        # assert ins.operands.destinations.empty(), "Zero Dst expected"
+        # assert ins.operands.sources.empty(), "Zero Src expected"
+        assert len(ins.operands.immediates) == 0, "Zero Imm expected"
         match ins.kind:
-            case decoded_instruction.instruction_kind.ttqs:
+            case ttdecode.isa.instruction_kind.ttqs:
                 assert len(ins.getAttr()) == 4, "Four attribs expected. Received " + str(len(ins.getAttr()))
             case _:
                 assert len(ins.getAttr()) == 4, "Four attribs expected. Received " + str(len(ins.getAttr()))
@@ -1357,11 +1358,11 @@ class tensixFunc:
 
     def __execmvmuldi__(self,ins):
         assert ins.getOp() == "MVMULDI", "Expected opcode MVMULDI. Received " + str(ins.getOp())
-        # assert "destinations" not in dir(ins.getOperands()) , "Zero Dst expected"
-        # assert "sources" not in dir(ins.getOperands()) , "Zero Src expected"
-        assert "immediates" not in dir(ins.getOperands()) , "Zero Imm expected"
+        # assert ins.operands.destinations.empty(), "Zero Dst expected"
+        # assert ins.operands.sources.empty(), "Zero Src expected"
+        assert len(ins.operands.immediates) == 0, "Zero Imm expected"
         match ins.kind:
-            case decoded_instruction.instruction_kind.ttqs:
+            case ttdecode.isa.instruction_kind.ttqs:
                 assert len(ins.getAttr()) == 6, "Six attribs expected. Received " + str(len(ins.getAttr()))
             case _:
                 raise Exception(f"- instruction MVMULDI is not defined for {ins.kind}")
@@ -1390,9 +1391,9 @@ class tensixFunc:
 
     def __execatgetm__(self,ins):
         assert ins.getOp() == "ATGETM", "Expected opcode ATGETM. Received " + str(ins.getOp())
-        assert "destinations" not in dir(ins.getOperands()) , "Zero Dst expected"
-        assert "sources" not in dir(ins.getOperands()) , "Zero Src expected"
-        assert "immediates" not in dir(ins.getOperands()) , "Zero Imm expected"
+        assert ins.operands.destinations.empty(), "Zero Dst expected"
+        assert ins.operands.sources.empty(), "Zero Src expected"
+        assert len(ins.operands.immediates) == 0, "Zero Imm expected"
         assert len(ins.getAttr()) == 1, "One attribs expected. Received " + str(len(ins.getAttr()))
 
         nextRelAddr = ins.getRelAddr() + 4
@@ -1400,9 +1401,9 @@ class tensixFunc:
 
     def __execatrelm__(self,ins):
         assert ins.getOp() == "ATRELM", "Expected opcode ATRELM. Received " + str(ins.getOp())
-        assert "destinations" not in dir(ins.getOperands()) , "Zero Dst expected"
-        assert "sources" not in dir(ins.getOperands()) , "Zero Src expected"
-        assert "immediates" not in dir(ins.getOperands()) , "Zero Imm expected"
+        assert ins.operands.destinations.empty(), "Zero Dst expected"
+        assert ins.operands.sources.empty(), "Zero Src expected"
+        assert len(ins.operands.immediates) == 0, "Zero Imm expected"
         assert len(ins.getAttr()) == 1, "One attribs expected. Received " + str(len(ins.getAttr()))
 
         nextRelAddr = ins.getRelAddr() + 4
@@ -1411,9 +1412,9 @@ class tensixFunc:
     def __execdmanop__(self,ins):
         assert ins.getOp() == "DMANOP", "Expected opcode DMANOP. Received " + str(ins.getOp())
         # assert "operands" not in dir(ins) , "Zero Dst/Src/Imm/Attribs expected"
-        assert "destinations" not in dir(ins.getOperands()) , "Zero Dst expected"
-        assert "sources" not in dir(ins.getOperands()) , "Zero Src expected"
-        assert "immediates" not in dir(ins.getOperands()) , "Zero Imm expected"
+        assert ins.operands.destinations.empty(), "Zero Dst expected"
+        assert ins.operands.sources.empty(), "Zero Src expected"
+        assert len(ins.operands.immediates) == 0, "Zero Imm expected"
 
         nextRelAddr = ins.getRelAddr() + 4
         return nextRelAddr
@@ -1422,26 +1423,26 @@ class tensixFunc:
         assert ins.getOp() == "NOP", "Expected opcode NOP. Received " + str(ins.getOp())
         print (ins)
         # assert "operands" not in dir(ins) , "Zero Dst/Src/Imm/Attribs expected"
-        assert "destinations" not in dir(ins.getOperands()) , "Zero Dst expected"
-        assert "sources" not in dir(ins.getOperands()) , "Zero Src expected"
-        assert "immediates" not in dir(ins.getOperands()) , "Zero Imm expected"
+        assert ins.operands.destinations.empty(), "Zero Dst expected"
+        assert ins.operands.sources.empty(), "Zero Src expected"
+        assert len(ins.operands.immediates) == 0, "Zero Imm expected"
 
         nextRelAddr = ins.getRelAddr() + 4
         return nextRelAddr
 
     def __execseminit__(self,ins):
         # assert ins.getOp() == "SEMINIT", "Expected opcode SEMINIT. Received " + str(ins.getOp())
-        # assert "destinations" not in dir(ins.getOperands()) , "Zero Dst expected"
-        # assert "sources" not in dir(ins.getOperands()) , "Zero Src expected"
-        # assert "immediates" not in dir(ins.getOperands()) , "Zero Imm expected"
+        # assert ins.operands.destinations.empty(), "Zero Dst expected"
+        # assert ins.operands.sources.empty(), "Zero Src expected"
+        # assert len(ins.operands.immediates) == 0, "Zero Imm expected"
         # match ins.kind:
-        #     case decoded_instruction.instruction_kind.ttqs:
+        #     case ttdecode.isa.instruction_kind.ttqs:
         #         assert len(ins.getAttr()) == 4, "Four attribs expected. Received " + str(len(ins.getAttr()))
         #     case _:
         #         assert False, "Unhandled Instructin Kind"
 
         match ins.kind:
-            case decoded_instruction.instruction_kind.ttqs:
+            case ttdecode.isa.instruction_kind.ttqs:
                 assert len(ins.getAttr()) == 4,                   f"Four attribs expected. Received " + str(len(ins.getAttr()))
                 assert hasattr(ins, 'operands'),                  f"Expected decoded instruction to have operands"
                 assert hasattr(ins.operands, 'all'),              f"Expected decoded instruction operands to have attribute 'all'"
@@ -1450,7 +1451,7 @@ class tensixFunc:
                 assert "init_value"   in ins.operands.all.keys(), f"Could not find semaphore initial value from operands. Given operands: {ins.operands.all}"
                 assert "max_value"    in ins.operands.all.keys(), f"Could not find semaphore max value from operands. Given operands: {ins.operands.all}"
 
-            case decoded_instruction.instruction_kind.ttwh:
+            case ttdecode.isa.instruction_kind.ttwh:
                 assert len(ins.getAttr()) == 3,                   f"Three attribs expected. Received " + str(len(ins.getAttr()))
                 assert hasattr(ins, 'operands'),                  f"Expected decoded instruction to have operands"
                 assert hasattr(ins.operands, 'all'),              f"Expected decoded instruction operands to have attribute 'all'"
@@ -1480,10 +1481,10 @@ class tensixFunc:
 
         sem_sel = ins.operands.all['sem_sel']
         if not (isinstance(sem_sel, int) and sem_sel > 0 and (sem_sel & (sem_sel - 1)) == 0):
-            raise ValueError(f"sem_sel must be a positive power of 2 (one-hot encoding), got {sem_sel}")
+            raise ValueError(f"sem_sel must be a positive power of 2 (one-hot encoding), got {sem_sel}, ins = {ins}")
         semaphore_id_in_bank = int(math.log2(sem_sel))   # One-hot encoding
 
-        if (ins.kind == decoded_instruction.instruction_kind.ttqs):
+        if (ins.kind == ttdecode.isa.instruction_kind.ttqs):
             bank_id          = ins.operands.all['sem_bank_sel']
         else:
             bank_id          = 0
@@ -1552,13 +1553,13 @@ class tensixFunc:
 
     def __execsemget__(self,ins):
         assert ins.getOp() == "SEMGET", "Expected opcode SEMGET. Received " + str(ins.getOp())
-        assert "destinations" not in dir(ins.getOperands()) , "Zero Dst expected"
-        assert "sources" not in dir(ins.getOperands()) , "Zero Src expected"
-        assert "immediates" not in dir(ins.getOperands()) , "Zero Imm expected"
+        assert ins.operands.destinations.empty(), "Zero Dst expected"
+        assert ins.operands.sources.empty(), "Zero Src expected"
+        assert len(ins.operands.immediates) == 0, "Zero Imm expected"
         match ins.kind:
-            case decoded_instruction.instruction_kind.ttqs:
+            case ttdecode.isa.instruction_kind.ttqs:
                 assert len(ins.getAttr()) == 2, "Two attribs expected. Received " + str(len(ins.getAttr()))
-            case decoded_instruction.instruction_kind.ttwh:
+            case ttdecode.isa.instruction_kind.ttwh:
                 assert len(ins.getAttr()) == 1, "One attribs expected. Received " + str(len(ins.getAttr()))
             case _:
                 assert len(ins.getAttr()) == 1, "One attribs expected. Received " + str(len(ins.getAttr()))
@@ -1568,7 +1569,7 @@ class tensixFunc:
             raise ValueError(f"sem_sel must be a positive power of 2 (one-hot encoding), got {sem_sel}")
         semaphore_id_in_bank = int(math.log2(sem_sel))   # One-hot encoding
 
-        if (ins.kind == decoded_instruction.instruction_kind.ttqs):
+        if (ins.kind == ttdecode.isa.instruction_kind.ttqs):
             bank_id          = ins.operands.all['sem_bank_sel']
         else:
             bank_id          = 0
@@ -1648,13 +1649,13 @@ class tensixFunc:
 
     def __execsempost__(self,ins):
         assert ins.getOp() == "SEMPOST", "Expected opcode SEMPOST. Received " + str(ins.getOp())
-        assert "destinations" not in dir(ins.getOperands()) , "Zero Dst expected"
-        assert "sources" not in dir(ins.getOperands()) , "Zero Src expected"
-        assert "immediates" not in dir(ins.getOperands()) , "Zero Imm expected"
+        assert ins.operands.destinations.empty(), "Zero Dst expected"
+        assert ins.operands.sources.empty(), "Zero Src expected"
+        assert len(ins.operands.immediates) == 0, "Zero Imm expected"
         match ins.kind:
-            case decoded_instruction.instruction_kind.ttqs:
+            case ttdecode.isa.instruction_kind.ttqs:
                 assert len(ins.getAttr()) == 2, "Two attribs expected. Received " + str(len(ins.getAttr()))
-            case decoded_instruction.instruction_kind.ttwh:
+            case ttdecode.isa.instruction_kind.ttwh:
                 assert len(ins.getAttr()) == 1, "One attribs expected. Received " + str(len(ins.getAttr()))
             case _:
                 assert len(ins.getAttr()) == 1, "One attribs expected. Received " + str(len(ins.getAttr()))
@@ -1664,7 +1665,7 @@ class tensixFunc:
             raise ValueError(f"sem_sel must be a positive power of 2 (one-hot encoding), got {sem_sel}")
         semaphore_id_in_bank = int(math.log2(sem_sel))   # One-hot encoding
 
-        if (ins.kind == decoded_instruction.instruction_kind.ttqs):
+        if (ins.kind == ttdecode.isa.instruction_kind.ttqs):
             bank_id          = ins.operands.all['sem_bank_sel']
         else:
             bank_id          = 0
@@ -1742,13 +1743,13 @@ class tensixFunc:
 
     def __execsemwait__(self,ins):
         assert ins.getOp() == "SEMWAIT", "Expected opcode SEMWAIT. Received " + str(ins.getOp())
-        assert "destinations" not in dir(ins.getOperands()) , "Zero Dst expected"
-        assert "sources" not in dir(ins.getOperands()) , "Zero Src expected"
-        assert "immediates" not in dir(ins.getOperands()) , "Zero Imm expected"
+        assert ins.operands.destinations.empty(), "Zero Dst expected"
+        assert ins.operands.sources.empty(), "Zero Src expected"
+        assert len(ins.operands.immediates) == 0, "Zero Imm expected"
         match ins.kind:
-            case decoded_instruction.instruction_kind.ttqs:
+            case ttdecode.isa.instruction_kind.ttqs:
                 assert len(ins.getAttr()) == 4, "Four attribs expected. Received " + str(len(ins.getAttr()))
-            case decoded_instruction.instruction_kind.ttwh:
+            case ttdecode.isa.instruction_kind.ttwh:
                 assert len(ins.getAttr()) == 3, "Three attribs expected. Received " + str(len(ins.getAttr()))
             case _:
                 assert len(ins.getAttr()) == 4, "Four attribs expected. Received " + str(len(ins.getAttr()))
@@ -1760,7 +1761,7 @@ class tensixFunc:
             raise ValueError(f"sem_sel must be a positive power of 2 (one-hot encoding), got {sem_sel}")
         semaphore_id_in_bank = int(math.log2(sem_sel))   # One-hot encoding
 
-        if (ins.kind == decoded_instruction.instruction_kind.ttqs):
+        if (ins.kind == ttdecode.isa.instruction_kind.ttqs):
             bank_id          = ins.operands.all['sem_bank_sel']
         else:
             bank_id          = 0
@@ -1806,7 +1807,7 @@ class tensixFunc:
         wait_cond = ins.operands.all['wait_sem_cond']
         semaphores[reg_offset + tt_semaphore_idx.wait_sem_cond] = wait_cond
 
-        stall_res = ins.operands.attributes['stall_res']
+        stall_res = ins.operands.decoded_values['stall_res']
 
         if not isinstance(stall_res, list):
             raise Exception(f"- error: expected stall_res to be of type list, received {type(stall_res)}.")
@@ -1821,7 +1822,6 @@ class tensixFunc:
             msg += f"max value:     {max_value}\n"
             msg += f"wait_cond:     {wait_cond}\n"
             msg += f"stall_pipes:   {stall_pipes}\n"
-            msg += f"stall_res:     {stall_res}\n"
             msg += f"stall_res:     {stall_res}\n"
             msg += f"dstPipes:      {dstPipes}"
 
@@ -1846,9 +1846,9 @@ class tensixFunc:
 
     def __execsetadcxx__(self,ins):
         assert ins.getOp() == "SETADCXX", "Expected opcode SETADCXX. Received " + str(ins.getOp())
-        assert "destinations" not in dir(ins.getOperands()) , "Zero Dst expected"
-        assert "sources" not in dir(ins.getOperands()) , "Zero Src expected"
-        assert "immediates" not in dir(ins.getOperands()) , "Zero Imm expected"
+        assert ins.operands.destinations.empty(), "Zero Dst expected"
+        assert ins.operands.sources.empty(), "Zero Src expected"
+        assert len(ins.operands.immediates) == 0, "Zero Imm expected"
         assert len(ins.getAttr()) == 3, "Six attribs expected. Received " + str(len(ins.getAttr()))
 
         nextRelAddr = ins.getRelAddr() + 4
@@ -1856,9 +1856,9 @@ class tensixFunc:
 
     def __execsetadcxy__(self,ins):
         assert ins.getOp() == "SETADCXY", "Expected opcode SETADCXY. Received " + str(ins.getOp())
-        assert "destinations" not in dir(ins.getOperands()) , "Zero Dst expected"
-        assert "sources" not in dir(ins.getOperands()) , "Zero Src expected"
-        assert "immediates" not in dir(ins.getOperands()) , "Zero Imm expected"
+        assert ins.operands.destinations.empty(), "Zero Dst expected"
+        assert ins.operands.sources.empty(), "Zero Src expected"
+        assert len(ins.operands.immediates) == 0, "Zero Imm expected"
         assert len(ins.getAttr()) == 6, "Six attribs expected. Received " + str(len(ins.getAttr()))
 
         nextRelAddr = ins.getRelAddr() + 4
@@ -1866,9 +1866,9 @@ class tensixFunc:
 
     def __execsetadczw__(self,ins):
         assert ins.getOp() == "SETADCZW", "Expected opcode SETADCZW. Received " + str(ins.getOp())
-        assert "destinations" not in dir(ins.getOperands()) , "Zero Dst expected"
-        assert "sources" not in dir(ins.getOperands()) , "Zero Src expected"
-        assert "immediates" not in dir(ins.getOperands()) , "Zero Imm expected"
+        assert ins.operands.destinations.empty(), "Zero Dst expected"
+        assert ins.operands.sources.empty(), "Zero Src expected"
+        assert len(ins.operands.immediates) == 0, "Zero Imm expected"
         assert len(ins.getAttr()) == 6, "Six attribs expected. Received " + str(len(ins.getAttr()))
 
         nextRelAddr = ins.getRelAddr() + 4
@@ -1876,11 +1876,11 @@ class tensixFunc:
 
     def __execsetc16__(self,ins):
         assert ins.getOp() == "SETC16", "Expected opcode SETC16. Received " + str(ins.getOp())
-        assert "destinations" not in dir(ins.getOperands()) , "Zero Dst expected"
-        assert "sources" not in dir(ins.getOperands()) , "Zero Src expected"
-        assert "immediates" not in dir(ins.getOperands()) , "Zero Imm expected"
+        assert ins.operands.destinations.empty(), "Zero Dst expected"
+        assert ins.operands.sources.empty(), "Zero Src expected"
+        assert len(ins.operands.immediates) == 0, "Zero Imm expected"
         match ins.kind:
-            case decoded_instruction.instruction_kind.ttqs:
+            case ttdecode.isa.instruction_kind.ttqs:
                 assert len(ins.getAttr()) == 2, "Two attribs expected. Received " + str(len(ins.getAttr()))
             case _:
                 assert len(ins.getAttr()) == 2, "Two attribs expected. Received " + str(len(ins.getAttr()))
@@ -1899,11 +1899,11 @@ class tensixFunc:
     def __execsetrwc__(self,ins):
         assert ins.getOp() == "SETRWC", "Expected opcode SETRWC. Received " + str(ins.getOp())
         #TODO: Need to reset operands for instructions that set operands. Need a BU function to reset destinations/sources in operands
-        # assert "destinations" not in dir(ins.getOperands()) , "Zero Dst expected"
-        # assert "sources" not in dir(ins.getOperands()) , "Zero Src expected"
-        # assert "immediates" not in dir(ins.getOperands()) , "Zero Imm expected"
+        # assert ins.operands.destinations.empty(), "Zero Dst expected"
+        # assert ins.operands.sources.empty(), "Zero Src expected"
+        # assert len(ins.operands.immediates) == 0, "Zero Imm expected"
         match ins.kind:
-            case decoded_instruction.instruction_kind.ttqs:
+            case ttdecode.isa.instruction_kind.ttqs:
                 assert len(ins.getAttr()) == 4, "Four attribs expected. Received " + str(len(ins.getAttr()))
             case _:
                 assert len(ins.getAttr()) == 6, "Six attribs expected. Received " + str(len(ins.getAttr()))
@@ -1936,12 +1936,12 @@ class tensixFunc:
 
     def __execstallwait__(self,ins):
         assert ins.getOp() == "STALLWAIT", "Expected opcode STALLWAIT. Received " + str(ins.getOp())
-        assert "destinations" not in dir(ins.getOperands()) , "Zero Dst expected"
-        assert "sources" not in dir(ins.getOperands()) , "Zero Src expected"
-        assert "immediates" not in dir(ins.getOperands()) , "Zero Imm expected"
+        assert ins.operands.destinations.empty(), "Zero Dst expected"
+        assert ins.operands.sources.empty(), "Zero Src expected"
+        assert len(ins.operands.immediates) == 0, "Zero Imm expected"
 
         match ins.kind:
-            case decoded_instruction.instruction_kind.ttqs:
+            case ttdecode.isa.instruction_kind.ttqs:
                 assert len(ins.getAttr()) == 4, "Four attribs expected. Received " + str(len(ins.getAttr()))
             case _:
                 assert len(ins.getAttr()) == 2, "Two attribs expected. Received " + str(len(ins.getAttr()))
@@ -2005,10 +2005,11 @@ class tensixFunc:
                     if(self.pipes.index(p) not in dstPipes):
                         dstPipes.append(self.pipes.index(p))
 
-        if sorted(dstPipes) != sorted(isaFunctions.getT3SimPipesFromStallRes(ins.operands.attributes['stall_res'], self.pipeGrps, self.pipes)):
+        if sorted(dstPipes) != sorted(isaFunctions.getT3SimPipesFromStallRes(ins.operands.decoded_values['stall_res'], self.pipeGrps, self.pipes)):
             msg  = f"- error: {ins.getOp()} exec: mismatch in dst pipes calculations.\n"
-            msg += f"  - pipes from isaFunctions.getT3SimPipesFromStallRes: {sorted(isaFunctions.getT3SimPipesFromStallRes(ins.operands.attributes['stall_res'], self.pipeGrps, self.pipes))}\n"
-            msg += f"  - pipes calculated within the function:              {sorted(dstPipes)}"
+            msg += f"  - pipes from isaFunctions.getT3SimPipesFromStallRes: {sorted(isaFunctions.getT3SimPipesFromStallRes(ins.operands.decoded_values['stall_res'], self.pipeGrps, self.pipes))}\n"
+            msg += f"  - pipes calculated within the function:              {sorted(dstPipes)}\n"
+            msg += f"  - ins: {ins}"
 
             raise Exception(msg)
 
@@ -2091,9 +2092,9 @@ class tensixFunc:
 
     def __execwrcfg__(self,ins):
         assert ins.getOp() == "WRCFG", "Expected opcode WRCFG. Received " + str(ins.getOp())
-        assert "destinations" not in dir(ins.getOperands()) , "Zero Dst expected"
-        assert "sources" not in dir(ins.getOperands()) , "Zero Src expected"
-        assert "immediates" not in dir(ins.getOperands()) , "Zero Imm expected"
+        assert ins.operands.destinations.empty(), "Zero Dst expected"
+        assert ins.operands.sources.empty(), "Zero Src expected"
+        assert len(ins.operands.immediates) == 0, "Zero Imm expected"
         assert len(ins.getAttr()) == 3, "Three attribs expected. Received " + str(len(ins.getAttr()))
 
         nextRelAddr = ins.getRelAddr() + 4
@@ -2101,9 +2102,9 @@ class tensixFunc:
 
     def __execzerosrc__(self,ins):
         assert ins.getOp() == "ZEROSRC", "Expected opcode ZEROSRC. Received " + str(ins.getOp())
-        assert "destinations" not in dir(ins.getOperands()) , "Zero Dst expected"
-        assert "sources" not in dir(ins.getOperands()) , "Zero Src expected"
-        assert "immediates" not in dir(ins.getOperands()) , "Zero Imm expected"
+        assert ins.operands.destinations.empty(), "Zero Dst expected"
+        assert ins.operands.sources.empty(), "Zero Src expected"
+        assert len(ins.operands.immediates) == 0, "Zero Imm expected"
         #TODO: Remove llkVersionTag based code once LLK stabilizes
         #TODO: Check what do we need for WH and BH.
         if(0 == self.args['llkVersionTag'].group):
@@ -2116,11 +2117,11 @@ class tensixFunc:
 
     def __execzeroacc__(self,ins):
         assert ins.getOp() == "ZEROACC", "Expected opcode ZEROACC. Received " + str(ins.getOp())
-        assert "destinations" not in dir(ins.getOperands()) , "Zero Dst expected"
-        assert "sources" not in dir(ins.getOperands()) , "Zero Src expected"
-        assert "immediates" not in dir(ins.getOperands()) , "Zero Imm expected"
+        assert ins.operands.destinations.empty(), "Zero Dst expected"
+        assert ins.operands.sources.empty(), "Zero Src expected"
+        assert len(ins.operands.immediates) == 0, "Zero Imm expected"
         match ins.kind:
-            case decoded_instruction.instruction_kind.ttqs:
+            case ttdecode.isa.instruction_kind.ttqs:
                 assert len(ins.getAttr()) == 5, "Five attribs expected. Received " + str(len(ins.getAttr()))
             case _:
                 assert len(ins.getAttr()) == 4, "Four attribs expected. Received " + str(len(ins.getAttr()))
@@ -2133,7 +2134,7 @@ class tensixFunc:
         # TODO: Check why certain clear dvalids have destinations and not sources and others have it opposite, i.e., sources and not destinations
         # assert "destinations" not in dir(ins.getOperands()) , "Zero Dst expected " + str(dir(ins.getOperands()))
         # assert "sources" not in dir(ins.getOperands()) , "Zero Src expected " + str(dir(ins.getOperands()))
-        assert "immediates" not in dir(ins.getOperands()) , "Zero Imm expected"
+        assert len(ins.operands.immediates) == 0, "Zero Imm expected"
         assert len(ins.getAttr()) == 6, "Six attribs expected. Received " + str(len(ins.getAttr()))
 
         src = [] ; dst = [] ; imm = []; vldUpd ={}; bankUpd = {};
@@ -2176,9 +2177,9 @@ class tensixFunc:
     def __execmov__(self,ins):
         opList = ["MOVA2D", "MOVB2D", "MOVD2A", "MOVD2B", "MOVB2A"]
         assert ins.getOp() in opList, "Expected MOV* opcode. Received " + str(ins.getOp())
-        # assert "destinations" not in dir(ins.getOperands()) , "Zero Dst expected"
-        # assert "sources" not in dir(ins.getOperands()) , "Zero Src expected"
-        assert "immediates" not in dir(ins.getOperands()) , "Zero Imm expected"
+        # assert ins.operands.destinations.empty(), "Zero Dst expected"
+        # assert ins.operands.sources.empty(), "Zero Src expected"
+        assert len(ins.operands.immediates) == 0, "Zero Imm expected"
 
         src = [] ; dst = [] ; imm = []; vldUpd ={}; bankUpd = {};
 
@@ -2219,9 +2220,9 @@ class tensixFunc:
     def __exectrnsp__(self,ins):
         opList = ["TRNSPSRCA", "TRNSPSRCB"]
         assert ins.getOp() in opList, "Expected TRNSPSRCA/B opcode. Received " + str(ins.getOp())
-        # assert "destinations" not in dir(ins.getOperands()) , "Zero Dst expected"
-        # assert "sources" not in dir(ins.getOperands()) , "Zero Src expected"
-        assert "immediates" not in dir(ins.getOperands()) , "Zero Imm expected"
+        # assert ins.operands.destinations.empty(), "Zero Dst expected"
+        # assert ins.operands.sources.empty(), "Zero Src expected"
+        assert len(ins.operands.immediates) == 0, "Zero Imm expected"
         assert len(ins.getAttr()) == 0, "Zero attribs expected. Received " + str(len(ins.getAttr()))
 
         src = [] ; dst = [] ; imm = []; vldUpd ={}; bankUpd = {};
@@ -2243,9 +2244,9 @@ class tensixFunc:
 
     def __execdsttilefacerowi__(self,ins):
         assert ins.getOp() == "SET_DST_TILE_FACE_ROW_IDX" or ins.getOp() == "INC_DST_TILE_FACE_ROW_IDX" , "Expected opcode SET/INC_DST_TILE_FACE_ROW_IDX. Received " + str(ins.getOp())
-        assert "destinations" not in dir(ins.getOperands()) , "Zero Dst expected"
-        assert "sources" not in dir(ins.getOperands()) , "Zero Src expected"
-        assert "immediates" not in dir(ins.getOperands()) , "Zero Imm expected"
+        assert ins.operands.destinations.empty(), "Zero Dst expected"
+        assert ins.operands.sources.empty(), "Zero Src expected"
+        assert len(ins.operands.immediates) == 0, "Zero Imm expected"
         assert len(ins.getAttr()) == 3, "Three attribs expected. Received " + str(len(ins.getAttr()))
 
         nextRelAddr = ins.getRelAddr() + 4
@@ -2253,9 +2254,9 @@ class tensixFunc:
 
     def __execsrctilefacerowi__(self,ins):
         assert ins.getOp() == "SET_SRC_TILE_FACE_ROW_IDX" or ins.getOp() == "INC_SRC_TILE_FACE_ROW_IDX" , "Expected opcode SET/INC_SRC_TILE_FACE_ROW_IDX. Received " + str(ins.getOp())
-        assert "destinations" not in dir(ins.getOperands()) , "Zero Dst expected"
-        assert "sources" not in dir(ins.getOperands()) , "Zero Src expected"
-        assert "immediates" not in dir(ins.getOperands()) , "Zero Imm expected"
+        assert ins.operands.destinations.empty(), "Zero Dst expected"
+        assert ins.operands.sources.empty(), "Zero Src expected"
+        assert len(ins.operands.immediates) == 0, "Zero Imm expected"
         assert len(ins.getAttr()) == 3, "Three attribs expected. Received " + str(len(ins.getAttr()))
 
         nextRelAddr = ins.getRelAddr() + 4
@@ -2263,11 +2264,11 @@ class tensixFunc:
 
     def __execreplay__(self,ins, cycle):
         assert ins.getOp() == "REPLAY" , "Expected opcode REPLAY. Received " + str(ins.getOp())
-        assert "destinations" not in dir(ins.getOperands()) , "Zero Dst expected"
-        assert "sources" not in dir(ins.getOperands()) , "Zero Src expected"
-        assert "immediates" not in dir(ins.getOperands()) , "Zero Imm expected"
+        assert ins.operands.destinations.empty(), "Zero Dst expected"
+        assert ins.operands.sources.empty(), "Zero Src expected"
+        assert len(ins.operands.immediates) == 0, "Zero Imm expected"
         match ins.kind:
-            case decoded_instruction.instruction_kind.ttqs:
+            case ttdecode.isa.instruction_kind.ttqs:
                 assert len(ins.getAttr()) == 6, "Six attribs expected. Received " + str(len(ins.getAttr()))
             case _:
                 assert len(ins.getAttr()) == 6, "Six attribs expected. Received " + str(len(ins.getAttr()))
@@ -2283,11 +2284,11 @@ class tensixFunc:
     def __execrmwcib__(self,ins):
         opList = ["RMWCIB0", "RMWCIB1", "RMWCIB2", "RMWCIB3"]
         assert ins.getOp() in opList , "Expected opcode RMWCIB. Received " + str(ins.getOp())
-        assert "destinations" not in dir(ins.getOperands()) , "Zero Dst expected"
-        assert "sources" not in dir(ins.getOperands()) , "Zero Src expected"
-        assert "immediates" not in dir(ins.getOperands()) , "Zero Imm expected"
+        assert ins.operands.destinations.empty(), "Zero Dst expected"
+        assert ins.operands.sources.empty(), "Zero Src expected"
+        assert len(ins.operands.immediates) == 0, "Zero Imm expected"
         match ins.kind:
-            case decoded_instruction.instruction_kind.ttqs:
+            case ttdecode.isa.instruction_kind.ttqs:
                 assert len(ins.getAttr()) == 3, "Three attribs expected. Received " + str(len(ins.getAttr()))
             case _:
                 assert len(ins.getAttr()) == 3, "Three attribs expected. Received " + str(len(ins.getAttr()))
@@ -2320,11 +2321,11 @@ class tensixFunc:
 
     def __execsfpload__(self,ins):
         assert ins.getOp() == "SFPLOAD" , "Expected opcode REPLAY. Received " + str(ins.getOp())
-        # assert "destinations" not in dir(ins.getOperands()) , "Zero Dst expected"
-        # assert "sources" not in dir(ins.getOperands()) , "Zero Src expected"
-        assert "immediates" not in dir(ins.getOperands()) , "Zero Imm expected"
+        # assert ins.operands.destinations.empty(), "Zero Dst expected"
+        # assert ins.operands.sources.empty(), "Zero Src expected"
+        assert len(ins.operands.immediates) == 0, "Zero Imm expected"
         match ins.kind:
-            case decoded_instruction.instruction_kind.ttqs:
+            case ttdecode.isa.instruction_kind.ttqs:
                 assert len(ins.getAttr()) == 5,                   f"Five attribs expected. Received " + str(len(ins.getAttr()))
                 assert hasattr(ins, 'operands'),                  f"Expected decoded instruction to have operands"
                 assert hasattr(ins.operands, 'all'),              f"Expected decoded instruction operands to have attribute 'all'"
@@ -2360,11 +2361,11 @@ class tensixFunc:
 
     def __execsfploadi__(self,ins):
         assert ins.getOp() == "SFPLOADI" , "Expected opcode SFPLOADI. Received " + str(ins.getOp())
-        assert "destinations" not in dir(ins.getOperands()) , "Zero Dst expected"
-        assert "sources" not in dir(ins.getOperands()) , "Zero Src expected"
-        assert "immediates" not in dir(ins.getOperands()) , "Zero Imm expected"
+        assert ins.operands.destinations.empty(), "Zero Dst expected"
+        assert ins.operands.sources.empty(), "Zero Src expected"
+        assert len(ins.operands.immediates) == 0, "Zero Imm expected"
         match ins.kind:
-            case decoded_instruction.instruction_kind.ttqs:
+            case ttdecode.isa.instruction_kind.ttqs:
                 assert len(ins.getAttr()) == 3,                   f"Three attribs expected. Received " + str(len(ins.getAttr()))
             case _:
                 assert len(ins.getAttr()) == 3,                   f"Three attribs expected. Received " + str(len(ins.getAttr()))
@@ -2379,11 +2380,11 @@ class tensixFunc:
 
     def __execsfpconfig__(self,ins):
         assert ins.getOp() == "SFPCONFIG" , "Expected opcode SFPCONFIG. Received " + str(ins.getOp())
-        assert "destinations" not in dir(ins.getOperands()) , "Zero Dst expected"
-        assert "sources" not in dir(ins.getOperands()) , "Zero Src expected"
-        assert "immediates" not in dir(ins.getOperands()) , "Zero Imm expected"
+        assert ins.operands.destinations.empty(), "Zero Dst expected"
+        assert ins.operands.sources.empty(), "Zero Src expected"
+        assert len(ins.operands.immediates) == 0, "Zero Imm expected"
         match ins.kind:
-            case decoded_instruction.instruction_kind.ttqs:
+            case ttdecode.isa.instruction_kind.ttqs:
                 assert len(ins.getAttr()) == 3,                   f"Three attribs expected. Received " + str(len(ins.getAttr()))
             case _:
                 assert len(ins.getAttr()) == 3,                   f"Three attribs expected. Received " + str(len(ins.getAttr()))
@@ -2393,11 +2394,11 @@ class tensixFunc:
 
     def __execsfpstore__(self,ins):
         assert ins.getOp() == "SFPSTORE" , "Expected opcode REPLAY. Received " + str(ins.getOp())
-        # assert "destinations" not in dir(ins.getOperands()) , "Zero Dst expected"
-        # assert "sources" not in dir(ins.getOperands()) , "Zero Src expected"
-        assert "immediates" not in dir(ins.getOperands()) , "Zero Imm expected"
+        # assert ins.operands.destinations.empty(), "Zero Dst expected"
+        # assert ins.operands.sources.empty(), "Zero Src expected"
+        assert len(ins.operands.immediates) == 0, "Zero Imm expected"
         match ins.kind:
-            case decoded_instruction.instruction_kind.ttqs:
+            case ttdecode.isa.instruction_kind.ttqs:
                 assert len(ins.getAttr()) == 5,                   f"Five attribs expected. Received " + str(len(ins.getAttr()))
                 assert hasattr(ins, 'operands'),                  f"Expected decoded instruction to have operands"
                 assert hasattr(ins.operands, 'all'),              f"Expected decoded instruction operands to have attribute 'all'"
@@ -2716,13 +2717,13 @@ class tensixFunc:
 
     def __execmop__(self,ins):
         assert ins.getOp() == "MOP" , "Expected opcode MOP. Received " + str(ins.getOp())
-        assert "destinations" not in dir(ins.getOperands()) , "Zero Dst expected"
-        assert "sources" not in dir(ins.getOperands()) , "Zero Src expected"
-        assert "immediates" not in dir(ins.getOperands()) , "Zero Imm expected"
+        assert ins.operands.destinations.empty(), "Zero Dst expected"
+        assert ins.operands.sources.empty(), "Zero Src expected"
+        assert len(ins.operands.immediates) == 0, "Zero Imm expected"
         match ins.kind:
-            case decoded_instruction.instruction_kind.ttqs:
+            case ttdecode.isa.instruction_kind.ttqs:
                 assert len(ins.getAttr()) == 4, "Four attribs expected. Received " + str(len(ins.getAttr()))
-            case decoded_instruction.instruction_kind.ttwh:
+            case ttdecode.isa.instruction_kind.ttwh:
                 assert len(ins.getAttr()) == 3, "Three attribs expected. Received " + str(len(ins.getAttr()))
             case _:
                 assert False, "Unhandled kind"
@@ -2735,7 +2736,7 @@ class tensixFunc:
         else:
             mopType = 1
             #Handle banking of MOP CFG registers
-            if(ins.kind == decoded_instruction.instruction_kind.ttqs):
+            if(ins.kind == ttdecode.isa.instruction_kind.ttqs):
                 if(ins.getAttr()['done'] == 1):                 assert False, "dual bank MOP CFG not handled"
                 else:           mopCfgBank = 0
             else:

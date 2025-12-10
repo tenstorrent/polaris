@@ -13,9 +13,10 @@ import typing
 import ttsim.back.tensix_neo.isaFunctions as isaFunctions
 import ttsim.back.tensix_neo.scratchpad as scratchpad
 import ttsim.back.tensix_neo.t3sim as t3sim
-import ttsim.front.llk.read_elfs as read_elfs
-import ttsim.front.llk.rv32 as binutils_rv32
-import ttsim.front.llk.tensix as binutils_tensix
+# import ttsim.front.llk.read_elfs as read_elfs
+# import ttsim.front.llk.tensix as binutils_tensix
+# import ttsim.front.llk.rv32 as binutils_rv32
+import ttsim.front.ttdecode.python.src.ttdecode as ttdecode
 
 class neoCore:
     def __init__(self, env, args):
@@ -127,9 +128,46 @@ def get_default_tt_isa_file_path():
     return os.path.normpath(
         os.path.join(os.path.dirname(__file__), "../../config/llk/instruction_sets/ttqs"))
 
+def get_elf_file_names_from_inputcfg(inputcfg):
+    key_input = "input"
+    key_numTriscCores = "numTCores"
+
+    for key in [var_value for var_name, var_value in locals().items() if var_name.startswith("key_")]:
+        assert key in inputcfg.keys(), f"- error: {key} not found in given inputcfg dict"
+
+    input = inputcfg[key_input]
+
+    elf_files: list[str] = []
+
+    for core_id in range(inputcfg[key_numTriscCores]):
+        key_tc = f"tc{core_id}"
+        assert key_tc in input.keys(), f"- error: {key_tc} not found in given input dict"
+        tc = input[key_tc]
+
+        key_numThreads = f"numThreads"
+        assert key_numThreads in tc.keys(), f"- error: {key_numThreads} not found in given input dict"
+        num_threads = tc[key_numThreads]
+
+        for thread_id in range(num_threads): # this loop works only if num_threads is 4 (max possible value).
+            key_elf_file = f"th{thread_id}Elf"
+            key_elf_path = f"th{thread_id}Path"
+            assert key_elf_file in tc.keys(), f"- error: {key_elf_file} not found in given tc dict"
+            assert key_elf_path in tc.keys(), f"- error: {key_elf_path} not found in given tc dict"
+            elf_file_name = os.path.join(tc[key_elf_path], tc[key_elf_file])
+            if not elf_file_name:
+                continue
+            if not os.path.exists(elf_file_name):
+                raise FileNotFoundError(f"ELF file {elf_file_name} does not exist.")
+
+            elf_files.append(elf_file_name)
+
+    return elf_files
+
 def get_architecture(args_dict):
     accepted_arches = get_accepted_architectures()
-    arch_from_elf_files = read_elfs.get_architecture_from_tneo_sim_args_dict(args_dict)
+    # arch_from_elf_files = read_elfs.get_architecture_from_tneo_sim_args_dict(args_dict)
+    arch_from_elf_files = ttdecode.elf.parsers(get_elf_file_names_from_inputcfg(args_dict)).get_tensix_architecture()
+
     assert arch_from_elf_files in accepted_arches, f"Arch from ELF files: {arch_from_elf_files} not present in accepted arches. "\
         f"Accepted arches are: {accepted_arches}. "\
         f"Please update accepted_arches."
@@ -383,9 +421,10 @@ def update_args_dict_with_memory_map(args, args_dict):
 
     args_dict.update(memory_map)
 
-def get_tt_isa_from_file(file_name: str):
+def get_tt_isa_from_file(file_name: str, kind: ttdecode.isa.instruction_kind):
     print(f"Reading Tensix ISA from file: {file_name}")
-    return binutils_tensix.get_instruction_set_from_file_name(file_name)
+    # return binutils_tensix.get_instruction_set_from_file_name(file_name)
+    return ttdecode.isa.get_instruction_set(file_name, kind)
 
 def update_args_dict_with_tt_isa(args, args_dict):
     key_tt_isa_file_name = 'ttISAFileName'
@@ -396,14 +435,17 @@ def update_args_dict_with_tt_isa(args, args_dict):
     arch = args_dict['arch']
     assert arch in get_accepted_architectures(), f"Architecture {arch} is not in the list of accepted architectures."
 
-    tt_isa = get_tt_isa_from_file(args_dict[key_tt_isa_file_name]) # file_name
+    if "ttqs" != arch:
+        raise Exception(f"- error: instruction kind not defined for arch {arch}")
+
+    kind = ttdecode.isa.instruction_kind.ttqs
+
+    tt_isa = get_tt_isa_from_file(args_dict[key_tt_isa_file_name], kind) # file_name
 
     key = "ttISA"
     assert key not in args_dict, f"Key '{key}' already present in args_dict. Please check the input script and commandline arguments"
 
-    args_dict[key] = {
-        binutils_tensix.decoded_instruction.to_instruction_kind(arch) : tt_isa,
-        binutils_rv32.instruction_kind() : binutils_rv32.get_default_instruction_set()}
+    args_dict[key] = ttdecode.isa.get_instruction_sets_incl_rv32({ttdecode.isa.to_instruction_kind(arch) : args_dict[key_tt_isa_file_name]})
 
 def update_args_dict_with_enableAutoLoop(args, args_dict):
     key_enable_auto_loop = 'enableAutoLoop'

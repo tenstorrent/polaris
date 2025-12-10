@@ -1,0 +1,28 @@
+# Sample configuration file
+server:
+  host: "127.0.0.1"
+  port: 8080
+  enable_https: true
+
+database:
+  type: "PostgreSQL"
+  host: "db.example.com"
+  port: 5432
+  user: "admin"
+  credentials:
+    password: "secure_password_placeholder"
+
+# List of enabled features
+features:
+  - "authentication"
+  - "logging"
+  - "realtime_updates"
+
+# A list of user objects
+users:
+  - name: "Alice"
+    role: "admin"
+    id: 1001
+  - name: "Bob"
+    role: "editor"
+    id: 1002

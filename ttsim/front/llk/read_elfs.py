@@ -16,7 +16,7 @@ def get_architecture_from_tneo_sim_args_dict(inputcfg: dict[str, typing.Any]) ->
 
     input = inputcfg[key_input]
     instruction_kinds = set()
-        
+
     for core_id in range(inputcfg[key_numTriscCores]):
         key_tc = f"tc{core_id}"
         assert key_tc in input.keys(), f"- error: {key_tc} not found in given input dict"
@@ -36,7 +36,7 @@ def get_architecture_from_tneo_sim_args_dict(inputcfg: dict[str, typing.Any]) ->
                 continue
             if not os.path.exists(elf_file_name):
                 raise FileNotFoundError(f"ELF file {elf_file_name} does not exist.")
-            
+
             if not instruction_kinds:
                 instruction_kinds = read_elf.get_instruction_kinds(elf_file_name)
             else:
@@ -44,22 +44,22 @@ def get_architecture_from_tneo_sim_args_dict(inputcfg: dict[str, typing.Any]) ->
                     f"- error: instruction kinds mismatch in {elf_file_name} with previous ELF files. " \
                     f"previous instruction kinds: {instruction_kinds}, " \
                     f"current instruction kinds: {read_elf.get_instruction_kinds(elf_file_name)}"
-                
+
     if not instruction_kinds:
         raise ValueError(f"No instruction kinds found from elfs in the given input dict. input = {input}")
-    
+
     assert len(instruction_kinds) == 2, \
         f"- error: expected 2 instruction kinds, but got {len(instruction_kinds)}. " \
         f"instruction_kinds = {instruction_kinds}"
-    
+
     assert sum([1 for kind in instruction_kinds if kind.is_tensix()]) == 1, \
         f"- error: expected exactly 1 Tensix instruction kind, but got {sum([1 for kind in instruction_kinds if kind.is_tensix()])}. " \
         f"instruction_kinds = {instruction_kinds}"
-    
+
     assert sum([1 for kind in instruction_kinds if not kind.is_tensix()]) == 1, \
         f"- error: expected exactly 1 non-tensix instruction kind, but got {sum([1 for kind in instruction_kinds if not kind.is_tensix()])}. " \
         f"instruction_kinds = {instruction_kinds}"
-    
+
     for kind in instruction_kinds:
         if kind.is_tensix():
             return f"{kind}"

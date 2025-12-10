@@ -12,11 +12,12 @@ from enum import IntFlag, auto, IntEnum, Enum
 
 # sys.path.append('./binutils-playground/py')
 # from instructions import decode_instruction
-import ttsim.front.llk.instructions as instructions
-import ttsim.front.llk.tensix as tensix
-import ttsim.front.llk.rv32 as rv32
-import ttsim.front.llk.read_elf as read_elf
-import ttsim.front.llk.decoded_instruction as decoded_instruction
+# import ttsim.front.llk.instructions as instructions
+# import ttsim.front.llk.tensix as tensix
+# import ttsim.front.llk.rv32 as rv32
+# import ttsim.front.llk.read_elf as read_elf
+# import ttsim.front.llk.decoded_instruction as decoded_instruction
+import ttsim.front.ttdecode.python.src.ttdecode as ttdecode
 
 # TODO: Change this mapping to come from test or test specification if possible
 class THREADMAP(IntEnum):
@@ -61,15 +62,17 @@ class TTQSTags(str, Enum):
         else:
             return 2
 
-class instr(decoded_instruction.decoded_instruction, decoded_instruction.operands):
+class instr(ttdecode.decode.decoded_instruction):
     def __init__(self, source= None):
-        self.addr                           = -1
+        # Initialize the base class first
+        super().__init__()
+
+        # self.addr                           = -1
         self.coreId                         = -1
         self.threadId                       = -1
         self.insId                          = -1
         self.pipeDelay                      = -1
         self.exPipe                         = None
-        self.operands                       = decoded_instruction.operands()
         self.vldUpdMask                     = {}
         self.bankUpdMask                    = {}
         self.condChkVldUpdVal               = {}
@@ -77,7 +80,6 @@ class instr(decoded_instruction.decoded_instruction, decoded_instruction.operand
         self.pipeBankCtrl                   = {}
         self.srcPipes                       = []
         self.dstPipes                       = []
-        self.mnemonic                       = ""
 
         self.srcFormat                      = None
         self.dstFormat                      = None
@@ -85,8 +87,95 @@ class instr(decoded_instruction.decoded_instruction, decoded_instruction.operand
 
         self.memInfo                        = {}
         self.eventInfo                      = {}
+
         if source is not None:
-            self.__dict__.update(source.__dict__)
+            # Use C++ copy for base class attributes
+            if isinstance(source, ttdecode.decode.decoded_instruction):
+                try:
+                    # Direct assignment preserves exact state, faster than setters
+                    # and handles optional fields correctly
+                    if hasattr(source, 'word') and source.word is not None:
+                        self.word = source.word
+                    if hasattr(source, 'program_counter') and source.program_counter is not None:
+                        self.program_counter = source.program_counter
+                    if hasattr(source, 'kind') and source.kind is not None:
+                        self.kind = source.kind
+                    if hasattr(source, 'opcode') and source.opcode is not None:
+                        self.opcode = source.opcode
+                    if hasattr(source, 'mnemonic') and source.mnemonic is not None:
+                        self.mnemonic = source.mnemonic
+                    if hasattr(source, 'operands') and source.operands is not None:
+                        self.operands = source.operands
+                except (AttributeError, TypeError, RuntimeError) as e:
+                    # Some nanobind attributes may throw std::bad_cast (RuntimeError) when accessed
+                    print(f"WARNING: Failed to copy nanobind attribute: {e}")
+
+            # Copy Python-level attributes from __dict__ if available
+            if hasattr(source, '__dict__'):
+                for key, value in source.__dict__.items():
+                    # Skip deepcopy for:
+                    # 1. None and immutable primitives (safe to share)
+                    # 2. Any C++ bound objects (check for lack of __dict__ or ttdecode module)
+                    if value is None or isinstance(value, (int, float, str, bool, type(None))):
+                        self.__dict__[key] = value
+                    elif hasattr(type(value), '__module__') and type(value).__module__ and 'ttdecode' in type(value).__module__:
+                        # C++ nanobind objects from ttdecode - shallow copy
+                        self.__dict__[key] = value
+                    else:
+                        # Python objects - deep copy with exception handling
+                        try:
+                            self.__dict__[key] = copy.deepcopy(value)
+                        except (TypeError, AttributeError, RuntimeError) as e:
+                            # If deepcopy fails, fall back to shallow copy
+                            self.__dict__[key] = value
+
+    def __deepcopy__(self, memo):
+        """Custom deepcopy that delegates to C++ and copies Python attributes"""
+        # Ensure memo is a dict (handle None case)
+        if memo is None:
+            memo = {}
+
+        # Check if already copied (avoid infinite recursion)
+        if id(self) in memo:
+            return memo[id(self)]
+
+        # Use C++ __deepcopy__ for base class (decoded_instruction)
+        new_obj = instr(super().__deepcopy__(memo))
+
+        # Deep copy Python-specific attributes
+        if hasattr(self, '__dict__'):
+            for key, value in self.__dict__.items():
+                # Skip deepcopy for:
+                # 1. None and immutable primitives (safe to share)
+                # 2. Any C++ bound objects from ttdecode
+                if value is None or isinstance(value, (int, float, str, bool, type(None))):
+                    new_obj.__dict__[key] = value
+                elif hasattr(type(value), '__module__') and type(value).__module__ and 'ttdecode' in type(value).__module__:
+                    # C++ nanobind objects from ttdecode - shallow copy
+                    new_obj.__dict__[key] = value
+                else:
+                    # Python objects - deep copy with exception handling
+                    try:
+                        new_obj.__dict__[key] = copy.deepcopy(value, memo)
+                    except (TypeError, AttributeError, RuntimeError):
+                        # If deepcopy fails, fall back to shallow copy
+                        new_obj.__dict__[key] = value
+
+        # Register in memo
+        memo[id(self)] = new_obj
+
+        return new_obj
+
+    def __copy__(self):
+        """Custom shallow copy that delegates to C++ and copies Python attributes"""
+        # Use C++ __copy__ for base class (decoded_instruction)
+        new_obj = instr(super().__copy__())
+
+        # Shallow copy Python attributes (share references)
+        if hasattr(self, '__dict__'):
+            new_obj.__dict__.update(self.__dict__)
+
+        return new_obj
 
     def __str__(self):
         msg  = f"Instruction ID: {self.getInsId() if hasattr(self, 'insId') else -1}, "
@@ -153,58 +242,59 @@ class instr(decoded_instruction.decoded_instruction, decoded_instruction.operand
         return(self.exPipe)
 
     def getRelAddr(self):
-        return self.addr
+        return self.program_counter
 
     def setRelAddr(self, v):
-        self.addr       = v
+        self.set_program_counter(v)
 
     def setOp(self, opCodeStr):
-        self.mnemonic = opCodeStr
+        self.set_mnemonic(opCodeStr)
 
     def getOp(self):
         return self.mnemonic
 
     def getAttr(self):
-        if "attributes" in dir(self.getOperands()):
+        if self.operands is not None and hasattr(self.operands, 'attributes'):
             return self.operands.attributes
         return {}
 
     def getOperands(self):
-        return self.operands
+        if hasattr(self, 'operands'):
+            return self.operands
 
     def getImm(self):
-        if "immediates" in dir(self.getOperands()):
+        if self.operands is not None:
             return self.operands.immediates
         return []
 
     def getSrcInt(self):
-        if "sources" in dir(self.getOperands()):
+        if self.operands is not None:
             return self.operands.sources.integers
         return []
 
     def getDstInt(self):
-        if "destinations" in dir(self.getOperands()):
+        if self.operands is not None:
             return self.operands.destinations.integers
         return []
 
     def setSrcInt(self, srcList):
-        if(srcList != []):
-            self.operands.set_integer_sources(copy.deepcopy(srcList))
+        if srcList:
+            self.set_integer_sources(srcList)
 
-    def setDstInt(self,dstList):
-        if(dstList != []):
-            self.operands.set_integer_destinations(copy.deepcopy(dstList))
+    def setDstInt(self, dstList):
+        if dstList:
+            self.set_integer_destinations(dstList)
 
-    def setImm(self,immList):
-        if(immList != []):
-            self.operands.set_immediates(copy.deepcopy(immList))
+    def setImm(self, immList):
+        if immList:
+            self.set_immediates(immList)
 
-    def setAttr(self,attribList):
-        if(attribList != {}):
-            self.operands.set_attributes(copy.deepcopy(attribList))
+    def setAttr(self, attribList):
+        if attribList:
+            self.set_attributes(attribList)
 
     def isTT(self):
-        return ( (self.kind == decoded_instruction.instruction_kind.ttwh) or (self.kind == decoded_instruction.instruction_kind.ttbh) or (self.kind == decoded_instruction.instruction_kind.ttqs))
+        return ( (self.kind == ttdecode.isa.instruction_kind.ttwh) or (self.kind == ttdecode.isa.instruction_kind.ttbh) or (self.kind == ttdecode.isa.instruction_kind.ttqs))
 
     def isMop(self):
         return self.mnemonic == "MOP"
@@ -212,16 +302,16 @@ class instr(decoded_instruction.decoded_instruction, decoded_instruction.operand
     def isReplay(self):
         return self.mnemonic == "REPLAY"
 
-    def setInstr(self, relAddr, sizeBytes, ins_class, mnemonic, srcList, dstList, immList, attribList):
-        self.setRelAddr(relAddr)
-        # self.sizeBytes      = sizeBytes
-        self.mnemonic       = mnemonic
-        self.setSrcInt(copy.deepcopy(srcList))
-        self.setDstInt(copy.deepcopy(dstList))
-        self.setImm(copy.deepcopy(immList))
-        self.setAttr(copy.deepcopy(attribList))
-        self.setKind(ins_class)
-        # self.printInstr(0)
+    # def setInstr(self, relAddr, sizeBytes, ins_class, mnemonic, srcList, dstList, immList, attribList):
+    #     self.setRelAddr(relAddr)
+    #     # self.sizeBytes      = sizeBytes
+    #     self.mnemonic       = mnemonic
+    #     self.setSrcInt(copy.deepcopy(srcList))
+    #     self.setDstInt(copy.deepcopy(dstList))
+    #     self.setImm(copy.deepcopy(immList))
+    #     self.setAttr(copy.deepcopy(attribList))
+    #     self.setKind(ins_class)
+    #     # self.printInstr(0)
 
     def setKind(self, kind):
         self.set_kind(kind)
@@ -429,86 +519,93 @@ class instr(decoded_instruction.decoded_instruction, decoded_instruction.operand
 
 # decodeInstr - return instr object
 def decodeInstr(insBinary, insKind, swz, ttISA = None):
-    # print(hex(insBinary))
-    ins     = instr()
-    iAddr   = -1 #TODO: Need to fix
-    iBytes  = 4
-    # iClass   = insClass.INS_CLASS_T
+    # Validate instruction word is 32-bit
+    if insBinary < 0 or insBinary > 0xFFFFFFFF:
+        raise ValueError(f"Invalid instruction word {hex(insBinary)}: must be 32-bit (0x0 to 0xFFFFFFFF)")
 
-    if(insKind == decoded_instruction.instruction_kind.rv32):
-        ins = instructions.decode_instruction(instruction = insBinary, kind = insKind, instruction_set = ttISA)
-    elif(swz):
-        ins = instructions.decode_instruction(instruction = tensix.swizzle_instruction(insBinary), kind = insKind, instruction_set = ttISA)
+    # RV32 is always swizzled (True), Tensix uses swz parameter inverted
+    is_swizzled = True if insKind == ttdecode.isa.instruction_kind.rv32 else not swz
+
+    if ttISA is None:
+        # Use default ISA
+        ins = ttdecode.decode.decode(insBinary, insKind, is_swizzled)
     else:
-        ins = instructions.decode_instruction(instruction = insBinary, kind = insKind, instruction_set = ttISA)
+        # Use decode_word with full ttISA dict (instruction_sets)
+        # This accepts by value and nanobind can convert the dict structure
+        ins = ttdecode.decode.decode(insBinary, insKind, ttISA, is_swizzled)
 
     return ins
 
 # decodeElf - return list of instr objects
-def decodeElf(elfPath, elfName, ttISA: dict[decoded_instruction.instruction_kind, dict[str, typing.Any]]):
+def decodeElf(elfPath, elfName, ttISA: dict[ttdecode.isa.instruction_kind, dict[str, ttdecode.isa.argument]]):
     elfFileName = os.path.join(elfPath, elfName)
     print(elfFileName)
-    insList = read_elf.decode_all_functions(elfFileName, sets = ttISA)
-    return insList
+    # insList = read_elf.decode_all_functions(elfFileName, sets = ttISA)
+    insList = ttdecode.elf.parser(elfFileName).decode(ttISA)
 
-def decodeFn(elfPath, elfName, kernelName, ttISA: dict[decoded_instruction.instruction_kind, dict[str, typing.Any]]):
+    return {key.name : value for key, value in insList.items()}
+
+def decodeFn(elfPath, elfName, kernelName, ttISA: dict[ttdecode.isa.instruction_kind, dict[str, ttdecode.isa.argument]]):
     elfFileName = os.path.join(elfPath, elfName)
     print(elfPath, elfName, kernelName)
     print(elfFileName)
-    insList = read_elf.decode_function(kernelName, elfFileName, sets = ttISA)
+    elfp = ttisa.elf.parser(elfFileName)
+    insList = elfp.decode(elfp.get_function(kernelName), ttISA)
     return insList
 
 
 def get_all_function_ranges(elfPath, elfName):
     elfFileName = os.path.join(elfPath, elfName)
     print(elfFileName)
-    fnList = read_elf.get_all_function_ranges(elfFileName )
+    fnsyms = ttdecode.elf.parser(elfFileName).get_functions()
+    fnList: list[tuple(str, int, int)] = []
+    for ele in fnsyms:
+        fnList.append((ele.name, ele.value, ele.value + ele.size))
     return fnList
 
-# decodeInstr - return list of instr objects
-def decodeLLK(path, elfTxtName, kernel, arch, startAddr, stopAddr):
-    insDict     = {}
-    # print(f"decodeLLK Kernel: {kernel}, Thread ID:  {0} , Kernel: {kernel} , StartAddress =  {startAddr} ,EndAddress= {stopAddr}")
-    start   = int(startAddr/4)
-    stop    = int(stopAddr/4)
-    insDict = synTest(path+elfTxtName, kernel, arch, start, stop)
+# def decodeLLK(path, elfTxtName, kernel, arch, startAddr, stopAddr):
+#     insDict     = {}
+#     # print(f"decodeLLK Kernel: {kernel}, Thread ID:  {0} , Kernel: {kernel} , StartAddress =  {startAddr} ,EndAddress= {stopAddr}")
+#     start   = int(startAddr/4)
+#     stop    = int(stopAddr/4)
+#     insDict = synTest(path+elfTxtName, kernel, arch, start, stop)
 
-    # print(insDict)
-    return insDict
+#     # print(insDict)
+#     return insDict
 
-def synTest(elfFile,kernel, arch, start, stop):
-    insList = []
-    ins     = instr()
+# def synTest(elfFile,kernel, arch, start, stop):
+#     insList = []
+#     ins     = instr()
 
-    iAddr   = 1000
-    iBytes  = 4
-    with open(elfFile) as f:
-        lines = f.read().splitlines()
+#     iAddr   = 1000
+#     iBytes  = 4
+#     with open(elfFile) as f:
+#         lines = f.read().splitlines()
 
-    # print(f"synTest Kernel: {kernel}, Thread ID:  {0} , Kernel: {kernel} , StartAddress =  {start} ,EndAddress= {stop}")
-    for insCnt in range(len(lines)):
-        if(insCnt < start or insCnt >= stop):
-            continue
-        ins     = lines[insCnt].split('#')[0]
-        if((int(ins , 16) & 0x3) == 0x3):
-            iClass =    decoded_instruction.instruction_kind.rv32
-        else:
-            match arch:
-                case "ttwh":
-                    iClass =    decoded_instruction.instruction_kind.ttwh
-                case "ttbh":
-                    iClass =    decoded_instruction.instruction_kind.ttbh
-                case "ttqs":
-                    iClass =    decoded_instruction.instruction_kind.ttqs
+#     # print(f"synTest Kernel: {kernel}, Thread ID:  {0} , Kernel: {kernel} , StartAddress =  {start} ,EndAddress= {stop}")
+#     for insCnt in range(len(lines)):
+#         if(insCnt < start or insCnt >= stop):
+#             continue
+#         ins     = lines[insCnt].split('#')[0]
+#         if((int(ins , 16) & 0x3) == 0x3):
+#             iClass =    decoded_instruction.instruction_kind.rv32
+#         else:
+#             match arch:
+#                 case "ttwh":
+#                     iClass =    decoded_instruction.instruction_kind.ttwh
+#                 case "ttbh":
+#                     iClass =    decoded_instruction.instruction_kind.ttbh
+#                 case "ttqs":
+#                     iClass =    decoded_instruction.instruction_kind.ttqs
 
-        insDec      = decodeInstr(int(ins, 16), iClass, swz = False)
-        ins         = instr(insDec)
-        insList.append(copy.deepcopy(ins))
-        iAddr = iAddr + iBytes
+#         insDec      = decodeInstr(int(ins, 16), iClass, swz = False)
+#         ins         = instr(insDec)
+#         insList.append(copy.deepcopy(ins))
+#         iAddr = iAddr + iBytes
 
-    insDict = {kernel : insList}
-    # return insList
-    return insDict
+#     insDict = {kernel : insList}
+#     # return insList
+#     return insDict
 
 def getNumBytesFromDataFormat(format):
         match format:
@@ -573,6 +670,8 @@ def getT3SimPipesFromStallRes(stallRes, pipeGrps, pipes):
 
     pipeList = []
     for res in stallRes:
+        if res.startswith("stall_"):
+            res = res.removeprefix("stall_")
         engineGrp = "TDMA" if res == "compute/tdma" else res.upper()
         pipeList.extend(pipeGrps[engineGrp])
 
@@ -599,3 +698,27 @@ def getT3SimPipesFromStallRes(stallRes, pipeGrps, pipes):
     # b62c:   [TT]c8360202            setc16  ft1,ft1,fs8
     # b630:   [TT]c86a4022            setc16  fa7,ft0,fs1
     # b634:   [TT]c8cc0002            setc16  ft1,ft0,fa6
+
+def get_instruction_sets_from_arch_incl_rv32(tensix_arch: str, tt_isa_file_path: str | None = None):
+    kinds_file_paths: dict[ttdecode.isa.instruction_kind, str] = dict()
+    kinds_file_paths[ttdecode.isa.to_instruction_kind(tensix_arch)] = tt_isa_file_path
+    return ttdecode.isa.get_instruction_sets_incl_rv32(kinds_file_paths)
+
+
+
+if __name__ == "__main__":
+    print(dir(ttdecode))
+    print(os.listdir(os.path.dirname(ttdecode.__file__)))
+    elf_path = "__ext/rtl_test_data_set/sep23/rsim/debug/t6-quas-n1-ttx-reduce-scalar-avg-fp16_b-llk_0/ttx/kernels/core_00_00/neo_0/thread_0/out"
+    elf_file_name = "thread_0.elf"
+    assembly_yaml_file_name = "ttsim/config/llk/instruction_sets/ttqs/assembly.sep23.yaml"
+    # instr_set = ttdecode.isa.get_instruction_set(assembly_yaml_file_name, ttdecode.isa.instruction_kind.ttqs)
+    instr_sets = get_instruction_sets_from_arch_incl_rv32("ttqs", assembly_yaml_file_name)
+    # print(type(instr_set), len(instr_set), instr_set.keys())
+    print(type(instr_sets), len(instr_sets), instr_sets.keys())
+    a = decodeElf(elf_path, elf_file_name, instr_sets)
+    for func_sym, instrs in a.items():
+        print(func_sym.name)
+        for ele in instrs:
+            print("  ", ele)
+        # print(instrs)

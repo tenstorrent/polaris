@@ -50,7 +50,7 @@ def add_size(instructions: dict[str, typing.Any]) -> dict[str, typing.Any]:
 
         if "arguments" not in info.keys():
             continue
-    
+
         if isinstance(info["arguments"], list):
             if 0 == len(info["arguments"]):
                 raise Exception(f"- {mnemonic} has a argument list with 0 length")

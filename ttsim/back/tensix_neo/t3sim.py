@@ -17,7 +17,7 @@ import ttsim.back.tensix_neo.scratchpad as scratchpad
 import ttsim.back.tensix_neo.tensixFunc as tensixFunc
 import ttsim.back.tensix_neo.triscFunc as triscFunc
 from ttsim.back.tensix_neo.isaFunctions import CLEARDVALID_dest_pulse_last_MASKS
-from ttsim.back.tensix_neo.isaFunctions import decodeElf, decodeFn, decodeInstr, get_all_function_ranges, decodeLLK
+from ttsim.back.tensix_neo.isaFunctions import decodeElf, decodeFn, decodeInstr, get_all_function_ranges
 from ttsim.back.tensix_neo.isaFunctions import instr
 from ttsim.back.tensix_neo.isaFunctions import THREADMAP
 from ttsim.back.tensix_neo.isaFunctions import valueStatus
@@ -170,7 +170,7 @@ class ttReg:
         if( self.valids[r][self.peekCurrBankId(r,t)] == val):
             if(mode == 2 or mode == 3):
                 if(debug & DEBUG_RISC_HIGH_LEVEL):
-                    if(self.inUse[r][self.peekCurrBankId(r,t)] == 0):       
+                    if(self.inUse[r][self.peekCurrBankId(r,t)] == 0):
                         print(f"WARNING: Trying to reset a register that's not in use: Register{r}, Bank{self.peekCurrBankId(r,t)}, RegInUse={self.inUse[r][self.peekCurrBankId(r,t)]}")
                 else:
                     assert self.inUse[r][self.peekCurrBankId(r,t)] == 1 , f"WARNING: Trying to reset a register that's not in use: Register{r}, Bank{self.peekCurrBankId(r,t)}, RegInUse={self.inUse[r][self.peekCurrBankId(r,t)]}"
@@ -296,7 +296,7 @@ class ttReg:
                                 print(f"Cycle:{str(self.env.now)} Thread[{t}] Valids condition for Register{r} Bank{self.peekCurrBankId(r,t)} met, internal valids,inUse mode={mode}")
                             self.inUse[r][self.peekCurrBankId(r,t)] = 1
 
-                            if(debug & DEBUG_TENSIX_HIGH_LEVEL):                    
+                            if(debug & DEBUG_TENSIX_HIGH_LEVEL):
                                 print(f"Cycle:{str(self.env.now)} Thread[{t}] set inUse for Register{r} Bank{self.peekCurrBankId(r,t)} internal valids,inUse mode={mode}")
                             return True
                         else:
@@ -561,7 +561,7 @@ class replayState:
     def printReplayList(self):
         print("-----Replay List------")
         for ins in self.replayList:
-            if(ins.getRelAddr() >=0):            ins.printInstr(self.threadId)
+            if (ins.getRelAddr() is not None) and (ins.getRelAddr() >=0):            ins.printInstr(self.threadId)
         print("-----Replay List------")
 
     def loadReplayList(self, ins, debug):
@@ -1333,7 +1333,7 @@ class thread:
                 case 0:  #PassThrough
                     # Get Instruction from Instruction Buffer
                     ins = yield self.instrBuff.get()
-                    assert ins.isTT() , "Expected TT instruction. Received" +  ins.mnemonic
+                    assert ins.isTT() , f"Expected TT instruction. Received {ins}"
                     if(self.debug & DEBUG_TENSIX_MED_LEVEL):        print("Instruction = ", ins.mnemonic, ", RMode=", currRMode)
 
                     if(ins.isReplay()):
@@ -1804,7 +1804,7 @@ class tensixCore:
 
         assert accumSrcBytes > 0, f"Cycle:{self.env.now} TCore{self.coreId} No valid bytes accumulated for request"
         return [joinList, accumSrcBytes]
-    
+
 
     # reqBuff ----> iBuff/insTrk
     # reqBuff ----> oBuff/insTrk , Short-circuit iBuff --> oBuff path
@@ -1955,12 +1955,12 @@ class tensixCore:
                         yield self.env.timeout(1)
 
                     assert accumSentRdBytes == accumSrcRdBytes, f"Cycle:{self.env.now} TCore{self.coreId} Thread{pipeIns.getThread()} insId{pipeIns.getInsId()} Not all bytes sent for L1 Req numL1ReadsSent={pipeIns.getMemInfo(readsSent)} numTotalL1Reads={pipeIns.getMemInfo(totalReads)} accumSentRdBytes={accumSentRdBytes} accumSrcRdBytes={accumSrcRdBytes}"
-                    if self.debug & DEBUG_TENSIX_MED_LEVEL: 
+                    if self.debug & DEBUG_TENSIX_MED_LEVEL:
                         print(f"Cycle:{self.env.now} TCore{self.coreId} Thread{pipeIns.getThread()} insId{pipeIns.getInsId()} Target: {sourceReq.__getTarget__()} Resetting accumulators")
                     accumSrcRdBytes = 0; accumSentRdBytes = 0
                     # yield self.env.timeout(1)
                     if pipeIns.getMemInfo(readsSent) == pipeIns.getMemInfo(totalReads) and (pipeIns.getMemInfo(totalReads) > 0):
-                        if self.debug & DEBUG_TENSIX_MED_LEVEL: 
+                        if self.debug & DEBUG_TENSIX_MED_LEVEL:
                             print(f"Cycle:{self.env.now} TCore{self.coreId} req{memReq.__getReqId__()} insId{memReq.__getInsId__()} Pipe:{self.pipes[pipeId]} Target: {sourceReq.__getTarget__()} All Reads Sent {pipeIns.getMemInfo(readsSent)} == Reads Total {pipeIns.getMemInfo(totalReads)}")
                         return True
 
@@ -2292,7 +2292,7 @@ class tensixCore:
         yield from self._update_valids(pipeIns)
         yield from self._update_conditional_valids(pipeIns)
         yield from self._free_dst_pipes(pipeIns)
-        # Remove from ROB 
+        # Remove from ROB
         yield self.env.process(self.insROB[pipeIns.getThread()].removeRob(pipeIns.getInsId(), self.debug))
         # Remove from execution pipe
         if freeExecPipe:
@@ -2302,7 +2302,7 @@ class tensixCore:
         else:
             if self.debug & DEBUG_TENSIX_HIGH_LEVEL:
                 print(f"Cycle:{self.env.now} Addr:{hex(pipeIns.getRelAddr())} TCore{self.coreId} Thread{pipeIns.getThread()} insId{pipeIns.getInsId()} Pipe[{self.pipes[pipeId]}]: Freeing execution pipe skipped in common cleanup")
-            
+
         exe_pipe_id = self.pipes.index(self.targetResource(pipeIns))
         assert self.rState.checkRsrcState(exe_pipe_id, pipeIns.getThread(), 0, self.debug, instr_info = f"") , f"Cycle:{self.env.now} - error: execution pipe {exe_pipe_id} not free when expected for instruction {pipeIns}"
 
@@ -2443,12 +2443,12 @@ class tensixCore:
                     print(f"Cycle:{self.env.now} TCore{self.coreId} Thread{req.__getThreadId__()} insId{req.__getInsId__()} req{req.__getReqId__()} reqOp={req.__getOp__()} parents={req.__getParentReqIds__()} Converting format by scaleFactor={scaleFactor}. Old ReqWidth={req.__getBytes__()} New ReqWidth={int(req.__getBytes__()*scaleFactor)}    First Req in Batch")
                 if req.__getTarget__() == "L1" and req.__getOp__() == "RD": # Assume it will get overridden to REG WR. TODO: To be fixed cleanly
                     checkInOrderFalse = (self._check_inorder(ins, pipeId) == False)
-                    if checkInOrderFalse and enableSync: 
+                    if checkInOrderFalse and enableSync:
                         checkStartTime = self.env.now
                         if(self.debug & DEBUG_TENSIX_MED_LEVEL):   print(f"Cycle:{self.env.now} Addr:{hex(ins.getRelAddr())} TCore{self.coreId} Thread{ins.getThread()} insId{ins.getInsId()} TCoreFromInstr{ins.getCoreId()} Pipe[{self.pipes[pipeId]}] Instruction:{ins.getOp()} CheckValids (inprogress)")
                         yield from self._check_valids(ins)
                         if(self.debug & DEBUG_TENSIX_MED_LEVEL):   print(f"Cycle:{self.env.now} Addr:{hex(ins.getRelAddr())} TCore{self.coreId} Thread{ins.getThread()} insId{ins.getInsId()} TCoreFromInstr{ins.getCoreId()} Pipe[{self.pipes[pipeId]}] Instruction:{ins.getOp()} CheckValids (done) StallTime={self.env.now - checkStartTime}")
-                #TODO: Add an assert for valid condition met for non batch first req 
+                #TODO: Add an assert for valid condition met for non batch first req
 
             if self.debug & DEBUG_TENSIX_MED_LEVEL:
                 print(f"Cycle:{self.env.now} TCore{self.coreId} Thread{req.__getThreadId__()} insId{req.__getInsId__()} req{req.__getReqId__()} reqOp={req.__getOp__()} parents={req.__getParentReqIds__()} Converting format by scaleFactor={scaleFactor}. Old ReqWidth={req.__getBytes__()} New ReqWidth={int(req.__getBytes__()*scaleFactor)}    Placing in outBuffer")
@@ -2477,7 +2477,7 @@ class tensixCore:
             targetBytes += (alignWidth - (rawBytes % alignWidth))
         assert targetBytes % (alignWidth) == 0, f"TargetBytes {targetBytes}B still not aligned to {alignWidth}B"
         return targetBytes
-    
+
     def unpacker(self, args, coreId, pipeId, iBuff, oBuff):
         assert pipeId < len(self.pipes) , "Unknown Pipe" + pipeId
         pipeName = f"tensixPipe_{coreId}_{self.pipes[pipeId]}"
@@ -2581,12 +2581,12 @@ class tensixCore:
                 if(self.args_dict['enableSharedL1']):
                     if self.debug & DEBUG_TENSIX_MED_LEVEL:
                         print(f"Cycle:{self.env.now} Addr:{hex(pipeIns.getRelAddr())} TCore{self.coreId} Thread{pipeIns.getThread()} insId{pipeIns.getInsId()} Instruction:{pipeIns.getOp()} Unpacker Accesses (inprogress)(nonBarrier) Req:{memReq.__getReqId__()} dstSize={numDstBytes}, srcSize={numSrcBytes}")
-                    
+
                     # Set conversion factor Based on Src/Dst Format
                     print(f"Cycle:{self.env.now} Addr:{hex(pipeIns.getRelAddr())} TCore{self.coreId} Thread{pipeIns.getThread()} insId{pipeIns.getInsId()} Instruction:{pipeIns.getOp()} Setting formatScaleFactor={numDstBytes/numSrcBytes}")
                     pipeIns.setMemInfo("formatScaleFactor", numDstBytes/numSrcBytes)
                     print(f"Cycle:{self.env.now} Addr:{hex(pipeIns.getRelAddr())} TCore{self.coreId} Thread{pipeIns.getThread()} insId{pipeIns.getInsId()} Instruction:{pipeIns.getOp()} Set formatScaleFactor={pipeIns.getMemInfo('formatScaleFactor')} in instruction MemInfo")
-                    
+
                     # L1
                     self.env.process(self._handle_memory_response(self.unpackFERspBuff[pipeId], oBuff, reqTrk))
                     yield self.env.process(self._handle_memory_request(self.unpackL1ReqBuff[pipeId],iBuff, iBuff, reqTrk, pipeId))
@@ -2794,7 +2794,7 @@ class tensixCore:
                     # Set conversion factor Based on Src/Dst Format
                     pipeIns.setMemInfo("formatScaleFactor", numDstBytes/numSrcBytes)
                     print(f"Cycle:{self.env.now} Addr:{hex(pipeIns.getRelAddr())} TCore{self.coreId} Thread{pipeIns.getThread()} insId{pipeIns.getInsId()} Instruction:{pipeIns.getOp()} Set formatScaleFactor={pipeIns.getMemInfo('formatScaleFactor')} in instruction MemInfo")
-                    
+
                     #Reg
                     self.env.process(self._handle_memory_response(self.packRspBuff[pipeId], self.regOBuffer[self.coreId][pipeId], reqTrk))
                     yield self.env.process(self._handle_memory_request(self.packRegReqBuff[pipeId], self.regIBuffer[self.coreId][pipeId], self.regOBuffer[self.coreId][pipeId], reqTrk, pipeId))
@@ -2880,7 +2880,7 @@ class tensixCore:
                 print(f"TCore{self.coreId} Thread{self.thread[tIndex].threadId} Avg RISC Stall Latency = {self.thread[tIndex].sumRiscStallLatency/self.thread[tIndex].rInstructions if self.thread[tIndex].rInstructions > 0 else 0}")
                 # print(self.triscRegs[i].__printReg__())
                 tIndex += 1
-        
+
 
         print(f"TensixCore[{self.coreId}] Instructions by Engine")
         for i in range(len(self.pipes)):

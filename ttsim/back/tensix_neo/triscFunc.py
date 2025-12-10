@@ -11,7 +11,8 @@ import enum
 import struct
 
 import ttsim.back.tensix_neo.isaFunctions as isaFunctions
-import ttsim.front.llk.decoded_instruction as decoded_instruction
+# import ttsim.front.llk.decoded_instruction as decoded_instruction
+import ttsim.front.ttdecode.python.src.ttdecode as ttdecode
 
 MAX_THREADS                   = 4 # 3
 NUM_RISCGPR_REGISTERS         = 64
@@ -247,7 +248,7 @@ class triscFunc:
     #S-Type Store
     def __execsw__(self, ins):
         assert ins.getOp() == "SW", "Expected opcode SW Received " + str(ins.getOp())
-        assert "destinations" not in dir(ins.getOperands()) , "Zero Dst expected"
+        assert len(ins.getDstInt()) == 0, "Zero Dst expected"
         assert len(ins.getSrcInt()) == 2, "Two  Src expected"
         assert len(ins.getImm()) == 1, "One  Imm expected"
 
@@ -288,20 +289,20 @@ class triscFunc:
         elif(cfgRegType in ['mop', 'mopSync','idleSync']):              # Write to MMR (TRISC)
             if self.debug & 0x8: print(f"__execsw:{cfgRegType}[{hex(cfgRegIndex)}]={hex(self.triscRegs.__readReg__(ins.getSrcInt()[0]) + ins.getImm()[0])}")
             match cfgRegType:
-                case 'mop': 
+                case 'mop':
                     assert cfgRegIndex >=0 and cfgRegIndex <= 8, f"MOP Reg Index out of range. cfgRegIndex={cfgRegIndex}"
                     if self.debug & 0x8:     print(f"Addr:{hex(ins.getRelAddr())} TCore{self.coreId} Thread{self.threadId} Writing to (TENSIX) {hex(cfgRegIndex)} mop[{hex(cfgRegIndex)}]={hex(self.triscRegs.__readReg__(ins.getSrcInt()[0]) + ins.getImm()[0])} {hex(self.triscRegs.__readReg__(ins.getSrcInt()[1]))}")
                     self.ttSplRegs.__writeReg__(self.threadId*64 + cfgRegIndex, self.triscRegs.__readReg__(ins.getSrcInt()[1]), cfgRegType)
-                case 'mopSync': 
+                case 'mopSync':
                     assert cfgRegIndex == 0, "Only one mopSync register supported. Unexpected Index=" + str(cfgRegIndex)
                     if self.debug & 0x8:     print(f"Addr:{hex(ins.getRelAddr())} TCore{self.coreId} Thread{self.threadId} Writing to (TENSIX) {hex(cfgRegIndex)} mopSync[{hex(cfgRegIndex)}]={hex(self.triscRegs.__readReg__(ins.getSrcInt()[0]) + ins.getImm()[0])} {hex(self.triscRegs.__readReg__(ins.getSrcInt()[1]))}")
                     #TODO: Evaluate Disable Write to PCBuffer[2] for mopSync
                     self.ttSplRegs.__writeReg__(self.threadId + cfgRegIndex, self.triscRegs.__readReg__(ins.getSrcInt()[1]), cfgRegType)
-                case 'idleSync': 
+                case 'idleSync':
                     assert cfgRegIndex == 0, "Only one idleSync register supported. Unexpected Index=" + str(cfgRegIndex)
                     if self.debug & 0x8:     print(f"Addr:{hex(ins.getRelAddr())} TCore{self.coreId} Thread{self.threadId} Writing to (TENSIX) {hex(cfgRegIndex)} idleSync[{hex(cfgRegIndex)}]={hex(self.triscRegs.__readReg__(ins.getSrcInt()[0]) + ins.getImm()[0])} {hex(self.triscRegs.__readReg__(ins.getSrcInt()[1]))}")
                     self.ttSplRegs.__writeReg__(self.threadId + cfgRegIndex, self.triscRegs.__readReg__(ins.getSrcInt()[1]), cfgRegType)
-                case _:     
+                case _:
                     assert False, "Unknown reg Index=" + str(cfgRegIndex) + ",Type=" + str(cfgRegType)
         elif(cfgRegType in ['instrBuffer']):              # Write to MMR (TRISC)
             if self.debug & 0x8: print(f"__execsw:{cfgRegType}[{hex(cfgRegIndex)}]={hex(self.triscRegs.__readReg__(ins.getSrcInt()[0]) + ins.getImm()[0])}")
@@ -332,7 +333,7 @@ class triscFunc:
 
     def __execsh__(self, ins):
         assert ins.getOp() == "SH", "Expected opcode SH Received " + str(ins.getOp())
-        assert "destinations" not in dir(ins.getOperands()) , "Zero Dst expected"
+        assert len(ins.getDstInt()) == 0, "Zero Dst expected"
         assert len(ins.getSrcInt()) == 2, "Two  Src expected"
         assert len(ins.getImm()) == 1, "One  Imm expected"
 
@@ -386,7 +387,7 @@ class triscFunc:
 
     def __execsb__(self, ins):
         assert ins.getOp() == "SB", "Expected opcode SB Received " + str(ins.getOp())
-        assert "destinations" not in dir(ins.getOperands()) , "Zero Dst expected"
+        assert len(ins.getDstInt()) == 0, "Zero Dst expected"
         assert len(ins.getSrcInt()) == 2, "Two  Src expected"
         assert len(ins.getImm()) == 1, "One  Imm expected"
 
@@ -443,9 +444,10 @@ class triscFunc:
         assert ins.getOp() == "ADD", "Expected opcode ADD Recieved "+ str(ins.getOp())
         assert len(ins.getDstInt()) == 1, "One Dst expected"
         assert len(ins.getSrcInt()) == 2, "Two Src expected"
-        assert "immediates" not in dir(ins.getOperands()) , "Zero Imm expected"
+        assert len(ins.getImm()) == 0, "Zero Imm expected"
 
-        self.triscRegs.__writeReg__(ins.getDstInt()[0], self.triscRegs.__readReg__(ins.getSrcInt()[0]) + self.triscRegs.__readReg__(ins.getSrcInt()[1]))
+        # Mask to 32 bits for RV32
+        self.triscRegs.__writeReg__(ins.getDstInt()[0], (self.triscRegs.__readReg__(ins.getSrcInt()[0]) + self.triscRegs.__readReg__(ins.getSrcInt()[1])) & 0xFFFFFFFF)
 
         if(self.debug & 0x10):
             print(f"\t{ins.getOp()}: {hex(self.triscRegs.__readReg__(ins.getSrcInt()[0]))} + {hex(self.triscRegs.__readReg__(ins.getSrcInt()[1]))} = {hex(self.triscRegs.__readReg__(ins.getSrcInt()[0]) + self.triscRegs.__readReg__(ins.getSrcInt()[1]))}")
@@ -457,11 +459,12 @@ class triscFunc:
         assert ins.getOp() == "SUB", "Expected opcode SUB Recieved "+ str(ins.getOp())
         assert len(ins.getDstInt()) == 1, "One Dst expected"
         assert len(ins.getSrcInt()) == 2, "Two Src expected"
-        assert "immediates" not in dir(ins.getOperands()) , "Zero Imm expected"
+        assert len(ins.getImm()) == 0, "Zero Imm expected"
 
         if(self.debug & 0x10):
             print(f"\t{ins.getOp()}: {hex(self.triscRegs.__readReg__(ins.getSrcInt()[0]))} - {hex(self.triscRegs.__readReg__(ins.getSrcInt()[1]))} = {hex(self.triscRegs.__readReg__(ins.getSrcInt()[0]) - self.triscRegs.__readReg__(ins.getSrcInt()[1]))}")
-        self.triscRegs.__writeReg__(ins.getDstInt()[0], self.triscRegs.__readReg__(ins.getSrcInt()[0]) - self.triscRegs.__readReg__(ins.getSrcInt()[1]))
+        # Mask to 32 bits for RV32 (handles underflow)
+        self.triscRegs.__writeReg__(ins.getDstInt()[0], (self.triscRegs.__readReg__(ins.getSrcInt()[0]) - self.triscRegs.__readReg__(ins.getSrcInt()[1])) & 0xFFFFFFFF)
 
         nextRelAddr = ins.getRelAddr() + 4
         return nextRelAddr
@@ -470,7 +473,7 @@ class triscFunc:
         assert ins.getOp() == "AND", "Expected opcode AND Recieved "+ str(ins.getOp())
         assert len(ins.getDstInt()) == 1, "One Dst expected"
         assert len(ins.getSrcInt()) == 2, "Two Src expected"
-        assert "immediates" not in dir(ins.getOperands()) , "Zero Imm expected"
+        assert len(ins.getImm()) == 0, "Zero Imm expected"
 
         if(self.debug & 0x10):
             print(f"\t{ins.getOp()}: {hex(self.triscRegs.__readReg__(ins.getSrcInt()[0]))} and {hex(self.triscRegs.__readReg__(ins.getSrcInt()[1]))} = {hex(self.triscRegs.__readReg__(ins.getSrcInt()[0]) & self.triscRegs.__readReg__(ins.getSrcInt()[1]))}")
@@ -484,7 +487,7 @@ class triscFunc:
         assert ins.getOp() == "OR", "Expected opcode OR Recieved "+ str(ins.getOp())
         assert len(ins.getDstInt()) == 1, "One Dst expected"
         assert len(ins.getSrcInt()) == 2, "Two Src expected"
-        assert "immediates" not in dir(ins.getOperands()) , "Zero Imm expected"
+        assert len(ins.getImm()) == 0, "Zero Imm expected"
 
         if(self.debug & 0x10):
             print(f"\t{ins.getOp()}: {hex(self.triscRegs.__readReg__(ins.getSrcInt()[0]))} or {hex(self.triscRegs.__readReg__(ins.getSrcInt()[1]))} = {hex(self.triscRegs.__readReg__(ins.getSrcInt()[0]) | self.triscRegs.__readReg__(ins.getSrcInt()[1]))}")
@@ -498,7 +501,7 @@ class triscFunc:
         assert ins.getOp() == "XOR", "Expected opcode XOR Recieved "+ str(ins.getOp())
         assert len(ins.getDstInt()) == 1, "One Dst expected"
         assert len(ins.getSrcInt()) == 2, "Two Src expected"
-        assert "immediates" not in dir(ins.getOperands()) , "Zero Imm expected"
+        assert len(ins.getImm()) == 0, "Zero Imm expected"
 
         if(self.debug & 0x10):
             print(f"\t{ins.getOp()}: {hex(self.triscRegs.__readReg__(ins.getSrcInt()[0]))} xor {hex(self.triscRegs.__readReg__(ins.getSrcInt()[1]))} = {hex(self.triscRegs.__readReg__(ins.getSrcInt()[0]) ^ self.triscRegs.__readReg__(ins.getSrcInt()[1]))}")
@@ -512,9 +515,10 @@ class triscFunc:
         assert ins.getOp() == "SLL", "Expected opcode SLL Recieved "+ str(ins.getOp())
         assert len(ins.getDstInt()) == 1, "One Dst expected"
         assert len(ins.getSrcInt()) == 2, "Two Src expected"
-        assert "immediates" not in dir(ins.getOperands()) , "Zero Imm expected"
+        assert len(ins.getImm()) == 0, "Zero Imm expected"
 
-        self.triscRegs.__writeReg__(ins.getDstInt()[0], self.triscRegs.__readReg__(ins.getSrcInt()[0]) <<  self.triscRegs.__readReg__(ins.getSrcInt()[1]))
+        # Mask to 32 bits for RV32
+        self.triscRegs.__writeReg__(ins.getDstInt()[0], (self.triscRegs.__readReg__(ins.getSrcInt()[0]) <<  self.triscRegs.__readReg__(ins.getSrcInt()[1])) & 0xFFFFFFFF)
         if(self.debug & 0x10):
             print(f"\t{ins.getOp()}: {hex(self.triscRegs.__readReg__(ins.getSrcInt()[0]))} << {hex(self.triscRegs.__readReg__(ins.getSrcInt()[1]))} = {hex(self.triscRegs.__readReg__(ins.getSrcInt()[0]) << self.triscRegs.__readReg__(ins.getSrcInt()[1]))}")
 
@@ -525,7 +529,7 @@ class triscFunc:
         assert ins.getOp() == "SRL", "Expected opcode SRL Recieved "+ str(ins.getOp())
         assert len(ins.getDstInt()) == 1, "One Dst expected"
         assert len(ins.getSrcInt()) == 2, "Two Src expected"
-        assert "immediates" not in dir(ins.getOperands()) , "Zero Imm expected"
+        assert len(ins.getImm()) == 0, "Zero Imm expected"
 
         self.triscRegs.__writeReg__(ins.getDstInt()[0], self.triscRegs.__readReg__(ins.getSrcInt()[0]) >> self.triscRegs.__readReg__(ins.getSrcInt()[1]))
         if(self.debug & 0x10):
@@ -538,7 +542,7 @@ class triscFunc:
         assert ins.getOp() == "SRA", "Expected opcode SRA Recieved "+ str(ins.getOp())
         assert len(ins.getDstInt()) == 1, "One Dst expected"
         assert len(ins.getSrcInt()) == 2, "Two Src expected"
-        assert "immediates" not in dir(ins.getOperands()) , "Zero Imm expected"
+        assert len(ins.getImm()) == 0, "Zero Imm expected"
 
         signBit = self.triscRegs.__readReg__(ins.getSrcInt()[0]) & 0x80000000 == 0x80000000
         if(signBit):        self.triscRegs.__writeReg__(ins.getDstInt()[0], ((0xFFFFFFFF >> (32-ins.getSrcInt()[1])) << (32-ins.getSrcInt()[1])) + (self.triscRegs.__readReg__(ins.getSrcInt()[0]) >> ins.getSrcInt()[1]))
@@ -554,7 +558,7 @@ class triscFunc:
         assert ins.getOp() == "SLT", "Expected opcode SLT Recieved "+ str(ins.getOp())
         assert len(ins.getDstInt()) == 1, "One Dst expected"
         assert len(ins.getSrcInt()) == 2, "Two Src expected"
-        assert "immediates" not in dir(ins.getOperands()) , "Zero Imm expected"
+        assert len(ins.getImm()) == 0, "Zero Imm expected"
 
         self.triscRegs.__writeReg__(ins.getDstInt()[0], 0)
         # 32-bit signed comparison
@@ -570,7 +574,7 @@ class triscFunc:
         assert ins.getOp() == "SLTU", "Expected opcode SLTU Recieved "+ str(ins.getOp())
         assert len(ins.getDstInt()) == 1, "One Dst expected"
         assert len(ins.getSrcInt()) == 2, "Two Src expected"
-        assert "immediates" not in dir(ins.getOperands()) , "Zero Imm expected"
+        assert len(ins.getImm()) == 0, "Zero Imm expected"
 
         self.triscRegs.__writeReg__(ins.getDstInt()[0], 0)
         if(self.triscRegs.__readReg__(ins.getSrcInt()[0]) < self.triscRegs.__readReg__(ins.getSrcInt()[1])):
@@ -590,7 +594,8 @@ class triscFunc:
 
         if(self.debug & 0x10):
             print(f"\t{ins.getOp()}: {hex(self.triscRegs.__readReg__(ins.getSrcInt()[0]))} + {hex(ins.getImm()[0])} = {hex(self.triscRegs.__readReg__(ins.getSrcInt()[0]) + ins.getImm()[0])}")
-        self.triscRegs.__writeReg__(ins.getDstInt()[0], self.triscRegs.__readReg__(ins.getSrcInt()[0],'riscgpr') + ins.getImm()[0])
+        # Mask to 32 bits for RV32
+        self.triscRegs.__writeReg__(ins.getDstInt()[0], (self.triscRegs.__readReg__(ins.getSrcInt()[0],'riscgpr') + ins.getImm()[0]) & 0xFFFFFFFF)
 
         nextRelAddr = ins.getRelAddr() + 4
 
@@ -658,7 +663,8 @@ class triscFunc:
         assert len(ins.getSrcInt()) == 1, "One Src expected"
         assert len(ins.getImm()) == 1, "One Imm expected"
 
-        self.triscRegs.__writeReg__(ins.getDstInt()[0], self.triscRegs.__readReg__(ins.getSrcInt()[0]) <<  ins.getImm()[0])
+        # Mask to 32 bits for RV32
+        self.triscRegs.__writeReg__(ins.getDstInt()[0], (self.triscRegs.__readReg__(ins.getSrcInt()[0]) <<  ins.getImm()[0]) & 0xFFFFFFFF)
         if(self.debug & 0x10):
             print(f"\t{ins.getOp()}: {hex(self.triscRegs.__readReg__(ins.getSrcInt()[0]))} << {hex(ins.getImm()[0])} = {hex(self.triscRegs.__readReg__(ins.getSrcInt()[0]) << ins.getImm()[0])}")
 
@@ -765,11 +771,11 @@ class triscFunc:
         elif(cfgRegType in ['mop','mopSync', 'idleSync']):              # Write to MMR (TRISC)
             if self.debug & 0x8: print(f"__execlw:{cfgRegType} , {cfgRegIndex}, {hex(self.triscRegs.__readReg__(ins.getSrcInt()[0]) + ins.getImm()[0])}")
             match cfgRegType:
-                case 'mop':       
+                case 'mop':
                     assert cfgRegIndex >=0 and cfgRegIndex <= 8, f"MOP Reg Index out of range. cfgRegIndex={cfgRegIndex}"
                     if self.debug & 0x8:    print(f"Reading from (TENSIX) Thread[{self.threadId}]:{hex(self.triscRegs.__readReg__(ins.getSrcInt()[0]) + ins.getImm()[0])} mop[{hex(cfgRegIndex)}]={hex(self.ttSplRegs.__readReg__(cfgRegIndex, cfgRegType))}")
                     self.triscRegs.__writeReg__(ins.getDstInt()[0], self.ttSplRegs.__readReg__(self.threadId*64 + cfgRegIndex, cfgRegType))
-                case 'mopSync':   
+                case 'mopSync':
                     assert cfgRegIndex == 0, f"Only one mopSync register supported. Unexpected Index={cfgRegIndex}"
                     if(self.ttSplRegs.__readReg__(self.threadId + cfgRegIndex, cfgRegType) != 0):
                         print(f"Addr:{hex(ins.getRelAddr())} TCore{self.coreId} Thread[{self.threadId}] (TENSIX) MOPSync register read as non-zero value {hex(self.ttSplRegs.__readReg__(self.threadId + cfgRegIndex, cfgRegType))}. Stalling")
@@ -780,11 +786,11 @@ class triscFunc:
                     else:
                         self.triscRegs.__writeReg__(ins.getDstInt()[0], self.ttSplRegs.__readReg__(self.threadId + cfgRegIndex, cfgRegType))
                         print(f"Addr:{hex(ins.getRelAddr())} TCore{self.coreId} Thread[{self.threadId}] (TENSIX) MOPSync register read as zero value {hex(self.ttSplRegs.__readReg__(self.threadId + cfgRegIndex, cfgRegType))}. Continuing")
-                case 'idleSync':  
+                case 'idleSync':
                     assert cfgRegIndex == 0, f"Only one idleSync register supported. Unexpected Index={cfgRegIndex}"
                     #TODO: Implement idleSync stall behavior
                     self.triscRegs.__writeReg__(ins.getDstInt()[0], self.ttSplRegs.__readReg__(self.threadId + cfgRegIndex, cfgRegType))
-                case _:          
+                case _:
                     assert False, "Unknown reg Index=" + str(cfgRegIndex) + ",Type=" + str(cfgRegType)
         elif(cfgRegType in ['instrBuffer', 'ttsemaphores']):  # Tensix Special Regs
             if self.debug & 0x8: print(f"__execlw({cfgRegType}) , {cfgRegIndex}, {hex(self.triscRegs.__readReg__(ins.getSrcInt()[0]) + ins.getImm()[0])}")
@@ -1050,7 +1056,8 @@ class triscFunc:
 
         if(self.debug & 0x10):
             print(f"\t{ins.getOp()}: {hex(ins.getImm()[0])} << 12 = {hex(ins.getImm()[0] << 12)}")
-        self.triscRegs.__writeReg__(ins.getDstInt()[0], (ins.getImm()[0]) << 12)
+        # Mask to 32 bits for RV32
+        self.triscRegs.__writeReg__(ins.getDstInt()[0], ((ins.getImm()[0]) << 12) & 0xFFFFFFFF)
 
         nextRelAddr = ins.getRelAddr() + 4
         return nextRelAddr
@@ -1060,7 +1067,8 @@ class triscFunc:
         assert len(ins.getDstInt()) == 1, "One Dst expected"
         assert len(ins.getImm()) == 1, "One Imm expected"
 
-        self.triscRegs.__writeReg__(ins.getDstInt()[0], ins.getRelAddr() + (ins.getImm()[0] << 12))
+        # Mask to 32 bits for RV32 to prevent overflow
+        self.triscRegs.__writeReg__(ins.getDstInt()[0], (ins.getRelAddr() + (ins.getImm()[0] << 12)) & 0xFFFFFFFF)
         if(self.debug & 0x10):
             print(f'\t{ins.getOp()}: Reg[{hex(ins.getDstInt()[0])}] {hex(ins.getRelAddr())} + {hex(ins.getImm()[0])} << 12 = {hex(self.triscRegs.__readReg__(ins.getDstInt()[0]))}')
 
@@ -1070,7 +1078,7 @@ class triscFunc:
 
     def __execbeq__(self,ins):
         assert ins.getOp() == "BEQ", "Expected opcode BEQ Received " + str(ins.getOp())
-        assert "destinations" not in dir(ins.getOperands()) , "Zero Dst expected"
+        assert len(ins.getDstInt()) == 0, "Zero Dst expected"
         assert len(ins.getSrcInt()) == 2, "Two Src expected"
         assert len(ins.getImm()) == 1, "One  Imm expected"
 
@@ -1092,7 +1100,7 @@ class triscFunc:
 
     def __execbne__(self,ins):
         assert ins.getOp() == "BNE", "Expected opcode BNE Received " + str(ins.getOp())
-        assert "destinations" not in dir(ins.getOperands()) , "Zero Dst expected"
+        assert len(ins.getDstInt()) == 0, "Zero Dst expected"
         assert len(ins.getSrcInt()) == 2, "Two Src expected"
         assert len(ins.getImm()) == 1, "One  Imm expected"
 
@@ -1114,7 +1122,7 @@ class triscFunc:
 
     def __execblt__(self,ins):
         assert ins.getOp() == "BLT", "Expected opcode BLT Received " + str(ins.getOp())
-        assert "destinations" not in dir(ins.getOperands()) , "Zero Dst expected"
+        assert len(ins.getDstInt()) == 0, "Zero Dst expected"
         assert len(ins.getSrcInt()) == 2, "Two Src expected"
         assert len(ins.getImm()) == 1, "One  Imm expected"
 
@@ -1131,7 +1139,7 @@ class triscFunc:
 
     def __execbge__(self,ins):
         assert ins.getOp() == "BGE", "Expected opcode BGE Received " + str(ins.getOp())
-        assert "destinations" not in dir(ins.getOperands()) , "Zero Dst expected"
+        assert len(ins.getDstInt()) == 0, "Zero Dst expected"
         assert len(ins.getSrcInt()) == 2, "Two Src expected"
         assert len(ins.getImm()) == 1, "One  Imm expected"
 
@@ -1149,7 +1157,7 @@ class triscFunc:
 
     def __execbltu__(self,ins):
         assert ins.getOp() == "BLTU", "Expected opcode BLTU Received " + str(ins.getOp())
-        assert "destinations" not in dir(ins.getOperands()) , "Zero Dst expected"
+        assert len(ins.getDstInt()) == 0, "Zero Dst expected"
         assert len(ins.getSrcInt()) == 2, "Two Src expected"
         assert len(ins.getImm()) == 1, "One  Imm expected"
 
@@ -1167,7 +1175,7 @@ class triscFunc:
 
     def __execbgeu__(self,ins):
         assert ins.getOp() == "BGEU", "Expected opcode BGEU Received " + str(ins.getOp())
-        assert "destinations" not in dir(ins.getOperands()) , "Zero Dst expected"
+        assert len(ins.getDstInt()) == 0, "Zero Dst expected"
         assert len(ins.getSrcInt()) == 2, "Two Src expected"
         assert len(ins.getImm()) == 1, "One  Imm expected"
 
@@ -1189,8 +1197,9 @@ class triscFunc:
 
     def __execjal__(self,ins):
         assert ins.getOp() == "JAL", "Expected opcode JAL Received " + str(ins.getOp())
-        assert len(ins.getDstInt()) == 1, "One Dst expected"
-        assert "sources" not in dir(ins.getOperands()) , "Zero Src expected"
+        assert len(ins.getDstInt()) == 1, f"One Dst expected, ins.getDstInt(): {ins.getDstInt()}"
+        assert len(ins.getSrcInt()) == 0, f"Zero Src expected, ins: {ins}"
+        # assert "sources" not in dir(ins.getOperands()) , f"Zero Src expected, ins.getOperands(): {ins.getOperands()}, "
         assert len(ins.getImm()) == 1, "One  Imm expected"
 
         if(ins.getRelAddr() + ins.getImm()[0] in forceSkipJump):
@@ -1228,7 +1237,7 @@ class triscFunc:
         #TODO: Destination register of jalr is sometimes x0, the zero register which should be read-only
         # Step 1: Calculate next address = srcReg + imm
         nextRelAddr = self.triscRegs.__readReg__(ins.getSrcInt()[0], 'riscgpr') + ins.getImm()[0]
-        # Step 2: Write return address to dstReg 
+        # Step 2: Write return address to dstReg
         if(ins.getDstInt()[0] != 0):
             self.triscRegs.__writeReg__(ins.getDstInt()[0], ins.getRelAddr() + 4)
 
@@ -1242,9 +1251,10 @@ class triscFunc:
         assert ins.getOp() == "MUL", "Expected opcode MUL Recieved "+ str(ins.getOp())
         assert len(ins.getDstInt()) == 1, "One Dst expected"
         assert len(ins.getSrcInt()) == 2, "Two Src expected"
-        assert "immediates" not in dir(ins.getOperands()) , "Zero Imm expected"
+        assert len(ins.getImm()) == 0, "Zero Imm expected"
 
-        self.triscRegs.__writeReg__(ins.getDstInt()[0], self.triscRegs.__readReg__(ins.getSrcInt()[0]) * self.triscRegs.__readReg__(ins.getSrcInt()[1]))
+        # Mask to 32 bits for RV32
+        self.triscRegs.__writeReg__(ins.getDstInt()[0], (self.triscRegs.__readReg__(ins.getSrcInt()[0]) * self.triscRegs.__readReg__(ins.getSrcInt()[1])) & 0xFFFFFFFF)
         if(self.debug & 0x10):
             print(f"\t{ins.getOp()}: {hex(self.triscRegs.__readReg__(ins.getSrcInt()[0]))} * {hex(self.triscRegs.__readReg__(ins.getSrcInt()[1]))} = {hex(self.triscRegs.__readReg__(ins.getSrcInt()[0]) * self.triscRegs.__readReg__(ins.getSrcInt()[1]))}")
 
@@ -1255,8 +1265,8 @@ class triscFunc:
         assert ins.getOp() == "FENCE", "Expected opcode FENCE Recieved "+ str(ins.getOp())
         assert len(ins.getDstInt()) == 1, "One Dst expected"
         assert len(ins.getSrcInt()) == 1, "One Src expected"
-        assert "immediates" not in dir(ins.getOperands()) , "Zero Imm expected"
-        assert len(ins.getAttr()) == 2, "Two attribs expected. Received " + str(len(ins.getAttr()))
+        assert len(ins.getImm()) == 0, "Zero Imm expected"
+        assert len(ins.getAttr()) == 3, "Two attribs expected. Received " + str(len(ins.getAttr())) + f". ins.getAttr(): {ins.getAttr()}. ins = {ins}"
 
         #TODO: Order memory writes and/or memory reads. Needed?
         nextRelAddr = ins.getRelAddr() + 4
@@ -1267,7 +1277,7 @@ class triscFunc:
         assert ins.getOp() == "CSRRS" or ins.getOp() == "CSRRC" or ins.getOp() == "CSRRW", "Expected opcode CSRRS/C/W Recieved "+ str(ins.getOp())
         assert len(ins.getDstInt()) == 1, "One Dst expected"
         assert len(ins.getSrcInt()) == 1, "One Src expected"
-        assert "immediates" not in dir(ins.getOperands()) , "Zero Imm expected"
+        assert len(ins.getImm()) == 0, "Zero Imm expected"
         assert len(ins.getAttr()) == 1, "One attrib expected. Received " + str(len(ins.getAttr()))
 
         # self.triscRegs.__writeReg__(ins.getDstInt()[0], self.triscRegs.__readReg__(ins.getAttr()['csr'], 'csr'), 'riscgpr')
@@ -1362,4 +1372,4 @@ class triscFunc:
     def decodeInstructionBufMem(self):
         insBuf = self.readInstructionBufMem()
         if (insBuf == None):        return None
-        else:                       return isaFunctions.decodeInstr(insBuf, decoded_instruction.instruction_kind.ttqs, True, ttISA = self.args['ttISA'])# insBuf
+        else:                       return isaFunctions.decodeInstr(insBuf, ttdecode.isa.instruction_kind.ttqs, True, ttISA = self.args['ttISA'])# insBuf
