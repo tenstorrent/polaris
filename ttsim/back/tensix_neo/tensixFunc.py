@@ -2444,8 +2444,8 @@ class tensixFunc:
             raise Exception(f"- error: given mnemonic {ins.getOp()} is not part of mnemonics with operands with tag SFPU_MATHI12")
 
         def _validate_and_advance(expected_attribs: list[str]):
-            assert len(ins.getAttr()) == len(expected_attribs), f"@__execSFPU_MATHI12__: {len(expected_attribs)} attribs expected. Received {len(ins.getAttr())}, instruction: {ins}."
-            assert sorted(expected_attribs) == sorted(list(ins.operands.attributes.keys())), f"@__execSFPU_MATHI12__: attributes mismatch. expected attributes: {sorted(expected_attribs)}, received: {sorted(list(ins.operands.attributes.keys()))}."
+            actual_attribs = list(ins.operands.attributes.keys()) if hasattr(ins, 'operands') and hasattr(ins.operands, 'attributes') else []
+            assert sorted(expected_attribs) == sorted(actual_attribs), f"@__execSFPU_MATHI12__: attributes mismatch. expected attributes: {sorted(expected_attribs)}, received: {sorted(actual_attribs)}."
             return ins.getRelAddr() + 4
 
         # For tags in groups 0 and 1, legacy arg layout applies
@@ -2469,6 +2469,7 @@ class tensixFunc:
         if op in ['SFPAND', 'SFPNOT', 'SFPOR', 'SFPXOR']:
             return _validate_and_advance(['lreg_dest', 'lreg_c'])
 
+        print(f"WARNING: in function __execSFPU_MATHI12__, advancing pc without any checks. instruction: {ins}")
         # Fallback
         return ins.getRelAddr() + 4
 
