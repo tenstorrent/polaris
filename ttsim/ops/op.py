@@ -116,6 +116,9 @@ class SimOp:
         assert tensor.dtype is not None, f"Tensor {tensor.name} has no dtype set"
         return tensor.dtype
 
+    def backward(self, inT, outT, inGT, outGT):
+        raise NotImplementedError(f"{self.optype} backward pass not yet implemented")
+
 def get_tensor_broadcast_shape(shape1, shape2):
     """Determine broadcasted shape for element-wise operations"""
     s1 = shape1[::-1]

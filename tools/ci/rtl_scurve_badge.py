@@ -147,7 +147,7 @@ class SCurveParser:
         """
         results = []
         expected_serial = 1
-        total_tests = None
+        total_tests: Optional[int] = None
         
         for line_num, line in enumerate(lines, 1):
             # Skip empty lines or lines that don't match pattern
