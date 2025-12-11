@@ -311,15 +311,19 @@ class instr(decoded_instruction.decoded_instruction, decoded_instruction.operand
 
     def setSrcPipes(self,pipeList):
         if pipeList:
-            self.srcPipes = []
+            self.srcPipes.clear()
             for i in range(len(pipeList)):
                 self.srcPipes.append(pipeList[i])
+        else:
+            self.srcPipes.clear()
 
     def setDstPipes(self,pipeList):
         if pipeList:
-            self.dstPipes = []
+            self.dstPipes.clear()
             for i in range(len(pipeList)):
                 self.dstPipes.append(pipeList[i])
+        else:
+            self.dstPipes.clear()
 
     def setPipesThreadId(self, thread_id):
         if thread_id is not None:
