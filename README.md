@@ -171,6 +171,7 @@ The simulation provides various performance metrics including:
 - Resource bottlenecks
 - Input/output parameter counts
 - Resource utilization
+- Tensor shapes for inputs, outputs, and weights (per operator)
 
 #### Output Directory Structure
 ```
@@ -178,10 +179,19 @@ output_dir/
 ├── study_name/
 │   ├── SUMMARY/
 │   │   └── study-summary.csv
-│   └── stats/
+│   └── STATS/
 │       ├── device-workload-stats.csv
-│       └── device-workload-opstats.[yaml|json|pickle]
+│       └── device-workload-opstats.[yaml|json|pickle|csv]
 ```
+
+**Operator Statistics Fields:**
+Each operator in the statistics output includes:
+- Performance metrics (cycles, time, utilization)
+- Resource usage (memory, compute)
+- Tensor information:
+  - `input_tensors`: Input tensor names, shapes, and precisions (format: `name[dim1xdim2xdim3]:precision;name2[...]:precision`)
+  - `output_tensors`: Output tensor names, shapes, and precisions
+  - `weight_tensors`: Weight/parameter tensor names, shapes, and precisions
 
 ### Best Practices
 1. Start with a dry run using `--dryrun` to validate configurations

@@ -2,20 +2,19 @@
 # SPDX-FileCopyrightText: (C) 2025 Tenstorrent AI ULC
 # SPDX-License-Identifier: Apache-2.0
 
-from ttsim.utils.common import print_csv
-from ttsim.config import TTSimHLWlDevRunPerfStats
-from ttsim.utils.types import get_sim_dtype, get_bpe
 import copy
-
-from typing import Any, List, Optional, Dict, Set
-from collections import defaultdict
+import pickle
 from enum import Enum, auto
 from functools import lru_cache
-from pydantic import BaseModel
-from loguru import logger
-import math
+from typing import Set
+
 import yaml
-import pickle
+from loguru import logger
+from pydantic import BaseModel
+
+from ttsim.config import TTSimHLWlDevRunPerfStats
+from ttsim.utils.common import print_csv
+from ttsim.utils.types import get_bpe, get_sim_dtype
 
 LOG     = logger
 INFO    = LOG.info
@@ -43,13 +42,31 @@ def save_data(model: BaseModel, filename, outputfmt: OutputFormat)->None:
         return
     elif outputfmt == OutputFormat.FMT_YAML:
         with open(filename, 'w') as fout:
-            yaml.dump(model.model_dump, fout, indent=4, Dumper=yaml.CDumper)
+            # Note: model_dump is a method and must be called to get the model data.
+            # Dumping model.model_dump without parentheses would dump the method object itself.
+            yaml.dump(model.model_dump(), fout, indent=4, Dumper=yaml.CDumper)
     elif outputfmt == OutputFormat.FMT_JSON:
         with open(filename, 'w') as fout:
             print(model.model_dump_json(indent=4), file=fout)
     elif outputfmt == OutputFormat.FMT_PICKLE:
         with open(filename, 'wb') as foutbin:
             pickle.dump(model, foutbin)
+
+def format_tensor_for_stats(tensor) -> str:
+    """Format a single tensor as name[dim1xdim2xdim3]:precision for stats output."""
+    name = tensor.name
+    shape = list(tensor.shape) if tensor.shape is not None else []
+    # Get precision as string
+    if hasattr(tensor.dtype, 'name'):
+        precision = tensor.dtype.name.lower()
+    elif isinstance(tensor.dtype, str):
+        precision = tensor.dtype.lower()
+    else:
+        precision = str(tensor.dtype).lower()
+    if shape:
+        shape_str = 'x'.join(str(d) for d in shape)
+        return f"{name}[{shape_str}]:{precision}"
+    return f"{name}[]:{precision}"
 
 class HLMStats:
     def __init__(self, _dev, _wlgraph, _wlinfo, _sinfo):
@@ -75,6 +92,50 @@ class HLMStats:
 
         return
 
+    def _extract_tensor_info(self, op):
+        """Extract tensor information (name and shape) for input, output, and weight tensors.
+
+        Returns a dict with three keys (all strings in format: name[dim1xdim2]:precision;name2[dim1xdim2]:precision):
+        - input_tensors: String representation of input tensors
+        - output_tensors: String representation of output tensors
+        - weight_tensors: String representation of weight/parameter tensors
+        """
+        input_parts = []
+        output_parts = []
+        weight_parts = []
+
+        # Process input tensors
+        for tensor_name in op.inList:
+            if tensor_name in self.wlgraph._tensors:
+                tensor = self.wlgraph._tensors[tensor_name]
+                input_parts.append(format_tensor_for_stats(tensor))
+
+                # If tensor is a parameter/weight, also add to weight_tensors
+                if tensor.is_param:
+                    weight_parts.append(format_tensor_for_stats(tensor))
+            else:
+                WARNING(
+                    f"Tensor '{tensor_name}' not found in workload graph tensors for op '{op.name}'.",
+                    once=True
+                )
+
+        # Process output tensors
+        for tensor_name in op.outList:
+            if tensor_name in self.wlgraph._tensors:
+                tensor = self.wlgraph._tensors[tensor_name]
+                output_parts.append(format_tensor_for_stats(tensor))
+            else:
+                WARNING(
+                    f"Tensor '{tensor_name}' not found in workload graph tensors for op '{op.name}'.",
+                    once=True
+                )
+
+        return {
+            'input_tensors': ';'.join(input_parts),
+            'output_tensors': ';'.join(output_parts),
+            'weight_tensors': ';'.join(weight_parts)
+        }
+
     def dump_stats(self, dfreq):
         summary_dict = self.device.get_exec_stats(self.wlgraph, self.batchsize)
 
@@ -83,6 +144,10 @@ class HLMStats:
         opstats_tbl = []
         for opnum,opname in enumerate(graph_ordered_nodes):
             op  = self.wlgraph.get_op(opname)
+
+            # Extract tensor shape information
+            tensor_info = self._extract_tensor_info(op)
+
             val = {
                     'archname'         : self.archname,
                     'devname'          : self.devname,
@@ -102,6 +167,9 @@ class HLMStats:
                     'attrs'            : op.attrs,
                     'inList'           : op.inList,
                     'outList'          : op.outList,
+                    'input_tensors'    : tensor_info['input_tensors'],
+                    'output_tensors'   : tensor_info['output_tensors'],
+                    'weight_tensors'   : tensor_info['weight_tensors'],
                     'domain'           : op.domain,
                     'opclass'          : op.opclass_str,
                     'removed'          : op.removed_in_optimization,

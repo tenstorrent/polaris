@@ -2,7 +2,8 @@
 # SPDX-FileCopyrightText: (C) 2025 Tenstorrent AI ULC
 # SPDX-License-Identifier: Apache-2.0
 import os
-from typing import Optional, List, Literal, Annotated
+from typing import Annotated, List, Literal, Optional
+
 from pydantic import BaseModel, Field
 
 type TypeFrequency = float
@@ -173,6 +174,15 @@ class TTSimHLWlDevRunOpCSVPerfStats(BaseModel, extra='forbid'):
     outList: list = Field(
         description = 'List of tensors output by this operator'
     )
+    input_tensors: str = Field(
+        description = 'String representation of input tensors: name[dim1xdim2]:precision;name2[dim1xdim2]:precision'
+    )
+    output_tensors: str = Field(
+        description = 'String representation of output tensors: name[dim1xdim2]:precision;name2[dim1xdim2]:precision'
+    )
+    weight_tensors: str = Field(
+        description = 'String representation of weight tensors: name[dim1xdim2]:precision;name2[dim1xdim2]:precision'
+    )
     domain: TypeDomain = Field(
         description = '???' # TODO: P1 What is this?
     )
@@ -275,6 +285,9 @@ class TTSimHLWlDevRunOperatorPerfStats(BaseModel, extra='forbid'):
     attrs: dict
     inList: list
     outList: list
+    input_tensors: str
+    output_tensors: str
+    weight_tensors: str
     domain: TypeDomain
     opclass: TypeOpClass
     removed: bool
