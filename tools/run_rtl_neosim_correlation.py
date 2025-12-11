@@ -49,7 +49,6 @@ class Utils:
     def get_dirs_with_name(dir_name: str, root_dir: str) -> list[str]:
         dir_names: list[str] = []
         for pwd, sub_dirs, _ in os.walk(root_dir):
-            # TODO: replace for loop with dir_name in sub_dirs
             if dir_name in sub_dirs:
                 dir_names.append(os.path.join(pwd, dir_name))
         return dir_names
@@ -220,11 +219,7 @@ class TestStatusUtils:
 
     @staticmethod
     def get_failure_bins_as_str():
-        str_bins: list[str] = list()
-        for b in TestStatusUtils.get_failure_bins():
-            str_bins.append(" ".join([s for s in b]))
-
-        return str_bins
+        return [" ".join(b) for b in TestStatusUtils.get_failure_bins()]
 
     @staticmethod
     def get_failure_bin_index(msg: str):
@@ -1155,9 +1150,395 @@ class SCurve:
 
         return math.e**(sum(math.log(ratio) for ratio in ratios) / len(ratios))
 
+    def get_tolerance_band_stats(self: typing.Self, tolerance_percent: float) -> tuple[int, int, float]:
+        """
+        Calculate tests within tolerance band of 1.0 Model/RTL ratio.
+
+        Args:
+            tolerance_percent: Tolerance as percentage (e.g., 10 for +/-10%)
+
+        Returns:
+            Tuple of (num_within_tolerance, total_valid_tests, percentage), where:
+                - num_within_tolerance: Number of tests whose Model/RTL cycle ratio is within the tolerance band.
+                - total_valid_tests: Number of tests where both RTL and Model passed and
+                  num_cycles_model_by_rtl is a valid float (i.e., the tests included in the ratio analysis).
+                - percentage: (num_within_tolerance / total_valid_tests) * 100.0, or 0.0 if there are no valid tests.
+
+        Raises:
+            ValueError: If tolerance_percent is outside the range [0, 100]
+        """
+        if not (0 <= tolerance_percent <= 100):
+            raise ValueError(f"tolerance_percent must be in range [0, 100], got {tolerance_percent}")
+
+        valid_tests = [elem for elem in self.s_curve if (elem.rtl_passed and elem.model_passed and isinstance(elem.num_cycles_model_by_rtl, float))]
+        if 0 == len(valid_tests):
+            return (0, 0, 0.0)
+
+        tolerance = tolerance_percent / 100.0
+        lower_bound = 1.0 - tolerance
+        upper_bound = 1.0 + tolerance
+
+        num_within_tolerance = 0
+        for elem in valid_tests:
+            assert isinstance(elem.num_cycles_model_by_rtl, float), "Expected float ratio for valid tests"
+            if lower_bound <= elem.num_cycles_model_by_rtl <= upper_bound:
+                num_within_tolerance += 1
+
+        total_valid = len(valid_tests)
+        percentage = (num_within_tolerance / total_valid * 100.0) if total_valid > 0 else 0.0
+
+        return (num_within_tolerance, total_valid, percentage)
+
+    def get_tolerance_bands_summary(self: typing.Self, tolerances: list[float] | None = None) -> str:
+        """
+        Generate a summary string of tolerance band statistics.
+
+        Args:
+            tolerances: List of tolerance percentages (default: [10, 20, 30])
+
+        Returns:
+            Formatted string with tolerance band statistics
+        """
+        if tolerances is None:
+            tolerances = [10.0, 20.0, 30.0]
+
+        msg = ""
+        for tolerance in tolerances:
+            num_within, total_valid, percentage = self.get_tolerance_band_stats(tolerance)
+            msg += f"    + Tests within +/-{tolerance:.0f}% of Model/RTL=1.0: {num_within}/{total_valid} ({percentage:.2f}%)\n"
+
+        return msg.rstrip()
+
+    def calculate_percentile(self: typing.Self, ratios: list[float], percentile: float) -> float:
+        """
+        Calculate a percentile from a list of ratios.
+
+        Args:
+            ratios: List of ratio values
+            percentile: Percentile to calculate (0-100)
+
+        Returns:
+            The percentile value
+
+        Raises:
+            ValueError: If percentile is outside the range [0, 100]
+        """
+        if not (0 <= percentile <= 100):
+            raise ValueError(f"percentile must be in range [0, 100], got {percentile}")
+
+        if len(ratios) == 0:
+            return 0.0
+
+        sorted_ratios = sorted(ratios)
+        k = (len(sorted_ratios) - 1) * (percentile / 100.0)
+        f = math.floor(k)
+        c = math.ceil(k)
+
+        if f == c:
+            return sorted_ratios[int(k)]
+
+        # Linear interpolation between values
+        d0 = sorted_ratios[int(f)] * (c - k)
+        d1 = sorted_ratios[int(c)] * (k - f)
+        return d0 + d1
+
+    def get_iqr_statistics(self: typing.Self) -> dict[str, float] | None:
+        """
+        Calculate Interquartile Range (IQR) statistics for Model/RTL ratios.
+
+        Returns:
+            Dictionary with Q1, Q2 (median), Q3, IQR, lower_fence, upper_fence
+            or None if insufficient data
+        """
+        ratios = [elem.num_cycles_model_by_rtl for elem in self.s_curve
+                  if (elem.rtl_passed and elem.model_passed and isinstance(elem.num_cycles_model_by_rtl, float))]
+
+        if len(ratios) < 4:  # Need at least 4 points for meaningful IQR
+            return None
+
+        q1 = self.calculate_percentile(ratios, 25.0)
+        q2 = self.calculate_percentile(ratios, 50.0)  # median
+        q3 = self.calculate_percentile(ratios, 75.0)
+        iqr = q3 - q1
+
+        # Standard IQR fences for outlier detection
+        lower_fence = q1 - 1.5 * iqr
+        upper_fence = q3 + 1.5 * iqr
+
+        # Extreme outlier fences
+        lower_fence_extreme = q1 - 3.0 * iqr
+        upper_fence_extreme = q3 + 3.0 * iqr
+
+        return {
+            'q1': q1,
+            'q2': q2,
+            'median': q2,
+            'q3': q3,
+            'iqr': iqr,
+            'lower_fence': lower_fence,
+            'upper_fence': upper_fence,
+            'lower_fence_extreme': lower_fence_extreme,
+            'upper_fence_extreme': upper_fence_extreme,
+            'min': min(ratios),
+            'max': max(ratios),
+            'count': len(ratios)
+        }
+
+    def get_iqr_outliers(self: typing.Self, extreme: bool = False) -> list[SCurveElem]:
+        """
+        Identify outliers using the IQR method.
+
+        Args:
+            extreme: If True, use 3*IQR threshold; if False, use 1.5*IQR threshold
+
+        Returns:
+            List of SCurveElem that are outliers
+        """
+        iqr_stats = self.get_iqr_statistics()
+        if iqr_stats is None:
+            return []
+
+        lower_fence = iqr_stats['lower_fence_extreme'] if extreme else iqr_stats['lower_fence']
+        upper_fence = iqr_stats['upper_fence_extreme'] if extreme else iqr_stats['upper_fence']
+
+        outliers = []
+        for elem in self.s_curve:
+            if elem.rtl_passed and elem.model_passed and isinstance(elem.num_cycles_model_by_rtl, float):
+                if elem.num_cycles_model_by_rtl < lower_fence or elem.num_cycles_model_by_rtl > upper_fence:
+                    outliers.append(elem)
+
+        return outliers
+
+    def get_iqr_summary(self: typing.Self) -> str:
+        """
+        Generate a summary string of IQR statistics and outliers.
+
+        Returns:
+            Formatted string with IQR statistics
+        """
+        iqr_stats = self.get_iqr_statistics()
+        if iqr_stats is None:
+            return "    + IQR Statistics: Insufficient data (need at least 4 valid tests)"
+
+        msg = ""
+        msg += f"    + IQR Statistics (Model/RTL ratios, n={iqr_stats['count']}):\n"
+        msg += f"      - Min: {iqr_stats['min']:.2f}, Q1: {iqr_stats['q1']:.2f}, Median: {iqr_stats['median']:.2f}, Q3: {iqr_stats['q3']:.2f}, Max: {iqr_stats['max']:.2f}\n"
+        msg += f"      - IQR: {iqr_stats['iqr']:.2f}\n"
+        msg += f"      - Outlier fences (1.5*IQR): [{iqr_stats['lower_fence']:.2f}, {iqr_stats['upper_fence']:.2f}]\n"
+        msg += f"      - Extreme outlier fences (3.0*IQR): [{iqr_stats['lower_fence_extreme']:.2f}, {iqr_stats['upper_fence_extreme']:.2f}]\n"
+
+        # Count outliers
+        outliers = self.get_iqr_outliers(extreme=False)
+        extreme_outliers = self.get_iqr_outliers(extreme=True)
+
+        msg += f"      - Outliers (1.5*IQR): {len(outliers)} tests ({len(outliers)/iqr_stats['count']*100:.1f}%)"
+        if len(outliers) > 0:
+            # Sort outliers by ratio for display (most extreme first)
+            sorted_outliers = sorted(outliers, key=lambda x: abs(x.num_cycles_model_by_rtl - 1.0) if isinstance(x.num_cycles_model_by_rtl, float) else 0, reverse=True)
+            msg += "\n"
+            for elem in sorted_outliers:
+                ratio_str = f"{elem.num_cycles_model_by_rtl:.2f}" if isinstance(elem.num_cycles_model_by_rtl, float) else "N/A"
+                msg += f"        * {elem.test_name} (ratio: {ratio_str})\n"
+            msg = msg.rstrip()
+
+        msg += f"\n      - Extreme outliers (3.0*IQR): {len(extreme_outliers)} tests ({len(extreme_outliers)/iqr_stats['count']*100:.1f}%)"
+        if len(extreme_outliers) > 0:
+            # Sort extreme outliers by ratio for display
+            sorted_extreme = sorted(extreme_outliers, key=lambda x: abs(x.num_cycles_model_by_rtl - 1.0) if isinstance(x.num_cycles_model_by_rtl, float) else 0, reverse=True)
+            msg += "\n"
+            for elem in sorted_extreme:
+                ratio_str = f"{elem.num_cycles_model_by_rtl:.2f}" if isinstance(elem.num_cycles_model_by_rtl, float) else "N/A"
+                msg += f"        * {elem.test_name} (ratio: {ratio_str})\n"
+            msg = msg.rstrip()
+
+        return msg
+
+    def get_iqr_outliers_detailed(self: typing.Self, extreme: bool = False, num_white_chars_at_start: int = 0) -> str:
+        """
+        Generate a detailed list of outlier tests.
+
+        Args:
+            extreme: If True, use 3*IQR threshold; if False, use 1.5*IQR threshold
+            num_white_chars_at_start: Indentation for output
+
+        Returns:
+            Formatted string with outlier test details
+        """
+        outliers = self.get_iqr_outliers(extreme=extreme)
+        if len(outliers) == 0:
+            threshold_type = "extreme" if extreme else "standard"
+            return f"{' ' * num_white_chars_at_start}+ No {threshold_type} outliers detected"
+
+        # Sort outliers by absolute deviation from 1.0
+        sorted_outliers = sorted(outliers, key=lambda x: abs(x.num_cycles_model_by_rtl - 1.0) if isinstance(x.num_cycles_model_by_rtl, float) else 0, reverse=True)
+
+        msg = ""
+        threshold_type = "Extreme" if extreme else "Standard"
+        threshold_mult = "3.0" if extreme else "1.5"
+        msg += f"{' ' * num_white_chars_at_start}+ {threshold_type} IQR Outliers ({threshold_mult}*IQR, {len(outliers)} tests):\n"
+
+        # Calculate column widths
+        widths = [0 for _ in range(SCurveElemIndices.num_cycles_model_by_rtl + 1)]
+        widths[SCurveElemIndices.test_name] = max(len(t.test_name) for t in sorted_outliers)
+        widths[SCurveElemIndices.class_name] = max(len(t.class_name) for t in sorted_outliers)
+        widths[SCurveElemIndices.rtl_num_cycles] = max(len(str(t.rtl_num_cycles)) for t in sorted_outliers)
+        widths[SCurveElemIndices.model_num_cycles] = max(len(str(t.model_num_cycles)) for t in sorted_outliers)
+
+        sr_num_max_len = len(str(len(sorted_outliers))) if len(sorted_outliers) > 0 else 1
+        for idx, elem in enumerate(sorted_outliers):
+            msg += f"{' ' * (num_white_chars_at_start + 2)}[{(idx + 1):>{sr_num_max_len}}/{len(sorted_outliers):>{sr_num_max_len}}] {elem.get_s_curve_str(widths=widths)}\n"
+
+        return msg.rstrip()
+
+    def get_absolute_threshold_outliers(self: typing.Self, ratio_threshold: float = 0.5) -> tuple[list[SCurveElem], list[SCurveElem]]:
+        """
+        Identify outliers based on absolute ratio threshold.
+
+        Args:
+            ratio_threshold: Threshold for deviation from 1.0 (default 0.5 for +/-50%)
+
+        Returns:
+            Tuple of (underestimators, overestimators) where:
+            - underestimators: tests where ratio < (1.0 - threshold)
+            - overestimators: tests where ratio > (1.0 + threshold)
+
+        Raises:
+            ValueError: If ratio_threshold is negative
+        """
+        if ratio_threshold < 0:
+            raise ValueError(f"ratio_threshold must be non-negative, got {ratio_threshold}")
+
+        lower_bound = 1.0 - ratio_threshold
+        upper_bound = 1.0 + ratio_threshold
+
+        underestimators = []
+        overestimators = []
+
+        for elem in self.s_curve:
+            if elem.rtl_passed and elem.model_passed and isinstance(elem.num_cycles_model_by_rtl, float):
+                if elem.num_cycles_model_by_rtl < lower_bound:
+                    underestimators.append(elem)
+                elif elem.num_cycles_model_by_rtl > upper_bound:
+                    overestimators.append(elem)
+
+        return (underestimators, overestimators)
+
+    def get_absolute_threshold_summary(self: typing.Self, thresholds: list[float] | None = None) -> str:
+        """
+        Generate summary of absolute threshold outliers.
+
+        Args:
+            thresholds: List of threshold values (default: [0.3, 0.5, 1.0] for +/-30%, +/-50%, +/-100%)
+
+        Returns:
+            Formatted string with absolute threshold statistics
+        """
+        if thresholds is None:
+            thresholds = [0.3, 0.5, 1.0]
+
+        valid_tests = [elem for elem in self.s_curve if (elem.rtl_passed and elem.model_passed and isinstance(elem.num_cycles_model_by_rtl, float))]
+        if len(valid_tests) == 0:
+            return "    + Absolute Threshold Outliers: No valid tests"
+
+        msg = "    + Absolute Threshold Outliers:\n"
+
+        for threshold in thresholds:
+            underest, overest = self.get_absolute_threshold_outliers(threshold)
+            total_outliers = len(underest) + len(overest)
+            pct = total_outliers / len(valid_tests) * 100.0
+
+            msg += f"      - Deviation >{threshold*100:.0f}% from ideal: {total_outliers} tests ({pct:.1f}%)"
+
+            if total_outliers > 0:
+                msg += f" [{len(underest)} under, {len(overest)} over]\n"
+
+                # List tests if there are any
+                if len(underest) > 0:
+                    sorted_under = sorted(underest, key=lambda x: x.num_cycles_model_by_rtl if isinstance(x.num_cycles_model_by_rtl, float) else 0)
+                    for elem in sorted_under:
+                        ratio_str = f"{elem.num_cycles_model_by_rtl:.2f}" if isinstance(elem.num_cycles_model_by_rtl, float) else "N/A"
+                        msg += f"        * {elem.test_name} (ratio: {ratio_str}, underestimates)\n"
+
+                if len(overest) > 0:
+                    sorted_over = sorted(overest, key=lambda x: x.num_cycles_model_by_rtl if isinstance(x.num_cycles_model_by_rtl, float) else 0, reverse=True)
+                    for elem in sorted_over:
+                        ratio_str = f"{elem.num_cycles_model_by_rtl:.2f}" if isinstance(elem.num_cycles_model_by_rtl, float) else "N/A"
+                        msg += f"        * {elem.test_name} (ratio: {ratio_str}, overestimates)\n"
+            else:
+                msg += "\n"
+
+        return msg.rstrip()
+
+    def get_top_n_worst_tests(self: typing.Self, n: int = 10, by_ratio: bool = True) -> list[SCurveElem]:
+        """
+        Get the top N worst-performing tests.
+
+        Args:
+            n: Number of worst tests to return
+            by_ratio: If True, sort by ratio deviation from 1.0; if False, sort by absolute cycle difference
+
+        Returns:
+            List of worst N tests
+        """
+        valid_tests = [elem for elem in self.s_curve if (elem.rtl_passed and elem.model_passed and isinstance(elem.num_cycles_model_by_rtl, float))]
+
+        if len(valid_tests) == 0:
+            return []
+
+        if by_ratio:
+            # Sort by absolute deviation from ideal ratio of 1.0
+            sorted_tests = sorted(valid_tests, key=lambda x: abs(x.num_cycles_model_by_rtl - 1.0) if isinstance(x.num_cycles_model_by_rtl, float) else 0, reverse=True)
+        else:
+            # Sort by absolute cycle difference
+            sorted_tests = sorted(valid_tests,
+                                key=lambda x: abs(x.model_num_cycles - x.rtl_num_cycles) if (isinstance(x.model_num_cycles, int) and isinstance(x.rtl_num_cycles, int)) else 0,
+                                reverse=True)
+
+        return sorted_tests[:n]
+
+    def get_top_n_worst_tests_summary(self: typing.Self, n: int = 10, by_ratio: bool = True) -> str:
+        """
+        Generate summary of top N worst tests.
+
+        Args:
+            n: Number of worst tests to show
+            by_ratio: If True, sort by ratio deviation; if False, sort by absolute cycle difference
+
+        Returns:
+            Formatted string with worst tests
+        """
+        worst_tests = self.get_top_n_worst_tests(n, by_ratio)
+
+        if len(worst_tests) == 0:
+            return f"    + Top {n} Worst Tests: No valid tests"
+
+        metric = "ratio deviation from 1.0" if by_ratio else "absolute cycle difference"
+        msg = f"    + Top {len(worst_tests)} Worst Tests (by {metric}):\n"
+
+        # Calculate column widths
+        widths = [0 for _ in range(SCurveElemIndices.num_cycles_model_by_rtl + 1)]
+        widths[SCurveElemIndices.test_name] = max(len(t.test_name) for t in worst_tests)
+        widths[SCurveElemIndices.class_name] = max(len(t.class_name) for t in worst_tests)
+        widths[SCurveElemIndices.rtl_num_cycles] = max(len(str(t.rtl_num_cycles)) for t in worst_tests)
+        widths[SCurveElemIndices.model_num_cycles] = max(len(str(t.model_num_cycles)) for t in worst_tests)
+
+        sr_num_max_len = len(str(len(worst_tests)))
+
+        for idx, elem in enumerate(worst_tests):
+            if by_ratio:
+                deviation = abs(elem.num_cycles_model_by_rtl - 1.0) if isinstance(elem.num_cycles_model_by_rtl, float) else 0
+                metric_str = f"dev: {deviation:.2f}"
+            else:
+                cycle_diff = abs(elem.model_num_cycles - elem.rtl_num_cycles) if (isinstance(elem.model_num_cycles, int) and isinstance(elem.rtl_num_cycles, int)) else 0
+                metric_str = f"diff: {cycle_diff:,} cycles"
+
+            msg += f"      [{(idx + 1):>{sr_num_max_len}}/{len(worst_tests)}] {elem.get_s_curve_str(widths)} ({metric_str})\n"
+
+        return msg.rstrip()
+
     def get_s_curve_str(self: typing.Self, num_white_chars_at_start: int = 0) -> str:
         prefix = f"{' ' * num_white_chars_at_start}"
-        sr_num_max_len = int(math.ceil(math.log10(len(self.s_curve))) if len(self.s_curve) > 0 else 1)
+        sr_num_max_len = len(str(len(self.s_curve))) if len(self.s_curve) > 0 else 1
         num_tests = len(self.s_curve)
         widths = [0 for _ in range(SCurveElemIndices.num_cycles_model_by_rtl + 1)]
         widths[SCurveElemIndices.test_name]        = max(len(t.test_name) for t in self.s_curve)
@@ -1351,6 +1732,18 @@ class TagStatus:
         msg += self.get_s_curve_str(num_white_chars_at_start=6) + "\n"
         geom_mean = self.get_s_curve_geometric_mean()
         msg += f"    + S-Curve (Model/RTL) geometric mean: {f'{geom_mean:.2f}' if geom_mean is not None else 'N/A'}\n"
+        tolerance_bands = self.s_curve.get_tolerance_bands_summary()
+        if tolerance_bands:
+            msg += tolerance_bands + "\n"
+        iqr_summary = self.s_curve.get_iqr_summary()
+        if iqr_summary:
+            msg += iqr_summary + "\n"
+        abs_threshold_summary = self.s_curve.get_absolute_threshold_summary()
+        if abs_threshold_summary:
+            msg += abs_threshold_summary + "\n"
+        top_n_worst = self.s_curve.get_top_n_worst_tests_summary(n=10, by_ratio=True)
+        if top_n_worst:
+            msg += top_n_worst + "\n"
 
         return msg.rstrip()
 

@@ -667,7 +667,7 @@ The project includes a specialized badge generator for RTL (Register Transfer Le
 
 **Features:**
 - Specialized parser for s-curve format with pipe-delimited test result lines
-- Parses test data between `+ Test class s-curve:` and `+ Saving` markers
+- Parses test data between `+ Test class s-curve:` and `+ S-Curve (Model/RTL) geometric mean` markers
 - Calculates geometric mean of model/RTL cycle ratios for performance analysis
 - Handles failed tests with proper null value processing
 - Color coding for ratio badges: green (±10% of 1.0), red (outside tolerance)
