@@ -921,18 +921,24 @@ class tensixFunc:
 
         assert isaFunctions.getNumBytesFromDataFormat(srcFormat) != None, f"Unsupported format {srcFormat} in {bufferFormatReg}"
         assert isaFunctions.getNumBytesFromDataFormat(dstFormat) != None, f"Unsupported format {dstFormat} in {outFormatReg}"
-        assert ins.getAttr()["Row_Cnt_Enc"] >=0 and ins.getAttr()["Row_Cnt_Enc"]<=5, "Unknown Row_Cnt_Enc value=" + str(ins.getAttr()['Row_Cnt_Enc']) + " for instruction " + ins.getOp()
-        match ins.getAttr()["Row_Cnt_Enc"]:
-            case 0: numDatums = 4 * 16
-            case 1: numDatums = 2 * 16
-            case 2: numDatums = 1 * 16
-            case 3: numDatums = 16//2
-            case 4: numDatums = 16//4
-            case 5: numDatums = 16//8
-            case _:
-                numDatums = 0
-                assert False, "Unhandled Row_Cnt_Enc value=" + str(ins.getAttr()['Row_Cnt_Enc']) + " for instruction " + ins.getOp()
-        if self.debug & 0x8:            print(f"Computed srcSize={isaFunctions.getNumBytesFromDataFormat(srcFormat)}, dstSize={isaFunctions.getNumBytesFromDataFormat(dstFormat)} numDatums={numDatums}")
+
+        if (self.args['llkVersionTag'].group in [0,1]):
+            assert ins.getAttr()["Row_Cnt_Enc"] >=0 and ins.getAttr()["Row_Cnt_Enc"]<=5, "Unknown Row_Cnt_Enc value=" + str(ins.getAttr()['Row_Cnt_Enc']) + " for instruction " + ins.getOp()
+            match ins.getAttr()["Row_Cnt_Enc"]:
+                case 0: numDatums = 4 * 16
+                case 1: numDatums = 2 * 16
+                case 2: numDatums = 1 * 16
+                case 3: numDatums = 16//2
+                case 4: numDatums = 16//4
+                case 5: numDatums = 16//8
+                case _:
+                    numDatums = 0
+                    assert False, "Unhandled Row_Cnt_Enc value=" + str(ins.getAttr()['Row_Cnt_Enc']) + " for instruction " + ins.getOp()
+        else:
+            numDatums = 4 * 16
+
+        if self.debug & 0x8:
+            print(f"Computed srcSize={isaFunctions.getNumBytesFromDataFormat(srcFormat)}, dstSize={isaFunctions.getNumBytesFromDataFormat(dstFormat)} numDatums={numDatums}")
 
         ins.setSrcInt(src)
         ins.setDstInt(dst)
@@ -1255,17 +1261,23 @@ class tensixFunc:
 
         assert isaFunctions.getNumBytesFromDataFormat(srcFormat) != None, f"Unsupported format {srcFormat} in {bufferFormatReg}"
         assert isaFunctions.getNumBytesFromDataFormat(dstFormat) != None, f"Unsupported format {dstFormat} in {outFormatReg}"
-        assert ins.getAttr()["Row_Cnt_Enc"] >=0 and ins.getAttr()["Row_Cnt_Enc"]<=5, "Unknown Row_Cnt_Enc value=" + str(ins.getAttr()['Row_Cnt_Enc']) + " for instruction " + ins.getOp()
-        match ins.getAttr()["Row_Cnt_Enc"]:
-            case 0: numDatums = 4 * 16
-            case 1: numDatums = 2 * 16
-            case 2: numDatums = 1 * 16
-            case 3: numDatums = 16//2
-            case 4: numDatums = 16//4
-            case 5: numDatums = 16//8
-            case _:
-                assert False, "Unhandled Row_Cnt_Enc value=" + str(ins.getAttr()['Row_Cnt_Enc']) + " for instruction " + ins.getOp()
-        if self.debug & 0x8:            print(f"Computed srcSize={isaFunctions.getNumBytesFromDataFormat(srcFormat)}, dstSize={isaFunctions.getNumBytesFromDataFormat(dstFormat)} numDatums={numDatums}")
+
+        if (self.args['llkVersionTag'].group in [0,1]):
+            assert ins.getAttr()["Row_Cnt_Enc"] >=0 and ins.getAttr()["Row_Cnt_Enc"]<=5, "Unknown Row_Cnt_Enc value=" + str(ins.getAttr()['Row_Cnt_Enc']) + " for instruction " + ins.getOp()
+            match ins.getAttr()["Row_Cnt_Enc"]:
+                case 0: numDatums = 4 * 16
+                case 1: numDatums = 2 * 16
+                case 2: numDatums = 1 * 16
+                case 3: numDatums = 16//2
+                case 4: numDatums = 16//4
+                case 5: numDatums = 16//8
+                case _:
+                    assert False, "Unhandled Row_Cnt_Enc value=" + str(ins.getAttr()['Row_Cnt_Enc']) + " for instruction " + ins.getOp()
+        else:
+            numDatums = 4 * 16
+
+        if self.debug & 0x8:
+            print(f"Computed srcSize={isaFunctions.getNumBytesFromDataFormat(srcFormat)}, dstSize={isaFunctions.getNumBytesFromDataFormat(dstFormat)} numDatums={numDatums}")
 
         ins.setSrcInt(src)
         ins.setDstInt(dst)
@@ -2056,7 +2068,7 @@ class tensixFunc:
         for w in waitRsrcAttribList:
             if(w in ins.getAttr()):
                 waitRsrc = ins.getAttr()[w]
-                if(self.args['llkVersionTag'] in ["feb19", "mar18"]):
+                if(0 == self.args['llkVersionTag'].group):
                     match waitRsrc:
                         # case: 0x00: srcPipes.append(0) nada,
                         case 0x01:
@@ -2146,7 +2158,7 @@ class tensixFunc:
         assert "immediates" not in dir(ins.getOperands()) , "Zero Imm expected"
         #TODO: Remove llkVersionTag based code once LLK stabilizes
         #TODO: Check what do we need for WH and BH.
-        if(self.args['llkVersionTag'] in ["feb19", "mar18"]):
+        if(0 == self.args['llkVersionTag'].group):
             assert len(ins.getAttr()) == 4, "Four attribs expected. Received " + str(len(ins.getAttr()))
         else:
             assert len(ins.getAttr()) == 7, "Seven attribs expected. Received " + str(len(ins.getAttr()))
@@ -2236,7 +2248,7 @@ class tensixFunc:
                 dst.append(0);  vldUpd[0] = 0; bankUpd[0] = 0; #srcA
                 src.append(3);  vldUpd[3] = 0; bankUpd[3] = 0; #dst0
             case "MOVD2B":
-                if(self.args['llkVersionTag'] in ["feb19", "mar18"]):
+                if(0 == self.args['llkVersionTag'].group):
                     assert len(ins.getAttr()) == 5, "Five attribs expected. Received " + str(len(ins.getAttr()))
                 else:
                     assert len(ins.getAttr()) == 6, "Six attribs expected. Received " + str(len(ins.getAttr()))
@@ -2483,25 +2495,147 @@ class tensixFunc:
         if ins.getOp() not in allowedMnemonics:
             raise Exception(f"- error: given mnemonic {ins.getOp()} is not part of mnemonics with operands with tag SFPU_MATHI12")
 
-        expectedAttribs = ['instr_mod1', 'lreg_dest', 'lreg_c', 'imm12_math']
-        assert len(ins.getAttr()) == len(expectedAttribs), f"@__execSFPU_MATHI12__: {len(expectedAttribs)} attribs expected. Received {len(ins.getAttr())}, instruction: {ins}."
-        assert sorted(expectedAttribs) == sorted(list(ins.operands.attributes.keys())), f"@__execSFPU_MATHI12__: attributes mismatch. expected attributes: {sorted(expectedAttribs)}, received: {sorted(list(ins.operands.attributes.keys()))}."
+        def _validate_and_advance(expected_attribs: list[str]):
+            actual_attribs = list(ins.operands.attributes.keys()) if hasattr(ins, 'operands') and hasattr(ins.operands, 'attributes') else []
+            assert sorted(expected_attribs) == sorted(actual_attribs), f"@__execSFPU_MATHI12__: attributes mismatch. expected attributes: {sorted(expected_attribs)}, received: {sorted(actual_attribs)}."
+            return ins.getRelAddr() + 4
 
-        nextRelAddr = ins.getRelAddr() + 4
-        return nextRelAddr
+        # For tags in groups 0 and 1, legacy arg layout applies
+        if (self.args['llkVersionTag'].group in [0,1]):
+            return _validate_and_advance(['instr_mod1', 'lreg_dest', 'lreg_c', 'imm12_math'])
 
-    def __execSFPU_MATH__(self,ins):
+        # Group 2 (nov17): per-mnemonic argument layouts
+        op = ins.getOp()
+        if op in ['SFPCOMPC', 'SFPTRANSP']:
+            return _validate_and_advance([])
+        if op in ['SFPPOPC', 'SFPPUSHC']:
+            return _validate_and_advance(['instr_mod1'])
+        if op == 'SFPENCC':
+            return _validate_and_advance(['instr_mod1', 'imm12_math'])
+        if op == 'SFPSETCC':
+            return _validate_and_advance(['instr_mod1', 'lreg_c', 'imm12_math'])
+        if op in ['SFPDIVP2', 'SFPGT', 'SFPIADD', 'SFPLE', 'SFPSETEXP', 'SFPSETMAN', 'SFPSETSGN', 'SFPSHFT']:
+            return _validate_and_advance(['instr_mod1', 'lreg_dest', 'lreg_c', 'imm12_math'])
+        if op in ['SFPABS', 'SFPEXEXP', 'SFPEXMAN', 'SFPLZ', 'SFPMOV']:
+            return _validate_and_advance(['instr_mod1', 'lreg_dest', 'lreg_c'])
+        if op in ['SFPAND', 'SFPNOT', 'SFPOR', 'SFPXOR']:
+            return _validate_and_advance(['lreg_dest', 'lreg_c'])
+
+        print(f"WARNING: in function __execSFPU_MATHI12__, advancing pc without any checks. instruction: {ins}")
+        # Fallback
+        return ins.getRelAddr() + 4
+
+    # Individual wrappers for SFPU_MATHI12 mnemonics (dispatching to the common validator).
+    def __execSFPABS__(self, ins):
+        return self.__execSFPU_MATHI12__(ins)
+
+    def __execSFPAND__(self, ins):
+        return self.__execSFPU_MATHI12__(ins)
+
+    def __execSFPARECIP__(self, ins):
+        return self.__execSFPU_MATHI12__(ins)
+
+    def __execSFPCOMPC__(self, ins):
+        return self.__execSFPU_MATHI12__(ins)
+
+    def __execSFPDIVP2__(self, ins):
+        return self.__execSFPU_MATHI12__(ins)
+
+    def __execSFPENCC__(self, ins):
+        return self.__execSFPU_MATHI12__(ins)
+
+    def __execSFPEXEXP__(self, ins):
+        return self.__execSFPU_MATHI12__(ins)
+
+    def __execSFPEXMAN__(self, ins):
+        return self.__execSFPU_MATHI12__(ins)
+
+    def __execSFPGT__(self, ins):
+        return self.__execSFPU_MATHI12__(ins)
+
+    def __execSFPIADD__(self, ins):
+        return self.__execSFPU_MATHI12__(ins)
+
+    def __execSFPLE__(self, ins):
+        return self.__execSFPU_MATHI12__(ins)
+
+    def __execSFPLZ__(self, ins):
+        return self.__execSFPU_MATHI12__(ins)
+
+    def __execSFPMOV__(self, ins):
+        return self.__execSFPU_MATHI12__(ins)
+
+    def __execSFPNOT__(self, ins):
+        return self.__execSFPU_MATHI12__(ins)
+
+    def __execSFPOR__(self, ins):
+        return self.__execSFPU_MATHI12__(ins)
+
+    def __execSFPPOPC__(self, ins):
+        return self.__execSFPU_MATHI12__(ins)
+
+    def __execSFPPUSHC__(self, ins):
+        return self.__execSFPU_MATHI12__(ins)
+
+    def __execSFPSETCC__(self, ins):
+        return self.__execSFPU_MATHI12__(ins)
+
+    def __execSFPSETEXP__(self, ins):
+        return self.__execSFPU_MATHI12__(ins)
+
+    def __execSFPSETMAN__(self, ins):
+        return self.__execSFPU_MATHI12__(ins)
+
+    def __execSFPSETSGN__(self, ins):
+        return self.__execSFPU_MATHI12__(ins)
+
+    def __execSFPSHFT__(self, ins):
+        return self.__execSFPU_MATHI12__(ins)
+
+    def __execSFPTRANSP__(self, ins):
+        return self.__execSFPU_MATHI12__(ins)
+
+    def __execSFPXOR__(self, ins):
+        return self.__execSFPU_MATHI12__(ins)
+
+    def __execSFPU_MATH__(self, ins):
         allowedMnemonics = ['SFPADD', 'SFPMAD', 'SFPMUL', 'SFPMUL24']
-        expectedAttribs = ['instr_mod1', 'lreg_dest', 'lreg_src_c', 'lreg_src_b', 'lreg_src_a']
 
         if ins.getOp() not in allowedMnemonics:
             raise Exception(f"- error: given mnemonic {ins.getOp()} is not part of mnemonics with operands with tag SFPU_MATH")
 
-        assert len(ins.getAttr()) == len(expectedAttribs), f"@__execSFPU_MATH__: {len(expectedAttribs)} attribs expected. Received {len(ins.getAttr())}, instruction: {ins}."
-        assert sorted(expectedAttribs) == sorted(list(ins.operands.attributes.keys())), f"@__execSFPU_MATH__: attributes mismatch. expected attributes: {sorted(expectedAttribs)}, received: {sorted(list(ins.operands.attributes.keys()))}."
+        def _validate_and_advance(expected_attribs: list[str]):
+            actual_attribs = list(ins.operands.attributes.keys()) if hasattr(ins, 'operands') and hasattr(ins.operands, 'attributes') else []
+            assert sorted(expected_attribs) == sorted(actual_attribs), f"@__execSFPU_MATH__: attributes mismatch. expected attributes: {sorted(expected_attribs)}, received: {sorted(actual_attribs)}."
+            return ins.getRelAddr() + 4
 
-        nextRelAddr = ins.getRelAddr() + 4
-        return nextRelAddr
+        # For tags in groups 0 and 1, legacy arg layout applies
+        if (self.args['llkVersionTag'].group in [0,1]):
+            return _validate_and_advance(['instr_mod1', 'lreg_dest', 'lreg_src_c', 'lreg_src_b', 'lreg_src_a'])
+
+        # Group 2 (nov17): per-mnemonic argument layouts
+        op = ins.getOp()
+        if op in ['SFPADD', 'SFPMAD', 'SFPMUL']:
+            return _validate_and_advance(['instr_mod1', 'lreg_a', 'lreg_b', 'lreg_c', 'lreg_dest'])
+        if op == 'SFPMUL24':
+            return _validate_and_advance(['instr_mod1', 'lreg_a', 'lreg_b', 'lreg_dest'])
+
+        print(f"WARNING: in function __execSFPU_MATH__, advancing pc without any checks. instruction: {ins}")
+        # Fallback
+        return ins.getRelAddr() + 4
+
+    # Individual wrappers for SFPU_MATH mnemonics (dispatching to the common validator).
+    def __execSFPADD__(self, ins):
+        return self.__execSFPU_MATH__(ins)
+
+    def __execSFPMAD__(self, ins):
+        return self.__execSFPU_MATH__(ins)
+
+    def __execSFPMUL__(self, ins):
+        return self.__execSFPU_MATH__(ins)
+
+    def __execSFPMUL24__(self, ins):
+        return self.__execSFPU_MATH__(ins)
 
     def __execsfpnop__(self, ins):
         assert "SFPNOP" == ins.getOp(), "Expected opcode SFPNOP. Received " + str(ins.getOp())
@@ -2799,10 +2933,34 @@ class tensixFunc:
             case "INC_SRC_TILE_FACE_ROW_IDX":
                                         nextAddr            = self.__execsrctilefacerowi__(ins)
             case "REPLAY":              nextAddr            = self.__execreplay__(ins, cycle)
-            case "SFPABS" | "SFPAND" | "SFPARECIP" | "SFPCOMPC" | "SFPDIVP2" | "SFPENCC" | "SFPEXEXP" | "SFPEXMAN" | "SFPGT" | "SFPIADD" | "SFPLE" | "SFPLZ" | "SFPMOV" | "SFPNOT" | "SFPOR" | "SFPPOPC" | "SFPPUSHC" | "SFPSETCC" | "SFPSETEXP" | "SFPSETMAN" | "SFPSETSGN" | "SFPSHFT" | "SFPTRANSP" | "SFPXOR":
-                                        nextAddr            = self.__execSFPU_MATHI12__(ins)
-            case "SFPADD" | "SFPMAD" | "SFPMUL" | "SFPMUL24":
-                                        nextAddr            = self.__execSFPU_MATH__(ins)
+            case "SFPABS":              nextAddr            = self.__execSFPABS__(ins)
+            case "SFPAND":              nextAddr            = self.__execSFPAND__(ins)
+            case "SFPARECIP":           nextAddr            = self.__execSFPARECIP__(ins)
+            case "SFPCOMPC":            nextAddr            = self.__execSFPCOMPC__(ins)
+            case "SFPDIVP2":            nextAddr            = self.__execSFPDIVP2__(ins)
+            case "SFPENCC":             nextAddr            = self.__execSFPENCC__(ins)
+            case "SFPEXEXP":            nextAddr            = self.__execSFPEXEXP__(ins)
+            case "SFPEXMAN":            nextAddr            = self.__execSFPEXMAN__(ins)
+            case "SFPGT":               nextAddr            = self.__execSFPGT__(ins)
+            case "SFPIADD":             nextAddr            = self.__execSFPIADD__(ins)
+            case "SFPLE":               nextAddr            = self.__execSFPLE__(ins)
+            case "SFPLZ":               nextAddr            = self.__execSFPLZ__(ins)
+            case "SFPMOV":              nextAddr            = self.__execSFPMOV__(ins)
+            case "SFPNOT":              nextAddr            = self.__execSFPNOT__(ins)
+            case "SFPOR":               nextAddr            = self.__execSFPOR__(ins)
+            case "SFPPOPC":             nextAddr            = self.__execSFPPOPC__(ins)
+            case "SFPPUSHC":            nextAddr            = self.__execSFPPUSHC__(ins)
+            case "SFPSETCC":            nextAddr            = self.__execSFPSETCC__(ins)
+            case "SFPSETEXP":           nextAddr            = self.__execSFPSETEXP__(ins)
+            case "SFPSETMAN":           nextAddr            = self.__execSFPSETMAN__(ins)
+            case "SFPSETSGN":           nextAddr            = self.__execSFPSETSGN__(ins)
+            case "SFPSHFT":             nextAddr            = self.__execSFPSHFT__(ins)
+            case "SFPTRANSP":           nextAddr            = self.__execSFPTRANSP__(ins)
+            case "SFPXOR":              nextAddr            = self.__execSFPXOR__(ins)
+            case "SFPADD":              nextAddr            = self.__execSFPADD__(ins)
+            case "SFPMAD":              nextAddr            = self.__execSFPMAD__(ins)
+            case "SFPMUL":              nextAddr            = self.__execSFPMUL__(ins)
+            case "SFPMUL24":            nextAddr            = self.__execSFPMUL24__(ins)
             case "PUSH_TILES":          nextAddr            = self.__execpushtiles__(ins, cycle)
             case "POP_TILES":           nextAddr            = self.__execpoptiles__(ins, cycle)
             case "WAIT_TILES":          nextAddr            = self.__execwaittiles__(ins, cycle)

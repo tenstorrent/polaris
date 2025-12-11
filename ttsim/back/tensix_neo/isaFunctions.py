@@ -8,7 +8,7 @@ import sys
 import copy
 import typing
 
-from enum import IntFlag, auto, IntEnum
+from enum import IntFlag, auto, IntEnum, Enum
 
 # sys.path.append('./binutils-playground/py')
 # from instructions import decode_instruction
@@ -42,6 +42,24 @@ class regIndex(IntEnum):
 class valueStatus(IntEnum):
     IGNORE = -2
     UNSET = -1
+
+class TTQSTags(str, Enum):
+    feb19 = "feb19"
+    mar18 = "mar18"
+    jul1  = "jul1"
+    jul27 = "jul27"
+    sep23 = "sep23"
+    nov17 = "nov17"
+
+    @property
+    def group(self): 
+        # each group here represents a instruction_set which is more or less similar for tags within a group.
+        if self in (self.feb19, self.mar18):
+            return 0
+        elif self in (self.jul1, self.jul27, self.sep23):
+            return 1
+        else:
+            return 2
 
 class instr(decoded_instruction.decoded_instruction, decoded_instruction.operands):
     def __init__(self, source= None):
