@@ -43,7 +43,7 @@ class valueStatus(IntEnum):
     IGNORE = -2
     UNSET = -1
 
-class instr(decoded_instruction.decoded_instruction, decoded_instruction.operands):
+class instr(decoded_instruction.decoded_instruction):
     def __init__(self, source= None):
         self.addr                           = -1
         self.coreId                         = -1
@@ -51,7 +51,6 @@ class instr(decoded_instruction.decoded_instruction, decoded_instruction.operand
         self.insId                          = -1
         self.pipeDelay                      = -1
         self.exPipe                         = None
-        self.operands                       = decoded_instruction.operands()
         self.vldUpdMask                     = {}
         self.bankUpdMask                    = {}
         self.condChkVldUpdVal               = {}
@@ -152,7 +151,8 @@ class instr(decoded_instruction.decoded_instruction, decoded_instruction.operand
         return {}
 
     def getOperands(self):
-        return self.operands
+        if hasattr(self, 'operands'):
+            return self.operands
 
     def getImm(self):
         if "immediates" in dir(self.getOperands()):
