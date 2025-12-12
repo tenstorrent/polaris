@@ -8,8 +8,14 @@ sys.path.append(os.path.join(os.path.dirname(__file__), '../../..'))
 import ttsim.front.ttnn as ttnn
 from workloads.ttnn.llama3.model import Transformer
 from workloads.ttnn.llama3.model_config import ModelArgs
+from ttsim.front.ttnn.device import Device as TTNNDevice
 
-def test_model_inference(model_name: str = "llama3-8B"):
+def run_llama3(wlname: str, ttnn_device: TTNNDevice, cfg: dict):
+    assert isinstance(ttnn_device, TTNNDevice), "ttnn_device must be a TTNNDevice"
+    assert isinstance(cfg, dict), "cfg must be a dictionary"
+    assert isinstance(wlname, str), "wlname must be a string"
+
+    model_name = cfg.get('model_name', 'llama3-8B')
     paged_attention = False
     page_params = {"page_block_size": 32, "page_max_num_blocks": 1024}
     optimizations = None
@@ -24,8 +30,6 @@ def test_model_inference(model_name: str = "llama3-8B"):
     elif model_name == "llama3-70B":
         num_layers = 80
 
-    mesh_device = ttnn.open_device(device_id=0)
-
     dtype = ttnn.bfloat8_b
     batch_size = 1  # For prefill we only support batch_size = 1
 
@@ -38,7 +42,7 @@ def test_model_inference(model_name: str = "llama3-8B"):
     logger.info(f"Loading TT model...")
 
     tt_model_args = ModelArgs(
-        mesh_device,
+        ttnn_device,
         model_name=model_name,
         instruct=instruct,
         max_batch_size=batch_size,
@@ -52,14 +56,14 @@ def test_model_inference(model_name: str = "llama3-8B"):
 
     model = Transformer(
         args=tt_model_args,
-        mesh_device=mesh_device,
+        mesh_device=ttnn_device,
         dtype=dtype,
         state_dict=state_dict,
         weight_cache_path=tt_model_args.weight_cache_path(dtype),
         paged_attention_config=paged_attention_config,
     )
 
-    encoded_prompt_tensor = ttnn._rand(shape=[batch_size, seq_len], device=mesh_device, dtype=ttnn.int32)
+    encoded_prompt_tensor = ttnn._rand(shape=[batch_size, seq_len], device=ttnn_device, dtype=ttnn.int32)
     print(f'encoded prompt tensor shape is {encoded_prompt_tensor.shape}')
     # tt_prefill_input = encoded_prompt_tensor.unsqueeze(0)
     tt_prefill_input = encoded_prompt_tensor
@@ -67,8 +71,8 @@ def test_model_inference(model_name: str = "llama3-8B"):
 
     bsz, head_dim, _, last_dim = model.rope_setup.cos_matrix.shape
     S = tt_prefill_input.shape[-1]
-    model.rope_setup.cos_matrix = ttnn._rand(shape=[bsz, head_dim, S, last_dim], device=mesh_device, dtype=ttnn.float32)
-    model.rope_setup.sin_matrix = ttnn._rand(shape=[bsz, head_dim, S, last_dim], device=mesh_device, dtype=ttnn.float32)
+    model.rope_setup.cos_matrix = ttnn._rand(shape=[bsz, head_dim, S, last_dim], device=ttnn_device, dtype=ttnn.float32)
+    model.rope_setup.sin_matrix = ttnn._rand(shape=[bsz, head_dim, S, last_dim], device=ttnn_device, dtype=ttnn.float32)
 
     tt_rot_mats_prefill = [
         model.rope_setup.cos_matrix, # [:, :, start_pos : start_pos + S, :],
@@ -91,11 +95,12 @@ def test_model_inference(model_name: str = "llama3-8B"):
     else:
         print(f'Output shape is incorrect. It is {tt_output_torch.shape}. Should have been [1, 1, {seq_len}, 128256]')
 
-    logger.info(f"Finished running TT model.")
+    logger.info(f"Finished running TT model {model_name}.")
 
 if __name__ == "__main__":
     if len(sys.argv) > 1:
         model_name = sys.argv[1]
     else:
         model_name = "llama3-3B"
-    test_model_inference(model_name=model_name)
+    ttnn_device = ttnn.open_device(device_id=0)
+    run_llama3(wlname='llama3', ttnn_device=ttnn_device, cfg={'model_name': model_name})

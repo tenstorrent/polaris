@@ -119,6 +119,8 @@ def run_llama3(wlname: str, ttnn_device: TTNNDevice, cfg: dict):
             logger.info(f'tt_output_torch is correctly shaped: {tt_output_torch.shape}')
         else:
             logger.info(f'tt_output_torch is incorrectly shaped: {tt_output_torch.shape}')
+
+        logger.info(f"Finished running TT model {model_name}.")
         
         ttnn.deallocate(tt_out)
     # print("Generating Model Graph...")

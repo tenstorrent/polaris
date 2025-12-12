@@ -136,10 +136,18 @@ workloads:
     module : test_vgg_unet@ttnn_vgg_unet.py
     instances:
       vgg_unet_test: { bs: 1}
+
   - api: TTNN
-    name: llama3
+    name: llama3_decode
     basedir: workloads/ttnn/llama3
-    module : run_llama3@test_llama3.py
+    module : run_llama3@test_llama3_decode.py
+    instances:
+      llama3_8b: { bs: 1, model_name: llama3-8B }
+
+  - api: TTNN
+    name: llama3_prefill
+    basedir: workloads/ttnn/llama3
+    module : run_llama3@test_llama3_prefill.py
     instances:
       llama3_8b: { bs: 1, model_name: llama3-8B }
 
