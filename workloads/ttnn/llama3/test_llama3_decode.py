@@ -115,7 +115,7 @@ def run_llama3(wlname: str, ttnn_device: TTNNDevice, cfg: dict):
         )
         tt_output_torch = ttnn.permute(ttnn.to_torch(tt_out), (1, 2, 0, 3)).squeeze(2)#[: model_args.max_batch_size, 0:1, : model_args.vocab_size]
         
-        if (tt_output_torch.shape == [1, 32, 128256]): # 128256 is the vocab_size for llama3 8B and llama3 3B, 1B
+        if (tt_output_torch.shape == [1, 1, 128256]): # 128256 is the vocab_size for llama3 8B and llama3 3B, 1B
             logger.info(f'tt_output_torch is correctly shaped: {tt_output_torch.shape}')
         else:
             logger.info(f'tt_output_torch is incorrectly shaped: {tt_output_torch.shape}')
