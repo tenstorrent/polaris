@@ -30,8 +30,8 @@ def test_arspec_config():
     assert gddr6.peak_bandwidth() == 80
     q1a1 = packages['Q1_A1']
     q1a1.set_frequency(1000)
-    assert q1a1.peak_ipc('matrix', 'mac', 'fp16') == 65536
-    assert q1a1.peak_flops('matrix', 'mac', 'fp16') == 65.536
+    assert q1a1.peak_ipc('matrix', 'mac', 'fp16') == 262144
+    assert q1a1.peak_flops('matrix', 'mac', 'fp16') == 262.144
     assert q1a1.ramp_penalty() == 50
     assert q1a1.frequency('matrix') == 1000
     assert q1a1.mem_size() == 32
