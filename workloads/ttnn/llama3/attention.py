@@ -135,14 +135,9 @@ class Attention():
 
         qkv_list = []
         for i in range(self.num_devices_per_group):
-            wq_selected = ttnn._rand((self.head_dim * self.n_heads, self.hidden_size), device=self.mesh_device, dtype=ttnn.bfloat16)
-            wk_selected = ttnn._rand((self.head_dim * self.n_kv_heads, self.hidden_size), device=self.mesh_device, dtype=ttnn.bfloat16)
-            wv_selected = ttnn._rand((self.head_dim * self.n_kv_heads, self.hidden_size), device=self.mesh_device, dtype=ttnn.bfloat16)
-
-            # Transpose the selected chunks
-            wq = ttnn.transpose(wq_selected, -2, -1)
-            wk = ttnn.transpose(wk_selected, -2, -1)
-            wv = ttnn.transpose(wv_selected, -2, -1)
+            wq = ttnn._rand((self.hidden_size, self.head_dim * self.n_heads), device=self.mesh_device, dtype=ttnn.bfloat16)
+            wk = ttnn._rand((self.hidden_size, self.head_dim * self.n_kv_heads), device=self.mesh_device, dtype=ttnn.bfloat16)
+            wv = ttnn._rand((self.hidden_size, self.head_dim * self.n_kv_heads), device=self.mesh_device, dtype=ttnn.bfloat16)
 
             qkv = ttnn.cat([wq, wk, wv], dim=-1)
             qkv_list.append(qkv)
@@ -166,7 +161,7 @@ class Attention():
 
         self.use_fused_all_gather_matmul = False #self.model_config["USE_FUSED_ALL_GATHER_MATMUL"]
         wo_str_weight = ttnn._rand((self.hidden_size, self.hidden_size), device=self.mesh_device, dtype=ttnn.bfloat16)
-        pt_wo = ttnn.transpose(wo_str_weight, -1, -2).unsqueeze(0).unsqueeze(0)
+        pt_wo = wo_str_weight.unsqueeze(0).unsqueeze(0)
         wo_mem_config = None
 
         self.wo = ttnn.as_tensor(
