@@ -72,7 +72,7 @@ def check_args(args):
 def apply_filter(L, filter_csv_str, get_param_func):
     if filter_csv_str is not None:
         filter_fields = filter_csv_str.split(',')
-        L = [x for x in L if get_param_func(x) in filter_fields]
+        L = [x for x in L if get_param_func(x).upper() in [f.upper() for f in filter_fields]]
     return L
 
 def get_wlgraph(TBL, wlg, wln, wli, gcfg, wpath, enable_memalloc):
@@ -232,7 +232,10 @@ def get_devices(devspec, fsweep, filterarch):
         device_list = [(d,None) for d in devs]
     devlist = sorted(apply_filter(device_list, filterarch, lambda x: x[0]))
 
-    INFO('reading device specification {}: found {:4d} #devices', devspec, len(devs))
+    if (len(devlist) == 0):
+        WARNING("Device specification is unknown!")
+    else:
+        INFO('reading device specification {}: found {:4d} #devices', devspec, len(devlist))
     if fsweep.check():
         INFO('reading frequency sweep {}: found {:4d} #frequencies', " "*26, len(fsweep.getvals()))
     return devlist, devs
@@ -257,7 +260,10 @@ def get_workloads(wlspec, bsweep, filterwlg, filterwl, filterwli):
     wl_list = sorted(wl_list)
     num_batches   = len(bsweep.getvals()) if bsweep.check() else 1
     num_workloads = len(wl_list) // num_batches
-    INFO('reading workloads specification {}: found {:4d} #workloads', wlspec, num_workloads)
+    if num_workloads == 0:
+        WARNING('Number of workloads is 0 - no workloads to run')
+    else:
+        INFO('reading workloads specification {}: found {:4d} #workloads', wlspec, num_workloads)
     if bsweep.check():
         INFO('reading batch sweep                   : found {} #batch-sizes', num_batches)
     return wl_list, workload_specs
