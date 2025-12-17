@@ -232,15 +232,18 @@ class Device:
 
             if op.fused_op_cycles is None:
                 compute_cycles = op.compute_cycles
-                mem_cycles     = op.mem_rd_cycles + op.mem_wr_cycles
+                mem_rd_cycles  = op.mem_rd_cycles
+                mem_wr_cycles  = op.mem_wr_cycles
                 matrix_cycles  = op.compute_cycles if op.uses_compute_pipe == 'matrix' else 0
                 vector_cycles  = op.compute_cycles if op.uses_compute_pipe == 'vector' else 0
             else:
                 compute_cycles = op.fused_op_cycles['compute_cycles']
-                mem_cycles     = op.fused_op_cycles['mem_rd_cycles'] + op.fused_op_cycles['mem_wr_cycles']
+                mem_rd_cycles  = op.fused_op_cycles['mem_rd_cycles']
+                mem_wr_cycles  = op.fused_op_cycles['mem_wr_cycles']
                 matrix_cycles  = op.fused_op_cycles['matrix_cycles']
                 vector_cycles  = op.fused_op_cycles['vector_cycles']
 
+            mem_cycles       = mem_rd_cycles + mem_wr_cycles
             ramp_penalty     = self.simconfig_obj.ramp_penalty()
             dev_freq_MHz     = self.simconfig_obj.frequency(op.uses_compute_pipe, units='MHz')
             ideal_cycles     = max(compute_cycles, mem_cycles) + ramp_penalty
@@ -251,10 +254,10 @@ class Device:
             assert ideal_cycles > 0, f"Error: ideal_cycles = {ideal_cycles}!!"
             assert ideal_msecs > 0, f"Error: ideal_msecs = {ideal_msecs}!!"
 
-            matrix_pipe_util = matrix_cycles/ideal_cycles * self.DG_COMPUTE_UTIL_CONSTANT
-            vector_pipe_util = vector_cycles/ideal_cycles * self.DG_COMPUTE_UTIL_CONSTANT
-            mem_rd_util      = op.mem_rd_cycles / ideal_cycles * self.DG_MEMORY_UTIL_CONSTANT
-            mem_wr_util      = op.mem_wr_cycles / ideal_cycles * self.DG_MEMORY_UTIL_CONSTANT
+            matrix_pipe_util = matrix_cycles / ideal_cycles * self.DG_COMPUTE_UTIL_CONSTANT
+            vector_pipe_util = vector_cycles / ideal_cycles * self.DG_COMPUTE_UTIL_CONSTANT
+            mem_rd_util      = mem_rd_cycles / ideal_cycles * self.DG_MEMORY_UTIL_CONSTANT
+            mem_wr_util      = mem_wr_cycles / ideal_cycles * self.DG_MEMORY_UTIL_CONSTANT
 
             # Flag errors and raise exceptions if utilization > 1.0
             if matrix_pipe_util > 1.0:
