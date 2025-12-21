@@ -6,8 +6,9 @@ import copy
 import pickle
 from enum import Enum, auto
 from functools import lru_cache
-from typing import Set
+from typing import TYPE_CHECKING, Any, Set, TypeVar
 
+import numpy
 import yaml
 from loguru import logger
 from pydantic import BaseModel
@@ -16,11 +17,16 @@ from ttsim.config import TTSimHLWlDevRunPerfStats
 from ttsim.utils.common import print_csv
 from ttsim.utils.types import get_bpe, get_sim_dtype
 
+BaseModel_SubType = TypeVar('BaseModel_SubType', bound=BaseModel)
+
 LOG     = logger
 INFO    = LOG.info
 DEBUG   = LOG.debug
 ERROR   = LOG.error
 WARNING = LOG.warning
+
+# Threshold for numpy array size to determine truncation in logging/output
+NUMPY_ARRAY_SIZE_THRESHOLD = 100
 
 class OutputFormat(Enum):
     FMT_NONE = auto()
@@ -37,6 +43,64 @@ class OutputFormat(Enum):
     def cname(self)->str:
         return self.name.replace('FMT_', '').lower()
 
+def process_numpy_attr(v: numpy.ndarray, op_index: int, opstats: Any, k: str) -> None:
+    """Process a numpy array attribute for JSON serialization.
+
+    Converts numpy arrays to descriptive strings containing shape, dtype, and value
+    information (truncated for large arrays as needed)
+
+    Args:
+        v: The numpy array to process.
+        op_index: The index of the operator in the model.
+        opstats: The operator statistics object containing the attribute.
+        k: The key of the attribute in opstats.attrs.
+    """
+    # Truncate large arrays for logging
+    if v.size > NUMPY_ARRAY_SIZE_THRESHOLD:
+        truncated = numpy.array2string(v, threshold=10, edgeitems=3)
+        value_for_output = f"shape={v.shape}, dtype={v.dtype}, truncated: {truncated}"
+    else:
+        value_for_output = f"shape={v.shape}, dtype={v.dtype}, value={v.tolist()}"
+    if opstats.optype in ['Constant', 'ConstantOfShape']:
+        logger.warning(
+            f"Unexpected numpy.ndarray value for operator op#{op_index} "
+            f"(opname {opstats.opname}, optype {opstats.optype}): {k} = {value_for_output}"
+        )
+    opstats.attrs[k] = value_for_output
+
+def prepare_model_for_json(model: BaseModel_SubType) -> BaseModel_SubType:
+    """Prepare a Pydantic model for JSON serialization by handling numpy arrays.
+
+    Checks for numpy arrays in operatorstats attributes and creates a deep copy
+    if any are found to avoid mutating the original model. Then processes each
+    numpy array to make it JSON-serializable.
+
+    Args:
+        model: The Pydantic BaseModel to prepare.
+
+    Returns:
+        The prepared model (original or deep copy) with numpy arrays converted.
+    """
+    if not hasattr(model, 'operatorstats'):
+        return model
+    has_numpy_arrays = any(
+        isinstance(v, numpy.ndarray)
+        for opstats in model.operatorstats
+        if hasattr(opstats, 'attrs')
+        for v in opstats.attrs.values()
+    )
+    if not has_numpy_arrays:
+        return model
+    model_to_dump = copy.deepcopy(model)
+    if TYPE_CHECKING:
+        assert hasattr(model_to_dump, 'operatorstats')
+    for op_index, opstats in enumerate(model_to_dump.operatorstats):
+        if hasattr(opstats, 'attrs'):
+            for k, v in opstats.attrs.items():
+                if isinstance(v, numpy.ndarray):
+                    process_numpy_attr(v, op_index, opstats, k)
+    return model_to_dump
+
 def save_data(model: BaseModel, filename, outputfmt: OutputFormat)->None:
     if outputfmt == OutputFormat.FMT_NONE:
         return
@@ -46,8 +110,12 @@ def save_data(model: BaseModel, filename, outputfmt: OutputFormat)->None:
             # Dumping model.model_dump without parentheses would dump the method object itself.
             yaml.dump(model.model_dump(), fout, indent=4, Dumper=yaml.CDumper)
     elif outputfmt == OutputFormat.FMT_JSON:
+        # Handle any numpy arrays in attrs by converting to lists
+        # This is needed because pydantic's model_dump_json does not
+        # automatically convert numpy arrays to JSON-serializable types
+        model_to_dump = prepare_model_for_json(model)
         with open(filename, 'w') as fout:
-            print(model.model_dump_json(indent=4), file=fout)
+            print(model_to_dump.model_dump_json(indent=4), file=fout)
     elif outputfmt == OutputFormat.FMT_PICKLE:
         with open(filename, 'wb') as foutbin:
             pickle.dump(model, foutbin)
