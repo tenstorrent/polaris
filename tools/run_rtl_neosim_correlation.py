@@ -1833,6 +1833,322 @@ class TagStatus:
 
     def __repr__(self) -> str:
         return self.__str__()
+class MultiTagComparison:
+    """Compare S-Curve data across multiple RTL tags."""
+
+    def __init__(self, tag_statuses: list[TagStatus]):
+        """
+        Initialize multi-tag comparison.
+
+        Args:
+            tag_statuses: List of TagStatus objects (requires at least 2)
+        """
+        if len(tag_statuses) < 2:
+            raise ValueError(f"Multi-tag comparison requires at least 2 tags, got {len(tag_statuses)}")
+
+        self.tag_statuses = tag_statuses
+        self.tags = [ts.rtl_tag for ts in tag_statuses]
+
+        # Build test name to s_curve_elem mapping for each tag
+        self.tag_test_data: dict[str, dict[str, SCurveElem]] = {}
+        for ts in tag_statuses:
+            self.tag_test_data[ts.rtl_tag] = {elem.test_name: elem for elem in ts.s_curve.s_curve}
+
+    def get_all_test_names(self) -> set[str]:
+        """Get union of all test names across all tags."""
+        all_tests = set()
+        for test_dict in self.tag_test_data.values():
+            all_tests.update(test_dict.keys())
+        return all_tests
+
+    def get_common_test_names(self) -> set[str]:
+        """Get intersection of test names across all tags."""
+        if not self.tag_test_data:
+            return set()
+
+        common_tests = set(self.tag_test_data[self.tags[0]].keys())
+        for tag in self.tags[1:]:
+            common_tests &= set(self.tag_test_data[tag].keys())
+        return common_tests
+
+    def get_tag_specific_tests(self) -> dict[str, set[str]]:
+        """Get tests that appear in each tag but not in all others."""
+        all_tests = self.get_all_test_names()
+        tag_specific = {}
+
+        for tag in self.tags:
+            tag_tests = set(self.tag_test_data[tag].keys())
+            other_tests = set()
+            for other_tag in self.tags:
+                if other_tag != tag:
+                    other_tests.update(self.tag_test_data[other_tag].keys())
+            tag_specific[tag] = tag_tests - other_tests
+
+        return tag_specific
+
+    def write_merged_csv(self, output_file: str):
+        """
+        Write merged S-Curve data to CSV with columns for each tag.
+
+        Args:
+            output_file: Path to output CSV file
+        """
+        all_tests = sorted(self.get_all_test_names())
+
+        with open(output_file, 'w', newline='') as f:
+            writer = csv.writer(f)
+
+            # Write header
+            header = ['Test Name', 'Test Class']
+            for tag in self.tags:
+                header.extend([
+                    f'{tag}_RTL_Pass',
+                    f'{tag}_RTL_Cycles',
+                    f'{tag}_Model_Pass',
+                    f'{tag}_Model_Cycles',
+                    f'{tag}_Model/RTL'
+                ])
+            writer.writerow(header)
+
+            # Write data for each test
+            for test_name in all_tests:
+                row = [test_name]
+
+                # Get class name from first available tag
+                class_name = None
+                for tag in self.tags:
+                    if test_name in self.tag_test_data[tag]:
+                        class_name = self.tag_test_data[tag][test_name].class_name
+                        break
+                row.append(class_name or 'N/A')
+
+                # Add data for each tag
+                for tag in self.tags:
+                    if test_name in self.tag_test_data[tag]:
+                        elem = self.tag_test_data[tag][test_name]
+                        row.extend([
+                            'PASS' if elem.rtl_passed else 'FAIL',
+                            elem.rtl_num_cycles if elem.rtl_num_cycles is not None else '',
+                            'PASS' if elem.model_passed else 'FAIL',
+                            elem.model_num_cycles if elem.model_num_cycles is not None else '',
+                            f'{elem.num_cycles_model_by_rtl:.2f}' if elem.num_cycles_model_by_rtl is not None else ''
+                        ])
+                    else:
+                        # Test not present in this tag
+                        row.extend(['N/A', '', 'N/A', '', ''])
+
+                writer.writerow(row)
+
+        print(f"    + Merged comparison CSV written to: {output_file}")
+
+    def get_performance_changes(self) -> dict[str, dict[str, tuple[float, float]]]:
+        """
+        Calculate performance changes between consecutive tags.
+
+        Returns:
+            Dict mapping tag_pair -> test_name -> (rtl_change_pct, model_change_pct)
+        """
+        common_tests = self.get_common_test_names()
+        changes = {}
+
+        for i in range(len(self.tags) - 1):
+            tag1 = self.tags[i]
+            tag2 = self.tags[i + 1]
+            pair_key = f"{tag1}_to_{tag2}"
+            changes[pair_key] = {}
+
+            for test_name in common_tests:
+                elem1 = self.tag_test_data[tag1][test_name]
+                elem2 = self.tag_test_data[tag2][test_name]
+
+                rtl_change = None
+                model_change = None
+
+                # Calculate RTL change
+                if (elem1.rtl_passed and elem2.rtl_passed and
+                    isinstance(elem1.rtl_num_cycles, int) and isinstance(elem2.rtl_num_cycles, int) and
+                    elem1.rtl_num_cycles > 0):
+                    rtl_change = ((elem2.rtl_num_cycles - elem1.rtl_num_cycles) / elem1.rtl_num_cycles) * 100.0
+
+                # Calculate Model change
+                if (elem1.model_passed and elem2.model_passed and
+                    isinstance(elem1.model_num_cycles, int) and isinstance(elem2.model_num_cycles, int) and
+                    elem1.model_num_cycles > 0):
+                    model_change = ((elem2.model_num_cycles - elem1.model_num_cycles) / elem1.model_num_cycles) * 100.0
+
+                if rtl_change is not None or model_change is not None:
+                    changes[pair_key][test_name] = (rtl_change, model_change)
+
+        return changes
+
+    def get_tests_with_rtl_change_above_threshold(self, threshold_pct: float) -> dict[str, list[tuple[str, float]]]:
+        """
+        Find tests where RTL cycles changed by more than threshold between tags.
+
+        Args:
+            threshold_pct: Threshold percentage (e.g., 10 for 10%)
+
+        Returns:
+            Dict mapping tag_pair -> list of (test_name, change_pct)
+        """
+        all_changes = self.get_performance_changes()
+        rtl_outliers = {}
+
+        for pair, test_changes in all_changes.items():
+            outliers = []
+            for test_name, (rtl_change, _) in test_changes.items():
+                if rtl_change is not None and abs(rtl_change) > threshold_pct:
+                    outliers.append((test_name, rtl_change))
+
+            if outliers:
+                # Sort by absolute change magnitude
+                outliers.sort(key=lambda x: abs(x[1]), reverse=True)
+                rtl_outliers[pair] = outliers
+
+        return rtl_outliers
+
+    def get_tests_with_model_change_above_threshold(self, threshold_pct: float) -> dict[str, list[tuple[str, float]]]:
+        """
+        Find tests where Model cycles changed by more than threshold between tags.
+
+        Args:
+            threshold_pct: Threshold percentage (e.g., 10 for 10%)
+
+        Returns:
+            Dict mapping tag_pair -> list of (test_name, change_pct)
+        """
+        all_changes = self.get_performance_changes()
+        model_outliers = {}
+
+        for pair, test_changes in all_changes.items():
+            outliers = []
+            for test_name, (_, model_change) in test_changes.items():
+                if model_change is not None and abs(model_change) > threshold_pct:
+                    outliers.append((test_name, model_change))
+
+            if outliers:
+                # Sort by absolute change magnitude
+                outliers.sort(key=lambda x: abs(x[1]), reverse=True)
+                model_outliers[pair] = outliers
+
+        return model_outliers
+
+    def get_comparison_summary(self, thresholds: list[float] = [10.0, 20.0, 30.0]) -> str:
+        """
+        Generate a comprehensive comparison summary.
+
+        Args:
+            thresholds: List of threshold percentages for highlighting changes
+
+        Returns:
+            Formatted summary string
+        """
+        msg = f"+ Multi-Tag Comparison Analysis ({len(self.tags)} tags: {', '.join(self.tags)}):\n"
+
+        # 1. Test coverage comparison
+        all_tests = self.get_all_test_names()
+        common_tests = self.get_common_test_names()
+        tag_specific = self.get_tag_specific_tests()
+
+        msg += f"  + Test Coverage:\n"
+        msg += f"    - Total unique tests across all tags: {len(all_tests)}\n"
+        msg += f"    - Tests common to all tags: {len(common_tests)}\n"
+
+        for tag in self.tags:
+            tag_tests = set(self.tag_test_data[tag].keys())
+            specific = tag_specific.get(tag, set())
+            msg += f"    - {tag}: {len(tag_tests)} tests"
+            if specific:
+                msg += f" ({len(specific)} unique to this tag)"
+            msg += "\n"
+
+        # 2. Performance changes
+        msg += f"\n  + Performance Changes Across Tags:\n"
+        all_changes = self.get_performance_changes()
+
+        for pair, test_changes in all_changes.items():
+            tag1, tag2 = pair.split('_to_')
+            msg += f"    - {tag1} → {tag2}:\n"
+
+            if test_changes:
+                rtl_changes = [rtl for rtl, _ in test_changes.values() if rtl is not None]
+                model_changes = [mdl for _, mdl in test_changes.values() if mdl is not None]
+
+                if rtl_changes:
+                    avg_rtl = sum(rtl_changes) / len(rtl_changes)
+                    msg += f"      * RTL: {len(rtl_changes)} tests, avg change: {avg_rtl:+.2f}%\n"
+
+                if model_changes:
+                    avg_model = sum(model_changes) / len(model_changes)
+                    msg += f"      * Model: {len(model_changes)} tests, avg change: {avg_model:+.2f}%\n"
+            else:
+                msg += f"      * No comparable tests with valid data\n"
+
+        # 3. RTL cycle changes above thresholds
+        msg += f"\n  + Tests with Significant RTL Cycle Changes:\n"
+        for threshold in thresholds:
+            rtl_outliers = self.get_tests_with_rtl_change_above_threshold(threshold)
+            if rtl_outliers:
+                msg += f"    - Changes >{threshold:.0f}%:\n"
+                for pair, outliers in rtl_outliers.items():
+                    msg += f"      * {pair}: {len(outliers)} tests\n"
+                    for test_name, change in outliers[:5]:  # Show top 5
+                        msg += f"        - {test_name}: {change:+.1f}%\n"
+                    if len(outliers) > 5:
+                        msg += f"        - ... and {len(outliers) - 5} more\n"
+            else:
+                msg += f"    - No tests with RTL changes >{threshold:.0f}%\n"
+
+        # 4. Model cycle changes above thresholds
+        msg += f"\n  + Tests with Significant Model Cycle Changes:\n"
+        for threshold in thresholds:
+            model_outliers = self.get_tests_with_model_change_above_threshold(threshold)
+            if model_outliers:
+                msg += f"    - Changes >{threshold:.0f}%:\n"
+                for pair, outliers in model_outliers.items():
+                    msg += f"      * {pair}: {len(outliers)} tests\n"
+                    for test_name, change in outliers[:5]:  # Show top 5
+                        msg += f"        - {test_name}: {change:+.1f}%\n"
+                    if len(outliers) > 5:
+                        msg += f"        - ... and {len(outliers) - 5} more\n"
+            else:
+                msg += f"    - No tests with Model changes >{threshold:.0f}%\n"
+
+        return msg.rstrip()
+
+    def write_detailed_comparison(self, output_dir: str):
+        """
+        Write detailed comparison files including CSV and summary.
+
+        Args:
+            output_dir: Directory to write output files
+        """
+        os.makedirs(output_dir, exist_ok=True)
+
+        # Write merged CSV
+        csv_file = os.path.join(output_dir, "multi_tag_comparison.csv")
+        self.write_merged_csv(csv_file)
+
+        # Write summary text file
+        summary_file = os.path.join(output_dir, "multi_tag_comparison_summary.txt")
+        with open(summary_file, 'w') as f:
+            f.write(self.get_comparison_summary())
+        print(f"    + Comparison summary written to: {summary_file}")
+
+        # Write tag-specific tests
+        tag_specific = self.get_tag_specific_tests()
+        if any(tag_specific.values()):
+            specific_file = os.path.join(output_dir, "tag_specific_tests.txt")
+            with open(specific_file, 'w') as f:
+                f.write("Tests Unique to Each Tag:\n\n")
+                for tag, tests in tag_specific.items():
+                    if tests:
+                        f.write(f"{tag} ({len(tests)} tests):\n")
+                        for test in sorted(tests):
+                            f.write(f"  - {test}\n")
+                        f.write("\n")
+            print(f"    + Tag-specific tests written to: {specific_file}")
+
 class Status:
     @staticmethod
     def get_test_statuses(rtl_tag: str, input_params: InputParams, order_by = "classwise"):
@@ -1877,12 +2193,32 @@ class Status:
 
     @staticmethod
     def print_statuses(input_params: InputParams, order_by: str = "classwise-s-curve"):
+        tag_statuses = []
+
         for rtl_tag in input_params.rtl_tags:
             tgs = TagStatus(rtl_tag, input_params)
             tgs.print_status()
             tgs.plot_s_curve(output_file = os.path.join(input_params.get_odir_path(rtl_tag), f"s_curve.png"))
             tgs.plot_class_wise_s_curve(output_file = os.path.join(input_params.get_odir_path(rtl_tag), f"class_wise_s_curve.png"))
             tgs.write_s_curve_to_csv(output_file = os.path.join(input_params.get_odir_path(rtl_tag), f"s_curve.csv"))
+            tag_statuses.append(tgs)
+
+        # Perform multi-tag comparison if there are 2 or more tags
+        if len(input_params.rtl_tags) >= 2:
+            print("\n" + "="*80)
+            print("MULTI-TAG COMPARISON ANALYSIS")
+            print("="*80)
+
+            comparison = MultiTagComparison(tag_statuses)
+
+            # Print summary to console
+            print(comparison.get_comparison_summary())
+
+            # Write detailed comparison files
+            comparison_dir = os.path.join(input_params.model_odir_prefix, input_params.run_name, "multi_tag_comparison")
+            comparison.write_detailed_comparison(comparison_dir)
+
+            print("="*80)
 
         input_params.write_run_config_to_inputcfg_dir()
 
