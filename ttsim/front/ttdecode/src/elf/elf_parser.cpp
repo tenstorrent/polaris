@@ -696,7 +696,7 @@ ttdecode::decode::decoded_instructions
 parser::decode(const function_symbol &fun_sym,
     const std::map<ttdecode::isa::instruction_kind, std::string> &kinds_file_paths) const
 {
-    const auto sets = ttdecode::isa::get_instruction_sets(kinds_file_paths);
+    const auto sets = ttdecode::isa::get_instruction_sets_incl_rv32(kinds_file_paths);
     return this->decode(fun_sym, sets);
 }
 
@@ -721,7 +721,7 @@ parser::decode(const std::vector<function_symbol> &fun_syms, const ttdecode::isa
 std::map<function_symbol, ttdecode::decode::decoded_instructions>
 parser::decode(const std::vector<function_symbol> &fun_syms, const std::map<ttdecode::isa::instruction_kind, std::string> &kinds_file_paths) const
 {
-    const auto sets = ttdecode::isa::get_instruction_sets(kinds_file_paths);
+    const auto sets = ttdecode::isa::get_instruction_sets_incl_rv32(kinds_file_paths);
     return this->decode(fun_syms, sets);
 }
 

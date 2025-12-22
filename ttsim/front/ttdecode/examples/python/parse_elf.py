@@ -12,4 +12,11 @@ def main(argv):
     elf_file = argv[1]
     assert os.path.isfile(elf_file), f"- error: could not find {elf_file}"
     elf_parser = ttdecode.elf.parser(elf_file)
-    functions_instructions = elf_parser.decode(elf_parser.get_section(".text"))
+    functions_instructions = elf_parser.decode({ttdecode.isa.instruction_kind.ttqs : "../../config/llk/instruction_sets/ttqs/assembly.sep23.yaml"})
+    for func_sym, instructions in functions_instructions.items():
+        print("- function name: ", func_sym.name)
+        for instr in instructions:
+            print(f"  - {instr}")
+
+if __name__ == "__main__":
+    main(sys.argv)
