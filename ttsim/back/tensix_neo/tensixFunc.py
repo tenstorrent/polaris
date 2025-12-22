@@ -151,7 +151,7 @@ class ttSplRegs:
                 ]
             }
         else:
-            assert args['llkVersionTag'] in ["nov17"], "Unsupported llkVersionTag for Tensix Neo:" + args['llkVersionTag'] 
+            assert args['llkVersionTag'] in ["nov17", "dec22"], "Unsupported llkVersionTag for Tensix Neo:" + args['llkVersionTag']
             tileCounters_RegDict = {
                 'tileCounters' : [
                     #NUM_REGISTERS
@@ -2716,7 +2716,7 @@ class tensixFunc:
             case _:
                 assert len(ins.getAttr()) == 3, "Three attribs expected. Received " + str(len(ins.getAttr()))
 
-        buffer = ins.getAttr()['buffer_sel'] 
+        buffer = ins.getAttr()['buffer_sel']
         incrVal = ins.getAttr()['num_tiles'] * TILE_SCALE_FACTOR
 
         # assert self.tensixSplRegs.__readReg__(buffer, "tileCounters", "tiles_available") - incrVal >= 0, f"PUSH_TILES tiles_available should be non-negative. Received {self.tensixSplRegs.__readReg__(buffer, "tileCounters", "tiles_available")}"
@@ -2744,7 +2744,7 @@ class tensixFunc:
             case _:
                 assert len(ins.getAttr()) == 3, "Three attribs expected. Received " + str(len(ins.getAttr()))
 
-        buffer      = ins.getAttr()['buffer_sel'] 
+        buffer      = ins.getAttr()['buffer_sel']
         targetTiles = ins.getAttr()['num_tiles']*TILE_SCALE_FACTOR
 
         srcPipes = [];  dstPipes = []
@@ -2792,7 +2792,7 @@ class tensixFunc:
             case _:
                 assert len(ins.getAttr()) == 3, "Three attribs expected. Received " + str(len(ins.getAttr()))
 
-        buffer      = ins.getAttr()['buffer_sel'] 
+        buffer      = ins.getAttr()['buffer_sel']
         targetTiles = ins.getAttr()['num_tiles']
 
         srcPipes = [];  dstPipes = []

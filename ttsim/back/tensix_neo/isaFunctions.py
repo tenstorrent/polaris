@@ -50,6 +50,7 @@ class TTQSTags(str, Enum):
     jul27 = "jul27"
     sep23 = "sep23"
     nov17 = "nov17"
+    dec22 = "dec22"
 
     @property
     def group(self): 
