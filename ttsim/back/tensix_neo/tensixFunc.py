@@ -2401,52 +2401,73 @@ class tensixFunc:
         return nextRelAddr
 
     def _validate_sfpu_attribs_and_advance(self, ins, expected_attribs: list[str], context: str = "SFPU"):
-        """Helper method to validate SFPU instruction attributes and advance the PC.
+        """Validate SFPU instruction attributes and advance the program counter.
 
-        This helper performs **only** structural/semantic validation of the
-        instruction's operand attributes and then advances the program counter.
-        Unlike helpers such as ``_compute_num_datums_from_row_cnt_enc``, it does
-        not compute or return any datum-count value; it always returns the next
-        instruction address.
+        This method validates that an SFPU instruction has the expected operand attributes
+        and returns the next instruction address. It uses a performance-optimized approach:
+        the happy path (when attributes match) performs minimal validation, while detailed
+        structural checks are only performed when a mismatch is detected to provide
+        specific error diagnostics.
 
         Args:
-            ins: The instruction to validate.
-            expected_attribs: List of expected attribute names.
-            context: Context string for error messages (e.g., function name).
+            ins: The instruction object to validate. Expected to have nested structure
+                 ins.operands.attributes.keys() when attributes are present.
+            expected_attribs: List of expected attribute names. Can be empty for
+                             instructions with no operand attributes.
+            context: Context string included in error messages, typically the name
+                    of the calling function (e.g., "__execSFPU_MATHI12__").
 
         Returns:
-            The next relative address, i.e., ``ins.getRelAddr() + 4``.
+            int: The next relative instruction address (ins.getRelAddr() + 4).
 
         Raises:
-            AssertionError: If the instruction is missing an ``operands``
-                attribute or if ``ins.operands`` is ``None``.
-            AssertionError: If ``ins.operands`` is missing an ``attributes``
-                attribute or if ``ins.operands.attributes`` is ``None``.
-            AssertionError: If ``ins.operands.attributes`` does not provide a
-                callable ``keys`` method.
-            AssertionError: If the actual attribute names on
-                ``ins.operands.attributes`` do not match ``expected_attribs``.
+            AssertionError: If the instruction is missing the 'operands' attribute
+                           or if ins.operands is None (only checked on mismatch).
+            AssertionError: If ins.operands is missing the 'attributes' attribute
+                           or if ins.operands.attributes is None (only checked on mismatch).
+            AssertionError: If ins.operands.attributes does not provide a callable
+                           'keys()' method (only checked on mismatch).
+            AssertionError: If the actual attribute names do not match the expected
+                           attribute names (after sorting both lists).
+
+        Examples:
+            >>> # Instruction with correct attributes
+            >>> self._validate_sfpu_attribs_and_advance(ins, ['instr_mod1', 'lreg_dest'], '__execSFPU_MATHI12__')
+            1004  # Returns next address
+
+            >>> # Instruction with no attributes (both expected and actual are empty)
+            >>> self._validate_sfpu_attribs_and_advance(ins, [], '__execSFPU_MATHI12__')
+            1004  # Returns next address
+
+        Note:
+            This method is called for every SFPU instruction during simulation, so it
+            is optimized to minimize overhead in the common case where validation passes.
+            Detailed structural validation is only performed when an attribute mismatch
+            is detected, providing clear diagnostics without impacting performance.
         """
-        # Ensure the instruction has the expected operand/attribute structure.
-        if not hasattr(ins, "operands") or ins.operands is None:
+        actual_attribs = list(ins.operands.attributes.keys()) if hasattr(ins, 'operands') and hasattr(ins.operands, 'attributes') and (ins.operands.attributes is not None) else []
+        expected_attribs = sorted(expected_attribs)
+        actual_attribs = sorted(actual_attribs)
+
+        if actual_attribs != expected_attribs:
+            if not hasattr(ins, "operands") or ins.operands is None:
+                raise AssertionError(
+                    f"@{context}: instruction object {type(ins).__name__} is missing required 'operands' attribute."
+                )
+            operands = ins.operands
+            if not hasattr(operands, "attributes") or operands.attributes is None:
+                raise AssertionError(
+                    f"@{context}: operands object {type(operands).__name__} is missing required 'attributes' attribute."
+                )
+            attributes = operands.attributes
+            if not hasattr(attributes, "keys") or not callable(getattr(attributes, "keys", None)):
+                raise AssertionError(
+                    f"@{context}: operands.attributes of type {type(attributes).__name__} does not support 'keys()'."
+                )
             raise AssertionError(
-                f"@{context}: instruction object {type(ins).__name__} is missing required 'operands' attribute."
+                f"@{context}: attributes mismatch. expected attributes: {expected_attribs}, received: {actual_attribs}."
             )
-        operands = ins.operands
-        if not hasattr(operands, "attributes") or operands.attributes is None:
-            raise AssertionError(
-                f"@{context}: operands object {type(operands).__name__} is missing required 'attributes' attribute."
-            )
-        attributes = operands.attributes
-        if not hasattr(attributes, "keys") or not callable(getattr(attributes, "keys", None)):
-            raise AssertionError(
-                f"@{context}: operands.attributes of type {type(attributes).__name__} does not support 'keys()'."
-            )
-        actual_attribs = list(attributes.keys())
-        assert sorted(expected_attribs) == sorted(actual_attribs), (
-            f"@{context}: attributes mismatch. expected attributes: {sorted(expected_attribs)}, "
-            f"received: {sorted(actual_attribs)}."
-        )
+
         return ins.getRelAddr() + 4
 
     def __execsfpconfig__(self,ins):
