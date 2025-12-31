@@ -384,7 +384,7 @@ class InputParams:
         self.num_processes: int                   = 1
         self.rtl_data_path_prefix: str            = f"{RTL_DATA_PATH_ROOT}/rtl_test_data_set"
         self.rtl_status_file_name: str            = "sim_result.yml"
-        self.rtl_tags: list[str]                  = ["jul1", "jul27", "sep23", "nov17"]
+        self.rtl_tags: list[str]                  = ["jul1", "jul27", "sep23", "nov17", "dec22"]
         self.rtl_test_dir_path_suffix: str        = 'rsim/debug'
         self.rtl_test_dir_suffix: str             = '_0'
         self.rtl_tests: list[str]                 = []
