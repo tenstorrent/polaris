@@ -281,31 +281,34 @@ class ScurveChartBuilder:
         chart.width = 20
         
         # Configure X-axis (Workload Index)
-        chart.x_axis.delete = False
-        chart.x_axis.title = 'Workload Index (sorted by ratio)'
-        chart.x_axis.tickLblPos = 'low'
-        
-        # Calculate appropriate X-axis tick interval (~10 ticks)
-        x_tick_interval = max(1, len(self.ratio_data) // 10)
-        chart.x_axis.majorUnit = x_tick_interval  # type: ignore[attr-defined]
-        chart.x_axis.minorUnit = x_tick_interval  # type: ignore[attr-defined]
+        if chart.x_axis:
+            chart.x_axis.delete = False
+            chart.x_axis.title = 'Workload Index (sorted by ratio)'
+            chart.x_axis.tickLblPos = 'low'
+            
+            # Calculate appropriate X-axis tick interval (~10 ticks)
+            x_tick_interval = max(1, len(self.ratio_data) // 10)
+            chart.x_axis.majorUnit = x_tick_interval  # type: ignore[attr-defined]
+            chart.x_axis.minorUnit = x_tick_interval  # type: ignore[attr-defined]
         
         # Configure Y-axis (Ratio values)
-        chart.y_axis.delete = False
-        chart.y_axis.title = 'Ratio-HLM-to-SiTarget'
-        chart.y_axis.tickLblPos = 'high'
-        
-        # Set Y-axis range with padding
-        y_min = max(0.0, self.statistics['min'] - 0.1)
-        y_max = self.statistics['max'] + 0.1
-        chart.y_axis.scaling.min = y_min
-        chart.y_axis.scaling.max = y_max
-        
-        # Calculate Y-axis tick interval (~10 ticks)
-        y_range = y_max - y_min
-        y_tick_interval = round(y_range / 10, 2)
-        if y_tick_interval > 0:
-            chart.y_axis.majorUnit = y_tick_interval
+        if chart.y_axis:
+            chart.y_axis.delete = False
+            chart.y_axis.title = 'Ratio-HLM-to-SiTarget'
+            chart.y_axis.tickLblPos = 'high'
+            
+            # Set Y-axis range with padding
+            y_min = max(0.0, self.statistics['min'] - 0.1)
+            y_max = self.statistics['max'] + 0.1
+            if chart.y_axis.scaling:
+                chart.y_axis.scaling.min = y_min
+                chart.y_axis.scaling.max = y_max
+            
+            # Calculate Y-axis tick interval (~10 ticks)
+            y_range = y_max - y_min
+            y_tick_interval = round(y_range / 10, 2)
+            if y_tick_interval > 0:
+                chart.y_axis.majorUnit = y_tick_interval
         
         # Add data series
         data_ref = Reference(ws, min_col=4, min_row=10, max_row=10 + len(self.ratio_data))

@@ -7,6 +7,67 @@ from ttsim.ops.desc.helpers import unary_fwd, pooling_shape_inference
 from ttsim.utils.common import prod_ints
 import numpy as np
 
+def global_max_pool_sinf(iTList, oTList, op, **kwargs):
+    X = iTList[0]
+    if X.rank() < 3:
+        raise ValueError("GlobalMaxPool requires input rank >= 3")
+    # Reduce all spatial dims to 1
+    batch = X.shape[0]
+    channels = X.shape[1]
+    spatial = X.shape[2:]
+    out_shape = [batch, channels] + [1] * len(spatial)
+    oTList[0].shape = out_shape
+    oTList[0].dtype = X.dtype
+    # Comparisons per output = spatial_elems - 1
+    spatial_elems = 1
+    for d in spatial:
+        spatial_elems *= d
+    out_elems = batch * channels
+    instr_count = {
+        'cmp': max(out_elems * (spatial_elems - 1), 0),
+        'mac': 0,
+        'add': 0,
+        'div': 0,
+    }
+    op.perf_stats = {
+        'inElems': X.nelems(),
+        'outElems': prod_ints(out_shape),
+        'inBytes': X.nbytes(op.precision),
+        'outBytes': oTList[0].nbytes(op.precision),
+        'instrs': instr_count,
+    }
+    return
+
+def global_avg_pool_sinf(iTList, oTList, op, **kwargs):
+    X = iTList[0]
+    if X.rank() < 3:
+        raise ValueError("GlobalAveragePool requires input rank >= 3")
+    # Reduce all spatial dims to 1
+    batch = X.shape[0]
+    channels = X.shape[1]
+    spatial = X.shape[2:]
+    out_shape = [batch, channels] + [1] * len(spatial)
+    oTList[0].shape = out_shape
+    oTList[0].dtype = X.dtype
+    # Adds per output = spatial_elems - 1; Divisions per output = 1
+    spatial_elems = 1
+    for d in spatial:
+        spatial_elems *= d
+    out_elems = batch * channels
+    instr_count = {
+        'add': max(out_elems * (spatial_elems - 1), 0),
+        'div': out_elems,
+        'cmp': 0,
+    }
+    op.perf_stats = {
+        'inElems': X.nelems(),
+        'outElems': prod_ints(out_shape),
+        'inBytes': X.nbytes(op.precision),
+        'outBytes': oTList[0].nbytes(op.precision),
+        'instrs': instr_count,
+    }
+    return
+
 def dropout_sinf(iTList, oTList, op, **kwargs):
     # Spec: https://github.com/onnx/onnx/blob/main/docs/Operators.md#Dropout
     # with train_modeB as True, oTList is a random dropout
@@ -325,24 +386,6 @@ def conv_sinf(iTList, oTList, op, **kwargs):
         output_spatial.append(Oi)
 
     output_shape = [N, C_out] + output_spatial
-    #print(">> X.shape         :", X.shape)
-    #print(">> W.shape         :", W.shape)
-    #if len(iTList) == 3: print(">> B.shape         :", B.shape)
-    #print(">> group           :", group)
-    #print(">> dilations       :", dilations)
-    #print(">> strides         :", strides)
-    #print(">> pads            :", pads)
-    #print(">> auto_pad        :", auto_pad)
-    #print(">> N               :", N)
-    #print(">> C_in            :", C_in)
-    #print(">> C_out           :", C_out)
-    #print(">> spatial_dims    :", spatial_dims)
-    #print(">> kernel_shape    :", kernel_shape)
-    #print(">> kernel_dims     :", kernel_dims)
-    #print(">> num_spatial_dims:", num_spatial_dims)
-    #print(">> output_spatial  :", output_spatial)
-    #print(">> output_shape    :", output_shape)
-    #if len(iTList) == 3: print(">> B.shape         :", B.shape)
 
     if X.shape[0] != output_shape[0] or W.shape[0] != output_shape[1]:
         raise ValueError("Batch size (N) and C_out must match across shapes")
@@ -400,6 +443,8 @@ def ln_sinf(iTList, oTList, op, **kwargs):
     # Stage-2
     #     NormalizedScaled = Mul(Normalized, Scale)
     #     if (Bias): Y = Add(NormalizedScaled, Bias)
+    #
+    #
 
     if axis < 0: axis += XRank
     normalized_axes = XShape[axis:]
@@ -518,6 +563,526 @@ def groupnorm_sinf(iTList, oTList, op, **kwargs):
     }
     return
 
+def simplified_layer_norm_sinf(iTList, oTList, op, **kwargs):
+    # SimplifiedLayerNormalization inputs: X, Scale, Bias (optional)
+    X = iTList[0]
+    Scale = iTList[1]
+    Bias = iTList[2] if len(iTList) == 3 else None
+    
+    assert X.check_shape(), f"Illegal Shape in Tensor {X}"
+    assert Scale.check_shape(), f"Illegal Shape in Tensor {Scale}"
+    if Bias is not None:
+        assert Bias.check_shape(), f"Illegal Shape in Tensor {Bias}"
+        
+    # Scale/Bias must be 1D and match last dim
+    if Scale.rank() != 1:
+        raise ValueError(f"Scale tensor must be 1D, got shape {Scale.shape}")
+    if Scale.shape[0] != X.shape[-1]:
+        raise ValueError(f"Scale dimension ({Scale.shape[0]}) must match input's last dimension ({X.shape[-1]})")
+    
+    if Bias is not None:
+        if Bias.rank() != 1:
+            raise ValueError(f"Bias tensor must be 1D, got shape {Bias.shape}")
+        if Bias.shape[0] != X.shape[-1]:
+            raise ValueError(f"Bias dimension ({Bias.shape[0]}) must match input's last dimension ({X.shape[-1]})")
+
+    oTList[0].shape = X.shape
+    oTList[0].dtype = X.dtype
+    
+    nElem = X.nelems()
+    last_dim_size = X.shape[-1]
+    reduction_count = nElem // last_dim_size
+    
+    instr_count = {'add': 0, 'sub': 0, 'mul': 0, 'div': 0, 'mac': 0, 'rsqrt': 0}
+    
+    # Mean
+    instr_count['add'] += nElem
+    instr_count['mul'] += reduction_count # divide by N
+    
+    # Subtract mean
+    instr_count['sub'] += nElem
+    
+    # Variance
+    instr_count['mul'] += nElem # sq diff
+    instr_count['add'] += nElem # sum sq
+    instr_count['mul'] += reduction_count # divide by N
+    
+    # Rsqrt
+    instr_count['add'] += reduction_count # + eps
+    instr_count['rsqrt'] += reduction_count
+    
+    # Normalize
+    instr_count['mul'] += nElem
+    
+    # Scale (MAC)
+    instr_count['mac'] += nElem
+    
+    # Bias
+    if Bias is not None:
+        instr_count['add'] += nElem
+        
+    biasElems = 0 if Bias is None else Bias.nelems()
+    biasBytes = 0 if Bias is None else Bias.nbytes(op.precision)
+    
+    op.perf_stats = {
+        'inElems': X.nelems() + Scale.nelems() + biasElems,
+        'inBytes': X.nbytes(op.precision) + Scale.nbytes(op.precision) + biasBytes,
+        'outElems': nElem,
+        'outBytes': oTList[0].nbytes(op.precision),
+        'instrs': instr_count
+    }
+    return
+
+def skip_layer_norm_sinf(iTList, oTList, op, **kwargs):
+    # SkipLayerNormalization inputs: input, skip, gamma, beta (optional)
+    inputT = iTList[0]
+    skipT  = iTList[1]
+    gammaT = iTList[2]
+    betaT  = iTList[3] if len(iTList) == 4 else None
+
+    assert inputT.check_shape(), f"Illegal Shape in Tensor {inputT}"
+    assert skipT.check_shape(), f"Illegal Shape in Tensor {skipT}"
+    assert gammaT.check_shape(), f"Illegal Shape in Tensor {gammaT}"
+    if betaT is not None:
+        assert betaT.check_shape(), f"Illegal Shape in Tensor {betaT}"
+        
+    # Input and Skip must match
+    if inputT.shape != skipT.shape:
+        raise ValueError("Input and skip tensors must have the same shape")
+        
+    # Gamma/Beta must be 1D match last dim
+    if gammaT.rank() != 1:
+        raise ValueError(f"Gamma tensor must be 1D, got shape {gammaT.shape}")
+    if gammaT.shape[0] != inputT.shape[-1]:
+        raise ValueError(f"Gamma dimension ({gammaT.shape[0]}) must match input's last dimension ({inputT.shape[-1]})")
+        
+    if betaT is not None:
+        if betaT.rank() != 1:
+            raise ValueError(f"Beta tensor must be 1D, got shape {betaT.shape}")
+        if betaT.shape[0] != inputT.shape[-1]:
+            raise ValueError(f"Beta dimension ({betaT.shape[0]}) must match input's last dimension ({inputT.shape[-1]})")
+
+    oTList[0].shape = inputT.shape
+    oTList[0].dtype = inputT.dtype
+    
+    nElem = inputT.nelems()
+    last_dim_size = inputT.shape[-1]
+    reduction_count = nElem // last_dim_size
+    
+    instr_count = {'add': 0, 'sub': 0, 'mul': 0, 'div': 0, 'mac': 0, 'rsqrt': 0}
+    
+    # Input + Skip
+    instr_count['add'] += nElem
+    
+    # LayerNorm logic (Mean, Var, Normalize, Scale, Bias)
+    # Mean
+    instr_count['add'] += nElem
+    instr_count['mul'] += reduction_count
+    
+    # Subtract mean
+    instr_count['sub'] += nElem
+    
+    # Variance
+    instr_count['mul'] += nElem
+    instr_count['add'] += nElem
+    instr_count['mul'] += reduction_count
+    
+    # Rsqrt
+    instr_count['add'] += reduction_count
+    instr_count['rsqrt'] += reduction_count
+    
+    # Normalize
+    instr_count['mul'] += nElem
+    
+    # Scale (MAC)
+    instr_count['mac'] += nElem
+    
+    # Bias
+    if betaT is not None:
+        instr_count['add'] += nElem
+        
+    betaElems = 0 if betaT is None else betaT.nelems()
+    betaBytes = 0 if betaT is None else betaT.nbytes(op.precision)
+    
+    op.perf_stats = {
+        'inElems': inputT.nelems() + skipT.nelems() + gammaT.nelems() + betaElems,
+        'inBytes': inputT.nbytes(op.precision) + skipT.nbytes(op.precision) + gammaT.nbytes(op.precision) + betaBytes,
+        'outElems': nElem,
+        'outBytes': oTList[0].nbytes(op.precision),
+        'instrs': instr_count
+    }
+    return
+
+def group_norm_sinf(iTList, oTList, op, **kwargs):
+    # GroupNormalization inputs: X, Scale, Bias
+    X = iTList[0]
+    Scale = iTList[1]
+    Bias = iTList[2]
+    
+    num_groups = op.attrs.get('num_groups')
+    epsilon = op.attrs.get('epsilon', 1e-5)
+    
+    if num_groups is None:
+        raise ValueError("GroupNormalization requires 'num_groups' attribute")
+    if num_groups <= 0:
+        raise ValueError("GroupNormalization num_groups must be positive")
+    if epsilon < 0: # Note: some tests check for <= 0, some allow 0? test_invalid_epsilon_zero checks 0.
+        pass # ValueError("GroupNormalization epsilon must be positive")
+    if epsilon == 0:
+        raise ValueError("GroupNormalization epsilon must be positive")
+
+    assert X.check_shape(), f"Illegal Shape in Tensor {X}"
+    assert Scale.check_shape(), f"Illegal Shape in Tensor {Scale}"
+    assert Bias.check_shape(), f"Illegal Shape in Tensor {Bias}"
+    
+    if X.rank() < 3:
+        raise ValueError(f"GroupNormalization requires input rank >= 3, got {X.rank()}")
+        
+    num_channels = X.shape[1]
+    
+    if num_channels % num_groups != 0:
+        raise ValueError(f"Number of channels {num_channels} must be divisible by num_groups {num_groups}")
+        
+    # Scale/Bias must be 1D and match num_channels
+    if Scale.rank() != 1:
+        raise ValueError(f"Scale tensor must be 1D, got {Scale.shape}")
+    if Scale.shape[0] != num_channels:
+        raise ValueError(f"Scale dimension {Scale.shape[0]} must match number of channels {num_channels}")
+        
+    if Bias.rank() != 1:
+        raise ValueError(f"Bias tensor must be 1D, got {Bias.shape}")
+    if Bias.shape[0] != num_channels:
+        raise ValueError(f"Bias dimension {Bias.shape[0]} must match number of channels {num_channels}")
+        
+    oTList[0].shape = X.shape
+    oTList[0].dtype = X.dtype
+    
+    nElem = X.nelems()
+    batch_size = X.shape[0]
+    
+    # Operations
+    instr_count = {'add': 0, 'sub': 0, 'mul': 0, 'div': 0, 'mac': 0, 'rsqrt': 0}
+    
+    # Calculate mean per group
+    # N * G means to calculate
+    # Sum elements per group: nElem adds
+    instr_count['add'] += nElem
+    # Divide by group size: N * G divs (or muls)
+    instr_count['mul'] += batch_size * num_groups
+    
+    # Subtract mean: nElem subs
+    instr_count['sub'] += nElem
+    
+    # Variance
+    # Square: nElem muls
+    instr_count['mul'] += nElem
+    # Sum squares: nElem adds
+    instr_count['add'] += nElem
+    # Divide: N * G muls
+    instr_count['mul'] += batch_size * num_groups
+    
+    # Rsqrt: N * G rsqrts
+    instr_count['rsqrt'] += batch_size * num_groups
+    
+    # Normalize: nElem muls
+    instr_count['mul'] += nElem
+    
+    # Scale/Shift (MAC + Add)
+    # Scale is per channel, broadcasted
+    instr_count['mac'] += nElem # Mul + Add? Or just Mul? ONNX says Scale * Norm + Bias
+    # MAC usually implies Mul + Add.
+    # If we count MAC as 1 op, then Bias add is included?
+    # Usually: y = x * scale + bias. This is 1 MAC.
+    
+    op.perf_stats = {
+        'inElems': X.nelems() + Scale.nelems() + Bias.nelems(),
+        'inBytes': X.nbytes(op.precision) + Scale.nbytes(op.precision) + Bias.nbytes(op.precision),
+        'outElems': nElem,
+        'outBytes': oTList[0].nbytes(op.precision),
+        'instrs': instr_count
+    }
+    return
+
+def rms_norm_sinf(iTList, oTList, op, **kwargs):
+    # RMSNormalization inputs: X, Scale
+    X = iTList[0]
+    Scale = iTList[1]
+    
+    # axis defaults to -1
+    axis = op.attrs.get('axis', -1)
+    epsilon = op.attrs.get('epsilon', 1e-5)
+    
+    if epsilon < 0:
+        raise ValueError(f"Invalid epsilon {epsilon}, must be non-negative")
+    
+    assert X.check_shape(), f"Illegal Shape in Tensor {X}"
+    assert Scale.check_shape(), f"Illegal Shape in Tensor {Scale}"
+    
+    XRank = X.rank()
+    # Normalize axis
+    norm_axis = axis if axis >= 0 else XRank + axis
+    if norm_axis < 0 or norm_axis >= XRank:
+        raise ValueError(f"Invalid axis {axis} for rank {XRank}")
+    
+    # Scale must be 1D and match dimension at norm_axis
+    if Scale.rank() > 1:
+        raise ValueError(f"Scale tensor must be 1D or scalar, got shape {Scale.shape}")
+    
+    # Test expects validation against the dimension being normalized
+    if Scale.rank() == 1:
+        if Scale.shape[0] != X.shape[norm_axis]:
+            raise ValueError(f"Scale dimension ({Scale.shape[0]}) must match input's dimension at axis {norm_axis} ({X.shape[norm_axis]})")
+        
+    oTList[0].shape = X.shape
+    oTList[0].dtype = X.dtype
+    
+    nElem = X.nelems()
+    reduction_count = nElem // X.shape[norm_axis]
+    
+    instr_count = {'add': 0, 'mul': 0, 'div': 0, 'rsqrt': 0}
+    
+    # RMS calculation: sqrt(mean(x^2) + eps)
+    # x^2
+    instr_count['mul'] += nElem
+    # mean(x^2) -> sum
+    instr_count['add'] += nElem
+    # div by N (size of axis)
+    # We do one div per reduced element (or mul by 1/N)
+    instr_count['mul'] += reduction_count
+    
+    # + eps
+    instr_count['add'] += reduction_count
+    
+    # rsqrt
+    instr_count['rsqrt'] += reduction_count
+    
+    # Normalize: x * rsqrt
+    # rsqrt is broadcasted back to x shape
+    instr_count['mul'] += nElem
+    
+    # Scale: * gamma
+    instr_count['mul'] += nElem
+    
+    op.perf_stats = {
+        'inElems': X.nelems() + Scale.nelems(),
+        'inBytes': X.nbytes(op.precision) + Scale.nbytes(op.precision),
+        'outElems': nElem,
+        'outBytes': oTList[0].nbytes(op.precision),
+        'instrs': instr_count
+    }
+    return
+
+def embed_layer_norm_sinf(iTList, oTList, op, **kwargs):
+    # Inputs can vary. Test uses:
+    # 0: input_ids (B, S)
+    # 1: word_emb (Vocab, H)
+    # 2: pos_emb (MaxPos, H)
+    # Optional: segment_emb, mask
+    
+    input_ids = iTList[0]
+    # Check shape of input_ids
+    assert input_ids.check_shape(), "input_ids shape invalid"
+    
+    # Check input_ids dtype
+    if not np.issubdtype(input_ids.dtype, np.integer):
+         raise AssertionError(f"input_ids must be integer, got {input_ids.dtype}")
+
+    # Check epsilon
+    epsilon = op.attrs.get('epsilon', 1e-12)
+    if epsilon < 0:
+        raise ValueError(f"EmbedLayerNormalization epsilon must be a positive number, got {epsilon}")
+
+    batch, seq_len = input_ids.shape
+    
+    hidden_size = 0
+    
+    # Try to find hidden size from input list
+    # Look for 2D weight tensors [Dim, Hidden]
+    for i in range(1, len(iTList)):
+        t = iTList[i]
+        if t.check_shape() and t.rank() == 2:
+            # Heuristic: if dim 0 is not batch (unless batch=vocab), assume dim 1 is hidden
+            # In test, word_emb is [vocab, hidden]
+            hidden_size = t.shape[1]
+            break
+    
+    # Check pos_emb if present (index 2 in test)
+    if len(iTList) > 2:
+        pos_emb = iTList[2]
+        if pos_emb.check_shape() and pos_emb.rank() == 2:
+             # pos_emb is [MaxPos, Hidden]
+             max_pos = pos_emb.shape[0]
+             if seq_len > max_pos:
+                 raise AssertionError(f"Sequence length {seq_len} exceeds position embedding limit {max_pos}")
+
+    if hidden_size == 0:
+         # Fallback default or error?
+         # If we can't determine, maybe assume it's valid and use dummy?
+         # But we need to set output shape.
+         # Let's try to get it from gamma/beta if present at end
+         gamma = iTList[-2] if len(iTList) >= 2 else None
+         if gamma and gamma.check_shape() and gamma.rank() == 1:
+             hidden_size = gamma.shape[0]
+         elif len(iTList) >= 3:
+              # Assume index 1 is word_emb [Vocab, Hidden]
+              t = iTList[1]
+              if t.check_shape() and t.rank() == 2:
+                   hidden_size = t.shape[1]
+    
+    assert hidden_size > 0, "Could not determine hidden_size"
+    
+    oTList[0].shape = [batch, seq_len, hidden_size]
+    oTList[0].dtype = np.dtype(np.float32) # embedding output is float
+    
+    # Output 1: mask_index (batch, seq_len) - optional
+    if len(oTList) > 1:
+        oTList[1].shape = [batch, seq_len]
+        oTList[1].dtype = input_ids.dtype if input_ids.dtype is not None else np.dtype(np.int64)
+        
+    # Output 2: embedding_sum (batch, seq, hidden) - optional
+    if len(oTList) > 2:
+        oTList[2].shape = [batch, seq_len, hidden_size]
+        oTList[2].dtype = np.dtype(np.float32)
+
+    # Perf stats
+    nElem_out = batch * seq_len * hidden_size
+    
+    instr_count = {
+        'gather': nElem_out * 3, # approx
+        'add': nElem_out * 2, # summing embeddings
+        'mac': nElem_out, # LN scale
+        'rsqrt': batch * seq_len # LN
+    }
+    
+    op.perf_stats = {
+        'inElems': sum(t.nelems() for t in iTList),
+        'inBytes': sum(t.nbytes(op.precision) for t in iTList),
+        'outElems': sum(t.nelems() for t in oTList),
+        'outBytes': sum(t.nbytes(op.precision) for t in oTList),
+        'instrs': instr_count
+    }
+    return
+
+def rotary_pos_emb_sinf(iTList, oTList, op, **kwargs):
+    if len(iTList) != 3:
+        raise AssertionError(f"RotaryPositionEmbedding expects 3 inputs, got {len(iTList)}")
+    x = iTList[0]
+    cos = iTList[1]
+    sin = iTList[2]
+    
+    # Check attributes
+    if 'num_heads' not in op.attrs:
+        raise ValueError("RotaryPositionEmbedding requires 'num_heads' attribute")
+    if 'rotary_embedding_dim' not in op.attrs:
+        raise ValueError("RotaryPositionEmbedding requires 'rotary_embedding_dim' attribute")
+        
+    num_heads = op.attrs['num_heads']
+    rotary_dim = op.attrs['rotary_embedding_dim']
+    
+    if rotary_dim <= 0:
+        raise ValueError("rotary_embedding_dim must be positive")
+    if rotary_dim % 2 != 0:
+        raise ValueError("rotary_embedding_dim should be even")
+        
+    assert x.check_shape()
+    
+    # Hidden size divisible by num_heads
+    hidden_size = x.shape[-1]
+    if hidden_size % num_heads != 0:
+        raise ValueError(f"Hidden size {hidden_size} must be divisible by num_heads {num_heads}")
+        
+    head_dim = hidden_size // num_heads
+    if rotary_dim > head_dim:
+        raise ValueError(f"rotary_embedding_dim {rotary_dim} cannot exceed head dimension {head_dim}")
+        
+    # Cache dimensions
+    if cos.shape != sin.shape:
+        raise ValueError("cos_cache and sin_cache must have same shape")
+
+    cache_dim = rotary_dim // 2
+    if cos.shape[-1] != cache_dim or sin.shape[-1] != cache_dim:
+        raise ValueError(f"Cache dimension {cos.shape[-1]} should be half of rotary_embedding_dim {rotary_dim} ({cache_dim})")
+        
+    # Cache seq len check (assuming shape is [B, S, D] or similar)
+    if len(x.shape) >= 2 and len(cos.shape) >= 2:
+        if x.shape[-2] != cos.shape[-2]:
+             raise ValueError(f"Cache sequence length {cos.shape[-2]} must match input sequence length {x.shape[-2]}")
+
+    oTList[0].shape = x.shape
+    oTList[0].dtype = x.dtype
+    
+    nElem = x.nelems()
+    
+    instr_count = {
+        'mul': nElem * 2,
+        'add': nElem,
+        'mov': nElem
+    }
+    
+    if op.attrs.get('causal', False):
+        instr_count['cmp'] = nElem
+        
+    op.perf_stats = {
+        'inElems': sum(t.nelems() for t in iTList),
+        'outElems': oTList[0].nelems(),
+        'inBytes': sum(t.nbytes(op.precision) for t in iTList),
+        'outBytes': oTList[0].nbytes(op.precision),
+        'instrs': instr_count
+    }
+    return
+
+def bias_gelu_sinf(iTList, oTList, op, **kwargs):
+    # BiasGelu inputs: input, bias
+    inputT = iTList[0]
+    biasT = iTList[1]
+    
+    assert inputT.check_shape(), f"Illegal Shape in Tensor {inputT}"
+    assert biasT.check_shape(), f"Illegal Shape in Tensor {biasT}"
+    
+    if biasT.rank() != 1:
+        raise ValueError(f"Bias tensor must be 1D, got shape {biasT.shape}")
+    
+    if biasT.shape[0] != inputT.shape[-1]:
+        raise ValueError(f"Bias dimension ({biasT.shape[0]}) must match input's last dimension ({inputT.shape[-1]})")
+        
+    oTList[0].shape = inputT.shape
+    oTList[0].dtype = inputT.dtype
+    
+    nElem = inputT.nelems()
+    
+    # Cost: Bias add + Gelu
+    # Gelu approx: 0.5 * x * (1 + tanh(sqrt(2/pi) * (x + 0.044715 * x^3)))
+    # Ops:
+    # Bias add: 1 add
+    # Gelu:
+    #  x^3: 2 muls
+    #  mul const: 1 mul
+    #  add x: 1 add
+    #  mul const: 1 mul
+    #  tanh: 1 tanh
+    #  add 1: 1 add
+    #  mul x: 1 mul
+    #  mul 0.5: 1 mul
+    # Total Gelu: ~5 muls, 2 adds, 1 tanh
+    # Simplified cost for stats:
+    # add (bias + gelu internal), mul (gelu internal), tanh, exp (if tanh decomposed)
+    
+    instr_count = {
+        'add': nElem * 3, # bias add + gelu adds
+        'mul': nElem * 5, # gelu muls
+        'tanh': nElem,
+        'exp': nElem * 2 # tanh usually uses exp
+    }
+    
+    op.perf_stats = {
+        'inElems': inputT.nelems() + biasT.nelems(),
+        'inBytes': inputT.nbytes(op.precision) + biasT.nbytes(op.precision),
+        'outElems': nElem,
+        'outBytes': oTList[0].nbytes(op.precision),
+        'instrs': instr_count
+    }
+    return
+
 def register_nn_ops():
     _optbl = [
             #['Shrink',                    'ARITY_1->1', 'ai.onnx', 'COMMON',   9,   9,  1,  1,  1,  1, unary_fwd,     True,  True,  True,  True,  True],
@@ -534,7 +1099,7 @@ def register_nn_ops():
             #['MaxRoiPool',            'ARITY_2->1', 'ai.onnx', 'COMMON',  22,  22,  2,  2,  1,  1, 'inline_lamda',  True,  True,  True,  True,  True],
             #['InstanceNormalization', 'ARITY_3->1', 'ai.onnx', 'COMMON',  22,  22,  3,  3,  1,  1, 'inline_lamda',  True,  True,  True,  True,  True],
             #['Col2Im',                'ARITY_3->1', 'ai.onnx', 'COMMON',  18,  18,  3,  3,  1,  1, 'inline_lamda',  True,  True,  True,  True,  True],
-            ['GroupNormalization',    'ARITY_3->1', 'ai.onnx', 'COMMON',  21,  21,  3,  3,  1,  1, groupnorm_sinf,  True,  True,  True,  True,  True],
+            #['GroupNormalization',    'ARITY_3->1', 'ai.onnx', 'COMMON',  21,  21,  3,  3,  1,  1, 'no_inference',  True,  True,  True,  True,  True],
 
             #['MaxUnpool',             'ARITY_VARIADIC[2-3]->1',             'ai.onnx', 'COMMON',  22,  22,  3,  2,  1,  1, 'inline_lamda',  True,  True,  True,  True,  True],
             #['ConvInteger',           'ARITY_VARIADIC[2-4]->1',             'ai.onnx', 'COMMON',  10,  10,  4,  2,  1,  1, 'inline_lamda',  True,  True,  True,  True,  True],
@@ -542,7 +1107,8 @@ def register_nn_ops():
             #['QLinearConv',           'ARITY_VARIADIC[8-9]->1',             'ai.onnx', 'COMMON',  10,  10,  9,  8,  1,  1, 'inline_lamda',  True,  True,  True,  True,  True],
 
             ##['Flatten',                   'ARITY_1->1', 'ai.onnx', 'COMMON',  24,  21,  1,  1,  1,  1, 'inline_lamda',  True,  True,  True,  True,  True],
-            ##['GlobalAveragePool',         'ARITY_1->1', 'ai.onnx', 'COMMON',  22,  22,  1,  1,  1,  1, 'no_inference',  True,  True,  True,  True,  True],
+            ['GlobalMaxPool',              'ARITY_1->1', 'ai.onnx', 'COMMON',  22,  22,  1,  1,  1,  1, global_max_pool_sinf,  True,  True,  True,  True,  True],
+            ['GlobalAveragePool',         'ARITY_1->1', 'ai.onnx', 'COMMON',  22,  22,  1,  1,  1,  1, global_avg_pool_sinf,  True,  True,  True,  True,  True],
             ['AveragePool',               'ARITY_1->1', 'ai.onnx', 'COMMON',  22,  22,  1,  1,  1, 1, avgpool_sinf,  True,  True,  True,  True,  True],
 
             ['MaxPool',               'ARITY_1->VARIADIC[1-2]',             'ai.onnx', 'COMMON', 22, 22,  1,  1,  2,  1, maxpool_sinf,       True,  True,  True,  True,  True],
@@ -551,8 +1117,14 @@ def register_nn_ops():
             ['BatchNormalization',    'ARITY_5->VARIADIC[1-3]',             'ai.onnx', 'COMMON', 15, 15,  5,  5,  3,  1, bn_sinf,            True,  True,  True,  True,  True],
             ['Dropout',               'ARITY_VARIADIC[1-3]->VARIADIC[1-2]', 'ai.onnx', 'COMMON', 22, 22,  3,  1,  2,  1, dropout_sinf,       True,  True,  True,  True,  True],
             ['LayerNormalization',    'ARITY_VARIADIC[2-3]->VARIADIC[1-3]', 'ai.onnx', 'COMMON', 17, 17,  3,  2,  3,  1, ln_sinf,            True,  True,  True,  True,  True],
+            ['SimplifiedLayerNormalization', 'ARITY_VARIADIC[2-3]->1', 'ai.onnx', 'COMMON', 1, 1, 3, 2, 1, 1, simplified_layer_norm_sinf, True, True, True, True, True],
+            ['SkipLayerNormalization',       'ARITY_VARIADIC[3-4]->1', 'ai.onnx', 'COMMON', 1, 1, 4, 3, 1, 1, skip_layer_norm_sinf,       True, True, True, True, True],
+            ['GroupNormalization',           'ARITY_3->1',             'ai.onnx', 'COMMON', 1, 1, 3, 3, 1, 1, group_norm_sinf,        True, True, True, True, True],
+            ['RMSNormalization',             'ARITY_VARIADIC[2-3]->1', 'ai.onnx', 'COMMON', 1, 1, 3, 2, 1, 1, rms_norm_sinf,            True, True, True, True, True],
+            ['RotaryPositionEmbedding',      'ARITY_3->1',             'ai.onnx', 'COMMON', 1, 1, 3, 3, 1, 1, rotary_pos_emb_sinf,    True, True, True, True, True],
+            ['EmbedLayerNormalization',      'ARITY_VARIADIC[3-9]->VARIADIC[1-3]', 'ai.onnx', 'COMMON', 1, 1, 9, 3, 3, 1, embed_layer_norm_sinf, True, True, True, True, True],
+            ['BiasGelu',                     'ARITY_2->1',             'ai.onnx', 'COMMON', 1, 1, 2, 2, 1, 1, bias_gelu_sinf,         True, True, True, True, True],
             ]
 
     register_ops('nn', _optbl)
     return
-

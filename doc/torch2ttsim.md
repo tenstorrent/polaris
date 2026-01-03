@@ -184,51 +184,31 @@ If your workload has an operator which is not implemented in TTSIM, you need to 
     may not be a simple 1:1 mapping. Pay attention to the attributes mismatch between Pytorch and
     ONNX
 
-**2) Implement or reuse a `SimOp` class**
-  - Check if the equivalent ONNX operator(s) are missing in Polaris operators at `ttsim/ops/op.py`
-  - If the operator(s) are missing, you need to implement them as derived `SimOp` classes. Minimal
-    requirement for a such a class is input/output tensor count checks, attribute checks, shape
-    inference and precision checks. The `get_perf_counts` method needs to implement the shape inference
-    and instruction/memory-operation estimates for operator execution
-  - On the other hand, the equivalent operator may already be there, in which case we can simply
-    reuse it
+**2) Provide/extend a descriptor entry for the op**
+  - Define the operator’s shape inference and IO arity via the descriptor registry in `ttsim/ops/desc`.
+  - The base `SimOp` uses the descriptor’s shape inference function and IO constraints at runtime.
+  - If an equivalent ONNX operator already exists in the registry, reuse it; otherwise add a new entry.
 
-**3) Register the op_type in the SimOp factory**
-  - Map the ONNX `op_type` string to your `SimOp` in the factory so ONNX import can construct it:
+**3) Register the op_type in the descriptor registry**
+  - Add an entry for the ONNX `op_type` string in `ttsim/ops/desc/registry.py` (or grouped helper) so `get_opdesc_registry()` can resolve its shape inference and IO constraints.
 
 **4) Add a functional wrapper so that the PyTorch equivalent operator has a TTSIM proxy**
   - Provide a `ttsim.front.functional` wrapper so workloads can use the op in Python modules.
 
-**5) Use the TTSIM functional wrapper in your workload code**
-  - Create the op handle during module init and call it with the required inputs:
-
 Here is an example. `Conv2d` operator in PyTorch has an ONNX equivalent `Conv`. However, their
-attribute names mismatch. We first implement and register the ONNX compliant operator as a `SimOp`
-in `ttsim/ops/op.py`:
+attribute names mismatch. We define the ONNX‑compliant operator’s descriptor and rely on `SimOp`:
 
 ```Python
-class ConvOp(SimOp):
-    def __init__(self, opinfo):
-        super().__init__(opinfo)
-        self.opclass_str: str = 'Conv'
+from ttsim.ops.desc.registry import get_opdesc_registry
 
-        #perform IO checks
-        check_io_counts(self, in_counts=[2,3], out_counts=[1,1])
-        ...
-
-    def get_perf_counts(self, inT, outT, **kwargs):
-        #check input tensor shapes, and do shape inference for output tensors
-        assert inT[0].check_shape(), f"Illegal Shape for {inT[0]}"
-        assert inT[1].check_shape(), f"Illegal Shape for {inT[1]}"
-        if len(inT) == 3: assert inT[2].check_shape(), f"Illegal Shape for {inT[2]}"
-        ...
-
-def SimOpFactory(optype: str) -> type[SimOp]:
-    cls2optype: Dict[type[SimOp], list[str]] = {
-            ...
-            ConvOp : ['Conv'],
-            ...
-
+def register_conv_descriptor():
+    get_opdesc_registry().register(
+        opname='Conv',
+        min_input=2, max_input=3,
+        min_output=1, max_output=1,
+        shape_inf_func=conv_shape_inference,
+        # ... other metadata ...
+    )
 ```
 
 Next we provide a functional wrapper in `ttsim/front/functional/op.py`. Notice how the attribute
@@ -273,7 +253,7 @@ class SimpleModule(SimNN.Module):
 ```
 
 Tips:
-- **Naming**: SimOp `opclass_str` string must exactly match what you register in the factory.
+- **Naming**: `optype` must exactly match what you register in the descriptor registry.
 - **Input Counts**: Choose the correct functional wrapper (`UnaryOperator`, `BinaryOperator`, `TernaryOperator`, or `VariadicInputOpHandle`) so input ordering matches your `SimOp`.
 - **Complex Mappings**: If the PyTorch to ONNX is complex, and involves several operators, use a
   `SimNN.Module` instead of `SimOpHandle`

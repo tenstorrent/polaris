@@ -8,7 +8,7 @@
     model: Stable Diffusion 1.4 (512x512)
     precision: bf8
     release: null
-    sec_per_image: 6.25
+    sec_per_image: 4.83
     sentences_per_sec: null
     target_fps: null
     target_images_per_sec: null
@@ -29,7 +29,7 @@
     model: Stable Diffusion 1.4 (512x512)
     precision: bf8
     release: null
-    sec_per_image: 3.5
+    sec_per_image: 3.15
     sentences_per_sec: null
     target_fps: null
     target_images_per_sec: null

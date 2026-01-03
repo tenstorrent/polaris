@@ -465,12 +465,12 @@ class LeViT(SimNN.Module):
 
         # Heads (distillation optional)
         if self.head_dist is not None and self.num_classes > 0 and self.distillation:
-            y1 = self.head(z) if not callable(self.head) else self.head(z)
+            y1 = self.head(z) # type: ignore
             y2 = self.head_dist(z)
             half = F._from_data('levit.half', np.array(0.5, dtype=np.float32)); self._tensors[half.name] = half
             out = self.mul_head(self.head_add(y1, y2), half)
         else:
-            out = self.head(z) if not callable(self.head) else self.head(z)
+            out = self.head(z) # type: ignore
         return out
 
     def get_forward_graph(self):

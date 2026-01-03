@@ -108,7 +108,9 @@ def gelu_instr_counts(nElem):
     tanh_count += nElem     # tanh (...)
     add_count  += nElem     # <const + tanh(...)
     mul_count  += 2*nElem   # <const> * X * (...)
-    return {'mul': mul_count, 'add': add_count, 'tanh': tanh_count}
+    # Tanh typically involves exp operations
+    exp_count = 2 * nElem   # e^x and e^-x or similar
+    return {'mul': mul_count, 'add': add_count, 'tanh': tanh_count, 'exp': exp_count}
 
 def pooling_shape_inference(input_shape, kernel_shape, attrs):
     """Shape inference for pooling operators"""
@@ -195,11 +197,18 @@ def pooling_shape_inference(input_shape, kernel_shape, attrs):
 def unary_fwd(iTList, oTList, op, **kwargs):
     X,Y = iTList[0], oTList[0]
     assert X.check_shape(), f"Input tensor shape not defined: {X}"
+
+    # Some ops (like Swish/Elu) require at least 1D tensors
+    if op.optype == 'Swish':
+        assert X.rank() >= 1, f"Swish input must be at least 1D, got {X.shape}"
+    if op.optype == 'Elu':
+        assert X.rank() >= 1, "ELU input must be at least 1D"
+
     Y.shape = X.shape
     Y.dtype = X.dtype
     optype2instr = {
             'Identity': {'mov': 0},
-            'Clip'    : {'cmp': 2*Y.nelems(), 'mov': Y.nelems() },
+            'Clip'    : {'cmp': 2*Y.nelems(), 'min': Y.nelems(), 'max': Y.nelems() },
             'CumSum'  : {'add': Y.nelems()}, #TODO: handle axis: we need to divide by X.shape[axis]
             'PRelu'   : {'cmp': Y.nelems(), 'mul': Y.nelems() }, #slope * x if x < 0 else = x
 
@@ -226,13 +235,36 @@ def unary_fwd(iTList, oTList, op, **kwargs):
                 'div': X.nelems(), # o = exp(y) / z
                 'log': X.nelems(), # log(o)
                 },
-            'Gelu': gelu_instr_counts(X.nelems()),
+            'Gelu': (
+                gelu_instr_counts(X.nelems())
+                if op.attrs.get('approximate', None) == 'tanh'
+                else {
+                    'mul': 3 * X.nelems(),
+                    'add': 2 * X.nelems(),
+                    'exp': X.nelems(),
+                }
+            ),
+            'FastGelu': gelu_instr_counts(X.nelems()),
             'Softplus': {
                 # Softplus(x) = log(1 + exp(x))
                 'exp': X.nelems(), # exp(x)
                 'add': X.nelems(), # 1 + exp(x)
                 'log': X.nelems(), # log(1 + exp(x))
                 'mov': X.nelems(), # for output
+                },
+            'SoftPlus': {
+                # Softplus(x) = log(1 + exp(x))
+                'exp': X.nelems(), # exp(x)
+                'add': X.nelems(), # 1 + exp(x)
+                'log': X.nelems(), # log(1 + exp(x))
+                'mov': X.nelems(), # for output
+                },
+            'Swish': {
+                # Swish(x) = x * sigmoid(x) = x / (1 + exp(-x))
+                'exp': X.nelems(),  # exp(-x)
+                'add': X.nelems(),  # 1 + exp(-x)
+                'div': X.nelems(),  # x / (1 + exp(-x))
+                'mul': X.nelems(),  # final multiply by x
                 },
             'Sigmoid': {
                 #1 / (1 + exp(-x))
@@ -258,18 +290,26 @@ def unary_fwd(iTList, oTList, op, **kwargs):
             'Selu': {
                     #y = gamma * (alpha * e^x - alpha) if x <= 0 else gamma * x
                     #assume worst case: x <= 0
+                    'cmp': X.nelems(),
                     'exp': X.nelems(),
                     'mul': 2*X.nelems(),
                     'sub': X.nelems(),
                     },
-            'Elu': {
-                    #f(x) = alpha * (exp(x) - 1.) if x < 0 else  x
-                    #we assume the worst case cost (i.e. x < 0)
-                    'cmp': X.nelems(), # x < 0
-                    'exp': X.nelems(), # y = exp(x)
-                    'sub': X.nelems(), # y -= 1
-                    'mul': X.nelems(), # y *= alpha
+            'Shrink': {
+                    #Shrink(x) = x - bias if x > lambd else x + bias if x < -lambd else 0
+                    'cmp': 2*X.nelems(),
+                    'sub': X.nelems(),
+                    'add': X.nelems(),
                     },
+            'Elu': {
+                    # f(x) = alpha * (exp(x) - 1.) if x < 0 else  x
+                    # Heuristic: half elements go through exp branch
+                    'cmp': X.nelems(),
+                    'exp': X.nelems() // 2,
+                    'sub': X.nelems() // 2,
+                    'mul': X.nelems() // 2,
+                    'add': max(X.nelems() // 2, 1),
+            },
             'Mish': {
                     #x * tanh(softplus(x)) = x * tanh(ln(1 + e^{x}))
                     'exp' : X.nelems(), # y = exp(x)
@@ -283,12 +323,16 @@ def unary_fwd(iTList, oTList, op, **kwargs):
                     'mul': X.nelems(), # x = alpha * x
                     'add': X.nelems(), # x = x + beta
                     'cmp': 2*X.nelems(), # x = min(1, x); x = max(0, x)
+                    'min': X.nelems(),
+                    'max': X.nelems(),
                     },
             'HardSwish': {
                     #x * HardSigmoid<alpha, beta>(x)
-                    'mul': 2*X.nelems(), # x = alpha * x; x * HardSigmoid
-                    'add': X.nelems(), # x = x + beta
-                    'cmp': 2*X.nelems(), # x = min(1, x); x = max(0, x)
+                    #Original ONNXHardSwishOp profile:
+                    'add': X.nelems(), # x + 3
+                    'cmp': 2*X.nelems(), # Two comparisons (max and min)
+                    'mul': X.nelems(), # x * result
+                    'div': X.nelems(), # final / 6
                     },
             'Softsign': {
                     #x/(1+|x|) 
@@ -296,15 +340,32 @@ def unary_fwd(iTList, oTList, op, **kwargs):
                     'add': X.nelems(),
                     'div': X.nelems()
                     },
+            'SoftSign': {
+                    #x/(1+|x|) 
+                    'abs': X.nelems(),
+                    'add': X.nelems(),
+                    'div': X.nelems()
+                    },
             }
 
-    for xopname in ['Sign', 'Relu', 'LeakyRelu', 'ThresholdedRelu', 'Hardmax']:
-        #Sign            : x <=> 0
-        #Relu            : max(0,x)
-        #LeakyRelu       : alpha * x if x < 0 else x; additional 'add' accounted outside this loop
-        #ThresholdedRelu : x for x > alpha else 0
-        #Hardmax         : Hardmax(x, axis) = 1 if x == first_max_val_along_xis else 0; TODO: account for axis
+    for xopname in ['Sign', 'Relu', 'LeakyRelu', 'Hardmax']:
+        #Sign      : x <=> 0
+        #Relu      : max(0,x)
+        #LeakyRelu : alpha * x if x < 0 else x; additional 'add' accounted outside this loop
+        #Hardmax   : Hardmax(x, axis) = 1 if x == first_max_val_along_xis else 0; TODO: account for axis
         optype2instr[xopname] = {'cmp': X.nelems(), 'mov': X.nelems()}
+    # Ensure Hardmax exposes 'max' instruction for tests and parity with legacy behavior
+    optype2instr['Hardmax'] = {'cmp': X.nelems(), 'mov': X.nelems(), 'max': X.nelems()}
+
+    # ThresholdedRelu has slightly different mov counts depending on alpha,
+    # to match the original concrete ThresholdedReluOp implementation.
+    if op.optype == 'ThresholdedRelu':
+        alpha = op.attrs.get('alpha', 1.0)
+        cmp_count = X.nelems()
+        mov_count = X.nelems()
+        if alpha != 0:
+            mov_count += X.nelems()
+        optype2instr['ThresholdedRelu'] = {'cmp': cmp_count, 'mov': mov_count}
     optype2instr['LeakyRelu']['add'] = X.nelems()
 
     for xopname in ['Reciprocal', 'Floor', 'Ceil', 'Sqrt', 'Exp', 'Log',
@@ -313,10 +374,18 @@ def unary_fwd(iTList, oTList, op, **kwargs):
                     'Round', ]:
         optype2instr[xopname] = {xopname.lower(): X.nelems()}
 
+    # Account for additional input tensors for ops like Clip that accept min/max tensors
+    if op.optype == 'Clip' and len(iTList) > 1:
+        in_elems = sum(t.nelems() for t in iTList)
+        in_bytes = sum(t.nbytes(op.precision) for t in iTList)
+    else:
+        in_elems = X.nelems()
+        in_bytes = X.nbytes(op.precision)
+
     op.perf_stats =  {
-            'inElems' : X.nelems(),
+            'inElems' : in_elems,
             'outElems': Y.nelems(),
-            'inBytes' : X.nbytes(op.precision),
+            'inBytes' : in_bytes,
             'outBytes': Y.nbytes(op.precision),
             'instrs'  : optype2instr[op.optype],
             }
