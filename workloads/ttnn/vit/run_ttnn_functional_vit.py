@@ -8,13 +8,11 @@ sys.path.append(".")
 import os
 
 IS_POLARIS = os.getenv('IRD_ARCH_NAME', '') == ''
-import pytest  # noqa E402
-import transformers  # noqa E402
 from loguru import logger  # noqa E402
 
 if not IS_POLARIS:
-    import torch  # type: ignore[no-redef] # noqa E402
-    import ttnn  # type: ignore[no-redef, import] # noqa E402
+    import pytest   # noqa E402
+    import transformers  # type: ignore[import] # noqa E402
     from datasets import load_dataset  # type: ignore[import] # noqa F401, E402
     from transformers import AutoImageProcessor  # noqa E402
     from ttnn.model_preprocessing import preprocess_model_parameters  # type: ignore[import] # noqa F401,  E402
@@ -30,7 +28,7 @@ else:
     # torch_bfloat16 = ttnn.DataType.BFLOAT16
 
 if not IS_POLARIS:
-    from models.common.utility_functions import is_blackhole, is_wormhole_b0, torch_random   # type: ignore[import] # noqa F401, E402
+    from models.common.utility_functions import is_blackhole, is_wormhole_b0, torch_random   # type: ignore[import, no-redef] # noqa F401, E402
     from models.demos.vit.common import load_torch_model   # type: ignore[import] # noqa F401, E402
     from models.demos.vit.tt import ttnn_functional_vit   # type: ignore[no-redef, import] # noqa F401, E402
 
@@ -108,7 +106,7 @@ def test_vit_attention(device, model_name="google/vit-base-patch16-224",
         model = transformers.models.vit.modeling_vit.ViTAttention(config).eval()
         model = model.to(torch.bfloat16)
         torch_hidden_states = torch_random((batch_size, sequence_size, config.hidden_size), -0.1, 0.1, dtype=torch.bfloat16)
-        torch_attention_mask = torch.ones(1, sequence_size, dtype=torch.bfloat16)
+        torch_attention_mask = torch.ones(1, sequence_size, dtype=torch.bfloat16)  # type: ignore[attr-defined]
         torch_output, *_ = model(torch_hidden_states, torch_attention_mask)
 
         parameters = preprocess_model_parameters(
