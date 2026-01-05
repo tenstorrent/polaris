@@ -6,6 +6,7 @@ import os, sys
 sys.path.append(os.path.join(os.path.dirname(__file__), '../../../../'))
 import ttsim.front.ttnn as ttnn
 
+from typing import TYPE_CHECKING
 from workloads.ttnn.vadv2.tt.tt_lanenet import TtLaneNet
 from workloads.ttnn.vadv2.tt.tt_decoder import TtCustomTransformerDecoder
 from workloads.ttnn.vadv2.tt.tt_transformer import TtVADPerceptionTransformer
@@ -363,6 +364,8 @@ class TtVADHead(SimNN.Module):
                     tmp = ttnn.relu(tmp)
 
             tmp_shape = tmp.shape
+            if TYPE_CHECKING:
+                assert tmp_shape is not None
             ref_shape = reference.shape
             t2 = ttnn.Tensor(shape=(tmp_shape[0], tmp_shape[1], 2), dtype=ttnn.bfloat16, device=self.device)
             r2 = ttnn.Tensor(shape=(ref_shape[0], ref_shape[1], 2), dtype=ttnn.bfloat16, device=self.device)
@@ -435,6 +438,8 @@ class TtVADHead(SimNN.Module):
             assert reference.shape[-1] == 2
 
             tmp_shape = tmp.shape
+            if TYPE_CHECKING:
+                assert tmp_shape is not None
             t2 = ttnn.Tensor(shape=(tmp_shape[0], tmp_shape[1], 2), dtype=ttnn.bfloat16, device=self.device)
             reference_shape = reference.shape
             r2 = ttnn.Tensor(shape=(reference_shape[0], reference_shape[1], 2), dtype=ttnn.bfloat16, device=self.device)
@@ -775,6 +780,8 @@ class TtVADHead(SimNN.Module):
             elif i in [1, 3]:  # ReLU layers
                 cls_tmp = ttnn.relu(cls_tmp)
         outputs_ego_trajs = cls_tmp
+        if TYPE_CHECKING:
+            assert outputs_ego_trajs.shape is not None
         outputs_ego_trajs = ttnn.reshape(
             outputs_ego_trajs, (outputs_ego_trajs.shape[0], self.ego_fut_mode, self.fut_ts, 2)
         )
@@ -920,11 +927,16 @@ class TtVADHead(SimNN.Module):
         valid_map_inst = ttnn.compare(map_dis, dis_thresh, "less_equal") # [B, A, max_P]
         invalid_map_inst = valid_map_inst == False
         selected_padding_mask = selected_padding_mask + invalid_map_inst
+        if TYPE_CHECKING:
+            assert selected_map_query.shape is not None
         B, N, P, D = selected_map_query.shape
         selected_map_query = ttnn.reshape(selected_map_query, (N, P, D))  # [1800, 3, 256]
         selected_map_pos = ttnn.reshape(selected_map_pos, (N, P, 2))  # [1800, 3, 2]
         selected_padding_mask = ttnn.reshape(selected_padding_mask, (N, P))  # [1800, 3]
 
+        if TYPE_CHECKING:
+            assert selected_padding_mask.shape is not None
+            assert selected_map_query.shape is not None
         num_batch = selected_padding_mask.shape[0]
         feat_dim = selected_map_query.shape[-1]
         if use_fix_pad:

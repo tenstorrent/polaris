@@ -7,6 +7,7 @@ from loguru import logger
 
 sys.path.append(os.path.join(os.path.dirname(__file__), '../../..'))
 import ttsim.front.ttnn as ttnn
+from ttsim.ops.tensor import require_shape_list
 from workloads.ttnn.tt_transformers.model_config import ModelArgs
 from workloads.ttnn.tt_transformers.mlp import MLP
 
@@ -44,7 +45,7 @@ def test_mlp_inference():
     logger.info("Running MLP Forward Pass...")
 
     tt_output = tt_model.forward(tt_input, mode="prefill")
-    actual_shape = list(tt_output.shape)
+    actual_shape = require_shape_list(tt_output.shape, "MLP output must have a known shape")
     logger.info(f"Output Shape: {actual_shape}")
 
     # 4. Compare against model_args.dim

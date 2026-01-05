@@ -8,6 +8,7 @@ from typing import Union, Iterator
 from loguru import logger
 from ttsim.graph import WorkloadGraph
 from ttsim.ops import SimOp, SimTensor
+from ttsim.ops.tensor import require_shape_list
 import ttsim.utils.common as common
 from ttsim.config.wl2archmap import WL2ArchTypeSpec
 
@@ -74,7 +75,11 @@ def full(name: str, shape: list[int], fill_value: float, dtype=np.float32) -> Si
 
 def full_like(name: str, tensor: SimTensor, fill_value: float) -> SimTensor:
     """Create a tensor filled with a specific value, with shape and dtype matching another tensor"""
-    data = np.full(tensor.shape, fill_value, dtype=tensor.dtype.type)
+    data = np.full(
+        require_shape_list(tensor.shape, "full_like requires tensor.shape to be set"),
+        fill_value,
+        dtype=tensor.dtype.type,
+    )
     return _from_data(name, data, is_const=True)
 
 

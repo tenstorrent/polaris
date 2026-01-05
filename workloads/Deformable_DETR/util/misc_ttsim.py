@@ -18,7 +18,7 @@ Includes:
 
 import numpy as np
 from typing import List, Optional, Tuple, Union
-from ttsim.ops.tensor import SimTensor
+from ttsim.ops.tensor import SimTensor, shape_as_optional_list
 import ttsim.front.functional.op as F
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -112,7 +112,7 @@ def inverse_sigmoid(x, eps=1e-5):
     """
     if isinstance(x, SimTensor):
         x_data = x.data
-        x_shape = x.shape
+        x_shape = shape_as_optional_list(x.shape)
         x_dtype = x.dtype if hasattr(x, "dtype") else np.float32
     elif isinstance(x, np.ndarray):
         x_data = x
@@ -164,12 +164,12 @@ class NestedTensor:
 
     def __repr__(self):
         if isinstance(self.tensors, SimTensor):
-            tensors_shape = self.tensors.shape
+            tensors_shape_repr = repr(shape_as_optional_list(self.tensors.shape))
         elif hasattr(self.tensors, "shape"):
-            tensors_shape = self.tensors.shape
+            tensors_shape_repr = repr(self.tensors.shape)
         else:
-            tensors_shape = "?"
-        return f"NestedTensorTTSim(tensors_shape={tensors_shape}, mask_shape={self.mask.shape if self.mask is not None else None})"
+            tensors_shape_repr = "?"
+        return f"NestedTensorTTSim(tensors_shape={tensors_shape_repr}, mask_shape={self.mask.shape if self.mask is not None else None})"
 
 
 def interpolate(
@@ -193,7 +193,7 @@ def interpolate(
     """
     # Extract shape and data
     if isinstance(input_data, SimTensor):
-        input_shape = input_data.shape
+        input_shape = shape_as_optional_list(input_data.shape)
         data = input_data.data
         dtype = input_data.dtype if hasattr(input_data, "dtype") else np.float32
     elif isinstance(input_data, np.ndarray):
@@ -205,6 +205,8 @@ def interpolate(
         input_shape = list(input_data.shape) if hasattr(input_data, "shape") else None
         data = input_data.data if hasattr(input_data, "data") else input_data
         dtype = input_data.dtype if hasattr(input_data, "dtype") else np.float32
+
+    assert input_shape is not None, "interpolate requires a known input shape"
 
     # Shape inference: Compute output shape
     if size is not None:
@@ -442,7 +444,7 @@ def nested_tensor_from_tensor_list(
     for item in tensor_list:
         if isinstance(item, SimTensor):
             # Make a copy to avoid reference issues
-            shapes.append(list(item.shape))
+            shapes.append(shape_as_optional_list(item.shape))
             if item.data is None:
                 has_data = False
         elif isinstance(item, np.ndarray):
@@ -501,7 +503,9 @@ def nested_tensor_from_tensor_list(
                 img_data = item.data if hasattr(item, "data") else item  # type: ignore[unreachable]
 
             # Use pre-computed shape from shapes list
-            img_c, img_h, img_w = shapes[i]
+            _item_shape = shapes[i]
+            assert _item_shape is not None
+            img_c, img_h, img_w = _item_shape
             tensor[i, :, :img_h, :img_w] = img_data
             mask[i, :img_h, :img_w] = False
     else:

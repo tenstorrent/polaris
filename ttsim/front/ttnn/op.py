@@ -6,11 +6,13 @@ from enum import Enum, auto
 from itertools import count
 
 import numpy as np
+from loguru import logger
 
 from ttsim.ops.op import SimOp
+from ttsim.ops.tensor import Shape, require_shape_list
 
 from .memory import MemoryConfig
-from .tensor import DataType, Tensor, Layout, zeros
+from .tensor import DataType, Layout, Tensor, require_ttnn_tensor, zeros
 
 
 class MathFidelity(Enum):
@@ -42,13 +44,23 @@ def single_output_immediate_op(optype, /, preprocess=None):
         if preprocess:
             args, kwargs = preprocess(args, kwargs)
 
-        tensor_args = [x for x in args if isinstance(x, Tensor)]
+        tensor_args: list[Tensor] = []
+        for i, x in enumerate(args):
+            if isinstance(x, (int, float)):
+                continue
+            tensor_args.append(
+                require_ttnn_tensor(x, f"ttnn.op({optype}) argument {i}")
+            )
+        if not tensor_args:
+            raise TypeError(
+                f"ttnn.op({optype}) requires at least one ttsim.front.ttnn.tensor.Tensor argument"
+            )
         devchk_list = [x.device for x in tensor_args]
         device = devchk_list[0]
         # assert device and all(x == device for x in devchk_list), f"device check: {devchk_list}"
 
         op_name = generate_new_op_name()
-        opinfo = {"name": op_name, "optype": optype, "inList": [], "attrs": kwargs}
+        opinfo  = {'name': op_name, 'optype': optype, 'inList': [], 'attrs': kwargs}
         C = Tensor(name=op_name + ".out", op_out=[op_name], device=device)
 
         new_args = []
@@ -75,7 +87,16 @@ def single_output_immediate_op(optype, /, preprocess=None):
                     opinfo["inList"].append(tmp.name)
                     new_args.append(tmp)
                 else:
-                    exit(0)
+                    logger.warning(
+                        "Scalar operand not supported for {} (only Add, Sub, Mul accept scalars); "
+                        "got type {}",
+                        optype,
+                        type(x).__name__,
+                    )
+                    raise TypeError(
+                        f"Scalar input is not supported for ttnn.op({optype}); "
+                        f"only Add, Sub, and Mul accept scalar operands"
+                    )
             else:
                 assert False, f"Unknown input type in ttnn.op({optype}) : {type(x)}"
         opinfo["outList"] = [C.name]
@@ -97,7 +118,9 @@ def multiple_output_immediate_op(optype, /, preprocess=None):
         if preprocess:
             args, kwargs = preprocess(args, kwargs)
 
-        tensor_args = [x for x in args if isinstance(x, Tensor)]
+        for i, x in enumerate(args):
+            require_ttnn_tensor(x, f"ttnn.op({optype}) argument {i}")
+        tensor_args: list[Tensor] = list(args)
         devchk_list = [x.device for x in tensor_args]
         device = devchk_list[0]
         # assert device and all(x == device for x in devchk_list), f"device check: {devchk_list}"
@@ -144,15 +167,19 @@ def argmax_pp(args_list, kwargs_dict):
 
 def reshape_pp(args_list, kwargs_dict):
     assert len(args_list) <= 3, f"ttnn.reshape has 3 inputs (special case for TT h/w)"
-    inT = args_list[0]
+    inT = require_ttnn_tensor(args_list[0], "ttnn.reshape input")
     outShape = args_list[1]
-    assert isinstance(inT, Tensor), f"ttnn.reshape 1st input should be a ttnn.Tensor"
-    assert isinstance(
-        outShape, (list, tuple)
-    ), f"ttnn.reshape 2nd input should be a list|tuple of ints"
+    if isinstance(outShape, Shape):
+        outShape = outShape.as_list()
+    elif isinstance(outShape, (list, tuple)):
+        outShape = list(outShape)
+    else:
+        assert False, (
+            "ttnn.reshape 2nd input should be a list, tuple, or ttsim.ops.tensor.Shape"
+        )
     assert all(
-        isinstance(x, int) for x in outShape
-    ), f"ttnn.reshape 2nd input should be a list|tuple of ints"
+        isinstance(x, (int, np.integer)) for x in outShape
+    ), f"ttnn.reshape 2nd input should be a sequence of integer sizes"
 
     in_dtype = DataType.from_numpy(inT.dtype)
     if len(args_list) == 3:
@@ -170,8 +197,16 @@ def reshape_pp(args_list, kwargs_dict):
 
 
 def expand_pp(args_list, kwargs_dict):
-    inT = args_list[0]
+    inT = require_ttnn_tensor(args_list[0], "ttnn.expand input")
     outShape = args_list[1]
+    if isinstance(outShape, Shape):
+        outShape = outShape.as_list()
+    elif isinstance(outShape, (list, tuple)):
+        outShape = list(outShape)
+    else:
+        assert False, (
+            "ttnn.expand 2nd input should be a list, tuple, or ttsim.ops.tensor.Shape"
+        )
     outData = np.array(outShape, dtype=np.int64)
     outT = Tensor(
         shape=outData.shape, dtype=DataType.INT64, device=inT.device, data=outData
@@ -180,8 +215,8 @@ def expand_pp(args_list, kwargs_dict):
 
 
 def split_pp(args_list, kwargs_dict):
-    inT = args_list[0]
-    outT = args_list[1]
+    inT = require_ttnn_tensor(args_list[0], "ttnn.split input")
+    outT = require_ttnn_tensor(args_list[1], "ttnn.split output template")
     split_sizes = kwargs_dict.get("split_sizes", None)
     num_splits = kwargs_dict.get("num_splits", None)
     axis = kwargs_dict.get("dim", 0)
@@ -192,8 +227,7 @@ def split_pp(args_list, kwargs_dict):
 
 
 def permute_pp(args_list, kwargs_dict):
-    inT = args_list[0]
-    assert isinstance(inT, Tensor), f"ttnn.permute 1st input should be a ttnn.Tensor"
+    inT = require_ttnn_tensor(args_list[0], "ttnn.permute input")
     assert isinstance(
         args_list[1], (list, tuple)
     ), f"ttnn.permute 2nd input should be a list|tuple of ints"
@@ -204,14 +238,8 @@ def permute_pp(args_list, kwargs_dict):
 def embedding_pp(args_list, kwargs_dict):
     # TTNN passes in the order indices, weights while Polaris takes weights, indices
     assert len(args_list) == 2, f"ttnn.embedding has 2 inputs"
-    input_tensor = args_list[0]
-    weight_tensor = args_list[1]
-    assert isinstance(
-        input_tensor, Tensor
-    ), f"ttnn.embedding 1st input should be a ttnn.Tensor: {input_tensor}"
-    assert isinstance(
-        weight_tensor, Tensor
-    ), f"ttnn.embedding 2nd input should be a ttnn.Tensor: {weight_tensor}"
+    input_tensor = require_ttnn_tensor(args_list[0], "ttnn.embedding indices")
+    weight_tensor = require_ttnn_tensor(args_list[1], "ttnn.embedding weight")
     return (weight_tensor, input_tensor), kwargs_dict
 
 
@@ -229,16 +257,11 @@ def layer_norm_pp(args_list, kwargs_dict):
         else None
     )
 
-    assert isinstance(
-        input_tensor, Tensor
-    ), f"ttnn.layer_norm 1st input should be a ttnn.Tensor"
-    assert isinstance(
-        weight_tensor, Tensor
-    ), f"ttnn.layer_norm 2nd input should be a ttnn.Tensor"
+    input_tensor = require_ttnn_tensor(input_tensor, "ttnn.layer_norm input")
+    if weight_tensor is not None:
+        weight_tensor = require_ttnn_tensor(weight_tensor, "ttnn.layer_norm weight")
     if bias_tensor is not None:
-        assert isinstance(
-            bias_tensor, Tensor
-        ), f"ttnn.layer_norm 3rd input should be a ttnn.Tensor"
+        bias_tensor = require_ttnn_tensor(bias_tensor, "ttnn.layer_norm bias")
 
     kwargs_dict = {}
     if bias_tensor is not None:
@@ -248,9 +271,15 @@ def layer_norm_pp(args_list, kwargs_dict):
 
 
 def conv2d_pp(args_list, kwargs_dict):
-    input_tensor = kwargs_dict["input_tensor"]
-    weight_tensor = kwargs_dict["weight_tensor"]
-    bias_tensor = kwargs_dict["bias_tensor"]
+    input_tensor = require_ttnn_tensor(
+        kwargs_dict["input_tensor"], "ttnn.conv2d input_tensor"
+    )
+    weight_tensor = require_ttnn_tensor(
+        kwargs_dict["weight_tensor"], "ttnn.conv2d weight_tensor"
+    )
+    bias_tensor = require_ttnn_tensor(
+        kwargs_dict["bias_tensor"], "ttnn.conv2d bias_tensor"
+    )
     strides = kwargs_dict.get("stride", (1, 1))
     padding_size = kwargs_dict["padding"][0]
     pads = [padding_size for i in range(4)]
@@ -265,10 +294,9 @@ def conv2d_pp(args_list, kwargs_dict):
 def outer_pp(args_list, kwargs_dict):
     """Preprocessor for outer product operation."""
     assert len(args_list) == 2, f"ttnn.outer has 2 inputs"
-    tensor_a = args_list[0]
-    tensor_b = args_list[1]
-    assert isinstance(tensor_a, Tensor), f"ttnn.outer 1st input should be a ttnn.Tensor"
-    assert isinstance(tensor_b, Tensor), f"ttnn.outer 2nd input should be a ttnn.Tensor"
+    tensor_a = require_ttnn_tensor(args_list[0], "ttnn.outer input a")
+    tensor_b = require_ttnn_tensor(args_list[1], "ttnn.outer input b")
+    assert tensor_a.shape is not None and tensor_b.shape is not None
 
     # Validate that inputs are 1D tensors
     if len(tensor_a.shape) != 1:
@@ -290,9 +318,9 @@ def outer_pp(args_list, kwargs_dict):
 def torchgather_pp(args_list, kwargs_dict):
     """Preprocessor for torch gather operation. Torch Gather differs vs. ONNX Gather."""
     assert len(args_list) == 3, f"ttnn.gather has 3 inputs"
-    input_tensor = args_list[0]
+    input_tensor = require_ttnn_tensor(args_list[0], "ttnn.gather input")
     dim = args_list[1]
-    index_tensor = args_list[2]
+    index_tensor = require_ttnn_tensor(args_list[2], "ttnn.gather index")
 
     # Ensure the index tensor is of integer type
     if index_tensor.dtype != np.int64:
@@ -305,10 +333,13 @@ def torchgather_pp(args_list, kwargs_dict):
 
 
 def transpose_pp(args_list, kwargs_dict):
-    inT = args_list[0]
+    inT = require_ttnn_tensor(args_list[0], "ttnn.transpose input")
     dim1 = args_list[1]
     dim2 = args_list[2]
-    out_dims = [i for i in range(len(inT.shape))]
+    in_rank = len(
+        require_shape_list(inT.shape, "ttnn.transpose input shape must be set")
+    )
+    out_dims = [i for i in range(in_rank)]
     out_dims[dim2] = dim1
     out_dims[dim1] = dim2
     kwargs_dict = {"perm": out_dims}
@@ -320,6 +351,8 @@ def cat(tensors, dim=0):
     if not tensors:
         raise ValueError("Input list of tensors is empty")
 
+    for i, t in enumerate(tensors):
+        require_ttnn_tensor(t, f"ttnn.cat tensors[{i}]")
     first_tensor = tensors[0]
     # Handle negative dimension
     original_rank = len(first_tensor.shape)
@@ -346,13 +379,14 @@ def cat(tensors, dim=0):
 
 
 def where_pp(args, kwargs_dict):
-    mask_tensor = args[0]
-    input_tensor = args[1]
-    value_tensor = args[2]
+    mask_tensor = require_ttnn_tensor(args[0], "ttnn.where condition")
+    input_tensor = require_ttnn_tensor(args[1], "ttnn.where x")
+    value_tensor = require_ttnn_tensor(args[2], "ttnn.where y")
     return (mask_tensor, input_tensor, value_tensor), kwargs_dict
 
 
 def sharded_to_interleaved(input_tensor, memory_config=None):
+    require_ttnn_tensor(input_tensor, "ttnn.sharded_to_interleaved input")
     return input_tensor  # No actual conversion, just returning the input tensor
 
 
@@ -365,6 +399,11 @@ def rms_norm(
     compute_kernel_config=None,
     dim=3072,
 ):
+    input_tensor = require_ttnn_tensor(input_tensor, "ttnn.rms_norm input")
+    if weight_tensor is not None:
+        weight_tensor = require_ttnn_tensor(weight_tensor, "ttnn.rms_norm weight")
+    if bias_tensor is not None:
+        bias_tensor = require_ttnn_tensor(bias_tensor, "ttnn.rms_norm bias")
     # Compute RMS (using layernorm for now)
     rms = layer_norm(input_tensor, weight=weight_tensor, epsilon=epsilon, axis=-1)
     normalized = div(input_tensor, rms)
@@ -382,7 +421,9 @@ def rms_norm(
 
 
 def max_pool2d_pp(args_list, kwargs_dict):
-    input_tensor = kwargs_dict["input_tensor"]
+    input_tensor = require_ttnn_tensor(
+        kwargs_dict["input_tensor"], "ttnn.max_pool2d input_tensor"
+    )
     kernel_size = kwargs_dict["kernel_size"]
     stride = kwargs_dict.get("stride", kernel_size)
     padding = kwargs_dict.get("padding", 0)
@@ -405,9 +446,15 @@ def max_pool2d_pp(args_list, kwargs_dict):
 
 
 def conv_transpose2d_pp(args_list, kwargs_dict):
-    input_tensor = kwargs_dict["input_tensor"]
-    weight_tensor = kwargs_dict["weight_tensor"]
-    bias_tensor = kwargs_dict["bias_tensor"]
+    input_tensor = require_ttnn_tensor(
+        kwargs_dict["input_tensor"], "ttnn.conv_transpose2d input_tensor"
+    )
+    weight_tensor = require_ttnn_tensor(
+        kwargs_dict["weight_tensor"], "ttnn.conv_transpose2d weight_tensor"
+    )
+    bias_tensor = require_ttnn_tensor(
+        kwargs_dict["bias_tensor"], "ttnn.conv_transpose2d bias_tensor"
+    )
     padding_size = kwargs_dict["padding"][0]
     pads = [padding_size for i in range(4)]
     output_padding = kwargs_dict.get("output_padding", (0, 0))
@@ -422,7 +469,7 @@ def conv_transpose2d_pp(args_list, kwargs_dict):
 
 
 def as_pp(args_list, kwargs_dict):
-    input_tensor = args_list[0]
+    input_tensor = require_ttnn_tensor(args_list[0], "ttnn.slice input")
     slice_spec = kwargs_dict.get("slice", None)
     assert (
         slice_spec is not None
@@ -430,7 +477,10 @@ def as_pp(args_list, kwargs_dict):
 
     # Compute the shape of the slice
     # Use numpy to infer the shape
-    dummy = np.empty(input_tensor.shape)
+    in_shape = require_shape_list(
+        input_tensor.shape, "ttnn.slice input shape must be set"
+    )
+    dummy = np.empty(in_shape)
     sliced = dummy[slice_spec]
     out_shape = list(sliced.shape)
 
@@ -439,14 +489,15 @@ def as_pp(args_list, kwargs_dict):
 
 
 def topk_pp(args_list, kwargs_dict):
-    input_tensor = args_list[0]
-    k_tensor = args_list[1]
+    input_tensor = require_ttnn_tensor(args_list[0], "ttnn.topk input")
+    k_tensor = require_ttnn_tensor(args_list[1], "ttnn.topk k")
     axis = kwargs_dict.get("dim", -1)
     largest = kwargs_dict.get("largest", True)
     sorted = kwargs_dict.get("sorted", True)
 
+    k_shape = require_shape_list(k_tensor.shape, "ttnn.topk k shape must be set")
     kwargs_dict = {
-        "k": k_tensor.shape[0],
+        "k": k_shape[0],
         "axis": axis,
         "largest": 1 if largest else 0,
         "sorted": 1 if sorted else 0,
@@ -455,6 +506,7 @@ def topk_pp(args_list, kwargs_dict):
 
 
 def zeros_like(input_tensor, memory_config=None):
+    require_ttnn_tensor(input_tensor, "ttnn.zeros_like input")
     return zeros(
         shape=input_tensor.shape,
         dtype=DataType.from_numpy(input_tensor.dtype.name),
@@ -468,6 +520,8 @@ def zeros_like(input_tensor, memory_config=None):
 
 
 def compare(input_tensor_a, input_tensor_b, op_type):
+    require_ttnn_tensor(input_tensor_a, "ttnn.compare input a")
+    require_ttnn_tensor(input_tensor_b, "ttnn.compare input b")
     assert op_type in [
         "equal",
         "not_equal",
@@ -483,14 +537,18 @@ def compare(input_tensor_a, input_tensor_b, op_type):
 
 
 def maximum(input_tensor_a, input_tensor_b):
+    require_ttnn_tensor(input_tensor_a, "ttnn.maximum input a")
+    require_ttnn_tensor(input_tensor_b, "ttnn.maximum input b")
     return input_tensor_a  # Placeholder implementation
 
 
 def unsqueeze(input_tensor, dim):
+    require_ttnn_tensor(input_tensor, "ttnn.unsqueeze input")
     return input_tensor.unsqueeze(dim)
 
 
 def divide(input_tensor, divisor, use_legacy=False):
+    require_ttnn_tensor(input_tensor, "ttnn.divide input")
     if isinstance(divisor, (int, float)):
         divisor = Tensor(
             shape=input_tensor.shape,
@@ -498,18 +556,22 @@ def divide(input_tensor, divisor, use_legacy=False):
             device=input_tensor.device,
             data=np.full(input_tensor.shape, divisor, dtype=input_tensor.dtype),
         )
+    require_ttnn_tensor(divisor, "ttnn.divide divisor")
     return div(input_tensor, divisor)
 
 
 def clone(input_tensor, memory_config=None):
+    require_ttnn_tensor(input_tensor, "ttnn.clone input")
     return input_tensor
 
 
 def squeeze(input_tensor, dim):
+    require_ttnn_tensor(input_tensor, "ttnn.squeeze input")
     return input_tensor.squeeze(dim)
 
 
 def repeat(input_tensor, repeats):
+    require_ttnn_tensor(input_tensor, "ttnn.repeat input")
     output_shape = [i * j for i, j in zip(list(input_tensor.shape), repeats)]
     return Tensor(
         shape=output_shape,
@@ -543,6 +605,10 @@ def eqz(input_tensor):
 
 
 def moe(gate_logits, expert_mask, topE_mask, k, k_tensor):
+    gate_logits = require_ttnn_tensor(gate_logits, "ttnn.moe gate_logits")
+    expert_mask = require_ttnn_tensor(expert_mask, "ttnn.moe expert_mask")
+    topE_mask = require_ttnn_tensor(topE_mask, "ttnn.moe topE_mask")
+    k_tensor = require_ttnn_tensor(k_tensor, "ttnn.moe k_tensor")
     N, C, H, W = gate_logits.shape
     assert expert_mask.shape == [N, C, 1, W], "expert_mask must be [N, C, 1, W]"
     assert topE_mask.shape[-1] == k, f"topE_mask last dim must be k"
@@ -655,7 +721,8 @@ def silu(x):
 # Multi-operator functions
 def linear(*args, **kwargs):
     assert len(args) == 2, f"linear args #-inputs({len(args)}) != 2"
-    A, B = args[0], args[1]
+    A = require_ttnn_tensor(args[0], "ttnn.linear input")
+    B = require_ttnn_tensor(args[1], "ttnn.linear weight")
     bias = kwargs.get("bias", None)
     act = kwargs.get("activation", None)
     # t_A         = kwargs.get('transpose_a',            False)
@@ -688,6 +755,7 @@ def linear(*args, **kwargs):
 
     C = matmul(A, B)
     if bias is not None:
+        bias = require_ttnn_tensor(bias, "ttnn.linear bias")
         C = add(C, bias)
     if act is not None:
         act_op = { 'relu': relu, 'gelu': gelu, 'silu': silu }[act]
@@ -716,6 +784,7 @@ def fold(
     override_memory_config: MemoryConfig = None,  # type: ignore
 ):
 
+    ttnn_tensor_like = require_ttnn_tensor(ttnn_tensor_like, "ttnn.fold input")
     assert (
         ttnn_tensor_like.rank() == 4
     ), f"fold input should be a rank-4 [N, H, W, C] tensor!!\n{ttnn_tensor_like}"
@@ -744,8 +813,35 @@ def fold(
         transposed = reshaped1.permute(0, 1, 3, 2, 4, 5)
         reshaped2 = transposed.reshape(N, Hs, Ws, C * stride_h * stride_w)
     else:
-        # fold implemented as device specific efficient kernel: for DRAM/L1 memory configs
-        # sharded tensor support: special handling for height sharded tensors
-        reshaped2 = ttnn_tensor_like.reshape([N, Hs, Ws, C * stride_h * stride_w])
+        # Fold as first-class SimOp (matches hardware Fold kernel naming vs reshape shortcut).
+        assert ttnn_tensor_like.device is not None, "fold requires input tensor on device"
+        op_name = generate_new_op_name()
+        fold_attrs = {
+            'stride_h': stride_h,
+            'stride_w': stride_w,
+            'pad_h': pad_h,
+            'pad_w': pad_w,
+            'pad_c': pad_c,
+        }
+        out_tensor = Tensor(
+            name=op_name + '.out',
+            op_out=[op_name],
+            device=ttnn_tensor_like.device,
+            dtype=ttnn_tensor_like.dtype,
+            layout=ttnn_tensor_like.layout,
+        )
+        ttnn_tensor_like.op_in.append(op_name)
+        opinfo = {
+            'name': op_name,
+            'optype': 'Fold',
+            'inList': [ttnn_tensor_like.name],
+            'outList': [out_tensor.name],
+            'attrs': fold_attrs,
+        }
+        opobj = SimOp(opinfo)
+        opobj.get_perf_counts([ttnn_tensor_like], [out_tensor])
+        opobj.update_tensor_counts([ttnn_tensor_like], [out_tensor])
+        ttnn_tensor_like.device.add_op(opobj)
+        reshaped2 = out_tensor
 
     return reshaped2

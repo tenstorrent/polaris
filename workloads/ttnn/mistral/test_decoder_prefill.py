@@ -8,6 +8,7 @@ from loguru import logger
 sys.path.append(os.path.join(os.path.dirname(__file__), '../../..'))
 
 import ttsim.front.ttnn as ttnn
+from ttsim.ops.tensor import require_shape_list
 from ttsim.front.ttnn.tensor import DataType
 from workloads.ttnn.tt_transformers.model_config import ModelArgs
 from workloads.ttnn.tt_transformers.decoder import TransformerBlock
@@ -78,14 +79,15 @@ def test_decoder_prefill_inference(wln, mesh_device, gcfg):
         mode="prefill"
     )
 
-    actual_shape = list(tt_out.shape)
+    actual_shape = require_shape_list(tt_out.shape, "decoder output must have a known shape")
     logger.info(f"Output Prefill Shape: {actual_shape}")
 
     # 3. Generic shape validation
-    if tt_out.shape == tt_input.shape:
+    in_shape = require_shape_list(tt_input.shape, "decoder input must have a known shape")
+    if actual_shape == in_shape:
         logger.success("Prefill Test Passed! Output perfectly matches input shape.")
     else:
-        logger.error(f"Shape Mismatch! Expected {list(tt_input.shape)}, got {actual_shape}")
+        logger.error(f"Shape Mismatch! Expected {in_shape}, got {actual_shape}")
 
     ttnn.deallocate(tt_out)
     logger.info("Done.")

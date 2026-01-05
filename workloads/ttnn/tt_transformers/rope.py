@@ -6,6 +6,7 @@ import os, sys
 sys.path.append(os.path.join(os.path.dirname(__file__), '../../..'))
 from loguru import logger
 import ttsim.front.ttnn as ttnn
+from ttsim.ops.tensor import require_shape_list
 import math
 
 def nearest_32(x):
@@ -204,17 +205,31 @@ class RotarySetup():
 
     def get_rot_idxs(self, position_idxs, on_host=False):
         assert isinstance(position_idxs, ttnn.Tensor), "Position ids must be a torch tensor"
-        assert len(position_idxs.shape) == 1, "position idxs must be a [batch] tensor"
+        _dims0 = require_shape_list(
+            position_idxs.shape, "position_idxs must have a known shape"
+        )
+        assert len(_dims0) == 1, "position idxs must be a [batch] tensor"
 
-        batch = position_idxs.shape[0]
+        batch = _dims0[0]
         position_idxs = ttnn.reshape(position_idxs, [1, batch])  # [1, 1, 1, batch]
-        assert position_idxs.shape == [1, batch], "position idxs must be a [1, batch] tensor"
+        assert (
+            require_shape_list(
+                position_idxs.shape, "reshaped position_idxs must have a known shape"
+            )
+            == [1, batch]
+        ), "position idxs must be a [1, batch] tensor"
         # assert torch.min(position_idxs) >= 0, "position idxs must be non-negative"
 
         # Add padding if needed
         pad_size = nearest_32(batch) - batch
         position_idxs = ttnn.pad(position_idxs, (0, pad_size), "constant", 0)
-        position_idxs = ttnn._rand(position_idxs.shape, device=self.device, dtype=ttnn.uint32)
+        position_idxs = ttnn._rand(
+            require_shape_list(
+                position_idxs.shape, "position_idxs must have shape after pad"
+            ),
+            device=self.device,
+            dtype=ttnn.uint32,
+        )
 
         if on_host:  # If tensor is on host, don't pass a mesh mapper if single-device
             rot_idxs = ttnn.as_tensor(

@@ -31,6 +31,7 @@ def CREATE_GRAD_TENSOR(t, set_data=False):
                 else:
                     assert False, "Only np.float32 rank-0 grad tensor supported right now!!!"
             else:
+                assert gt.shape is not None
                 gt.data = np.random.randn(*(gt.shape)).astype(gt.dtype)
         return gt
 

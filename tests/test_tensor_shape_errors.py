@@ -176,6 +176,37 @@ def test_shape_inference_function_errors():
 
 @pytest.mark.unit
 @pytest.mark.opunit
+@pytest.mark.parametrize(
+    "optype,attrs",
+    [
+        ("Tilize", {}),
+        ("Untilize", {}),
+        ("TilizeWithValPadding", {"output_padded_shape": [32, 32]}),
+        ("UntilizeWithValUnpadding", {"output_shape": [16, 16]}),
+    ],
+)
+def test_layout_ops_require_input_shape(optype, attrs):
+    """Layout perf sinf must not treat unknown input shape as scalar (rank 0)."""
+    x = make_tensor("X")
+    x.shape = None
+    y = make_tensor("Y")
+    op_name = f"layout_{optype.lower()}_none_shape"
+    op_info = {
+        "name": op_name,
+        "optype": optype,
+        "inList": [x.name],
+        "outList": [y.name],
+        "attrs": attrs,
+    }
+    op_obj = SimOp(op_info)
+    x.op_in = [op_name]
+    y.op_out = [op_name]
+    with pytest.raises(AssertionError, match="shape must be known"):
+        op_obj.get_perf_counts([x], [y])
+
+
+@pytest.mark.unit
+@pytest.mark.opunit
 def test_edge_case_errors():
     """Test edge cases that should fail"""
     # Operations on empty tensors where not supported

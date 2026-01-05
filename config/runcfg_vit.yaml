@@ -1,0 +1,16 @@
+# SPDX-FileCopyrightText: (C) 2025 Tenstorrent AI ULC
+# SPDX-License-Identifier: Apache-2.0
+# Run Configuration yaml file, to be used with polproj.py
+title: Run all workloads
+study: runall
+odir: __runvit
+wlspec: config/all_workloads.yaml
+archspec: config/tt_wh.yaml
+wlmapspec: config/wl2archmapping.yaml
+filterwlg: TTNN
+filterarch: n150
+datatype: bf16
+# dump_ttsim_onnx: true # ONNX does not support TTNN-specific operators and hence model check fails
+filterwl: vit_attention # ,vit_intermediate,vit_output
+dump_stats_csv: true
+log_level: debug

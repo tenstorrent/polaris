@@ -7,7 +7,7 @@ from ttsim.graph import WorkloadGraph
 from enum import Enum, auto
 from dataclasses import dataclass
 
-from typing import Any
+from typing import Any, Optional
 
 ################################x################################x################################x################################
 # utility types ---  mostly from tt-umd
@@ -37,6 +37,8 @@ class ARCH(Enum):
     @property
     def cname(self)->str:
         return self.name.lower()
+
+Arch = ARCH
 
 class BoardType(Enum):
     N150    = auto()
@@ -119,6 +121,34 @@ def open_device(**kwargs):
 
 def close_device(device: Device):
     return
+
+_default_device = None
+
+def set_default_device(device: Optional[Device]) -> None:
+    global _default_device
+    _default_device = device
+
+def get_default_device()->Device:
+    assert _default_device is not None
+    return _default_device
+
+
+# Placeholder for ``Tensor(..., device=...)`` / factories: use ``set_default_device`` result.
+USE_DEFAULT_DEVICE = object()
+
+
+def resolve_device(device):
+    """Map ``USE_DEFAULT_DEVICE`` → ``get_default_device()``; pass ``None`` and ``Device`` through."""
+    if device is USE_DEFAULT_DEVICE:
+        return get_default_device()
+    if device is None:
+        return None
+    if isinstance(device, Device):
+        return device
+    raise TypeError(
+        f"device must be None, USE_DEFAULT_DEVICE, or Device, got {type(device).__name__}"
+    )
+
 
 def num_cores_to_corerangeset(*args, **kwargs):
     return (1,1) # dummy implementation

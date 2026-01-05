@@ -259,16 +259,25 @@ class TTSimHLWlDevRunOpCSVPerfStats(BaseModel, extra='forbid'):
         description = 'Time (msec) required to execute the operator'
     )
     matrix_pipe_util: float = Field(
-        description = 'Matrix Pipe Utilization'
+        description = 'Matrix pipe utilization as fraction 0–1; from tt-perf master (percent/100) when uses_perf_lookup, else analytical'
     )
     vector_pipe_util: float = Field(
-        description = 'Vector Pipe Utilization'
+        description = 'Vector pipe utilization as fraction 0–1; from tt-perf master (percent/100) when uses_perf_lookup, else analytical'
     )
     mem_rd_util: float = Field(
-        description = 'Memory Rd Utilization'
+        description = 'Memory read utilization fraction; 0 when uses_perf_lookup (not derived with LUT timing); else analytical'
     )
     mem_wr_util: float = Field(
-        description = 'Memory Wr Utilization'
+        description = 'Memory write utilization fraction; 0 when uses_perf_lookup (not derived with LUT timing); else analytical'
+    )
+    memory_traffic: float = Field(
+        description = 'Bytes of memory traffic from tt-perf master lookup when uses_perf_lookup; else 0'
+    )
+    mem_util: float = Field(
+        description = 'DRAM utilization as fraction 0–1 from tt-perf master (LUT percent/100) when present and uses_perf_lookup; else 0'
+    )
+    uses_perf_lookup: bool = Field(
+        description = 'True when timing and pipe util were obtained from operator performance master lookup (matrix/vector util required in LUT row)'
     )
 
 # Option 2 - Structured Stats
@@ -317,6 +326,9 @@ class TTSimHLWlDevRunOperatorPerfStats(BaseModel, extra='forbid'):
     vector_pipe_util: float
     mem_rd_util: float
     mem_wr_util: float
+    memory_traffic: float
+    mem_util: float
+    uses_perf_lookup: bool
 
 class TTSimHLWlDevRunPerfStats(BaseModel, extra='forbid'):
     """

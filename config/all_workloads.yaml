@@ -175,12 +175,18 @@ workloads:
       llama3_8b_prefill: { bs: 1, model_name: llama3-8B }
 
   - api: TTNN
-    name: vit
+    name: vit_patch_embeddings
     basedir: workloads/ttnn/vit
-    module : run_vit@test_ttnn_functional_vit.py
+    module : run_vit_patch_embeddings@run_ttnn_functional_vit.py
     instances:
-      vit_b16: { bs: 1, model_name: vit-b16 }
-      vit_base_224x224: { bs: 1, model_name: vit-b16 }
+      vit_b16_patch_embeddings: { bs: 1, model_name: vit-b16-patch-embeddings }
+
+  - api: TTNN
+    name: vit_embeddings
+    basedir: workloads/ttnn/vit
+    module : run_vit_embeddings@run_ttnn_functional_vit.py
+    instances:
+      vit_b16_embeddings: { bs: 1, model_name: vit-b16-embeddings }
 
   - api: TTNN
     name: mistral_decode
@@ -264,3 +270,45 @@ workloads:
       maptracker_tiny   : { bev_h: 25, bev_w: 50, vector_num_queries: 50, canvas_size: [50, 100], img_height: 256, img_width: 256 }
       maptracker_small  : { bev_h: 50, bev_w: 100, vector_num_queries: 100, canvas_size: [100, 200], img_height: 480, img_width: 800 }
       maptracker_base   : { bev_h: 100, bev_w: 200, vector_num_queries: 100, canvas_size: [200, 400], img_height: 480, img_width: 800 }
+  - api: TTNN
+    name: vit_attention
+    basedir: workloads/ttnn/vit
+    module : run_vit_attention@run_ttnn_functional_vit.py
+    instances:
+      vit_b16_attention: { bs: 1, model_name: vit-b16-attention }
+
+  - api: TTNN
+    name: vit_intermediate
+    basedir: workloads/ttnn/vit
+    module : run_vit_intermediate@run_ttnn_functional_vit.py
+    instances:
+      vit_b16_intermediate: { bs: 1, model_name: vit-b16-intermediate }
+
+  - api: TTNN
+    name: vit_output
+    basedir: workloads/ttnn/vit
+    module : run_vit_output@run_ttnn_functional_vit.py
+    instances:
+      vit_b16_output: { bs: 1, model_name: vit-b16-output }
+
+  - api: TTNN
+    name: vit_layer
+    basedir: workloads/ttnn/vit
+    module : run_vit_layer@run_ttnn_functional_vit.py
+    instances:
+      vit_b16_layer: { bs: 1, model_name: vit-b16-layer }
+
+  - api: TTNN
+    name: vit_encoder
+    basedir: workloads/ttnn/vit
+    module : run_vit_encoder@run_ttnn_functional_vit.py
+    instances:
+      vit_b16_encoder: { bs: 1, model_name: vit-b16-encoder }
+
+  - api: TTNN
+    name: vit
+    basedir: workloads/ttnn/vit
+    module : run_vit@run_ttnn_functional_vit.py
+    instances:
+      vit_b16: { bs: 1, model_name: vit-b16 }
+      vit_base_224x224: { bs: 1, model_name: vit-b16 }

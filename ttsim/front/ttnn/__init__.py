@@ -3,15 +3,50 @@
 # SPDX-License-Identifier: Apache-2.0
 
 from .device import open_device, close_device, ARCH, num_cores_to_corerangeset, create_sharded_memory_config, ReadDeviceProfiler
+from .device import USE_DEFAULT_DEVICE, resolve_device, set_default_device, get_default_device
 from .device import interleaved_to_sharded
-from .tensor import _rand, full, zeros, ones, from_torch, to_torch, to_layout, to_device, DataType, ShardTensor2dMesh, typecast, pad
-from .tensor import Layout, Shape, as_tensor, arange, stack, ShardStrategy, unsqueeze_to_4D, ReplicateTensorToMesh
+from .tensor import (
+    Tensor,
+    _rand,
+    full,
+    zeros,
+    ones,
+    from_torch,
+    to_torch,
+    to_device,
+    DataType,
+    ShardTensor2dMesh,
+    typecast,
+    pad,
+    require_ttnn_tensor,
+)
+from .tensor import Layout, as_tensor, arange, stack, ShardStrategy, unsqueeze_to_4D, ReplicateTensorToMesh
 from .config import Conv2dConfig, WormholeComputeKernelConfig, init_device_compute_kernel_config
 from .config import MatmulMultiCoreReuseMultiCast1DProgramConfig
 from .buffer import TensorMemoryLayout, ShardOrientation, BufferType
 from .memory import MemoryConfig, create_sharded_memory_config_, get_memory_config, to_memory_config
+from .types import TILE_HEIGHT, TILE_WIDTH
 from .core   import CoreCoord, CoreRange, CoreRangeSet, CoreGrid
 from .op     import *
+from .ttnn_shim import to_layout, permute, ttnn_reshape as reshape
+from ttsim.ops.tensor import Shape
+
+
+def _tensor_permute(self, *args, memory_config=None, **kwargs):
+    """Variadic ``tensor.permute(0,2,1)`` or ``tensor.permute([0,2,1])``; records **Permute**."""
+    mc = kwargs.pop('memory_config', memory_config)
+    if kwargs:
+        raise TypeError(f"permute got unexpected keyword arguments: {sorted(kwargs)}")
+    if not args:
+        raise TypeError('permute expected at least one dimension index or a sequence')
+    if len(args) == 1 and isinstance(args[0], (list, tuple)):
+        order = [int(x) for x in args[0]]
+    else:
+        order = [int(x) for x in args]
+    return permute(self, order, memory_config=mc)
+
+
+setattr(Tensor, 'permute', _tensor_permute)
 
 float32  = DataType.FLOAT32
 bfloat16 = DataType.BFLOAT16

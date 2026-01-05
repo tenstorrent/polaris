@@ -22,7 +22,7 @@ sys.path.insert(
 )
 
 # Import ttsim operations
-from ttsim.ops.tensor import SimTensor
+from ttsim.ops.tensor import SimTensor, require_shape_list
 import ttsim.front.functional.sim_nn as SimNN
 from workloads.Deformable_DETR.util.misc_ttsim import NestedTensor
 
@@ -71,7 +71,9 @@ class PositionEmbeddingSine(SimNN.Module):
 
         # Extract shape information
         if isinstance(x, SimTensor):
-            B, C, H, W = x.shape
+            B, C, H, W = require_shape_list(
+                x.shape, "SimTensor in NestedTensor must have a known shape"
+            )
         else:
             _shape = x.shape if hasattr(x, "shape") else (2, 3, 224, 224)
             B, C, H, W = _shape[0], _shape[1], _shape[2], _shape[3]
@@ -198,7 +200,9 @@ class PositionEmbeddingLearned(SimNN.Module):
 
         # Extract shape
         if isinstance(x, SimTensor):
-            B, C, H, W = x.shape
+            B, C, H, W = require_shape_list(
+                x.shape, "SimTensor in NestedTensor must have a known shape"
+            )
             x_data = x.data
         else:
             B, C, H, W = x.shape if hasattr(x, "shape") else (2, 3, 224, 224)

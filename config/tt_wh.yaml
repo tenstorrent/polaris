@@ -49,6 +49,7 @@ packages:
     -   name: Wormhole
         instances:
         -   name: n150
+            operator_lookup_file: __ext/perf_lookup/whb0_n150_lut.yaml
             ipgroups:
             -   ipname: tensix
                 iptype: compute

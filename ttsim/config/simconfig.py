@@ -480,6 +480,11 @@ class PackageInstanceModel(BaseModel, extra='forbid'):
     devname: str
     name: str
     ipgroups: List[IPGroupModel]
+    operator_lookup_file: Optional[str] = None
+    #: Core count for tt-perf master ``single`` / ``curve`` evaluation; if unset, uses compute ``num_units``.
+    operator_lookup_core_count: Optional[int] = None
+    #: When True, ``entry_type: hybrid`` LUT rows use embedded ``curve`` stats at runtime core count.
+    operator_lookup_hybrid_curve: bool = False
 
     def get_ipgroup(self, iptype: str) -> IPGroupModel:
         matching = [ipgroup for ipgroup in self.ipgroups if ipgroup.iptype == iptype]

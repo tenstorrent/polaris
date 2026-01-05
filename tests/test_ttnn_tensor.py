@@ -6,8 +6,9 @@ import numpy as np
 import pytest
 
 import ttsim.front.ttnn.op as ttnn_op
-from ttsim.front.ttnn.device import ARCH, Device
-from ttsim.front.ttnn.tensor import DataType, Tensor
+from ttsim.front.ttnn.device import ARCH, Device, resolve_device, set_default_device, USE_DEFAULT_DEVICE
+from ttsim.front.ttnn.tensor import DataType, Tensor, as_tensor, require_ttnn_tensor
+from ttsim.ops.tensor import SimTensor
 
 
 @pytest.mark.unit
@@ -387,3 +388,65 @@ def test_view_retains_input_precision():
     int32_viewed = int32_tensor.view(2, 12)
     assert int32_viewed.dtype == np.dtype(np.int32), \
         f"View result should preserve INT32 dtype, got {int32_viewed.dtype}"
+
+
+@pytest.mark.unit
+def test_tensor_device_none_is_host():
+    t = Tensor(shape=[1, 2], dtype=DataType.FLOAT32, device=None)
+    assert t.device is None
+    assert t.buffer() is None
+
+
+@pytest.mark.unit
+def test_tensor_omitted_device_uses_set_default_device():
+    d = Device(device_id=99)
+    d.architecture = ARCH.WORMHOLE_B0
+    set_default_device(d)
+    try:
+        t = Tensor(shape=[1], dtype=DataType.FLOAT32)
+        assert t.device is d
+        assert t.name in d.tensors
+    finally:
+        set_default_device(None)
+
+
+@pytest.mark.unit
+def test_as_tensor_numpy_default_device_none_is_host():
+    arr = np.zeros((2, 3), dtype=np.float32)
+    t = as_tensor(arr, dtype=DataType.FLOAT32)
+    assert t.device is None
+
+
+@pytest.mark.unit
+def test_resolve_device_sentinel_and_none():
+    d = Device(device_id=1)
+    d.architecture = ARCH.WORMHOLE_B0
+    set_default_device(d)
+    try:
+        assert resolve_device(USE_DEFAULT_DEVICE) is d
+        assert resolve_device(None) is None
+        assert resolve_device(d) is d
+    finally:
+        set_default_device(None)
+
+
+@pytest.mark.unit
+def test_require_ttnn_tensor_accepts_tensor():
+    d = Device(device_id=0)
+    d.architecture = ARCH.WORMHOLE_B0
+    t = Tensor(shape=[1], dtype=DataType.FLOAT32, device=d)
+    assert require_ttnn_tensor(t, "x") is t
+
+
+@pytest.mark.unit
+def test_require_ttnn_tensor_rejects_bare_simtensor():
+    st = SimTensor({"name": "x", "shape": [2, 3], "dtype": np.float32})
+    with pytest.raises(TypeError, match="SimTensor"):
+        require_ttnn_tensor(st, "x")
+
+
+@pytest.mark.unit
+def test_ttnn_immediate_op_rejects_bare_simtensor():
+    st = SimTensor({"name": "x", "shape": [2], "dtype": np.float32})
+    with pytest.raises(TypeError, match="SimTensor"):
+        ttnn_op.relu(st)

@@ -119,6 +119,16 @@ class PolarisRunConfig(BaseModel, extra='forbid'):
 
     dump_stats_csv: Optional[bool] = Field(default=False, description='Dump stats in csv format')
 
+    operator_lookup_hybrid_curve: Optional[bool] = Field(
+        default=False,
+        description='Use curve branch for hybrid operator LUT rows (polaris --operator-lookup-hybrid-curve)',
+    )
+
+    disable_fusion: Optional[bool] = Field(
+        default=False,
+        description='Skip op fusion in Device.execute_graph (polaris --disable-fusion)',
+    )
+
     dryrun: Optional[bool] = Field(
         default=False, description='If true, run will not execute any commands, but will only print them'
     )

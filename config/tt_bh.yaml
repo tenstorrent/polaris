@@ -1,0 +1,99 @@
+# SPDX-FileCopyrightText: (C) 2025 Tenstorrent AI ULC
+# SPDX-License-Identifier: Apache-2.0
+#
+# Blackhole™ architecture spec (parallel to config/tt_wh.yaml).
+# Product details: https://docs.tenstorrent.com/aibs/blackhole/specifications.html
+#
+# Part numbers: p100a TC-03008, p150a TC-03003, p150b TC-03002
+# | Card  | Tensix | AI clock (max) | GDDR6 | Speed   | BW      |
+# | p100a | 120    | 1.35 GHz       | 28 GB | 16 GT/s | 448 GB/s|
+# | p150a | 120    | 1.35 GHz       | 32 GB | 16 GT/s | 512 GB/s|
+# | p150b | 120    | 1.35 GHz       | 32 GB | 16 GT/s | 512 GB/s|
+#
+# tensix instruction TPT tables below are copied from tt_wh.yaml as a placeholder
+# until Blackhole-calibrated throughput data exists in-repo.
+ipblocks:
+    -   name: tensix
+        iptype: compute
+        l2_cache:
+            num_banks: 32
+            bytes_per_clk_per_bank: 64
+        pipes:
+        -   name: matrix
+            num_units   : 1
+            freq_MHz    : 1000
+            instructions:
+            -   {name: add, tpt: { int8: 2048, bf16: 512, fp16: 512, fp8: 2048,}}
+            -   {name: sub, tpt: { int8: 2048, bf16: 512, fp16: 512, fp8: 2048,}}
+            -   {name: mul, tpt: { int8: 2048, bf16: 512, fp16: 512, fp8: 2048,}}
+            -   {name: mac, tpt: { int8: 2048, bf16: 512, fp16: 512, fp8: 2048,}}
+        -   name: vector
+            num_units   : 1
+            freq_MHz    : 1000
+            instructions:
+            -   {name: add,   tpt: { int32: 32., fp32: 32. }}
+            -   {name: sub,   tpt: { int32: 32., fp32: 32. }}
+            -   {name: mul,   tpt: { int32: 32., fp32: 32. }}
+            -   {name: div,   tpt: { int32: 32., fp32: 32. }}
+            -   {name: mac,   tpt: { int32: 32., fp32: 32. }}
+            -   {name: tanh,  tpt: { int32: 32., fp32: 32. }}
+            -   {name: log,   tpt: { int32: 32., fp32: 32. }}
+            -   {name: exp,   tpt: { int32: 32., fp32: 32. }}
+            -   {name: sqrt, tpt: { int32: 32., fp32: 32. }}
+            -   {name: rsqrt, tpt: { int32: 32., fp32: 32. }}
+            -   {name: reciprocal, tpt: { int32: 32., fp32: 32. }}
+            -   {name: cmp,   tpt: { int32: 32., fp32: 32. }}
+            -   {name: mov,   tpt: { int32: 32., fp32: 32. }}
+            -   {name: max,   tpt: { int32: 32., fp32: 32. }}
+            -   {name: sin, tpt: { int32: 32., fp32: 32. }}
+            -   {name: cos, tpt: { int32: 32., fp32: 32. }}
+
+    -   name: gddr6_bh
+        iptype: memory
+        technology: GDDR
+        data_bits : 32
+        data_rate : 8
+        freq_MHz  : 1000
+        size_GB   : 4
+        transfer_rate_GTs : 16.0
+
+packages:
+    -   name: Blackhole
+        instances:
+        -   name: p100a
+            operator_lookup_file: __ext/perf_lookup/bh_p100_lut.yaml
+            ipgroups:
+            -   ipname: tensix
+                iptype: compute
+                num_units   : 120
+                ramp_penalty: 100
+                ip_overrides:
+                    pipes.matrix.freq_MHz: 1350
+                    pipes.vector.freq_MHz: 1350
+            -   ipname: gddr6_bh
+                iptype: memory
+                num_units: 7
+        -   name: p150a
+            ipgroups:
+            -   ipname: tensix
+                iptype: compute
+                num_units   : 120
+                ramp_penalty: 100
+                ip_overrides:
+                    pipes.matrix.freq_MHz: 1350
+                    pipes.vector.freq_MHz: 1350
+            -   ipname: gddr6_bh
+                iptype: memory
+                num_units: 8
+        -   name: p150b
+            ipgroups:
+            -   ipname: tensix
+                iptype: compute
+                num_units   : 120
+                ramp_penalty: 100
+                ip_overrides:
+                    pipes.matrix.freq_MHz: 1350
+                    pipes.vector.freq_MHz: 1350
+            -   ipname: gddr6_bh
+                iptype: memory
+                num_units: 8

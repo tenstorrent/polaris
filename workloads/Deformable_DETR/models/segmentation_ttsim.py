@@ -27,6 +27,7 @@ import ttsim.front.functional.op as F
 import ttsim.front.functional.sim_nn as SimNN
 import ttsim.front.functional.tensor_op as T
 from ttsim.ops import SimTensor
+from ttsim.ops.tensor import require_shape_list
 
 # ============================================================================
 # Helper Functions for Missing PyTorch Operations
@@ -347,10 +348,16 @@ class MHAttentionMap(SimNN.Module):
 
     def analytical_param_count(self, lvl=0):
         """Calculate total parameter count."""
-        q_params = self.q_linear_weight.shape[0] * self.q_linear_weight.shape[1]
+        _qw_l = require_shape_list(
+            self.q_linear_weight.shape, "q_linear_weight must have a known shape"
+        )
+        q_params = _qw_l[0] * _qw_l[1]
         if self.q_linear_bias is not None:
             q_params += self.hidden_dim
-        k_params = self.hidden_dim * self.k_linear_weight.shape[1] * 1 * 1
+        _kw_l = require_shape_list(
+            self.k_linear_weight.shape, "k_linear_weight must have a known shape"
+        )
+        k_params = self.hidden_dim * _kw_l[1] * 1 * 1
         if self.k_linear_bias is not None:
             k_params += self.hidden_dim
         return q_params + k_params

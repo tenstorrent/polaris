@@ -297,6 +297,7 @@ class WorkloadGraph():
                 np.int32:   TensorProto.INT32,
                 np.int64:   TensorProto.INT64,
                 np.bool_:   TensorProto.BOOL,
+                np.float16: TensorProto.FLOAT16,
                 }
         #create tensors....
         onnx_tensors = {}

@@ -7,6 +7,7 @@ import ttsim.front.functional.op as F
 import ttsim.front.functional.tensor_op as T
 import ttsim.front.functional.sim_nn as SimNN
 from ttsim.ops import SimTensor
+from ttsim.ops.tensor import require_shape_list
 import numpy as np
 
 def align_img_dim(img_dim):
@@ -116,7 +117,11 @@ class ResNet(SimNN.Module):
 
     def __call__(self):
         x = self.input_tensors['x_in']
-        batch, img_chnl, img_width, img_height = x.shape
+        shp = require_shape_list(
+            x.shape,
+            "basicresnet ResNet.__call__: input x_in tensor shape must be set",
+        )
+        batch, img_chnl, img_width, img_height = shp
 
         x = self.conv0(x)
         x = self.bn0(x)

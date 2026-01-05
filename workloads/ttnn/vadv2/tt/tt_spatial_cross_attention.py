@@ -6,7 +6,7 @@ sys.path.append(os.path.join(os.path.dirname(__file__), '../../../../'))
 import ttsim.front.ttnn as ttnn
 import ttsim.front.functional.sim_nn as SimNN
 from workloads.ttnn.vadv2.tt.tt_utils import DictAsAttr, multi_scale_deformable_attn
-
+from typing import TYPE_CHECKING
 class TtSpatialCrossAttention(SimNN.Module):
     def __init__(
         self,
@@ -243,6 +243,8 @@ class TtMSDeformableAttention3D(SimNN.Module):
             s1_shape = spatial_shapes.shape[1]
             s0_shape = spatial_shapes.shape[0]
             offset_normalizer = ttnn.Tensor(shape=[s0_shape, s1_shape], dtype=ttnn.bfloat16, device=self.device)
+            if TYPE_CHECKING:
+                assert offset_normalizer.shape is not None
             bs_r, num_query, num_Z_anchors, _ = reference_points.shape
             reference_xy = ttnn.reshape(
                 reference_points, (bs_r, num_query, 1, 1, 1, reference_points.shape[-2], reference_points.shape[-1])

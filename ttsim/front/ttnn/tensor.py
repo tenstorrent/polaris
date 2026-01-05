@@ -2,15 +2,19 @@
 # SPDX-FileCopyrightText: (C) 2025 Tenstorrent AI ULC
 # SPDX-License-Identifier: Apache-2.0
 
+from typing import Optional, Tuple, Union
+
+from ttsim.ops.op import SimOp
+from ttsim.ops.tensor import SimTensor, Shape
+from .device import Device, USE_DEFAULT_DEVICE, resolve_device
+from .types import TILE_HEIGHT, TILE_WIDTH
+
 from enum import Enum, auto
 from itertools import count
 
+from loguru import logger
+
 import numpy as np
-
-from ttsim.ops.op import SimOp
-from ttsim.ops.tensor import SimTensor
-
-from .device import Device
 
 
 ########################################## DataType ##########################################
@@ -114,6 +118,7 @@ class Layout(Enum):
     ROW_MAJOR_LAYOUT = auto()
     ROW_MAJOR = auto()
     TILE_LAYOUT = auto()
+    DEFAULT  = ROW_MAJOR_LAYOUT
 
     @classmethod
     def enumvalue(cls, s: str):
@@ -133,17 +138,6 @@ class Layout(Enum):
         else:
             raise ValueError(f"Unknown numpy layout string: {numpy_layout_str}")
 
-
-class Shape(list):
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-
-    def to_rank(self, N):
-        rem = N - len(self)
-        assert rem >= 0, f"Cannot convert Shape({self}) to rank {N}"
-        return [1 for i in range(rem)] + [i for i in self]
-
-
 class Tensor(SimTensor):
     tensor_counter = count(start=1, step=1)
 
@@ -153,41 +147,78 @@ class Tensor(SimTensor):
                 len(args) == 1
             ), f"More than 1 positional argument in Tensor constructor!!: {args}"
             tensor_like = args[0]
-            assert isinstance(tensor_like, np.ndarray), "ERR"
+            assert isinstance(tensor_like, np.ndarray), (
+                f"Tensor single positional argument must be a numpy.ndarray, "
+                f"got {type(tensor_like).__name__}"
+            )
             dtype, shape = tensor_like.dtype, tensor_like.shape
             # ignoring dtype for now -- eventually will need to reconcile these with kwargs!!
             kwargs["shape"] = tensor_like.shape
 
-        typechecks = {"dtype": DataType, "layout": Layout, "device": Device}
-        for kk, cls in typechecks.items():
-            if kk in kwargs:
-                obj = kwargs[kk]
-                assert isinstance(
-                    obj, cls
-                ), f"Error: Tensor Creation -- attribute {kk}={obj} should be of type {cls}"
+        kwargs['layout'] = kwargs.get('layout', Layout.DEFAULT)
+        if kwargs["layout"] is None:
+            kwargs["layout"] = Layout.DEFAULT
+        # Omitted device → USE_DEFAULT_DEVICE → get_default_device(); explicit device=None → host.
+        kwargs['device'] = resolve_device(kwargs.get('device', USE_DEFAULT_DEVICE))
+        if 'dtype' in kwargs and not isinstance(kwargs['dtype'], (DataType, np.dtype)):
+            raise TypeError(f"Error: Tensor Creation -- attribute dtype={kwargs['dtype']} should be of type DataType or numpy.dtype")
+        if 'layout' in kwargs and not isinstance(kwargs['layout'], Layout):
+            raise TypeError(f"Error: Tensor Creation -- attribute layout={kwargs['layout']} should be of type Layout")
+        if kwargs['device'] is not None and not isinstance(kwargs['device'], Device):
+            raise TypeError(f"Error: Tensor Creation -- attribute device={kwargs['device']} should be of type Device or None")
 
-        if "dtype" in kwargs:
-            kwargs["dtype"] = kwargs["dtype"].to_numpy
+        # NOTE: Convert DataType enum to np.dtype for compatibility with downstream operations
+        # that expect np.dtype (e.g., typesize in ops/tensor.py).
+        if 'dtype' in kwargs and isinstance(kwargs['dtype'], DataType):
+            kwargs['dtype'] = kwargs['dtype'].to_numpy
 
         if "name" not in kwargs:
             kwargs["name"] = f"ttsim.ttnn.Tensor_{next(self.tensor_counter)}"
 
-        if "shape" in kwargs:
-            obj = kwargs["shape"]
-            assert isinstance(
-                obj, (list, tuple)
-            ), f"Error: Tensor Creation -- attribute shape={obj} should be of type list|tuple"
-            if isinstance(obj, tuple):
-                kwargs["shape"] = list(obj)
-
+        if 'shape' in kwargs:
+            shape = kwargs['shape']
+            if isinstance(shape, (list, tuple)):
+                kwargs['shape'] = list(shape)
+                self._logical_shape = Shape(shape)
+            elif isinstance(shape, Shape):
+                self._logical_shape = Shape(shape)
+            else:
+                raise TypeError(f"Invalid shape type: {type(shape)}")
+        else:
+            kwargs['shape'] = []
+            self._logical_shape = Shape([])
         super().__init__(kwargs)
-        self.device = kwargs.get("device", None)
-        self.layout = kwargs.get("layout", None)
-        self.fill_value = kwargs.get("fill_value", None)
 
+        self.device     = kwargs['device']
+        self.layout     = kwargs['layout']
+
+        # Calculate padded shape if not provided
+        padded_shape = kwargs.get('padded_shape', None)
+        if padded_shape is None:
+            self._padded_shape = self._calculate_padded_shape(self._logical_shape, self.layout)
+        else:
+            if isinstance(padded_shape, (list, tuple)):
+                self._padded_shape = Shape(padded_shape)
+            elif isinstance(padded_shape, Shape):
+                self._padded_shape = Shape(padded_shape)
+            else:
+                raise TypeError(f"Invalid padded_shape type: {type(padded_shape)}")
+
+        logger.debug("Tensor constructor: {} logical_shape {} and padded_shape {}", self.name, self._logical_shape, self._padded_shape)
+
+        self.fill_value = kwargs.get('fill_value', None)
+        self._memory_config = None
+        self._storage_type = "DEVICE" if self.device is not None else "HOST"
+        # Essential for to_layout: device vs host is decided by buffer() is not None; without this,
+        # ttsim Tensors would always be treated as host and layout _op (tilize_op, etc.) would never be used.
+        self._buffer = None if self.device is None else "buffer_placeholder"
         if self.device:
             self.device.add_tensor(self)
         return
+
+    def buffer(self):
+        """Return the buffer placeholder when tensor is on device; None when on host. Used by to_layout to distinguish device vs host path."""
+        return getattr(self, '_buffer', None)
 
     def __str__(self):
         return f"{super().__str__()} ==> ttnn: {self.device}, {self.layout}"
@@ -215,6 +246,24 @@ class Tensor(SimTensor):
 
         return outT
 
+    def get_layout(self):
+        return self.layout
+
+    def padded_shape(self):
+        return self._padded_shape
+
+    def _calculate_padded_shape(self, logical_shape, layout):
+        """Calculate padded shape based on logical shape and layout."""
+        if len(logical_shape) == 0:
+            return Shape([])
+
+        padded = logical_shape.as_list()
+        if layout == Layout.TILE_LAYOUT and len(padded) >= 2:
+            # Pad last two dimensions to tile boundaries
+            padded[-2] = ((padded[-2] + TILE_HEIGHT - 1) // TILE_HEIGHT) * TILE_HEIGHT
+            padded[-1] = ((padded[-1] + TILE_WIDTH - 1) // TILE_WIDTH) * TILE_WIDTH
+        return Shape(padded)
+
     def view(self, *args):
         npdata = np.array(args, dtype=np.int64)
         opname = self.name + ".view_op"
@@ -240,21 +289,24 @@ class Tensor(SimTensor):
 
     def unsqueeze(self, dim: int):
         """Unsqueeze the tensor at the specified dimension."""
+        assert self.shape is not None
         if dim < 0:
             dim += len(self.shape) + 1
         new_shape = self.shape[:dim] + [1] + self.shape[dim:]
-        return Tensor(
-            shape=new_shape,
-            dtype=DataType.from_numpy(self.dtype.name),
-            device=self.device,
-        )
+        return Tensor(shape=new_shape, dtype=DataType.from_numpy(self.dtype.name), device=self.device)
 
     def squeeze(self, dim: int):
         """Squeeze the tensor at the specified dimension."""
+        assert self.shape is not None
         if dim < 0:
             dim += len(self.shape)
         if dim >= len(self.shape) or self.shape[dim] != 1:
-            print(f"Cannot squeeze dimension {dim} of shape {self.shape}")
+            logger.warning(
+                "Cannot squeeze dimension {} of shape {} (dim out of range or size != 1); "
+                "returning tensor unchanged",
+                dim,
+                self.shape,
+            )
             return self
         new_shape = self.shape[:dim] + self.shape[dim + 1 :]
         return Tensor(
@@ -263,9 +315,35 @@ class Tensor(SimTensor):
             device=self.device,
         )
 
+    def memory_config(self):
+        return self._memory_config
+
+    def storage_type(self):
+        return self._storage_type
+
+    def logical_shape(self):
+        return self.shape # self._logical_shape
+
+    def physical_volume(self):
+        """Element count in padded storage shape; used by shim execute paths (e.g. untilize_with_unpadding)."""
+        return self.padded_shape().volume()
+
+    def has_data(self):
+        return self.data is not None
+
+    def get_data(self):
+        return self.data
+
     def to(self, dt):
         self.dtype = dt.to_numpy
         return self
+
+    def set_shape(self, newshape):
+        super().set_shape(newshape) 
+        if newshape is not None:
+            self._padded_shape = self._calculate_padded_shape(Shape(newshape), self.layout)
+        logger.debug("set_shape: {} layout {} newshape {} and padded_shape {}", self.name, self.layout, newshape, self._padded_shape)
+
 
     def item(self):
         """returns the Python scalar value of the tensor if the tensor has exactly one element
@@ -283,9 +361,10 @@ class Tensor(SimTensor):
     def float(self):
         return Tensor(shape=self.shape, dtype=DataType.FLOAT32, device=self.device)
 
-    def size(self, dim: int = None):  # type: ignore[assignment]
+    def size(self, dim: Optional[int] = None) -> Union[Tuple[int, ...], int]:
+        assert self.shape is not None
         if dim is None:
-            return self.shape  # type: ignore[unreachable]
+            return tuple(self.shape.as_list())
         return self.shape[dim]
 
     def gather(self, dim, index):
@@ -296,19 +375,21 @@ class Tensor(SimTensor):
     def expand(self, *sizes):
         """Expand tensor to specified size. Only singleton dimensions (size 1) can be expanded."""
         # Handle sizes input - can be passed as separate args or as a single tuple/list
+        assert self.shape is not None
         if len(sizes) == 1 and isinstance(sizes[0], (list, tuple)):
             target_shape = list(sizes[0])
         else:
             target_shape = list(sizes)
 
         original_shape = self.shape
+        orig_dims = original_shape.as_list()
         # Pad original shape with 1s if target has more dimensions
         if len(target_shape) > len(original_shape):
             padded_original = [1] * (
                 len(target_shape) - len(original_shape)
-            ) + original_shape
+            ) + orig_dims
         else:
-            padded_original = original_shape
+            padded_original = orig_dims
 
         # Check that target shape has at least as many dimensions as original
         if len(target_shape) < len(original_shape):
@@ -343,6 +424,7 @@ class Tensor(SimTensor):
     def flatten(self, start_dim=0, end_dim=-1):
         """Flatten tensor dimensions from start_dim to end_dim into a single dimension."""
         # Handle negative dimensions
+        assert self.shape is not None
         ndim = len(self.shape)
         if start_dim < 0:
             start_dim += ndim
@@ -385,6 +467,7 @@ class Tensor(SimTensor):
 
     def repeat(self, *repeats):
         """Repeat the tensor along specified dimensions."""
+        assert self.shape is not None
         new_shape = [dim * repeat for dim, repeat in zip(self.shape, repeats)]
         return Tensor(
             shape=new_shape,
@@ -437,9 +520,21 @@ class ShardStrategy(Enum):
         return self.name.lower()
 
 
-# def ShardTensor2dMesh(mesh_device, dims, mesh_shape):
-#    # dummy implementation for ShardTensor2dMesh
-#    pass
+def require_ttnn_tensor(value, arg_name: str = "tensor") -> "Tensor":
+    """Ensure a value is a TTNN front-end :class:`Tensor` (not a bare :class:`SimTensor`).
+
+    TTNN ops require ``ttsim.front.ttnn.tensor.Tensor`` for device, layout, and graph wiring.
+    """
+    if isinstance(value, Tensor):
+        return value
+    if isinstance(value, SimTensor):
+        raise TypeError(
+            f"{arg_name} must be ttsim.front.ttnn.tensor.Tensor, not ttsim.ops.tensor.SimTensor "
+            "(construct Tensor(...) or use as_tensor / numpy-backed Tensor APIs)."
+        )
+    raise TypeError(
+        f"{arg_name} must be ttsim.front.ttnn.tensor.Tensor, got {type(value).__name__}"
+    )
 
 
 def as_tensor(
@@ -453,7 +548,9 @@ def as_tensor(
     cache_file_name=None,
 ):
     if isinstance(tensor_like, Tensor):
-        return to_device(tensor_like, device) if device else tensor_like
+        if device is None:
+            return tensor_like
+        return to_device(tensor_like, resolve_device(device))
 
     if isinstance(tensor_like, np.ndarray):
         shape = tensor_like.shape
@@ -471,15 +568,13 @@ def as_tensor(
     raise TypeError(f"Unsupported type for as_tensor: {type(tensor_like)}")
 
 
-def _rand(shape, dtype, device=None):
+def _rand(shape, dtype, device=USE_DEFAULT_DEVICE):
     return Tensor(shape=shape, dtype=dtype, device=device)
 
-
-def zeros(shape, dtype, layout, device):
+def zeros(shape, dtype, layout=Layout.DEFAULT, device=USE_DEFAULT_DEVICE):
     return Tensor(shape=shape, dtype=dtype, layout=layout, device=device, fill_value=0)
 
-
-def ones(shape, dtype, layout, device):
+def ones(*shape, dtype=None, layout=Layout.DEFAULT, device=USE_DEFAULT_DEVICE):
     return Tensor(shape=shape, dtype=dtype, layout=layout, device=device, fill_value=1)
 
 
@@ -497,7 +592,7 @@ def arange(*args, **kwargs):
             shape=[length],
             dtype=DataType.INT64,
             data=np.arange(length),
-            device=kwargs.get("device", None),
+            device=kwargs.get("device", USE_DEFAULT_DEVICE),
         )
     elif len(args) == 2:
         start, end = args
@@ -506,7 +601,7 @@ def arange(*args, **kwargs):
             shape=[length],
             dtype=DataType.INT64,
             data=np.arange(start, end),
-            device=kwargs.get("device", None),
+            device=kwargs.get("device", USE_DEFAULT_DEVICE),
         )
     else:
         raise ValueError(
@@ -542,6 +637,13 @@ def pad(input_tensor, pad, mode="constant", value=0):
         dtype=DataType.from_numpy(input_tensor.dtype.name),
         device=input_tensor.device,
     )
+
+
+
+def ttnn_random(shape, low, high, dtype):
+    if dtype in [DataType.INT64, DataType.INT32, DataType.UINT16, DataType.UINT8]:
+        return _rand(shape, dtype=dtype)
+    return _rand(shape, dtype=dtype)
 
 
 def stack(tensors, dim=0):
@@ -633,15 +735,8 @@ def from_torch(torch_tensor_like, **kwargs):
 def to_torch(tt_tensor_like):
     return tt_tensor_like
 
-
-def to_layout(tt_tensor_like, layout, dtype=None):
-    tt_tensor_like.layout = layout
-    if dtype is not None:
-        tt_tensor_like.dtype = dtype
-    return tt_tensor_like
-
-
 def to_device(tt_tensor_like, device, memory_config=None):
+    device = resolve_device(device)
     assert device is not None, "device=None passed to to_device"
 
     if tt_tensor_like.device:
@@ -653,16 +748,3 @@ def to_device(tt_tensor_like, device, memory_config=None):
     device.add_tensor(tt_tensor_like)
 
     return tt_tensor_like
-
-
-# def from_device(tt_tensor_like, device=None):
-#    if device is not None:
-#        return tt_tensor_like
-#    elif (tt_tensor_like.device is not None and
-#          tt_tensor_like.device != device):
-# SK: What is the case if tt_tensor_like.device != device, what about if it is already there in device
-# SK: We should add it to device in case it is not already there..
-#        return tt_tensor_like
-#    else:
-# SK: Don't understand this: e.g., tt_tensor_like.device == device
-#        assert f"Tensor {tt_tensor_like.name} not found in device {device}"

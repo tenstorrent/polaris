@@ -22,7 +22,7 @@ sys.path.insert(
     0, os.path.abspath(os.path.join(os.path.dirname(__file__), "../../../.."))
 )
 
-from ttsim.ops.tensor import SimTensor
+from ttsim.ops.tensor import SimTensor, shape_as_optional_list
 
 # ══════════════════════════════════════════════════════════════════════════════
 # COORDINATE TRANSFORMS
@@ -43,7 +43,7 @@ def box_cxcywh_to_xyxy(x):
     """
     # Extract shape and data
     if isinstance(x, SimTensor):
-        x_shape = x.shape
+        x_shape = shape_as_optional_list(x.shape)
         x_data = x.data
         dtype = x.dtype if hasattr(x, "dtype") else np.float32
     else:
@@ -96,7 +96,7 @@ def box_xyxy_to_cxcywh(x):
     """
     # Extract shape and data
     if isinstance(x, SimTensor):
-        x_shape = x.shape
+        x_shape = shape_as_optional_list(x.shape)
         x_data = x.data
         dtype = x.dtype if hasattr(x, "dtype") else np.float32
     else:
@@ -154,7 +154,7 @@ def masks_to_boxes(masks):
     """
     # Extract shape and data
     if isinstance(masks, SimTensor):
-        masks_shape = masks.shape
+        masks_shape = shape_as_optional_list(masks.shape)
         masks_data = masks.data
         dtype = masks.dtype if hasattr(masks, "dtype") else np.float32
     else:
@@ -238,7 +238,7 @@ def box_area(boxes):
     """
     # Extract shape and data
     if isinstance(boxes, SimTensor):
-        boxes_shape = boxes.shape
+        boxes_shape = shape_as_optional_list(boxes.shape)
         boxes_data = boxes.data
         dtype = boxes.dtype if hasattr(boxes, "dtype") else np.float32
     else:
@@ -296,7 +296,7 @@ def box_iou(boxes1, boxes2):
     """
     # Extract shapes and data
     if isinstance(boxes1, SimTensor):
-        b1_shape = boxes1.shape
+        b1_shape = shape_as_optional_list(boxes1.shape)
         b1_data = boxes1.data
         dtype = boxes1.dtype if hasattr(boxes1, "dtype") else np.float32
     else:
@@ -305,7 +305,7 @@ def box_iou(boxes1, boxes2):
         dtype = b1_data.dtype if hasattr(b1_data, "dtype") else np.float32
 
     if isinstance(boxes2, SimTensor):
-        b2_shape = boxes2.shape
+        b2_shape = shape_as_optional_list(boxes2.shape)
         b2_data = boxes2.data
     else:
         b2_shape = list(boxes2.shape) if hasattr(boxes2, "shape") else None
@@ -386,7 +386,7 @@ def generalized_box_iou(boxes1, boxes2):
     """
     # Extract shapes and data
     if isinstance(boxes1, SimTensor):
-        b1_shape = boxes1.shape
+        b1_shape = shape_as_optional_list(boxes1.shape)
         b1_data = boxes1.data
         dtype = boxes1.dtype if hasattr(boxes1, "dtype") else np.float32
     else:
@@ -395,7 +395,7 @@ def generalized_box_iou(boxes1, boxes2):
         dtype = b1_data.dtype if hasattr(b1_data, "dtype") else np.float32
 
     if isinstance(boxes2, SimTensor):
-        b2_shape = boxes2.shape
+        b2_shape = shape_as_optional_list(boxes2.shape)
         b2_data = boxes2.data
     else:
         b2_shape = list(boxes2.shape) if hasattr(boxes2, "shape") else None

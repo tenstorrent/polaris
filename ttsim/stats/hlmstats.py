@@ -17,6 +17,7 @@ from pydantic import BaseModel
 from ttsim.config import TTSimHLWlDevRunPerfStats
 from ttsim.utils.common import print_csv
 from ttsim.utils.types import get_bpe, get_sim_dtype
+from ttsim.ops.tensor import shape_as_optional_list
 
 BaseModel_SubType = TypeVar('BaseModel_SubType', bound=BaseModel)
 
@@ -142,7 +143,7 @@ def save_data(model: BaseModel, filename, outputfmt: OutputFormat)->None:
 def format_tensor_for_stats(tensor) -> str:
     """Format a single tensor as name[dim1xdim2xdim3]:precision for stats output."""
     name = tensor.name
-    shape = list(tensor.shape) if tensor.shape is not None else []
+    shape = shape_as_optional_list(tensor.shape) or []
     # Get precision as string
     if hasattr(tensor.dtype, 'name'):
         precision = tensor.dtype.name.lower()

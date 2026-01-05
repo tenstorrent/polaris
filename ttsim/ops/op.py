@@ -84,6 +84,12 @@ class SimOp:
         #Do Shape Inference, Update perf_stats
         shape_inf_func = opdesc['shape_inf_func']
         shape_inf_func(inT, outT, self, **kwargs)
+        for tmp in outT:
+            # NOTE: shape type is now considered to be ttsim.ops.tensor.Shape.
+            # If any shape inference function sets it to just a list or a tuple,
+            # that would break the code. Hence the shapes are intercepted here,
+            # and converted to Shape type through the set_shape() method.
+            tmp.set_shape(tmp.shape)
 
         return self.perf_stats
 

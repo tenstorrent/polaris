@@ -1,0 +1,26 @@
+# SPDX-FileCopyrightText: (C) 2025 Tenstorrent AI ULC
+# SPDX-License-Identifier: Apache-2.0
+#
+# Correlation run: polproj output (opstats CSV) for comparing Polaris simulation against silicon or profiler results.
+#
+# Run configuration for polproj.py — all TTNN ViT slice workloads + full vit on Wormhole n150.
+#
+# Usage (from repo root):
+#   python polproj.py config/runcfg_vit_n150.yaml
+#
+title: ViT TTNN workloads on n150
+study: vit_n150
+odir: __runvit_n150
+wlspec: config/all_workloads.yaml
+archspec: config/tt_wh.yaml
+wlmapspec: config/wl2archmapping.yaml
+filterwlg: TTNN
+filterarch: n150
+datatype: bf16
+# Comma-separated workload `name` entries from all_workloads.yaml (no spaces after commas).
+# filterwl: vit_patch_embeddings,vit_embeddings,vit_attention,vit_intermediate,vit_output,vit_layer,vit_encoder,vit
+filterwl: vit
+dump_stats_csv: true
+log_level: info
+disable_fusion: true
+# dump_ttsim_onnx: true # ONNX does not support TTNN-specific operators and model check may fail

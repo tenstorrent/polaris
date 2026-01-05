@@ -149,6 +149,8 @@ def test_removed_ops_excluded_from_aggregates():
     assert removed_op.exec_stats['vector_pipe_util'] == 0.0
     assert removed_op.exec_stats['mem_rd_util'] == 0.0
     assert removed_op.exec_stats['mem_wr_util'] == 0.0
+    assert removed_op.exec_stats['memory_traffic'] == 0.0
+    assert removed_op.exec_stats['mem_util'] == 0.0
     assert removed_op.exec_stats['rsrc_bnck'] == 'NA'
 
     # Calculate expected totals (only op1 and op3, excluding op2)

@@ -609,6 +609,9 @@ def expand_sinf(iTList, oTList, op, **kwargs):
 
     target_shape = [int(x) for x in shapeT.data]
     input_shape = list(A.shape)
+    # Align shapes by prepending 1s to input_shape if needed
+    if len(target_shape) > len(input_shape):
+        input_shape = [1] * (len(target_shape) - len(input_shape)) + list(input_shape)
 
     out_shape = multidirectional_broadcast_shape_inference(
         [input_shape, target_shape]
@@ -682,7 +685,7 @@ def gather_sinf(iTList, oTList, op, **kwargs):
     # Normalize negative axis
     axis = axis if axis >= 0 else data_rank + axis
     assert axis >= 0 and axis < data_rank, f"Axis {axis} is out of bounds for dataT.shape {dataT.shape}"
-    oTList[0].shape = data_shape[:axis] + indicesT.shape + data_shape[axis + 1:]
+    oTList[0].shape = data_shape[:axis] + list(indicesT.shape) + data_shape[axis + 1:]
     oTList[0].dtype = dataT.dtype
 
     # Compute data if inputs have data
@@ -803,6 +806,49 @@ def scatter_nd_sinf(iTList, oTList, op, **kwargs):
     }
     return
 
+
+def permute_op_inf_func(iTList, oTList, op, **kwargs):
+    """Same inference as Transpose; distinct optype for TTNN permute_op / profiler naming."""
+    transpose_op_inf_func(iTList, oTList, op, **kwargs)
+
+
+def fold_sinf(iTList, oTList, op, **kwargs):
+    """Shape inference for Fold: 4D [N,H,W,C] -> [N,H//sh,W//sw,C*sh*sw]; attrs stride_h, stride_w; optional pad_*."""
+    assert len(iTList) == 1 and len(oTList) == 1
+    X = iTList[0]
+    assert X.check_shape(), f"Fold: input shape not defined: {X}"
+    assert X.rank() == 4, f"Fold expects rank-4 [N,H,W,C], got rank {X.rank()}"
+    N, H, W, C = (int(X.shape[0]), int(X.shape[1]), int(X.shape[2]), int(X.shape[3]))
+    stride_h = int(op.attrs['stride_h'])
+    stride_w = int(op.attrs['stride_w'])
+    pad_h = int(op.attrs.get('pad_h', 0))
+    pad_w = int(op.attrs.get('pad_w', 0))
+    pad_c = int(op.attrs.get('pad_c', 0))
+    if pad_h > 0:
+        H += pad_h
+    if pad_w > 0:
+        W += pad_w
+    if pad_c > 0:
+        C += pad_c
+    assert H % stride_h == 0 and W % stride_w == 0, (
+        f"Fold: H,W must divide by strides; H={H}, W={W}, stride_h={stride_h}, stride_w={stride_w}"
+    )
+    Hs = H // stride_h
+    Ws = W // stride_w
+    out_shape = [N, Hs, Ws, C * stride_h * stride_w]
+    oTList[0].shape = out_shape
+    oTList[0].dtype = X.dtype
+    in_elems = X.nelems()
+    out_elems = prod_ints(out_shape)
+    op.perf_stats = {
+        'inElems': in_elems,
+        'outElems': out_elems,
+        'inBytes': X.nbytes(op.precision),
+        'outBytes': oTList[0].nbytes(op.precision),
+        'instrs': {'mov': out_elems},
+    }
+    return
+
 def register_tensor_ops():
     _optbl = [
             ##['Size',           'ARITY_1->1', 'ai.onnx',  'COMMON',  24,  21,  1,  1,  1,  1,  'inline_lambda',  True,  True,  True,  True,  True],
@@ -827,6 +873,7 @@ def register_tensor_ops():
 
             ['Shape',     'ARITY_1->1', 'ai.onnx',  'COMMON',  24,  21,  1,  1,  1,  1, shape_op_inf_func,  True,  True,  True,  True,  True],
             ['Transpose', 'ARITY_1->1', 'ai.onnx',  'COMMON',  24,  21,  1,  1,  1,  1, transpose_op_inf_func,  True,  True,  True,  True,  True],
+            ['Permute',   'ARITY_1->1', 'com.tenstorrent.ttnn',  'COMMON',  24,  21,  1,  1,  1,  1, permute_op_inf_func,    True,  True,  True,  True,  True],
             ['Identity',  'ARITY_1->1', 'ai.onnx',  'COMMON',  24,  21,  1,  1,  1,  1, unary_fwd,  True,  True,  True,  True,  True],
 
             ['Gather',    'ARITY_2->1', 'ai.onnx',  'COMMON',  13,  13,  2,  2,  1,  1, gather_sinf,  True,  True,  True,  True,  True],
@@ -835,6 +882,7 @@ def register_tensor_ops():
             ['IsNaN',     'ARITY_1->1', 'ai.onnx',   'COMMON',  20,  20,  1,  1,  1,  1, isnan_sinf,    True, True, True, True, True],
 
             ['Reshape',   'ARITY_2->1', 'ai.onnx',  'COMMON',  24,  21,  2,  2,  1,  1, reshape_sinf,  True,  True,  True,  True,  True],
+            ['Fold',      'ARITY_1->1', 'com.tenstorrent.ttnn',  'COMMON',  24,  21,  1,  1,  1,  1, fold_sinf,  True,  True,  True,  True,  True],
             ['Expand',    'ARITY_2->1', 'ai.onnx',  'COMMON',  13,  13,  2,  2,  1,  1, expand_sinf,  True,  True,  True,  True,  True],
 
             ['Unsqueeze', 'ARITY_2->1', 'ai.onnx',  'COMMON',  24,  21,  2,  2,  1,  1,

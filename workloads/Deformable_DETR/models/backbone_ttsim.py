@@ -37,7 +37,7 @@ import ttsim.front.functional.op as F
 
 # import ttsim.front.functional.tensor_op  as T
 import ttsim.front.functional.sim_nn as SimNN
-from ttsim.ops.tensor import SimTensor
+from ttsim.ops.tensor import SimTensor, shape_as_optional_list
 
 # Import NestedTensorTTSim and interpolate from misc_ttsim
 from workloads.Deformable_DETR.util.misc_ttsim import NestedTensor, interpolate
@@ -270,7 +270,7 @@ class BackboneBase(SimNN.Module):
             output_name = self.return_layers[lname]
             # Extract shape from SimTensor or tensor-like object
             if isinstance(x_out, SimTensor):
-                shape = x_out.shape
+                shape = shape_as_optional_list(x_out.shape)
             else:
                 shape = list(x_out.shape) if hasattr(x_out, "shape") else None
 
@@ -287,6 +287,7 @@ class BackboneBase(SimNN.Module):
                     }
                 )
                 # Use interpolate from misc_ttsim (uses scipy, mirrors F.interpolate)
+                assert shape is not None
                 mask_interpolated = interpolate(
                     mask_simtensor, size=tuple(shape[-2:]), mode="nearest"
                 )

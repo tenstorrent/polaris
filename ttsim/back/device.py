@@ -2,12 +2,15 @@
 # SPDX-FileCopyrightText: (C) 2025 Tenstorrent AI ULC
 # SPDX-License-Identifier: Apache-2.0
 
+import os
 import math
-from typing import TYPE_CHECKING
+from pathlib import Path
+from typing import TYPE_CHECKING, Any, Optional
 
 from loguru import logger
 
 from ttsim.utils.types import get_bpe, get_sim_dtype
+from tools.perf_lookup.lookup_operator_perf import resolve_operator_lookup_core_count
 
 LOG     = logger
 INFO    = LOG.info
@@ -97,7 +100,12 @@ class Device:
     G_FUSE_OP_OVERLAP_COST_CONSTANT = 0.10
     G_GUARDBAND                     = 0.25
 
-    def __init__(self, simcfg_obj):
+    def __init__(
+        self,
+        simcfg_obj,
+        *,
+        operator_lookup_hybrid_curve: Optional[bool] = None,
+    ):
         compute_ips = [ipg for ipg in simcfg_obj.ipgroups if ipg.iptype == 'compute']
         memory_ips  = [ipg for ipg in simcfg_obj.ipgroups if ipg.iptype == 'memory']
         assert len(compute_ips) == 1, "ERR-1"
@@ -115,9 +123,45 @@ class Device:
         self.memory_ip      = memory_ips[0]
         self.peak_bw_bytes_per_cycle  = simcfg_obj.peak_bandwidth_per_cycle()
         self.eff_bw_bytes_per_cycle   = self.peak_bw_bytes_per_cycle * self.DG_MEMORY_UTIL_CONSTANT
+
+        # Load tt-perf master operator lookup if specified (see doc/tools/perf_lookup/LOOKUP_TABLE_MASTER.md)
+        self.operator_perf_map: Optional[Any] = None
+        self._operator_lookup_core_count = resolve_operator_lookup_core_count(
+            simcfg_obj, simcfg_obj
+        )
+        if operator_lookup_hybrid_curve is None:
+            _hybrid_curve = bool(getattr(simcfg_obj, "operator_lookup_hybrid_curve", False))
+        else:
+            _hybrid_curve = bool(operator_lookup_hybrid_curve)
+        if hasattr(simcfg_obj, 'operator_lookup_file') and simcfg_obj.operator_lookup_file:
+            lookup_file_path = Path(os.getcwd()) / simcfg_obj.operator_lookup_file
+            if lookup_file_path.exists():
+                try:
+                    from tools.perf_lookup.lookup_operator_perf import OperatorPerfMap
+
+                    self.operator_perf_map = OperatorPerfMap(
+                        lookup_file_path,
+                        use_hybrid_curve=_hybrid_curve,
+                    )
+                    logger.info(
+                        "Loaded operator performance master lookup from {} (core_count={}, hybrid_curve={})",
+                        lookup_file_path,
+                        self._operator_lookup_core_count,
+                        _hybrid_curve,
+                    )
+                except Exception as e:
+                    logger.warning(
+                        "Failed to load operator performance lookup from {}: {}",
+                        lookup_file_path,
+                        e,
+                    )
+                    self.operator_perf_map = None
+            else:
+                logger.warning(f"Operator lookup file specified but not found: {lookup_file_path}")
+
         return
 
-    def execute_graph(self, wlgraph, wlmapspec):
+    def execute_graph(self, wlgraph, wlmapspec, *, disable_fusion: bool = False):
         graph_ordered_nodes = wlgraph.get_ordered_nodes()
 
         # 1) SET PRECISION FOR ALL OPS
@@ -135,53 +179,56 @@ class Device:
         wlgraph.remove_nodes(wlmapspec.removal_spec)
 
         # 5) GRAPH OPTIMIZATION: FUSE NODES IF POSSIBLE
-        fusion_candidates = wlgraph.fuse_nodes(wlmapspec.fusion_spec)
+        if disable_fusion:
+            DEBUG('Skipping graph op fusion (--disable-fusion)')
+        else:
+            fusion_candidates = wlgraph.fuse_nodes(wlmapspec.fusion_spec)
 
-        #Now all out fusion candidates have been found, and we can apply the
-        # op-fusion on the graph
-        for fusion_nodes in fusion_candidates:
-            """create a new fused node with combined operations"""
-            pattern_len   = len(fusion_nodes)
-            first_op_name = fusion_nodes[0]
-            last_op_name  = fusion_nodes[-1]
-            first_op      = wlgraph.get_op(first_op_name)
-            last_op       = wlgraph.get_op(last_op_name)
+            #Now all out fusion candidates have been found, and we can apply the
+            # op-fusion on the graph
+            for fusion_nodes in fusion_candidates:
+                """create a new fused node with combined operations"""
+                pattern_len   = len(fusion_nodes)
+                first_op_name = fusion_nodes[0]
+                last_op_name  = fusion_nodes[-1]
+                first_op      = wlgraph.get_op(first_op_name)
+                last_op       = wlgraph.get_op(last_op_name)
 
-            """
-            #update fusion op cycles
-            # TODO: add some checks to make sure that intermediate fused ops have
-            #   only one input - one output
+                """
+                #update fusion op cycles
+                # TODO: add some checks to make sure that intermediate fused ops have
+                #   only one input - one output
 
-            #compute cycles = sum of all fused op compute cycles + overhead per operator overlap
-            # TODO: should we add overlap cost only if COMPUTE PIPES CHANGE?
-            # intermediate mem rd/wr are suppressed by fusion
-            # mem rd cycles = first op mem rd cycles
-            # mem wr cycles = last op mem rd cycles
-            """
-            fused_matrix_cycles  = first_op.compute_cycles if first_op.uses_compute_pipe == 'matrix' else 0
-            fused_vector_cycles  = first_op.compute_cycles if first_op.uses_compute_pipe == 'vector' else 0
-            fused_compute_cycles = first_op.compute_cycles
-            fused_mem_rd_cycles  = first_op.mem_rd_cycles
-            fused_mem_wr_cycles  = last_op.mem_wr_cycles
-            for i in range(1, pattern_len):
-                matched_op_name  = fusion_nodes[i]
-                matched_op       = wlgraph.get_op(matched_op_name)
+                #compute cycles = sum of all fused op compute cycles + overhead per operator overlap
+                # TODO: should we add overlap cost only if COMPUTE PIPES CHANGE?
+                # intermediate mem rd/wr are suppressed by fusion
+                # mem rd cycles = first op mem rd cycles
+                # mem wr cycles = last op mem rd cycles
+                """
+                fused_matrix_cycles  = first_op.compute_cycles if first_op.uses_compute_pipe == 'matrix' else 0
+                fused_vector_cycles  = first_op.compute_cycles if first_op.uses_compute_pipe == 'vector' else 0
+                fused_compute_cycles = first_op.compute_cycles
+                fused_mem_rd_cycles  = first_op.mem_rd_cycles
+                fused_mem_wr_cycles  = last_op.mem_wr_cycles
+                for i in range(1, pattern_len):
+                    matched_op_name  = fusion_nodes[i]
+                    matched_op       = wlgraph.get_op(matched_op_name)
 
-                matrix_cycles = matched_op.compute_cycles if matched_op.uses_compute_pipe == 'matrix' else 0
-                vector_cycles = matched_op.compute_cycles if matched_op.uses_compute_pipe == 'vector' else 0
+                    matrix_cycles = matched_op.compute_cycles if matched_op.uses_compute_pipe == 'matrix' else 0
+                    vector_cycles = matched_op.compute_cycles if matched_op.uses_compute_pipe == 'vector' else 0
 
-                fused_matrix_cycles += math.ceil(matrix_cycles * (1.0 + self.G_FUSE_OP_OVERLAP_COST_CONSTANT))
-                fused_vector_cycles += math.ceil(vector_cycles * (1.0 + self.G_FUSE_OP_OVERLAP_COST_CONSTANT))
-                fused_compute_cycles += math.ceil(matched_op.compute_cycles * (1.0 + self.G_FUSE_OP_OVERLAP_COST_CONSTANT))
-                matched_op.fuse_op(first_op_name)
+                    fused_matrix_cycles += math.ceil(matrix_cycles * (1.0 + self.G_FUSE_OP_OVERLAP_COST_CONSTANT))
+                    fused_vector_cycles += math.ceil(vector_cycles * (1.0 + self.G_FUSE_OP_OVERLAP_COST_CONSTANT))
+                    fused_compute_cycles += math.ceil(matched_op.compute_cycles * (1.0 + self.G_FUSE_OP_OVERLAP_COST_CONSTANT))
+                    matched_op.fuse_op(first_op_name)
 
-            first_op.fused_op_cycles = {
-                    'compute_cycles': fused_compute_cycles,
-                    'matrix_cycles' : fused_matrix_cycles,
-                    'vector_cycles' : fused_vector_cycles,
-                    'mem_rd_cycles' : fused_mem_rd_cycles,
-                    'mem_wr_cycles' : fused_mem_wr_cycles,
-                    }
+                first_op.fused_op_cycles = {
+                        'compute_cycles': fused_compute_cycles,
+                        'matrix_cycles' : fused_matrix_cycles,
+                        'vector_cycles' : fused_vector_cycles,
+                        'mem_rd_cycles' : fused_mem_rd_cycles,
+                        'mem_wr_cycles' : fused_mem_wr_cycles,
+                        }
 
         return
 
@@ -213,16 +260,63 @@ class Device:
         # Store both fractional and ceiled values to avoid accumulated rounding errors
         mem_rd_cycles_devclk_fractional = mem_rd_cycles_memclk * mem_to_dev_ratio
         mem_wr_cycles_devclk_fractional = mem_wr_cycles_memclk * mem_to_dev_ratio
-        
+
         # Store fractional values for accurate aggregation
         op.mem_rd_cycles_fractional = mem_rd_cycles_devclk_fractional
         op.mem_wr_cycles_fractional = mem_wr_cycles_devclk_fractional
-        
+
         # Store ceiled values for per-op scheduling (backward compatibility)
         op.mem_rd_cycles = math.ceil(mem_rd_cycles_devclk_fractional)
         op.mem_wr_cycles = math.ceil(mem_wr_cycles_devclk_fractional)
 
         return
+
+    @staticmethod
+    def _profiler_pct_to_exec_fraction(v: float) -> float:
+        """Convert validated LUT utilization from percentage (0–100) to exec_stats fraction (0–1)."""
+        return float(v) / 100.0
+
+    def _try_operator_perf_lookup(
+        self,
+        op: Any,
+        opname: str,
+        wlgraph: Any,
+        msecs: float
+    ) -> tuple[float, bool, Optional[Any]]:
+        """
+        Resolve timing and optional profiler stats from tt-perf master lookup.
+
+        Raises:
+            OperatorPerfLUTValidationError: Invalid or incomplete LUT row (re-raised after log);
+                see doc/tools/perf_lookup/LOOKUP_TABLE_MASTER.md.
+
+        Returns:
+            (msecs, uses_perf_lookup, master_stats_or_none)
+        """
+        uses_perf_lookup = False
+        master_stats: Optional[Any] = None
+
+        if self.operator_perf_map is not None:
+            try:
+                master_stats = self.operator_perf_map.lookup(
+                    op, wlgraph, self._operator_lookup_core_count
+                )
+                if master_stats is not None:
+                    msecs = master_stats.msecs
+                    uses_perf_lookup = True
+            except Exception as e:
+                from tools.perf_lookup.lookup_operator_perf import OperatorPerfLUTValidationError
+
+                if isinstance(e, OperatorPerfLUTValidationError):
+                    logger.error(
+                        "Operator perf LUT validation failed for op {!r}; terminating run.\n{}",
+                        opname,
+                        e,
+                    )
+                    raise
+                logger.warning(f"Error during operator perf lookup for {opname}: {e}", once=True)
+
+        return (msecs, uses_perf_lookup, master_stats)
 
     def get_exec_stats(self, wlgraph, bs):
         graph_ordered_nodes = wlgraph.get_ordered_nodes()
@@ -246,10 +340,24 @@ class Device:
             mem_cycles       = mem_rd_cycles + mem_wr_cycles
             ramp_penalty     = self.simconfig_obj.ramp_penalty()
             dev_freq_MHz     = self.simconfig_obj.frequency(op.uses_compute_pipe, units='MHz')
-            ideal_cycles     = max(compute_cycles, mem_cycles) + ramp_penalty
+            ideal_cycles     = int(math.ceil(max(compute_cycles, mem_cycles) + ramp_penalty))
             ideal_msecs      = ideal_cycles / dev_freq_MHz / 1e3
-            cycles           = math.ceil((1 + self.G_GUARDBAND) * ideal_cycles)
+            cycles           = int(math.ceil((1 + self.G_GUARDBAND) * ideal_cycles))
             msecs            = cycles / dev_freq_MHz / 1e3
+
+            # Try to use operator performance lookup if available
+            msecs, uses_perf_lookup, master_stats = self._try_operator_perf_lookup(
+                op, opname, wlgraph, msecs
+            )
+
+            # If msecs came from lookup, adjust cycles, ideal_cycles, and ideal_msecs accordingly
+            if uses_perf_lookup:
+                # Calculate cycles from the lookup msecs value
+                cycles = int(math.ceil(msecs * dev_freq_MHz * 1e3))
+                # Calculate ideal_cycles by removing the guardband (round to int)
+                ideal_cycles = int(math.ceil(cycles / (1 + self.G_GUARDBAND)))
+                # Calculate ideal_msecs from ideal_cycles
+                ideal_msecs = ideal_cycles / dev_freq_MHz / 1e3
 
             assert ideal_cycles > 0, f"Error: ideal_cycles = {ideal_cycles}!!"
             assert ideal_msecs > 0, f"Error: ideal_msecs = {ideal_msecs}!!"
@@ -258,16 +366,40 @@ class Device:
             vector_pipe_util = vector_cycles / ideal_cycles * self.DG_COMPUTE_UTIL_CONSTANT
             mem_rd_util      = mem_rd_cycles / ideal_cycles * self.DG_MEMORY_UTIL_CONSTANT
             mem_wr_util      = mem_wr_cycles / ideal_cycles * self.DG_MEMORY_UTIL_CONSTANT
+            if uses_perf_lookup:
+                # Analytical mem_*_cycles vs LUT-rescaled ideal_cycles are inconsistent; mem_util comes from master.
+                mem_rd_util = 0.0
+                mem_wr_util = 0.0
 
-            # Flag errors and raise exceptions if utilization > 1.0
-            if matrix_pipe_util > 1.0:
-                raise ValueError(f"Matrix pipe utilization exceeds 1.0 for op {opname}: {matrix_pipe_util}")
-            if vector_pipe_util > 1.0:
-                raise ValueError(f"Vector pipe utilization exceeds 1.0 for op {opname}: {vector_pipe_util}")
-            if mem_rd_util > 1.0:
-                raise ValueError(f"Memory read utilization exceeds 1.0 for op {opname}: {mem_rd_util}")
-            if mem_wr_util > 1.0:
-                raise ValueError(f"Memory write utilization exceeds 1.0 for op {opname}: {mem_wr_util}")
+            memory_traffic = 0.0
+            mem_util = 0.0
+            if uses_perf_lookup and master_stats is not None:
+                matrix_pipe_util = self._profiler_pct_to_exec_fraction(
+                    master_stats.matrix_pipe_util
+                )
+                vector_pipe_util = self._profiler_pct_to_exec_fraction(
+                    master_stats.vector_pipe_util
+                )
+                if master_stats.memory_traffic is not None:
+                    memory_traffic = float(master_stats.memory_traffic)
+                if master_stats.mem_util is not None:
+                    mem_util = self._profiler_pct_to_exec_fraction(master_stats.mem_util)
+
+            # Flag errors and raise exceptions if utilization > 1.0 (skip checks when using LUT timing:
+            # mem_rd_util/mem_wr_util are zeroed above; matrix/vector may come from master without a >1 guard.)
+            if not uses_perf_lookup:
+                if matrix_pipe_util > 1.0:
+                    raise ValueError(
+                        f"Matrix pipe utilization exceeds 1.0 for op {opname}: {matrix_pipe_util}"
+                    )
+                if vector_pipe_util > 1.0:
+                    raise ValueError(
+                        f"Vector pipe utilization exceeds 1.0 for op {opname}: {vector_pipe_util}"
+                    )
+                if mem_rd_util > 1.0:
+                    raise ValueError(f"Memory read utilization exceeds 1.0 for op {opname}: {mem_rd_util}")
+                if mem_wr_util > 1.0:
+                    raise ValueError(f"Memory write utilization exceeds 1.0 for op {opname}: {mem_wr_util}")
 
             if op.removed_in_optimization or op.fused_in_optimization:
                 rsrc_bnck        = 'NA'
@@ -281,6 +413,8 @@ class Device:
                 vector_pipe_util = 0.0
                 mem_rd_util      = 0.0
                 mem_wr_util      = 0.0
+                memory_traffic   = 0.0
+                mem_util         = 0.0
             elif compute_cycles >= mem_cycles:
                 rsrc_bnck = 'COMP'
             else:
@@ -289,9 +423,9 @@ class Device:
             op.exec_stats = {
                     'ramp_penalty'     : ramp_penalty,
                     'rsrc_bnck'        : rsrc_bnck,
-                    'ideal_cycles'     : ideal_cycles,
+                    'ideal_cycles'     : float(ideal_cycles),
                     'ideal_msecs'      : ideal_msecs,
-                    'cycles'           : cycles,
+                    'cycles'           : float(cycles),
                     'matrix_cycles'    : matrix_cycles,
                     'vector_cycles'    : vector_cycles,
                     'msecs'            : msecs,
@@ -299,6 +433,9 @@ class Device:
                     'vector_pipe_util' : vector_pipe_util,
                     'mem_rd_util'      : mem_rd_util,
                     'mem_wr_util'      : mem_wr_util,
+                    'memory_traffic'   : memory_traffic,
+                    'mem_util'         : mem_util,
+                    'uses_perf_lookup' : uses_perf_lookup,
                     }
 
         #compute aggregate stats
@@ -353,7 +490,7 @@ class Device:
 
         tot_matrix_cycles     = sum(op_stat_iter('matrix_cycles', repeat=True))
         tot_vector_cycles     = sum(op_stat_iter('vector_cycles', repeat=True))
-        
+
         # Use fractional cycles for accurate aggregation, then ceil at the aggregate level
         tot_mem_rd_cycles_fractional = sum(op_stat_iter('mem_rd_cycles_fractional', repeat=True))
         tot_mem_wr_cycles_fractional = sum(op_stat_iter('mem_wr_cycles_fractional', repeat=True))
@@ -425,11 +562,11 @@ class Device:
                 }
         if tot_mem_rd_cycles > 0 or tot_mem_wr_cycles > 0:
             # Validate that the memory bandwidth accounting is correct
-            # Since we now use fractional cycles and ceil at aggregate level, 
+            # Since we now use fractional cycles and ceil at aggregate level,
             # the validation should be much more accurate
             mem_to_dev_ratio = self.freq_MHz / self.memfreq_MHz
             expected_bytes_per_device_clock = self.eff_bw_bytes_per_cycle / mem_to_dev_ratio
-            
+
             if tot_mem_rd_cycles > 0:
                 actual_bytes_per_device_clock = tot_inBytes / tot_mem_rd_cycles
                 # Allow for a single cycle of rounding error from the final ceil operation
