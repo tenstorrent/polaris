@@ -120,6 +120,16 @@ def open_device(**kwargs):
 def close_device(device: Device):
     return
 
+_default_device = None
+
+def set_default_device(device: Device)->None:
+    global _default_device
+    _default_device = device
+
+def get_default_device()->Device:
+    assert _default_device is not None
+    return _default_device
+
 def num_cores_to_corerangeset(*args, **kwargs):
     return (1,1) # dummy implementation
 

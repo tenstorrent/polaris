@@ -160,3 +160,22 @@ workloads:
     instances:
       vit_b16: { bs: 1, model_name: vit-b16 }
       vit_base_224x224: { bs: 1, model_name: vit-b16 }
+
+  - api: TTNN
+    name: vit_attention
+    basedir: workloads/ttnn/vit
+    module : run_vit_attention@run_ttnn_functional_vit.py
+    instances:
+      vit_b16_attention: { bs: 1, model_name: vit-b16-attention}
+  - api: TTNN
+    name: vit_intermediate
+    basedir: workloads/ttnn/vit
+    module : run_vit_intermediate@run_ttnn_functional_vit.py
+    instances:
+      vit_b16_intermediate: { bs: 1, model_name: vit-b16-intermediate}
+  - api: TTNN
+    name: vit_output
+    basedir: workloads/ttnn/vit
+    module : run_vit_output@run_ttnn_functional_vit.py
+    instances:
+      vit_b16_output: { bs: 1, model_name: vit-b16-output}

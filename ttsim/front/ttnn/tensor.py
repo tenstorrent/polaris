@@ -2,15 +2,14 @@
 # SPDX-FileCopyrightText: (C) 2025 Tenstorrent AI ULC
 # SPDX-License-Identifier: Apache-2.0
 
+from ttsim.ops.op import SimOp
+from ttsim.ops.tensor import SimTensor
+from .device import Device, get_default_device
+
 from enum import Enum, auto
 from itertools import count
 
 import numpy as np
-
-from ttsim.ops.op import SimOp
-from ttsim.ops.tensor import SimTensor
-
-from .device import Device
 
 
 ########################################## DataType ##########################################
@@ -113,6 +112,7 @@ class Layout(Enum):
     ROW_MAJOR_LAYOUT = auto()
     ROW_MAJOR = auto()
     TILE_LAYOUT      = auto()
+    DEFAULT  = ROW_MAJOR_LAYOUT
 
     @classmethod
     def enumvalue(cls, s:str):
@@ -145,6 +145,10 @@ class Tensor(SimTensor):
     tensor_counter = count(start=1, step=1)
 
     def __init__(self, *args, **kwargs):
+        def default_layout():
+            return Layout.DEFAULT
+        def default_device():
+            return get_default_device()
         if args:
             assert len(args) == 1, f"More than 1 positional argument in Tensor constructor!!: {args}"
             tensor_like = args[0]
@@ -154,9 +158,12 @@ class Tensor(SimTensor):
             kwargs['shape'] = tensor_like.shape
 
         typechecks = { 'dtype': DataType, 'layout': Layout, 'device': Device }
+        defaults = {'layout': default_layout, 'device': default_device }
         for kk,cls in typechecks.items():
             if kk in kwargs:
                 obj = kwargs[kk]
+                if obj is None and kk in defaults:
+                    obj = defaults[kk]()
                 assert isinstance(obj, cls), f"Error: Tensor Creation -- attribute {kk}={obj} should be of type {cls}"
 
         if 'dtype' in kwargs:
@@ -175,6 +182,10 @@ class Tensor(SimTensor):
         self.device     = kwargs.get('device',     None)
         self.layout     = kwargs.get('layout',     None)
         self.fill_value = kwargs.get('fill_value', None)
+        if self.device is None:
+            self.device = get_default_device()
+        if self.layout is None:
+            self.layout = Layout.DEFAULT
 
         if self.device:
             self.device.add_tensor(self)
@@ -385,10 +396,10 @@ def as_tensor(tensor_like, dtype=None, layout=None, device=None, fill_value=None
 def _rand(shape, dtype, device=None):
     return Tensor(shape=shape, dtype=dtype, device=device)
 
-def zeros(shape, dtype, layout, device):
+def zeros(shape, dtype, layout=Layout.DEFAULT, device=None):
     return Tensor(shape=shape, dtype=dtype, layout=layout, device=device, fill_value=0)
 
-def ones(shape, dtype, layout, device):
+def ones(*shape, dtype=None, layout=Layout.DEFAULT, device=None):
     return Tensor(shape=shape, dtype=dtype, layout=layout, device=device, fill_value=1)
 
 def full(shape, fill_value, dtype, layout, device):
@@ -426,6 +437,13 @@ def pad(input_tensor, pad, mode='constant', value=0):
         new_shape[dim_index] += before + after
 
     return Tensor(shape=new_shape, dtype=DataType.from_numpy(input_tensor.dtype.name), device=input_tensor.device)
+
+
+def ttnn_random(shape, low, high, dtype):
+    if dtype in [DataType.INT64, DataType.INT32, DataType.UINT16, DataType.UINT8]:
+        return _rand(shape, dtype=dtype)
+    return _rand(shape, dtype=dtype)
+
 
 def stack(tensors, dim=0):
     first_tensor = tensors[0]
