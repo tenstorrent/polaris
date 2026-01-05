@@ -2,13 +2,16 @@
 # SPDX-FileCopyrightText: (C) 2025 Tenstorrent AI ULC
 # SPDX-License-Identifier: Apache-2.0
 
-from ttsim.ops.op import SimOp
-from ttsim.ops.tensor import SimTensor
-from .device import Device
-
 from enum import Enum, auto
 from itertools import count
+
 import numpy as np
+
+from ttsim.ops.op import SimOp
+from ttsim.ops.tensor import SimTensor
+
+from .device import Device
+
 
 ########################################## DataType ##########################################
 class DataType(Enum):
@@ -51,7 +54,7 @@ class DataType(Enum):
                 'INT32'     : np.dtype(np.int32),
                 'INT64'     : np.dtype(np.int64),
                 'FLOAT32'   : np.dtype(np.float32),
-                'BFLOAT16'  : np.dtype(np.float32), #float16 not supported in onnx dump!!
+                'BFLOAT16'  : np.dtype(np.float16), #float16 not supported in onnx dump!!
                 'BFLOAT8_B' : np.dtype(np.float32),
                 'BFLOAT4_B' : np.dtype(np.float32),
                 'BOOL'      : np.dtype(np.uint8),

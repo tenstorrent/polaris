@@ -2,10 +2,12 @@
 # SPDX-FileCopyrightText: (C) 2025 Tenstorrent AI ULC
 # SPDX-License-Identifier: Apache-2.0
 
-import pytest
 import numpy as np
-from ttsim.front.ttnn.tensor import Tensor, DataType
-from ttsim.front.ttnn.device import Device, ARCH
+import pytest
+
+import ttsim.front.ttnn.op as ttnn_op
+from ttsim.front.ttnn.device import ARCH, Device
+from ttsim.front.ttnn.tensor import DataType, Tensor
 
 
 @pytest.mark.unit
@@ -140,7 +142,7 @@ def test_tensor_view_multiple_reshapes():
         assert op.perf_stats['outActCount'] == 24
 
 
-@pytest.mark.unit  
+@pytest.mark.unit
 def test_tensor_view_with_zero_elements():
     """
     Test view operation with tensors containing zero elements.
@@ -172,3 +174,216 @@ def test_tensor_view_with_zero_elements():
     # Input tensor has 0 elements but shape tensor has 3 elements (0, 1, 5)
     assert reshape_op.perf_stats['inActCount'] == 3  # 0 (input) + 3 (shape tensor)
     assert reshape_op.perf_stats['outActCount'] == 0
+
+
+@pytest.mark.unit
+def test_bfloat16_dtype_mapping():
+    """
+    Test for commit 88c2821: In TTNN, map BFLOAT16 -> bfloat16, not float32
+
+    Verifies that DataType.BFLOAT16.to_numpy returns np.float16 (not np.float32).
+    """
+    # Test that BFLOAT16 maps to float16
+    assert DataType.BFLOAT16.to_numpy == np.dtype(np.float16), \
+        f"BFLOAT16 should map to np.float16, got {DataType.BFLOAT16.to_numpy}"
+
+    # Test that FLOAT32 still maps to float32
+    assert DataType.FLOAT32.to_numpy == np.dtype(np.float32), \
+        f"FLOAT32 should map to np.float32, got {DataType.FLOAT32.to_numpy}"
+
+    # Test that we can create a tensor with BFLOAT16 dtype
+    device = Device(device_id=0)
+    device.architecture = ARCH.WORMHOLE_B0
+
+    bf16_tensor = Tensor(
+        name="test_bf16_tensor",
+        shape=[2, 3],
+        dtype=DataType.BFLOAT16,
+        device=device
+    )
+
+    # Verify the tensor's dtype is float16
+    assert bf16_tensor.dtype == np.dtype(np.float16), \
+        f"Tensor dtype should be np.float16, got {bf16_tensor.dtype}"
+
+
+@pytest.mark.unit
+def test_add_mul_sub_retain_input_precision():
+    """
+    Test for commit 1fe42d4: TTNN add/mul/sub retain input tensor precision
+
+    Verifies that Add, Mul, and Sub operations preserve the input tensor's dtype
+    instead of defaulting to FLOAT32.
+    """
+    device = Device(device_id=0)
+    device.architecture = ARCH.WORMHOLE_B0
+
+    # Test with BFLOAT16
+    bf16_tensor1 = Tensor(
+        name="bf16_t1",
+        shape=[2, 3],
+        dtype=DataType.BFLOAT16,
+        device=device
+    )
+    bf16_tensor2 = Tensor(
+        name="bf16_t2",
+        shape=[2, 3],
+        dtype=DataType.BFLOAT16,
+        device=device
+    )
+
+    # Test Add operation
+    add_result = ttnn_op.add(bf16_tensor1, bf16_tensor2)
+    assert add_result.dtype == np.dtype(np.float16), \
+        f"Add result should preserve BFLOAT16 dtype, got {add_result.dtype}"
+
+    # Test Mul operation
+    mul_result = ttnn_op.multiply(bf16_tensor1, bf16_tensor2)
+    assert mul_result.dtype == np.dtype(np.float16), \
+        f"Mul result should preserve BFLOAT16 dtype, got {mul_result.dtype}"
+
+    # Test Sub operation
+    sub_result = ttnn_op.subtract(bf16_tensor1, bf16_tensor2)
+    assert sub_result.dtype == np.dtype(np.float16), \
+        f"Sub result should preserve BFLOAT16 dtype, got {sub_result.dtype}"
+
+    # Test with FLOAT32 to ensure it still works
+    f32_tensor1 = Tensor(
+        name="f32_t1",
+        shape=[2, 3],
+        dtype=DataType.FLOAT32,
+        device=device
+    )
+    f32_tensor2 = Tensor(
+        name="f32_t2",
+        shape=[2, 3],
+        dtype=DataType.FLOAT32,
+        device=device
+    )
+
+    f32_add_result = ttnn_op.add(f32_tensor1, f32_tensor2)
+    assert f32_add_result.dtype == np.dtype(np.float32), \
+        f"Add result should preserve FLOAT32 dtype, got {f32_add_result.dtype}"
+
+
+@pytest.mark.unit
+def test_add_mul_sub_with_scalar_retain_precision():
+    """
+    Test for commit 1fe42d4: TTNN add/mul/sub retain input tensor precision with scalar inputs
+
+    Verifies that when a scalar is used with Add/Mul/Sub, the scalar's dtype
+    matches the tensor input's dtype.
+    """
+    device = Device(device_id=0)
+    device.architecture = ARCH.WORMHOLE_B0
+
+    # Test with BFLOAT16 tensor and scalar
+    bf16_tensor = Tensor(
+        name="bf16_t",
+        shape=[2, 3],
+        dtype=DataType.BFLOAT16,
+        device=device
+    )
+
+    # Test Add with scalar
+    add_result = ttnn_op.add(bf16_tensor, 5.0)
+    assert add_result.dtype == np.dtype(np.float16), \
+        f"Add with scalar should preserve BFLOAT16 dtype, got {add_result.dtype}"
+
+    # Verify the scalar tensor was created with correct dtype
+    # Find the add operation
+    add_op = None
+    for op in device.ops.values():
+        if op.optype == 'Add' and bf16_tensor.name in op.inList:
+            add_op = op
+            break
+
+    assert add_op is not None, "Add operation not found"
+    # The scalar input should be in the inList
+    scalar_input_name = [name for name in add_op.inList if name != bf16_tensor.name][0]
+    scalar_tensor = device.tensors[scalar_input_name]
+    assert scalar_tensor.dtype == np.dtype(np.float16), \
+        f"Scalar tensor should have BFLOAT16 dtype, got {scalar_tensor.dtype}"
+
+
+@pytest.mark.unit
+def test_reshape_retains_input_precision():
+    """
+    Test for commit ebb61ed: TTNN reshape output retains input precision
+
+    Verifies that reshape operations preserve the input tensor's dtype.
+    """
+    device = Device(device_id=0)
+    device.architecture = ARCH.WORMHOLE_B0
+
+    # Test reshape with BFLOAT16
+    bf16_tensor = Tensor(
+        name="bf16_reshape_input",
+        shape=[2, 3, 4],
+        dtype=DataType.BFLOAT16,
+        device=device
+    )
+
+    # Use reshape operation
+    reshaped = ttnn_op.reshape(bf16_tensor, [2, 12])
+    assert reshaped.dtype == np.dtype(np.float16), \
+        f"Reshape result should preserve BFLOAT16 dtype, got {reshaped.dtype}"
+
+    # Test with FLOAT32
+    f32_tensor = Tensor(
+        name="f32_reshape_input",
+        shape=[2, 3, 4],
+        dtype=DataType.FLOAT32,
+        device=device
+    )
+
+    f32_reshaped = ttnn_op.reshape(f32_tensor, [2, 12])
+    assert f32_reshaped.dtype == np.dtype(np.float32), \
+        f"Reshape result should preserve FLOAT32 dtype, got {f32_reshaped.dtype}"
+
+
+@pytest.mark.unit
+def test_view_retains_input_precision():
+    """
+    Test for commit ebb61ed: TTNN reshape output retains input precision (via view method)
+
+    Verifies that the view() method (which uses reshape) preserves the input tensor's dtype.
+    """
+    device = Device(device_id=0)
+    device.architecture = ARCH.WORMHOLE_B0
+
+    # Test view with BFLOAT16
+    bf16_tensor = Tensor(
+        name="bf16_view_input",
+        shape=[2, 3, 4],
+        dtype=DataType.BFLOAT16,
+        device=device
+    )
+
+    bf16_viewed = bf16_tensor.view(2, 12)
+    assert bf16_viewed.dtype == np.dtype(np.float16), \
+        f"View result should preserve BFLOAT16 dtype, got {bf16_viewed.dtype}"
+
+    # Test view with FLOAT32
+    f32_tensor = Tensor(
+        name="f32_view_input",
+        shape=[2, 3, 4],
+        dtype=DataType.FLOAT32,
+        device=device
+    )
+
+    f32_viewed = f32_tensor.view(2, 12)
+    assert f32_viewed.dtype == np.dtype(np.float32), \
+        f"View result should preserve FLOAT32 dtype, got {f32_viewed.dtype}"
+
+    # Test view with INT32
+    int32_tensor = Tensor(
+        name="int32_view_input",
+        shape=[2, 3, 4],
+        dtype=DataType.INT32,
+        device=device
+    )
+
+    int32_viewed = int32_tensor.view(2, 12)
+    assert int32_viewed.dtype == np.dtype(np.int32), \
+        f"View result should preserve INT32 dtype, got {int32_viewed.dtype}"

@@ -2,13 +2,16 @@
 # SPDX-FileCopyrightText: (C) 2025 Tenstorrent AI ULC
 # SPDX-License-Identifier: Apache-2.0
 
-from ttsim.ops.op import SimOp
-from .tensor import Tensor, DataType
-from .memory import MemoryConfig
-
 from enum import Enum, auto
 from itertools import count
+
 import numpy as np
+
+from ttsim.ops.op import SimOp
+
+from .memory import MemoryConfig
+from .tensor import DataType, Tensor
+
 
 class MathFidelity(Enum):
     LoFi  = auto()
@@ -52,7 +55,10 @@ def single_output_immediate_op(optype, /, preprocess=None):
             elif isinstance(x, (int,float)):
                 #print(f"FOUND not Tensor input in ttnn.op({optype}) : {type(x)}")
                 if optype in ['Add', 'Sub', 'Mul']:
-                    tmp = Tensor(name=f"{op_name}.in.{i}", shape=[], dtype=DataType.FLOAT32, device=device)
+                    # Scalar input's type is matched to the tensor input type
+                    assert len(tensor_args) == 1, f"Only one tensor input supported for {optype} with scalar input"
+                    arg0_dtype = DataType.from_numpy(tensor_args[0].dtype)
+                    tmp = Tensor(name=f"{op_name}.in.{i}", shape=[], dtype=arg0_dtype, device=device)
                     tmp.op_in.append(op_name)
                     opinfo['inList'].append(tmp.name)
                     new_args.append(tmp)
@@ -89,13 +95,17 @@ def reshape_pp(args_list, kwargs_dict):
     assert isinstance(outShape, (list, tuple)), f"ttnn.reshape 2nd input should be a list|tuple of ints"
     assert all(isinstance(x, int) for x in outShape), f"ttnn.reshape 2nd input should be a list|tuple of ints"
 
+    in_dtype = DataType.from_numpy(inT.dtype)
     if (len(args_list) == 3):
         # write code to get slice (batch 0) of the input tensor and return it
-        inT = Tensor(shape=outShape, device=inT.device, dtype=DataType.from_numpy(inT.dtype))
+        inT = Tensor(shape=outShape, device=inT.device, dtype=in_dtype)
 
-    outData = np.array(outShape, dtype=np.int64)
-    outT = Tensor(shape=outData.shape, dtype=DataType.INT64, device=inT.device, data=outData)
-    return (inT, outT), kwargs_dict
+    # NOTE: dimensions in the shape should be integer type
+    shapeData = np.array(outShape, dtype=np.int64)
+    # NOTE: shapeData is not the reshape output, but it holds the shape tensor data,
+    # so it should be of type INT64
+    shapeT = Tensor(shape=shapeData.shape, dtype=DataType.INT64, device=inT.device, data=shapeData)
+    return (inT, shapeT), kwargs_dict
 
 def permute_pp(args_list, kwargs_dict):
     inT = args_list[0]

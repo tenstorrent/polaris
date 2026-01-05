@@ -2,11 +2,12 @@
 # SPDX-FileCopyrightText: (C) 2025 Tenstorrent AI ULC
 # SPDX-License-Identifier: Apache-2.0
 
+import numpy as np
+
+from ttsim.ops.desc.helpers import build_tmp_data_tensor, unary_fwd, update_output_tensor
 from ttsim.ops.desc.registry import register_ops
-from ttsim.ops.desc.helpers import unary_fwd, bidir_bcast, update_output_tensor, build_tmp_data_tensor
 from ttsim.utils.common import prod_ints
 
-import numpy as np
 
 def trilu_sinf(iTList, oTList, op, **kwargs):
     """
@@ -374,8 +375,9 @@ def reshape_sinf(iTList, oTList, op, **kwargs):
 
     #A = iTList[0].clone_by_shape()
     B = iTList[1].clone_by_shape(data_maybe_missing=False) #B.data should exist
-    assert B.dtype == np.int64, f"Input Data-Type should be np.int64 {B}"
     assert iTList[0].check_shape(), f"Illegal Input Shape: {iTList[0].shape}"
+    assert B.dtype == np.int64, f"Input data type should be np.int64, was {B.dtype} for reshape's shape tensor {B}"
+    assert B.data is not None, f"Input Data should exist for reshape's shape tensor {B}"
     input_shape  = iTList[0].shape
     input_size   = iTList[0].nelems()
     target_shape = [x.item() for x in B.data]
