@@ -121,21 +121,25 @@ def rotary_embedding_llama(
         Tensor with rotary embedding applied
     """
     x = head_pre_rot
+    if is_decode_mode:
+        _, batch_size, _, _ = x.shape
+    else:
+        batch_size = x.shape[0]
     cos = rot_mat1
     sin = rot_mat2
 
     if transformation_mats is not None:
         trans_mat = transformation_mats
         # Compute how many matmul calls of trans_mat size are needed for input x
-        chunk_size = trans_mat.shape[-2:]  # Assuming trans_mat is [..., N, N]
+        chunk_size = trans_mat.shape[-2:]  # Assuming trans_mat is [..., batch_size * 32, 32]
+        chunk_size = [chunk_size[0] // batch_size, chunk_size[1]]
+        assert chunk_size == [32, 32], "Expected chunk size to be [32, 32]"
         input_last2 = x.shape[-2:]
-        num_matmul_calls = mth.ceil(input_last2[0] / chunk_size[0]) * mth.ceil(input_last2[1] / chunk_size[1])
+        num_matmul_calls = batch_size * mth.ceil((input_last2[0] * input_last2[1]) / (chunk_size[0] * chunk_size[1]))
         if (num_matmul_calls > 0):
-            logger.info(f'Below are stats for each matmul call of size {chunk_size} on input of size {input_last2}, a total of {num_matmul_calls} calls')
             for i in range(num_matmul_calls):
-                in1 = Tensor(shape=trans_mat.shape, device=x.device, dtype=DataType.from_numpy(trans_mat.dtype))
+                in1 = Tensor(shape=chunk_size, device=x.device, dtype=DataType.from_numpy(trans_mat.dtype))
                 dummy_out = ttnn.matmul(in1, in1)
-                logger.info(f'  matmul call {i+1}/{num_matmul_calls} done, w output shape {dummy_out.shape}')
         x_rot = x  # No actual computation, just reporting the count
     else:
         # If no transformation matrix is provided, assume identity (no rotation)
@@ -264,7 +268,10 @@ def scaled_dot_product_attention_decode(
     def gqa_matmul(q_head, kv_head, transposed=True):
         # MatMul Q x K^T: [1, num_query_heads, seq_len_q, head_dim] x [1, num_query_heads, head_dim, seq_len_k] -> [1, num_query_heads, seq_len_q, seq_len_k]
         # GQA 3:1 mapping: For each query head, use its corresponding KV head (i // 3)
-        batch_size, seq_len_q, num_query_heads, qdim = q_head.shape
+        if transposed:
+            seq_len_q, batch_size, num_query_heads, qdim = q_head.shape
+        else:
+            batch_size, seq_len_q, num_query_heads, qdim = q_head.shape
         _, num_kv_heads, seq_len_k, kdim = kv_head.shape
         for i in range(num_query_heads):
             #kv_head_idx = i // 3

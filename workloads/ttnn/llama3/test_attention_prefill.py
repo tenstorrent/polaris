@@ -70,7 +70,6 @@ def test_attention_inference():
         mode="prefill",
         page_table=page_table_tt,
     )
-    logger.info(f"TT Output Shape: {tt_out.shape}, dtype: {tt_out.dtype}")
     tt_out = ttnn.to_torch(
         tt_out,# mesh_composer=ttnn.ConcatMesh2dToTensor(mesh_device, dims=(1, 3), mesh_shape=model_args.cluster_shape)
     )
@@ -88,4 +87,4 @@ def test_attention_inference():
 
 if __name__ == "__main__":
     test_attention_inference()
-    logger.info("\n Attention test completed!")
+    logger.info("Attention test completed!")

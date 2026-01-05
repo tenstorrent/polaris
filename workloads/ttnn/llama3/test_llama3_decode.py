@@ -22,7 +22,7 @@ def run_llama3(wlname: str, ttnn_device: TTNNDevice, cfg: dict):
     model_name = cfg.get('model_name', 'llama3-8B')
     paged_attention = False
     page_params = [{"page_block_size": 32, "page_max_num_blocks": 1024}]
-    batch_size = 1
+    batch_size = cfg.get('bs', 1)
     if model_name == "llama3-8B":
         max_seq_len = 4096 #256
         layers = 32
@@ -80,9 +80,9 @@ def run_llama3(wlname: str, ttnn_device: TTNNDevice, cfg: dict):
     batch = model_args.max_batch_size
 
     # Select the first token from the prompts for initial decoding
-    encoded_prompts_tensor = ttnn._rand(shape=(batch, len(encoded_prompts)), device=ttnn_device, dtype=ttnn.int32)
-    tt_decode_input = tt_model.embd(encoded_prompts_tensor).view(batch, seqlen, -1)
-    
+    encoded_prompts_tensor = ttnn._rand(shape=(len(encoded_prompts), batch), device=ttnn_device, dtype=ttnn.int32)
+    tt_decode_input = tt_model.embd(encoded_prompts_tensor).view(seqlen, batch, -1)
+
     # Initial positions
     generation_pos = [generation_start_pos for _ in range(batch)]
     current_pos = ttnn._rand(shape=(len(generation_pos),), device=ttnn_device, dtype=ttnn.int32)
@@ -115,7 +115,7 @@ def run_llama3(wlname: str, ttnn_device: TTNNDevice, cfg: dict):
         )
         tt_output_torch = ttnn.permute(ttnn.to_torch(tt_out), (1, 2, 0, 3)).squeeze(2)#[: model_args.max_batch_size, 0:1, : model_args.vocab_size]
         
-        if (tt_output_torch.shape == [1, 1, 128256]): # 128256 is the vocab_size for llama3 8B and llama3 3B, 1B
+        if (tt_output_torch.shape == [batch_size, seqlen, 128256]): # 128256 is the vocab_size for llama3 8B and llama3 3B, 1B
             logger.info(f'tt_output_torch is correctly shaped: {tt_output_torch.shape}')
         else:
             logger.info(f'tt_output_torch is incorrectly shaped: {tt_output_torch.shape}')
@@ -135,5 +135,5 @@ if __name__ == "__main__":
     else:
         model_name = "llama3-3B"
     ttnn_device = ttnn.open_device(device_id=0)
-    run_llama3(wlname='llama3', ttnn_device=ttnn_device, cfg={'model_name': model_name})
+    run_llama3(wlname='llama3', ttnn_device=ttnn_device, cfg={'model_name': model_name, 'bs': 1})
     ttnn.close_device(ttnn_device)

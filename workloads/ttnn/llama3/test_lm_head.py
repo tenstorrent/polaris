@@ -27,7 +27,7 @@ def test_lm_head_inference():
         weight_cache_path=None, #model_args.weight_cache_path(dtype),
     )
 
-    torch_input = ttnn._rand(shape=(1, 1, seq_len, model_args.dim), device=mesh_device, dtype=dtype)
+    torch_input = ttnn._rand(shape=(1, batch_size, seq_len, model_args.dim), device=mesh_device, dtype=dtype)
     tt_input = ttnn.from_torch(
         torch_input,
         device=mesh_device,
@@ -40,7 +40,7 @@ def test_lm_head_inference():
     )
 
     tt_output = tt_model(tt_input)
-    if (tt_output.shape == [1, 1, 32, 128256]):
+    if (tt_output.shape == [1, batch_size, 32, 128256]):
         logger.info(f"LM Head output shape {tt_output.shape} is as expected.")
     else:
         logger.info(f"LM Head output shape is not as expected: {tt_output.shape}")

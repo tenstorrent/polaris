@@ -155,12 +155,6 @@ class MLP():
             topology=self.args.ccl_topology(),
         )
 
-        # Ensure dim 0 and 1 are 1
-        original_shape = w2_out_reduced.shape
-        w2_out_reduced = ttnn.reshape(
-            w2_out_reduced, (1, 1, original_shape[-4] * original_shape[-3] * original_shape[-2], original_shape[-1])
-        )
-
         return w2_out_reduced
 
 def __call__(self, x: ttnn.Tensor, mode) -> ttnn.Tensor:

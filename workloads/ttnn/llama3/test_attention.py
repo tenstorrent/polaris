@@ -130,7 +130,7 @@ def test_attention_inference():
             mode="decode",
             page_table=page_table_tt,
         )
-        if (tt_out.shape[0] != batch_size) or (tt_out.shape[1] != seq_len) or (tt_out.shape[2] != 1) or (tt_out.shape[3] != (model_args.head_dim * model_args.n_heads)):
+        if (tt_out.shape[0] != seq_len) or (tt_out.shape[1] != batch_size) or (tt_out.shape[2] != 1) or (tt_out.shape[3] != (model_args.head_dim * model_args.n_heads)):
             logger.info(f"tt_out shape: {tt_out.shape}, Tests Failed!")
         else:
             logger.info(f"tt_out shape: {tt_out.shape}, Tests Passed!")
