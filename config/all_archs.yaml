@@ -11,10 +11,10 @@ ipblocks:
             num_units   : 4
             freq_MHz    : 1000
             instructions:
-            -   {name: add, tpt: { int8: 2048, bf16: 512, fp16: 512, fp8: 2048,}}
-            -   {name: sub, tpt: { int8: 2048, bf16: 512, fp16: 512, fp8: 2048,}}
-            -   {name: mul, tpt: { int8: 2048, bf16: 512, fp16: 512, fp8: 2048,}}
-            -   {name: mac, tpt: { int8: 2048, bf16: 512, fp16: 512, fp8: 2048,}}
+            -   {name: add, tpt: { int8: 128, bf16: 128, fp16: 128, fp8: 128,}}
+            -   {name: sub, tpt: { int8: 128, bf16: 128, fp16: 128, fp8: 128,}}
+            -   {name: mul, tpt: { int8: 128, bf16: 128, fp16: 128, fp8: 128,}}
+            -   {name: mac, tpt: { int8: 2048, bf16: 2048, fp16: 2048, fp8: 2048,}}
         -   name: vector
             num_units   : 4
             freq_MHz    : 1000

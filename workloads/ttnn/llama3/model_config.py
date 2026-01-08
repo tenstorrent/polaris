@@ -76,9 +76,7 @@ class ModelArgs:
         seq_len = x.shape[1]
         assert x.shape[2] == self.dim
 
-        x = ttnn.transpose(x, 0, 1).unsqueeze(1)
-        if batch < 32: # pad to 32 for small batches
-            x = ttnn._rand(shape=(1, seq_len, 32, self.dim), device=self.mesh_device, dtype=ttnn.bfloat16)
+        x = ttnn.transpose(x, 0, 1).unsqueeze(0)
         return x
     
     def is_vision(self):

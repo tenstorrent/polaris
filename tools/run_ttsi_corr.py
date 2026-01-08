@@ -380,7 +380,7 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
 
     # WL/Arch configurations group
     wl_arch_group = parser.add_argument_group('WL/Arch configurations')
-    wl_arch_group.add_argument('--workloads-config', type=str, default='config/ttsi_correlation_workloads.yaml',
+    wl_arch_group.add_argument('--workloads-config', type=str, default='config/all_workloads.yaml',
                                help='Workloads configuration file (default: %(default)s)')
     wl_arch_group.add_argument('--arch-config', type=str, default='config/tt_wh.yaml',
                                help='Architecture specification file (default: %(default)s)')
@@ -391,6 +391,8 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
                                     'Common workloads: bert, llama, mamba, resnet50, unet, yolo, yolov7, yolov8. '
                                     'Additional workloads may be available depending on data source (e.g., falcon, mistral, mixtral, qwen, whisper, vit-base, etc.). '
                                     'Example: --workload-filter bert,llama,resnet50')
+    wl_arch_group.add_argument('--workload-group', type=str,
+                               help='Comma-separated workload API groups to filter (e.g., TTSIM,TTNN,ONNX). Case-insensitive.')
     wl_arch_group.add_argument('--precision', type=str,
                                help='Override precision for all workloads (e.g., bf8, bf16, fp32). '
                                     'If not specified, uses precision from parsed metrics data')
@@ -483,6 +485,12 @@ def main(argv: list[str]) -> int:
             args.workload_filter
         )
 
+        # Parse workload-group filter (case-insensitive)
+        workload_group_filter: set[str] | None = None
+        if args.workload_group:
+            workload_group_filter = set(wg.strip().upper() for wg in args.workload_group.split(','))
+            logger.debug('Filtering workload groups: {}', workload_group_filter)
+
         # Load metrics from data source specified in metadata
         all_configs = load_metrics_from_sources(tensix_perf_data_dir)
 
@@ -494,6 +502,7 @@ def main(argv: list[str]) -> int:
             valid_configs,
             workloads_file,
             workload_filter,
+            workload_group_filter,
             args.precision,
             DEVICE_TABLE
         )

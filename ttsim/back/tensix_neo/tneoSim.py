@@ -123,9 +123,9 @@ def get_default_cfg_path():
     return os.path.normpath(
         os.path.join(os.path.dirname(__file__), "../../../config/tensix_neo"))
 
-def get_default_tt_isa_file_path():
+def get_default_tt_isa_file_path(arch: str):
     return os.path.normpath(
-        os.path.join(os.path.dirname(__file__), "../../config/llk/instruction_sets/ttqs"))
+        os.path.join(os.path.dirname(__file__), f"../../config/llk/instruction_sets/{arch}"))
 
 def get_architecture(args_dict):
     accepted_arches = get_accepted_architectures()
@@ -239,28 +239,19 @@ def get_tt_isa_file_name(args, args_dict):
     if tt_isa_file_name is not None:
         return tt_isa_file_name
 
-    if 'ttISAFileName' in args_dict and args_dict['ttISAFileName']:
-        assert os.path.exists(args_dict['ttISAFileName']), f"Tensix ISA file {args_dict['ttISAFileName']} does not exist."
-        return args_dict['ttISAFileName']
-
     assert "arch" in args_dict, "Architecture must be specified in args_dict to determine the default Tensix ISA file."
     arch = args_dict['arch']
     assert arch in get_accepted_architectures(), f"Architecture {arch} is not in the list of accepted architectures."
 
-    if "ttqs" != arch:
-        raise NotImplementedError(f"Default Tensix ISA file for architecture {arch} is not implemented.")
-
+    isa_file_name: str = "assembly.yaml"
     if needs_llk_version_tag(arch):
-        assert "llkVersionTag" in args_dict, "llkVersionTag must be specified in args_dict when using this architecture."
-
+        assert "llkVersionTag" in args_dict, f"llkVersionTag must be specified in inputcfg for architecture {arch}."
         llk_version_tag = args_dict['llkVersionTag'].value
         isa_file_name = f"assembly.{llk_version_tag}.yaml"
-        isa_file_path = os.path.normpath(os.path.join(get_default_tt_isa_file_path(), isa_file_name))
-        assert os.path.exists(isa_file_path), f"Default Tensix ISA file {isa_file_path} does not exist."
 
-        return isa_file_path
-    else:
-        raise NotImplementedError(f"Default Tensix ISA file for architecture {arch} without llkVersionTag is not implemented.")
+    isa_file_path = os.path.normpath(os.path.join(get_default_tt_isa_file_path(arch), isa_file_name))
+    assert os.path.exists(isa_file_path), f"Default Tensix ISA file {isa_file_path} does not exist."
+    return isa_file_path
 
 def update_args_dict_with_inputcfg(args, args_dict):
     accepted_inputcfg_keys = [

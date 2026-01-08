@@ -67,7 +67,7 @@ def test_decoder_inference():
     for i in range(generation_length):
         print(f"[Decoder] Generating token {i}")
 
-        pt_decode_input = ttnn._rand(shape=(batch_size, seqlen, model_args.dim), device=mesh_device, dtype=dtype)
+        pt_decode_input = ttnn._rand(shape=(seqlen, batch_size, model_args.dim), device=mesh_device, dtype=dtype)
         tt_decode_input = pt_decode_input.clone()
 
         decode_input = model_args.prepare_residual_tensor_decode(
@@ -88,15 +88,11 @@ def test_decoder_inference():
             mode="decode",
             page_table=page_table_tt,
         )
-        print(f"tt_out shape: {tt_out.shape}")
 
-        if (tt_out.shape[0] == batch_size and
-            tt_out.shape[1] == 1 and
-            tt_out.shape[2] == 32 and
-            tt_out.shape[3] == model_args.dim):
+        if (tt_out.shape == decode_input.shape):
             print("Decoder Block Passed!")
         else:
-            print("Decoder Block Failed!")
+            print(f"Decoder Block Failed! Expected shape: {decode_input.shape}, but got: {tt_out.shape}")
 
         # for next token
         current_pos = ttnn.Tensor(shape=(batch_size,), device=mesh_device, dtype=ttnn.int32)

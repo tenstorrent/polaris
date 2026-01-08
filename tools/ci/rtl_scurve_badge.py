@@ -189,7 +189,7 @@ def extract_scurve_section(file_content: str) -> List[str]:
         file_content: Complete file content as string
         
     Returns:
-        List of lines between '+ Test class S-Curve:' and '+ Saving' markers
+        List of lines between '+ Test class S-Curve:' and '+ S-Curve (Model/RTL) geometric mean' markers
         (excluding the marker lines themselves)
     """
     lines = file_content.split('\n')
@@ -199,14 +199,14 @@ def extract_scurve_section(file_content: str) -> List[str]:
     for i, line in enumerate(lines):
         if '+ Test class S-Curve:' in line:
             start_idx = i + 1  # Start after the marker line
-        elif start_idx is not None and '+ Saving' in line:
+        elif start_idx is not None and '+ S-Curve (Model/RTL) geometric mean' in line:
             end_idx = i  # End before the marker line
             break
     
     if start_idx is None:
         raise ValueError("S-curve start marker '+ Test class S-Curve:' not found")
     if end_idx is None:
-        raise ValueError("S-curve end marker '+ Saving' not found")
+        raise ValueError("S-curve end marker '+ S-Curve (Model/RTL) geometric mean' not found")
     
     return lines[start_idx:end_idx]
 

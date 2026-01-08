@@ -84,11 +84,11 @@ def get_wlspec_from_yaml(cfg_yaml_file: str) -> dict[str, list[TypeWorkload]]:
     cfg_dict = parse_yaml(cfg_yaml_file)
     validated_workloads = PYDWorkloadListValidator(**cfg_dict)
     assert 'workloads' in cfg_dict, f"Attribute(workloads) missing in {cfg_yaml_file}"
-    workload_names: set[str] = {wlg_cfg['name'] for wlg_cfg in cfg_dict['workloads']}
+    workload_names: set[str] = {wlg_cfg['name'].upper() for wlg_cfg in cfg_dict['workloads']}
     wldb: dict[str, list[TypeWorkload]] = {name: [] for name in workload_names}
     for wlg_cfg in cfg_dict['workloads']:
         # assert wlg_cfg['name'] not in wldb, f"Duplicate workload name {wlg_cfg['name']} in {cfg_yaml_file}"
-        wldb[wlg_cfg['name']].append(AWorkload.create_workload(wlg_cfg['api'], **wlg_cfg))
+        wldb[wlg_cfg['name'].upper()].append(AWorkload.create_workload(wlg_cfg['api'], **wlg_cfg))
     return wldb
 
 

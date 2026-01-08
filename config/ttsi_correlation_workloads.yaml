@@ -99,3 +99,33 @@ workloads:
       LeViT_192: { img_height: 224, img_width: 224, img_channels: 3, bs: 1, patch_size: 16, dims: [192, 288, 384], depths: [4, 4, 4], heads: [3, 5, 6], key_dim: [32, 32, 32], attn_ratio: [2, 2, 2], mlp_ratio: [2, 2, 2], down_ops: [["Subsample", 32, 6, 4, 2, 2], ["Subsample", 32, 9, 4, 2, 2]], drop_path: 0, global_pool: avg, compute_pipe: matrix }
       LeViT_256: { img_height: 224, img_width: 224, img_channels: 3, bs: 1, patch_size: 16, dims: [256, 384, 512], depths: [4, 4, 4], heads: [4, 6, 8], key_dim: [32, 32, 32], attn_ratio: [2, 2, 2], mlp_ratio: [2, 2, 2], down_ops: [["Subsample", 32, 8, 4, 2, 2], ["Subsample", 32, 12, 4, 2, 2]], drop_path: 0, global_pool: avg, compute_pipe: matrix }
       LeViT_384: { img_height: 224, img_width: 224, img_channels: 3, bs: 1, patch_size: 16, dims: [384, 512, 768], depths: [6, 9, 12], heads: [6, 9, 12], key_dim: [32, 32, 32], attn_ratio: [2, 2, 2], mlp_ratio: [2, 2, 2], down_ops: [["Subsample", 32, 12, 4, 2, 2], ["Subsample", 32, 16, 4, 2, 2]], drop_path: 0.1, global_pool: avg, compute_pipe: matrix }
+
+  - api: TTNN
+    name: VGG_UNET
+    basedir: workloads/ttnn/vgg_unet
+    module : test_vgg_unet@ttnn_vgg_unet.py
+    instances:
+      vgg_unet_test: { bs: 1}
+      vgg_unet_256x256: { bs: 1, img_height: 256, img_width: 256}
+  - api: TTNN
+    name: llama3
+    basedir: workloads/ttnn/llama3
+    module : run_llama3@test_llama3.py
+    instances:
+      llama3_8b: { bs: 1, model_name: llama3-8B }
+
+  - api: TTNN
+    name: vit
+    basedir: workloads/ttnn/vit
+    module : run_vit@test_ttnn_functional_vit.py
+    instances:
+      vit_b16: { bs: 1, model_name: vit-b16 }
+      vit_base_224x224: { bs: 1, model_name: vit-b16 }
+
+  # TODO: Enable after SD full run works
+  # - api: TTSIM
+  #   name: StableDiffusion
+  #   basedir: workloads/diffusers
+  #   module : SDModel@stablediffusion.py
+  #   instances:
+  #     sd_b1 : {bs: 1}

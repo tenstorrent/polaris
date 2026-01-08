@@ -49,7 +49,6 @@ class Utils:
     def get_dirs_with_name(dir_name: str, root_dir: str) -> list[str]:
         dir_names: list[str] = []
         for pwd, sub_dirs, _ in os.walk(root_dir):
-            # TODO: replace for loop with dir_name in sub_dirs
             if dir_name in sub_dirs:
                 dir_names.append(os.path.join(pwd, dir_name))
         return dir_names
@@ -220,11 +219,7 @@ class TestStatusUtils:
 
     @staticmethod
     def get_failure_bins_as_str():
-        str_bins: list[str] = list()
-        for b in TestStatusUtils.get_failure_bins():
-            str_bins.append(" ".join([s for s in b]))
-
-        return str_bins
+        return [" ".join(b) for b in TestStatusUtils.get_failure_bins()]
 
     @staticmethod
     def get_failure_bin_index(msg: str):
@@ -1160,11 +1155,21 @@ class SCurve:
         Calculate tests within tolerance band of 1.0 Model/RTL ratio.
 
         Args:
-            tolerance_percent: Tolerance as percentage (e.g., 10 for ±10%)
+            tolerance_percent: Tolerance as percentage (e.g., 10 for +/-10%)
 
         Returns:
-            Tuple of (num_within_tolerance, total_valid_tests, percentage)
+            Tuple of (num_within_tolerance, total_valid_tests, percentage), where:
+                - num_within_tolerance: Number of tests whose Model/RTL cycle ratio is within the tolerance band.
+                - total_valid_tests: Number of tests where both RTL and Model passed and
+                  num_cycles_model_by_rtl is a valid float (i.e., the tests included in the ratio analysis).
+                - percentage: (num_within_tolerance / total_valid_tests) * 100.0, or 0.0 if there are no valid tests.
+
+        Raises:
+            ValueError: If tolerance_percent is outside the range [0, 100]
         """
+        if not (0 <= tolerance_percent <= 100):
+            raise ValueError(f"tolerance_percent must be in range [0, 100], got {tolerance_percent}")
+
         valid_tests = [elem for elem in self.s_curve if (elem.rtl_passed and elem.model_passed and isinstance(elem.num_cycles_model_by_rtl, float))]
         if 0 == len(valid_tests):
             return (0, 0, 0.0)
@@ -1200,7 +1205,7 @@ class SCurve:
         msg = ""
         for tolerance in tolerances:
             num_within, total_valid, percentage = self.get_tolerance_band_stats(tolerance)
-            msg += f"    + Tests within ±{tolerance:.0f}% of Model/RTL=1.0: {num_within}/{total_valid} ({percentage:.2f}%)\n"
+            msg += f"    + Tests within +/-{tolerance:.0f}% of Model/RTL=1.0: {num_within}/{total_valid} ({percentage:.2f}%)\n"
 
         return msg.rstrip()
 
@@ -1209,12 +1214,18 @@ class SCurve:
         Calculate a percentile from a list of ratios.
 
         Args:
-            ratios: Sorted list of ratio values
+            ratios: List of ratio values
             percentile: Percentile to calculate (0-100)
 
         Returns:
             The percentile value
+
+        Raises:
+            ValueError: If percentile is outside the range [0, 100]
         """
+        if not (0 <= percentile <= 100):
+            raise ValueError(f"percentile must be in range [0, 100], got {percentile}")
+
         if len(ratios) == 0:
             return 0.0
 
@@ -1373,7 +1384,7 @@ class SCurve:
         widths[SCurveElemIndices.rtl_num_cycles] = max(len(str(t.rtl_num_cycles)) for t in sorted_outliers)
         widths[SCurveElemIndices.model_num_cycles] = max(len(str(t.model_num_cycles)) for t in sorted_outliers)
 
-        sr_num_max_len = int(math.ceil(math.log10(len(sorted_outliers)))) if len(sorted_outliers) > 0 else 1
+        sr_num_max_len = len(str(len(sorted_outliers))) if len(sorted_outliers) > 0 else 1
         for idx, elem in enumerate(sorted_outliers):
             msg += f"{' ' * (num_white_chars_at_start + 2)}[{(idx + 1):>{sr_num_max_len}}/{len(sorted_outliers):>{sr_num_max_len}}] {elem.get_s_curve_str(widths=widths)}\n"
 
@@ -1384,13 +1395,19 @@ class SCurve:
         Identify outliers based on absolute ratio threshold.
 
         Args:
-            ratio_threshold: Threshold for deviation from 1.0 (default 0.5 for ±50%)
+            ratio_threshold: Threshold for deviation from 1.0 (default 0.5 for +/-50%)
 
         Returns:
             Tuple of (underestimators, overestimators) where:
             - underestimators: tests where ratio < (1.0 - threshold)
             - overestimators: tests where ratio > (1.0 + threshold)
+
+        Raises:
+            ValueError: If ratio_threshold is negative
         """
+        if ratio_threshold < 0:
+            raise ValueError(f"ratio_threshold must be non-negative, got {ratio_threshold}")
+
         lower_bound = 1.0 - ratio_threshold
         upper_bound = 1.0 + ratio_threshold
 
@@ -1411,7 +1428,7 @@ class SCurve:
         Generate summary of absolute threshold outliers.
 
         Args:
-            thresholds: List of threshold values (default: [0.3, 0.5, 1.0] for ±30%, ±50%, ±100%)
+            thresholds: List of threshold values (default: [0.3, 0.5, 1.0] for +/-30%, +/-50%, +/-100%)
 
         Returns:
             Formatted string with absolute threshold statistics
@@ -1505,7 +1522,7 @@ class SCurve:
         widths[SCurveElemIndices.rtl_num_cycles] = max(len(str(t.rtl_num_cycles)) for t in worst_tests)
         widths[SCurveElemIndices.model_num_cycles] = max(len(str(t.model_num_cycles)) for t in worst_tests)
 
-        sr_num_max_len = int(math.ceil(math.log10(len(worst_tests)))) if len(worst_tests) > 0 else 1
+        sr_num_max_len = len(str(len(worst_tests)))
 
         for idx, elem in enumerate(worst_tests):
             if by_ratio:
@@ -1521,7 +1538,7 @@ class SCurve:
 
     def get_s_curve_str(self: typing.Self, num_white_chars_at_start: int = 0) -> str:
         prefix = f"{' ' * num_white_chars_at_start}"
-        sr_num_max_len = int(math.ceil(math.log10(len(self.s_curve))) if len(self.s_curve) > 0 else 1)
+        sr_num_max_len = len(str(len(self.s_curve))) if len(self.s_curve) > 0 else 1
         num_tests = len(self.s_curve)
         widths = [0 for _ in range(SCurveElemIndices.num_cycles_model_by_rtl + 1)]
         widths[SCurveElemIndices.test_name]        = max(len(t.test_name) for t in self.s_curve)
@@ -1833,6 +1850,7 @@ class TagStatus:
 
     def __repr__(self) -> str:
         return self.__str__()
+
 class MultiTagComparison:
     """Compare S-Curve data across multiple RTL tags."""
 
@@ -2068,7 +2086,7 @@ class MultiTagComparison:
 
         for pair, test_changes in all_changes.items():
             tag1, tag2 = pair.split('_to_')
-            msg += f"    - {tag1} → {tag2}:\n"
+            msg += f"    - {tag1} -> {tag2}:\n"
 
             if test_changes:
                 rtl_changes = [rtl for rtl, _ in test_changes.values() if rtl is not None]
@@ -2076,11 +2094,11 @@ class MultiTagComparison:
 
                 if rtl_changes:
                     avg_rtl = sum(rtl_changes) / len(rtl_changes)
-                    msg += f"      * RTL: {len(rtl_changes)} tests, avg change: {avg_rtl:+.2f}%\n"
+                    msg += f"      * RTL: {len(rtl_changes)} tests, average change: {avg_rtl:+.2f}%\n"
 
                 if model_changes:
                     avg_model = sum(model_changes) / len(model_changes)
-                    msg += f"      * Model: {len(model_changes)} tests, avg change: {avg_model:+.2f}%\n"
+                    msg += f"      * Model: {len(model_changes)} tests, average change: {avg_model:+.2f}%\n"
             else:
                 msg += f"      * No comparable tests with valid data\n"
 
@@ -2194,7 +2212,6 @@ class Status:
     @staticmethod
     def print_statuses(input_params: InputParams, order_by: str = "classwise-s-curve"):
         tag_statuses = []
-
         for rtl_tag in input_params.rtl_tags:
             tgs = TagStatus(rtl_tag, input_params)
             tgs.print_status()
@@ -2205,9 +2222,7 @@ class Status:
 
         # Perform multi-tag comparison if there are 2 or more tags
         if len(input_params.rtl_tags) >= 2:
-            print("\n" + "="*80)
-            print("MULTI-TAG COMPARISON ANALYSIS")
-            print("="*80)
+            print("  + Multi-tag comparison")
 
             comparison = MultiTagComparison(tag_statuses)
 
@@ -2217,8 +2232,6 @@ class Status:
             # Write detailed comparison files
             comparison_dir = os.path.join(input_params.model_odir_prefix, input_params.run_name, "multi_tag_comparison")
             comparison.write_detailed_comparison(comparison_dir)
-
-            print("="*80)
 
         input_params.write_run_config_to_inputcfg_dir()
 

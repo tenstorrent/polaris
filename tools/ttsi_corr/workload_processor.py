@@ -62,13 +62,18 @@ __MODEL_NAME_TO_WL_CONFIG: dict[str, dict[str, str | None]] = {
     'bevdepth': {},
     'resnet50': {'ResNet-50 (224x224)': 'rn50_224x224'},
     'swin': {},
-    'unet': {
-        'UNet-VGG19 (256x256)': None,  # Explicitly marked None; workloads/UNet does not have a UNet-VGG19 instance
+    'unet': {},
+    'vgg_unet': {
+        'UNet - VGG19 (256x256)': 'vgg_unet_256x256'
+    },
+    'stablediffusion': {
+        'Stable Diffusion 1.4 (512x512)': 'sd_b1',
     },
     'yolov7': {},
     'yolov8': {'YOLOv8s (640x640)': 'yolov8s'},
     'llama2': {},
-    'llama3': {},
+    'llama3': {'Llama 3.1 8B': 'llama3_8b_decode'},
+    'vit': {'ViT-Base (224x224)': 'vit_base_224x224'},
 }
 
 # Convert to lowercase for case-insensitive matching
@@ -121,7 +126,7 @@ def find_workload_config(workloads_file: WorkloadsFile, wl_name: str, model_name
     if wl_instance not in wl.instances:
         logger.warning('No instance named "{}" found for workload "{}" (instances {}), skipping', wl_instance, wl_name, wl.instances.keys(), once=True)
         return None
-
+    logger.info('Found workload "{}" with instance "{}"', wl_name, wl_instance)
     return wl, wl_instance
 
 
@@ -200,7 +205,8 @@ def process_single_config(
     workloads_file: WorkloadsFile,
     default_precision: str | None,
     existing_scores: ScoreDict,
-    device_table: dict[str, str]
+    device_table: dict[str, str],
+    wl_config_result: tuple[WorkloadConfig, str] | None = None
 ) -> tuple[dict[str, Any], ScoreTuple, dict[str, Any]] | None:
     """
     Process a single configuration into workload spec and reference scores.
@@ -214,6 +220,7 @@ def process_single_config(
         default_precision: Default precision override
         existing_scores: Existing reference scores to check for duplicates
         device_table: Mapping of system names to device names
+        wl_config_result: Optional pre-computed workload config result to avoid duplicate lookup
 
     Returns:
         tuple: (xrec, instance_key, ref_scores) or None if should be skipped
@@ -237,6 +244,18 @@ def process_single_config(
     system = tensix_cfg['system']
     prec = tensix_cfg['precision'] if default_precision is None else default_precision
 
+    # Find workload configuration to get API (use pre-computed result if available)
+    if wl_config_result is None:
+        result = find_workload_config(workloads_file, wl, model_name)
+        if result is None:
+            # Cannot determine API without workload config
+            logger.warning('Skipping workload {} (model: {}) - workload config not found, cannot determine API', wl, model_name)
+            return None
+        wl_config, _ = result
+    else:
+        wl_config, _ = wl_config_result
+    api = wl_config.api
+
     # Get device name
     if system not in device_table:
         logger.warning('Unknown system "{}", adding to device table', system)
@@ -249,7 +268,7 @@ def process_single_config(
     instance_name = f'b{bs}'
 
     xrec = {
-        'api': 'TTSIM',
+        'api': api,
         'basedir': 'workloads',
         'scenario': 'offline',
         'benchmark': tensix_cfg['benchmark'],
@@ -282,15 +301,15 @@ def process_single_config(
         return None
 
     # Get workload-specific module configuration
-    wl_config = get_workload_module_config(
+    module_config = get_workload_module_config(
         wl, model_name, bs, workloads_file
     )
-    if wl_config is None:
+    if module_config is None:
         return None
 
-    xrec['module'] = wl_config['module']
-    xrec['basedir'] = wl_config.get('basedir', 'workloads')
-    xrec['instances'][instance_name].update(wl_config['instance_config'])
+    xrec['module'] = module_config['module']
+    xrec['basedir'] = module_config.get('basedir', 'workloads')
+    xrec['instances'][instance_name].update(module_config['instance_config'])
 
     logger.debug('{} Instance {}', wl, xrec['instances'])
 
@@ -311,6 +330,7 @@ def process_workload_configs(
     all_configs: list[dict[str, Any]],
     workloads_file: WorkloadsFile,
     workload_filter: set[str] | None,
+    workload_group_filter: set[str] | None,
     default_precision: str | None,
     device_table: dict[str, str]
 ) -> tuple[list[dict[str, Any]], ScoreDict, set[str]]:
@@ -324,6 +344,7 @@ def process_workload_configs(
         all_configs: Validated configurations
         workloads_file: Loaded workload configurations
         workload_filter: Workload filter (None = all)
+        workload_group_filter: Workload API group filter (None = all). Case-insensitive.
         default_precision: Default precision override
         device_table: Mapping of system names to device names
 
@@ -338,6 +359,7 @@ def process_workload_configs(
         ...     all_configs=metrics,
         ...     workloads_file=wl_file,
         ...     workload_filter=None,
+        ...     workload_group_filter=None,
         ...     default_precision='fp16',
         ...     device_table={'n300': 'n300'}
         ... )
@@ -367,10 +389,23 @@ def process_workload_configs(
             logger.warning('Skipping config {} as it is not found in device table', tensix_cfg['system'], once=True)
             continue
 
-        # Process single configuration
+        # Apply workload-group filter by checking API
+        wl_config_result: tuple[WorkloadConfig, str] | None = None
+        if workload_group_filter is not None:
+            model_name = tensix_cfg.get('wlname', wl)
+            wl_config_result = find_workload_config(workloads_file, wl, model_name)
+            if wl_config_result is None:
+                # Skip if workload config not found (can't determine API)
+                continue
+            wl_config, _ = wl_config_result
+            api = wl_config.api
+            if api.upper() not in workload_group_filter:
+                continue
+
+        # Process single configuration (pass wl_config_result to avoid duplicate lookup)
         result = process_single_config(
             tensix_cfg, workloads_file, default_precision, metal_ref_scores,
-            device_table
+            device_table, wl_config_result
         )
 
         if result is None:

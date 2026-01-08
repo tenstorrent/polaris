@@ -21,7 +21,7 @@ from workloads.diffusers.resnet import ResnetBlock2D
 from workloads.diffusers.upsampling import Upsample2D
 
 
-class TestRunner:
+class RunnerForTest:
     """Simple test runner."""
     
     def __init__(self):
@@ -204,7 +204,7 @@ def main():
     """Run all tests."""
     print("Running diffusers module tests...\n")
     
-    runner = TestRunner()
+    runner = RunnerForTest()
     
     # Downsample2D tests
     runner.test("Downsample: Non-conv not implemented", test_downsample_non_conv_not_implemented)
