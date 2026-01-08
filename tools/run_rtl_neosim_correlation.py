@@ -2167,6 +2167,192 @@ class MultiTagComparison:
                         f.write("\n")
             print(f"    + Tag-specific tests written to: {specific_file}")
 
+    def plot_multi_tag_s_curve(self: typing.Self, output_file: str):
+        """
+        Plot S-curves for all tags on the same plot.
+        Uses first tag as reference for ordering tests by Model/RTL ratio.
+
+        Args:
+            output_file: Path to output PNG file
+        """
+        # Get all test names
+        all_tests = self.get_all_test_names()
+
+        if len(all_tests) == 0:
+            print(f"  - info: No tests available for multi-tag S-curve plot")
+            return
+
+        # Calculate minimum model/rtl ratio across all tags for each test
+        tests_with_ratios = []
+        tests_without_ratios = []
+
+        for test_name in all_tests:
+            min_ratio = None
+
+            # Find minimum ratio across all tags
+            for tag in self.tags:
+                if test_name in self.tag_test_data[tag]:
+                    elem = self.tag_test_data[tag][test_name]
+                    if (elem.rtl_passed and elem.model_passed and
+                        isinstance(elem.num_cycles_model_by_rtl, float)):
+                        if min_ratio is None or elem.num_cycles_model_by_rtl < min_ratio:
+                            min_ratio = elem.num_cycles_model_by_rtl
+
+            if min_ratio is not None:
+                tests_with_ratios.append((test_name, min_ratio))
+            else:
+                tests_without_ratios.append(test_name)
+
+        # Sort tests with ratios by minimum model/rtl value across all tags
+        tests_with_ratios.sort(key=lambda x: x[1])
+        ordered_test_names = [test for test, _ in tests_with_ratios]
+
+        # Add tests without any valid ratios, sorted alphabetically
+        ordered_test_names.extend(sorted(tests_without_ratios))
+
+        if len(ordered_test_names) == 0:
+            print(f"  - info: No tests with valid Model/RTL ratios for multi-tag S-curve plot")
+            return
+
+        # Prepare data for each tag
+        tag_plot_data = {}
+        for tag in self.tags:
+            x_indices = []
+            y_values = []
+
+            for idx, test_name in enumerate(ordered_test_names):
+                if test_name in self.tag_test_data[tag]:
+                    elem = self.tag_test_data[tag][test_name]
+                    if (elem.rtl_passed and elem.model_passed and
+                        isinstance(elem.num_cycles_model_by_rtl, float)):
+                        x_indices.append(idx)
+                        y_values.append(elem.num_cycles_model_by_rtl)
+
+            tag_plot_data[tag] = (x_indices, y_values)
+
+        # Create plot with appropriate size
+        num_tests = len(ordered_test_names)
+        fig_width = max(10, 10 * num_tests / 40.)
+        fig_height = max(8, 8 * num_tests / 40.)  # Increased for legend space
+        plt.figure(figsize=(fig_width, fig_height))
+
+        # Add tolerance bands around y=1
+        x_range = [0, num_tests - 1] if num_tests > 1 else [0, 1]
+
+        # 30% band (outermost)
+        plt.fill_between(x_range, [0.7, 0.7], [1.3, 1.3],
+                        color='lightcoral', alpha=0.15, label='±30% band')
+
+        # 20% band
+        plt.fill_between(x_range, [0.8, 0.8], [1.2, 1.2],
+                        color='gold', alpha=0.2, label='±20% band')
+
+        # 10% band (innermost)
+        plt.fill_between(x_range, [0.9, 0.9], [1.1, 1.1],
+                        color='lightskyblue', alpha=0.25, label='±10% band')
+
+        # Plot each tag's S-curve
+        colors = plt.cm.tab10(range(len(self.tags)))
+        for idx, tag in enumerate(self.tags):
+            x_indices, y_values = tag_plot_data[tag]
+            if len(x_indices) > 0:
+                plt.plot(x_indices, y_values, marker='o', label=tag,
+                        alpha=0.7, linewidth=1.5, markersize=4, color=colors[idx])
+
+        # Add reference line at y=1
+        plt.axhline(y=1, color='gray', linestyle='--', alpha=0.7, linewidth=2, label='Model/RTL = 1')
+
+        # Calculate and display band statistics for each tag as a table
+        table_data = []
+        for tag in self.tags:
+            x_indices, y_values = tag_plot_data[tag]
+            total_tests = len(y_values)
+
+            if total_tests > 0:
+                within_10 = sum(1 for y in y_values if 0.9 <= y <= 1.1)
+                within_20 = sum(1 for y in y_values if 0.8 <= y <= 1.2)
+                within_30 = sum(1 for y in y_values if 0.7 <= y <= 1.3)
+
+                pct_10 = (within_10 / total_tests) * 100
+                pct_20 = (within_20 / total_tests) * 100
+                pct_30 = (within_30 / total_tests) * 100
+
+                table_data.append([
+                    tag,
+                    f"{within_10}/{total_tests}\n({pct_10:.1f}%)",
+                    f"{within_20}/{total_tests}\n({pct_20:.1f}%)",
+                    f"{within_30}/{total_tests}\n({pct_30:.1f}%)"
+                ])
+
+        # Add statistics as a table in upper left corner of plot area
+        if table_data:
+            col_labels = ['Tag', '±10%', '±20%', '±30%']
+            # Position table in upper left: [x, y, width, height] in axes coordinates
+            table_height = 0.04 * (len(table_data) + 1)  # Header + data rows
+            table_width = 0.35
+            table = plt.table(cellText=table_data, colLabels=col_labels,
+                            cellLoc='center', loc='upper left',
+                            bbox=[0.02, 0.98 - table_height, table_width, table_height])
+            table.auto_set_font_size(False)
+            table.set_fontsize(15)
+            table.scale(1, 2.0)
+
+            # Style header row with professional look
+            for i in range(len(col_labels)):
+                cell = table[(0, i)]
+                cell.set_facecolor('#2E4053')  # Dark blue-grey
+                cell.set_text_props(weight='bold', color='white')
+                cell.set_edgecolor('#1C2833')
+                cell.set_linewidth(1.5)
+
+            # Style data rows with text colors matching the plot lines
+            for row in range(1, len(table_data) + 1):
+                tag_idx = row - 1  # Row 1 corresponds to tag index 0
+                row_color = colors[tag_idx]  # Use same color as plot line
+
+                # Alternating background colors for better readability
+                bg_color = 'white' if row % 2 == 1 else '#F8F9F9'
+
+                for col in range(len(col_labels)):
+                    cell = table[(row, col)]
+                    cell.set_facecolor(bg_color)
+                    cell.set_edgecolor('#D5D8DC')  # Light grey borders
+                    cell.set_linewidth(0.8)
+
+                    # Use matching color for text - bold for tag names
+                    if col == 0:
+                        cell.set_text_props(weight='bold', color=row_color)
+                    else:
+                        cell.set_text_props(color=row_color)
+
+        # Configure plot
+        plt.title(f"Multi-Tag S-Curve Comparison ({len(self.tags)} tags)", fontsize=24, pad=15)
+        plt.xlabel("Tests (ordered by minimum Model/RTL ratio across all tags)", fontsize=24)
+        plt.ylabel("Model/RTL Cycle Ratio", fontsize=24)
+        plt.yticks(fontsize=24)
+
+        # Set x-axis ticks and labels
+        if num_tests <= 50:
+            # Show all test names if not too many
+            plt.xticks(range(len(ordered_test_names)), ordered_test_names, rotation=90, fontsize=8)
+        else:
+            # Show fewer ticks for readability
+            step = max(1, num_tests // 20)
+            tick_positions = list(range(0, len(ordered_test_names), step))
+            tick_labels = [ordered_test_names[i] for i in tick_positions]
+            plt.xticks(tick_positions, tick_labels, rotation=90, fontsize=8)
+
+        plt.legend(loc='lower right', fontsize=15, framealpha=0.9)
+        plt.grid(True, alpha=0.3, linestyle=':', linewidth=0.5)
+        plt.tight_layout()
+
+        # Ensure output directory exists
+        os.makedirs(os.path.dirname(output_file) if os.path.dirname(output_file) else '.', exist_ok=True)
+
+        print(f"    + Saving multi-tag S-Curve plot to {output_file}")
+        plt.savefig(output_file, dpi=300, bbox_inches='tight', format='png')
+        plt.close()
+
 class Status:
     @staticmethod
     def get_test_statuses(rtl_tag: str, input_params: InputParams, order_by = "classwise"):
@@ -2232,6 +2418,11 @@ class Status:
             # Write detailed comparison files
             comparison_dir = os.path.join(input_params.model_odir_prefix, input_params.run_name, "multi_tag_comparison")
             comparison.write_detailed_comparison(comparison_dir)
+
+            # Generate multi-tag S-curve plot
+            print("  + Generating multi-tag S-curve plot")
+            multi_tag_plot_file = os.path.join(comparison_dir, "multi_tag_s_curve.png")
+            comparison.plot_multi_tag_s_curve(multi_tag_plot_file)
 
         input_params.write_run_config_to_inputcfg_dir()
 
