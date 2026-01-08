@@ -480,6 +480,7 @@ class PackageInstanceModel(BaseModel, extra='forbid'):
     devname: str
     name: str
     ipgroups: List[IPGroupModel]
+    operator_lookup_file: Optional[str] = None
 
     def get_ipgroup(self, iptype: str) -> IPGroupModel:
         matching = [ipgroup for ipgroup in self.ipgroups if ipgroup.iptype == iptype]

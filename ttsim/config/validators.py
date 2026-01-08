@@ -270,6 +270,9 @@ class TTSimHLWlDevRunOpCSVPerfStats(BaseModel, extra='forbid'):
     mem_wr_util: float = Field(
         description = 'Memory Wr Utilization'
     )
+    uses_perf_lookup: bool = Field(
+        description = 'Whether msecs were obtained from operator performance lookup'
+    )
 
 # Option 2 - Structured Stats
 
@@ -317,6 +320,7 @@ class TTSimHLWlDevRunOperatorPerfStats(BaseModel, extra='forbid'):
     vector_pipe_util: float
     mem_rd_util: float
     mem_wr_util: float
+    uses_perf_lookup: bool
 
 class TTSimHLWlDevRunPerfStats(BaseModel, extra='forbid'):
     """

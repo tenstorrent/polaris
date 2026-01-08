@@ -2,8 +2,10 @@
 # SPDX-FileCopyrightText: (C) 2025 Tenstorrent AI ULC
 # SPDX-License-Identifier: Apache-2.0
 
+import os
 import math
-from typing import TYPE_CHECKING
+from pathlib import Path
+from typing import TYPE_CHECKING, Any, Optional
 
 from loguru import logger
 
@@ -115,6 +117,23 @@ class Device:
         self.memory_ip      = memory_ips[0]
         self.peak_bw_bytes_per_cycle  = simcfg_obj.peak_bandwidth_per_cycle()
         self.eff_bw_bytes_per_cycle   = self.peak_bw_bytes_per_cycle * self.DG_MEMORY_UTIL_CONSTANT
+
+        # Load operator performance lookup map if specified
+        self.operator_perf_map: Optional[OperatorPerfMap] = None
+        if hasattr(simcfg_obj, 'operator_lookup_file') and simcfg_obj.operator_lookup_file:
+            lookup_file_path = Path(os.getcwd()) / simcfg_obj.operator_lookup_file
+            if lookup_file_path.exists():
+                try:
+                    # Import here to avoid circular dependencies
+                    from tools.perf_lookup.lookup_operator_perf import OperatorPerfMap
+                    self.operator_perf_map = OperatorPerfMap(lookup_file_path)
+                    logger.info(f"Loaded operator performance lookup map from {lookup_file_path}")
+                except Exception as e:
+                    logger.warning(f"Failed to load operator performance lookup map from {lookup_file_path}: {e}")
+                    self.operator_perf_map = None
+            else:
+                logger.warning(f"Operator lookup file specified but not found: {lookup_file_path}")
+
         return
 
     def execute_graph(self, wlgraph, wlmapspec):
@@ -213,16 +232,76 @@ class Device:
         # Store both fractional and ceiled values to avoid accumulated rounding errors
         mem_rd_cycles_devclk_fractional = mem_rd_cycles_memclk * mem_to_dev_ratio
         mem_wr_cycles_devclk_fractional = mem_wr_cycles_memclk * mem_to_dev_ratio
-        
+
         # Store fractional values for accurate aggregation
         op.mem_rd_cycles_fractional = mem_rd_cycles_devclk_fractional
         op.mem_wr_cycles_fractional = mem_wr_cycles_devclk_fractional
-        
+
         # Store ceiled values for per-op scheduling (backward compatibility)
         op.mem_rd_cycles = math.ceil(mem_rd_cycles_devclk_fractional)
         op.mem_wr_cycles = math.ceil(mem_wr_cycles_devclk_fractional)
 
         return
+
+    def _try_operator_perf_lookup(
+        self,
+        op: Any,
+        opname: str,
+        wlgraph: Any,
+        msecs: float
+    ) -> tuple[float, bool]:
+        """
+        Try to get msecs from operator performance lookup map.
+
+        Args:
+            op: The operator object
+            opname: The operator name (for logging)
+            wlgraph: The workload graph containing tensors
+            msecs: The calculated msecs value (used as fallback)
+
+        Returns:
+            Tuple of (msecs, uses_perf_lookup) where:
+            - msecs: The msecs value (from lookup if found, otherwise the input value)
+            - uses_perf_lookup: True if lookup was used, False otherwise
+        """
+        uses_perf_lookup = False
+
+        # Try to use operator performance lookup if available
+        if self.operator_perf_map is not None:
+            if len(op.inList) == 2:
+                try:
+                    # Extract input tensor shapes
+                    tensor_0_name = op.inList[0]
+                    tensor_1_name = op.inList[1]
+
+                    if tensor_0_name in wlgraph._tensors and tensor_1_name in wlgraph._tensors:
+                        tensor_0 = wlgraph._tensors[tensor_0_name]
+                        tensor_1 = wlgraph._tensors[tensor_1_name]
+
+                        if tensor_0.shape is not None and tensor_1.shape is not None:
+                            shape_0 = tuple(tensor_0.shape)
+                            shape_1 = tuple(tensor_1.shape)
+
+                            # Get msecs from lookup (case-insensitive matching handled in OperatorPerfMap)
+                            lookup_msecs = self.operator_perf_map.get_msecs(
+                                op.optype,
+                                op.precision,
+                                shape_0,
+                                shape_1
+                            )
+
+                            if lookup_msecs is not None:
+                                msecs = lookup_msecs
+                                uses_perf_lookup = True
+                except Exception as e:
+                    logger.warning(f"Error during operator perf lookup for {opname}: {e}", once=True)
+            else:
+                logger.warning(
+                    f"Operator {opname} has {len(op.inList)} inputs, expected 2 for perf lookup",
+                    once=True
+                )
+
+        return (msecs, uses_perf_lookup)
 
     def get_exec_stats(self, wlgraph, bs):
         graph_ordered_nodes = wlgraph.get_ordered_nodes()
@@ -246,10 +325,22 @@ class Device:
             mem_cycles       = mem_rd_cycles + mem_wr_cycles
             ramp_penalty     = self.simconfig_obj.ramp_penalty()
             dev_freq_MHz     = self.simconfig_obj.frequency(op.uses_compute_pipe, units='MHz')
-            ideal_cycles     = max(compute_cycles, mem_cycles) + ramp_penalty
+            ideal_cycles     = int(math.ceil(max(compute_cycles, mem_cycles) + ramp_penalty))
             ideal_msecs      = ideal_cycles / dev_freq_MHz / 1e3
-            cycles           = math.ceil((1 + self.G_GUARDBAND) * ideal_cycles)
+            cycles           = int(math.ceil((1 + self.G_GUARDBAND) * ideal_cycles))
             msecs            = cycles / dev_freq_MHz / 1e3
+
+            # Try to use operator performance lookup if available
+            msecs, uses_perf_lookup = self._try_operator_perf_lookup(op, opname, wlgraph, msecs)
+
+            # If msecs came from lookup, adjust cycles, ideal_cycles, and ideal_msecs accordingly
+            if uses_perf_lookup:
+                # Calculate cycles from the lookup msecs value
+                cycles = int(math.ceil(msecs * dev_freq_MHz * 1e3))
+                # Calculate ideal_cycles by removing the guardband (round to int)
+                ideal_cycles = int(math.ceil(cycles / (1 + self.G_GUARDBAND)))
+                # Calculate ideal_msecs from ideal_cycles
+                ideal_msecs = ideal_cycles / dev_freq_MHz / 1e3
 
             assert ideal_cycles > 0, f"Error: ideal_cycles = {ideal_cycles}!!"
             assert ideal_msecs > 0, f"Error: ideal_msecs = {ideal_msecs}!!"
@@ -289,9 +380,9 @@ class Device:
             op.exec_stats = {
                     'ramp_penalty'     : ramp_penalty,
                     'rsrc_bnck'        : rsrc_bnck,
-                    'ideal_cycles'     : ideal_cycles,
+                    'ideal_cycles'     : float(ideal_cycles),
                     'ideal_msecs'      : ideal_msecs,
-                    'cycles'           : cycles,
+                    'cycles'           : float(cycles),
                     'matrix_cycles'    : matrix_cycles,
                     'vector_cycles'    : vector_cycles,
                     'msecs'            : msecs,
@@ -299,6 +390,7 @@ class Device:
                     'vector_pipe_util' : vector_pipe_util,
                     'mem_rd_util'      : mem_rd_util,
                     'mem_wr_util'      : mem_wr_util,
+                    'uses_perf_lookup' : uses_perf_lookup,
                     }
 
         #compute aggregate stats
@@ -353,7 +445,7 @@ class Device:
 
         tot_matrix_cycles     = sum(op_stat_iter('matrix_cycles', repeat=True))
         tot_vector_cycles     = sum(op_stat_iter('vector_cycles', repeat=True))
-        
+
         # Use fractional cycles for accurate aggregation, then ceil at the aggregate level
         tot_mem_rd_cycles_fractional = sum(op_stat_iter('mem_rd_cycles_fractional', repeat=True))
         tot_mem_wr_cycles_fractional = sum(op_stat_iter('mem_wr_cycles_fractional', repeat=True))
@@ -425,11 +517,11 @@ class Device:
                 }
         if tot_mem_rd_cycles > 0 or tot_mem_wr_cycles > 0:
             # Validate that the memory bandwidth accounting is correct
-            # Since we now use fractional cycles and ceil at aggregate level, 
+            # Since we now use fractional cycles and ceil at aggregate level,
             # the validation should be much more accurate
             mem_to_dev_ratio = self.freq_MHz / self.memfreq_MHz
             expected_bytes_per_device_clock = self.eff_bw_bytes_per_cycle / mem_to_dev_ratio
-            
+
             if tot_mem_rd_cycles > 0:
                 actual_bytes_per_device_clock = tot_inBytes / tot_mem_rd_cycles
                 # Allow for a single cycle of rounding error from the final ceil operation
