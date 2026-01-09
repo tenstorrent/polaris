@@ -63,8 +63,7 @@ jobs:
       continue-on-error: true
       uses: ./.github/actions/run-rtl-tests
       with:
-        tag: sep23
-        parallel: 4
+        batch-file: tools/rtl_neosim_correlation/data/baseline.yaml
         lfc-files: 'ext_rtl_test_data_set_sep23.tar.gz'
         results-file: 'rtl_test_results.txt'
 

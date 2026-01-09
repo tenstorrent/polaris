@@ -5,13 +5,10 @@ name: 'Run RTL Tests'
 description: 'Execute RTL tests with configurable parameters and handle LFC file downloads'
 
 inputs:
-  tag:
-    description: 'Test tag to run'
-    required: true
-  parallel:
-    description: 'Number of parallel processes'
+  batch-file:
+    description: 'Path to YAML batch configuration file'
     required: false
-    default: '4'
+    default: 'tools/rtl_neosim_correlation/data/baseline.yaml'
   lfc-files:
     description: 'Space-separated list of LFC files to download'
     required: true
@@ -43,10 +40,10 @@ runs:
       continue-on-error: true
       shell: bash -el {0}
       run: | 
-        echo "Running RTL tests with tag: ${{ inputs.tag }}, parallel: ${{ inputs.parallel }}"
+        echo "Running RTL tests with batch file: ${{ inputs.batch-file }}"
         echo "Output file: ${{ inputs.results-file }}"
         set -o pipefail
-        python tools/run_rtl_neosim_correlation.py --tag ${{ inputs.tag }} --parallel ${{ inputs.parallel }} 2>&1 | tee ${{ inputs.results-file }}
+        python tools/run_rtl_neosim_correlation.py --batch-file ${{ inputs.batch-file }} 2>&1 | tee ${{ inputs.results-file }}
         find __llk_out -mindepth 3 -maxdepth 3 -name "*.png" -exec mv {} __llk_out/ \; 2>/dev/null || true
 
     - name: Set exit code for badge generation
