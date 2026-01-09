@@ -16,6 +16,7 @@ from ttsim.config import TTSimHLRunSummary, get_arspec_from_yaml, get_wlmapspec_
 from ttsim.front import onnx2graph
 from ttsim.front.ttnn import open_device, close_device
 from ttsim.utils.common import get_ttsim_functional_instance, get_ttnn_functional_instance, print_csv, str_to_bool, setup_logger
+from ttsim.utils.types import validate_datatype, get_valid_sim_dtypes
 import ttsim.config.runcfgmodel as runcfgmodel
 from ttsim.back.device import Device
 from ttsim.stats import HLMStats, OutputFormat, save_data
@@ -67,6 +68,8 @@ class RangeArgument:
 def check_args(args):
     assert args.inference != args.training, \
             f"Cannot run inference({args.inference}) & training({args.training}) together"
+    if args.datatype is not None:
+        validate_datatype(args.datatype)
     return
 
 def apply_filter(L, filter_csv_str, get_param_func):
@@ -169,7 +172,7 @@ def do_instr_profile(_WLG, _ODIR):
 
 def setup_cmdline_args(argv: list[str] | None = None) -> argparse.Namespace:
     logging_levels = [ 'debug', 'info', 'warning', 'error', 'critical' ]
-    data_types     = [ 'fp64', 'fp32', 'tf32', 'fp16', 'bf16', 'fp8', 'int32', 'int8' ]  # noqa: F841
+    data_types     = get_valid_sim_dtypes()
     parser = argparse.ArgumentParser('polaris')
 
     parser.add_argument('--dryrun',    '-n', action='store_true', default=False, help='show but do not run')

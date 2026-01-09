@@ -5,6 +5,8 @@ from typing import Literal, Optional, Tuple, Union
 
 from pydantic import BaseModel, Field, ValidationInfo, field_validator
 
+from ttsim.utils.types import validate_datatype
+
 type TYPE_SWEEP = Literal['all', 'first-parent']
 type TYPE_RUN = Literal['inference', 'training']
 type TYPE_LOGLEVEL = Literal['critical', 'error', 'warning', 'info', 'debug']
@@ -33,6 +35,13 @@ class PolarisRunConfig(BaseModel, extra='forbid'):
         description='Activation Data Type to use for the projection (e.g., bf16, fp32, etc.)'
     )
 
+    @field_validator('datatype')
+    @classmethod
+    def validate_datatype_field(cls, v: Optional[str], info: ValidationInfo) -> Optional[str]:
+        if v is not None:
+            validate_datatype(v)
+        return v
+
     filterwlg: Optional[str] = Field(default=None, description='APIs to be considered for the run')
 
     filterwl: Optional[str] = Field(
@@ -57,6 +66,7 @@ class PolarisRunConfig(BaseModel, extra='forbid'):
     )
 
     @field_validator('frequency')
+    @classmethod
     def validate_frequency(cls, v: TYPE_frequency, info: ValidationInfo) -> TYPE_frequency:
         assert v is not None, 'frequency must be specified'
         # if v is None:
@@ -68,6 +78,7 @@ class PolarisRunConfig(BaseModel, extra='forbid'):
         return v
 
     @field_validator('batchsize')
+    @classmethod
     def validate_batchsize(cls, v: TYPE_batchsize, info: ValidationInfo) -> TYPE_batchsize:
         assert v is not None, 'batchsize must be specified'
         # if v is None:

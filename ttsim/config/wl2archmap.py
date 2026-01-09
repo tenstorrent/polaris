@@ -7,6 +7,7 @@ from typing import Any, Dict, List, Optional
 from pydantic import BaseModel, Field
 
 from ttsim.utils.common import parse_yaml
+from ttsim.utils.types import validate_datatype
 
 type LayerName = str
 type LayerSequence = List[LayerName]
@@ -23,21 +24,23 @@ class WL2ArchDatatypes(BaseModel):
 
     def __str__(self):
         return f"Global Type: {self.global_type}, Overrides: {self.override}"
-    
+
     def layer_2_datatype(self, layer_name: LayerName) -> TypeName:
         """
         Get the data type for a specific layer.
         If no override is found, return the global type.
         """
         return self.override.get(layer_name, self.global_type) if self.override else self.global_type
-    
+
     def update_global_type(self, new_global_type: TypeName) -> None:
         """
         Update the global data type.
         """
         if not isinstance(new_global_type, str):
             raise TypeError("new_global_type must be a string")
-        self.global_type = new_global_type  
+        # Validate the datatype to ensure it's supported
+        validate_datatype(new_global_type)
+        self.global_type = new_global_type
 
     @staticmethod
     def from_dict(spec: dict[str, Any]) -> 'WL2ArchDatatypes':
@@ -49,11 +52,16 @@ class WL2ArchDatatypes(BaseModel):
         override_spec = spec.get('override', dict())
         if global_type is None:
             raise AssertionError(f'global_type must be set in {spec}')
+        # Validate global_type before converting to lowercase
+        validate_datatype(global_type)
+        global_type = global_type.lower()
         for kk, vv in override_spec.items():
             key_upper = kk.upper()
             value_lower = vv.lower()
             if key_upper in override and override[key_upper] != value_lower:
                 raise AssertionError(f'override {kk} already set to {override[key_upper]}, trying to set to {value_lower}')
+            # Validate each override datatype before converting to lowercase
+            validate_datatype(vv)
             override[key_upper] = value_lower
 
         return WL2ArchDatatypes(global_type=global_type, override=override)
@@ -70,7 +78,7 @@ class WL2ArchRemovalLayers(BaseModel):
 
     def is_included(self, layer_name: LayerName) -> bool:
         return layer_name in self.layer_names
-    
+
     @staticmethod
     def from_list(layer_names: List[LayerName]) -> 'WL2ArchRemovalLayers':
         """
@@ -117,7 +125,7 @@ class WL2ArchLayer2ComputePipe(BaseModel):
 
     def __str__(self):
         return f"Layer 2 compute pipe map {self.wl_map}"
-    
+
     def layer_2_pipe(self, layer_name: LayerName) -> PipeName:
         pipe: Optional[str]  = self.wl_map.get(layer_name, None)
         if pipe is None:
@@ -216,7 +224,7 @@ class WL2ArchTypeSpec:
         If no override is found, return the global type.
         """
         return cls.get_instance().layer_2_datatype(layer_name)
-    
+
     @classmethod
     def set_instance(cls, instance: WL2ArchDatatypes, force: bool = False) -> None:
         """

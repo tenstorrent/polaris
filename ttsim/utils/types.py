@@ -173,30 +173,53 @@ def str2mf(x: str) -> MathFidelity:
             }
     return tbl[x]
 
+
+SIM_DTYPE_TABLE = {
+        'BOOL'    : SimDataType.BOOL,
+        'INT4'    : SimDataType.INT4,
+        'INT8'    : SimDataType.INT8,
+        'INT16'   : SimDataType.INT16,
+        'INT32'   : SimDataType.INT32,
+        'INT64'   : SimDataType.INT64,
+        'UINT4'   : SimDataType.UINT4,
+        'UINT8'   : SimDataType.UINT8,
+        'UINT16'  : SimDataType.UINT16,
+        'UINT32'  : SimDataType.UINT32,
+        'UINT64'  : SimDataType.UINT64,
+        'BFLOAT8' : SimDataType.BFLOAT8,
+        'BFLOAT16': SimDataType.BFLOAT16,
+        'FLOAT16' : SimDataType.FLOAT16,
+        'FLOAT32' : SimDataType.FLOAT32,
+        'FLOAT64' : SimDataType.FLOAT64,
+        # Common abbreviations
+        'BF16'    : SimDataType.BFLOAT16,
+        'FP16'    : SimDataType.FLOAT16,
+        'FP32'    : SimDataType.FLOAT32,
+        'FP64'    : SimDataType.FLOAT64,
+        }
+
 def get_sim_dtype(dtype: str) -> SimDataType:
-    tbl = {
-            'BOOL'    : SimDataType.BOOL,
-            'INT4'    : SimDataType.INT4,
-            'INT8'    : SimDataType.INT8,
-            'INT16'   : SimDataType.INT16,
-            'INT32'   : SimDataType.INT32,
-            'INT64'   : SimDataType.INT64,
-            'UINT4'   : SimDataType.UINT4,
-            'UINT8 '  : SimDataType.UINT8,
-            'UINT16'  : SimDataType.UINT16,
-            'UINT32'  : SimDataType.UINT32,
-            'UINT64'  : SimDataType.UINT64,
-            'BFLOAT8' : SimDataType.BFLOAT8,
-            'BFLOAT16': SimDataType.BFLOAT16,
-            'FLOAT16' : SimDataType.FLOAT16,
-            'FLOAT32' : SimDataType.FLOAT32,
-            'FLOAT64' : SimDataType.FLOAT64,
-            }
     try:
-        res = tbl[dtype.upper()]
+        res = SIM_DTYPE_TABLE[dtype.upper()]
     except KeyError:
         res = SimDataType.UNKNOWN
     return res
+
+def get_valid_sim_dtypes() -> list[str]:
+    """
+    Returns the list of valid simulation datatype names (lowercase, sorted).
+    """
+    return sorted(k.lower() for k in SIM_DTYPE_TABLE.keys())
+
+def validate_datatype(dtype: str) -> str:
+    """
+    Validates that the given datatype string is supported.
+    Raises ValueError if invalid, otherwise returns the dtype.
+    """
+    if get_sim_dtype(dtype) == SimDataType.UNKNOWN:
+        valid_types = get_valid_sim_dtypes()
+        raise ValueError(f"Invalid datatype '{dtype}'. Valid options: {valid_types}")
+    return dtype
 
 def get_bpe(dtype: SimDataType) -> int:
     tbl = {
