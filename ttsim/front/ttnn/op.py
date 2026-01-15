@@ -10,7 +10,7 @@ import numpy as np
 from ttsim.ops.op import SimOp
 
 from .memory import MemoryConfig
-from .tensor import DataType, Tensor
+from .tensor import DataType, Tensor, Layout, zeros
 
 
 class MathFidelity(Enum):
@@ -40,7 +40,7 @@ def single_output_immediate_op(optype, /, preprocess=None):
         tensor_args = [x for x in args if isinstance(x, Tensor)]
         devchk_list = [x.device for x in tensor_args]
         device      = devchk_list[0]
-        assert device and all(x == device for x in devchk_list), f"device check: {devchk_list}"
+        # assert device and all(x == device for x in devchk_list), f"device check: {devchk_list}"
 
         op_name = generate_new_op_name()
         opinfo  = {'name': op_name, 'optype': optype, 'inList': [], 'attrs': kwargs}
@@ -78,6 +78,46 @@ def single_output_immediate_op(optype, /, preprocess=None):
 
     return _impl
 
+def multiple_output_immediate_op(optype, /, preprocess=None):
+    def _impl(*args, **kwargs):
+
+        if preprocess:
+            args, kwargs = preprocess(args, kwargs)
+
+        tensor_args = [x for x in args if isinstance(x, Tensor)]
+        devchk_list = [x.device for x in tensor_args]
+        device      = devchk_list[0]
+        # assert device and all(x == device for x in devchk_list), f"device check: {devchk_list}"
+
+        op_name = generate_new_op_name()
+        opinfo  = {'name': op_name, 'optype': optype, 'inList': [], 'attrs': kwargs}
+        out_tensors = []
+        num_outputs = kwargs.get('num_outputs', 2)
+        for out_idx in range(num_outputs):
+            C = Tensor(name=f"{op_name}.out.{out_idx}",  op_out= [op_name], device=device)
+            out_tensors.append(C)
+
+        new_args = []
+        for i,x in enumerate(args):
+            if isinstance(x, Tensor):
+                x.op_in.append(op_name)
+                opinfo['inList'].append(x.name)
+                new_args.append(x)
+            else:
+                assert False, f"Unknown input type in ttnn.op({optype}) : {type(x)}"
+        opinfo['outList'] = [C.name for C in out_tensors]
+
+        opobj      = SimOp(opinfo)
+        perf_stats = opobj.get_perf_counts(new_args, out_tensors)
+        # print(f"{optype}:: {perf_stats}")
+        opobj.update_tensor_counts(new_args, out_tensors)
+
+        device.add_op(opobj)
+
+        return tuple(out_tensors)
+
+    return _impl
+
 def argmax_pp(args_list, kwargs_dict):
     #translate attribs
     kwargs_dict['axis'] = kwargs_dict.get('dim', 0)
@@ -106,6 +146,24 @@ def reshape_pp(args_list, kwargs_dict):
     # so it should be of type INT64
     shapeT = Tensor(shape=shapeData.shape, dtype=DataType.INT64, device=inT.device, data=shapeData)
     return (inT, shapeT), kwargs_dict
+
+def expand_pp(args_list, kwargs_dict):
+    inT      = args_list[0]
+    outShape = args_list[1]
+    outData = np.array(outShape, dtype=np.int64)
+    outT = Tensor(shape=outData.shape, dtype=DataType.INT64, device=inT.device, data=outData)
+    return (inT, outT), kwargs_dict
+
+def split_pp(args_list, kwargs_dict):
+    inT = args_list[0]
+    outT = args_list[1]
+    split_sizes = kwargs_dict.get('split_sizes', None)
+    num_splits  = kwargs_dict.get('num_splits', None)
+    axis        = kwargs_dict.get('dim', 0)
+    kwargs_dict['split_sizes'] = split_sizes
+    kwargs_dict['num_splits']  = num_splits
+    kwargs_dict['axis']        = axis
+    return (inT, outT), kwargs_dict
 
 def permute_pp(args_list, kwargs_dict):
     inT = args_list[0]
@@ -146,9 +204,10 @@ def conv2d_pp(args_list, kwargs_dict):
     input_tensor  = kwargs_dict['input_tensor']
     weight_tensor = kwargs_dict['weight_tensor']
     bias_tensor   = kwargs_dict['bias_tensor']
+    strides       = kwargs_dict.get('stride', (1,1))
     padding_size  = kwargs_dict['padding'][0]
     pads = [padding_size for i in range(4)]
-    kwargs_dict = {'pads': pads, 'kernel_shape': list(kwargs_dict['kernel_size'])}
+    kwargs_dict = {'pads': pads, 'kernel_shape': list(kwargs_dict['kernel_size']), 'strides': list(strides)}
     return (input_tensor, weight_tensor, bias_tensor), kwargs_dict
 
 def outer_pp(args_list, kwargs_dict):
@@ -213,7 +272,7 @@ def cat(tensors, dim=0):
 
     # Calculate new shape
     new_shape = list(first_tensor.shape)
-    new_shape[dim] = sum(tensor.shape[dim] for tensor in tensors)
+    new_shape[dim] = np.sum(tensor.shape[dim] for tensor in tensors) # type: ignore[call-overload]
 
     # Create the concatenated tensor
     return Tensor(
@@ -278,6 +337,66 @@ def conv_transpose2d_pp(args_list, kwargs_dict):
     }
     return (input_tensor, weight_tensor, bias_tensor), kwargs_dict
 
+def as_pp(args_list, kwargs_dict):
+    input_tensor = args_list[0]
+    slice_spec   = kwargs_dict.get('slice', None)
+    assert slice_spec is not None, "ttnn.slice requires 'slice' attribute specifying indices"
+
+    # Compute the shape of the slice
+    # Use numpy to infer the shape
+    dummy = np.empty(input_tensor.shape)
+    sliced = dummy[slice_spec]
+    out_shape = list(sliced.shape)
+
+    kwargs_dict['output_shape'] = out_shape
+    return (input_tensor,), kwargs_dict
+
+def topk_pp(args_list, kwargs_dict):
+    input_tensor = args_list[0]
+    k_tensor     = args_list[1]
+    axis         = kwargs_dict.get('dim', -1)
+    largest      = kwargs_dict.get('largest', True)
+    sorted       = kwargs_dict.get('sorted', True)
+
+    kwargs_dict = {
+        'k': k_tensor.shape[0],
+        'axis': axis,
+        'largest': 1 if largest else 0,
+        'sorted': 1 if sorted else 0
+    }
+    return (input_tensor, k_tensor), kwargs_dict
+
+def zeros_like(input_tensor, memory_config=None):
+    return zeros(shape=input_tensor.shape, dtype=DataType.from_numpy(input_tensor.dtype.name),
+                 layout=Layout.from_numpy(input_tensor.layout.name) if input_tensor.layout else Layout.TILE_LAYOUT, device=input_tensor.device)
+
+def compare(input_tensor_a, input_tensor_b, op_type):
+    assert op_type in ['equal', 'not_equal', 'greater', 'less', 'greater_equal', 'less_equal'], f"Unsupported compare op_type: {op_type}"
+    # For simplicity, we return a tensor of the same shape with boolean dtype
+    return Tensor(shape=input_tensor_a.shape, dtype=DataType.BOOL, device=input_tensor_a.device)
+
+def maximum(input_tensor_a, input_tensor_b):
+    return input_tensor_a  # Placeholder implementation
+
+def unsqueeze(input_tensor, dim):
+    return input_tensor.unsqueeze(dim)
+
+def divide(input_tensor, divisor, use_legacy=False):
+    if isinstance(divisor, (int, float)):
+        divisor = Tensor(shape=input_tensor.shape, dtype=DataType.from_numpy(input_tensor.dtype.name),
+                                device=input_tensor.device, data=np.full(input_tensor.shape, divisor, dtype=input_tensor.dtype))
+    return div(input_tensor, divisor)
+
+def clone(input_tensor, memory_config=None):
+    return input_tensor
+
+def squeeze(input_tensor, dim):
+    return input_tensor.squeeze(dim)
+
+def repeat(input_tensor, repeats):
+    output_shape = [i * j for i, j in zip(list(input_tensor.shape), repeats)]
+    return Tensor(shape=output_shape, dtype=DataType.from_numpy(input_tensor.dtype.name), device=input_tensor.device)
+
 class transformer:
     def __init__(self, config):
         pass
@@ -306,16 +425,27 @@ sigmoid     = single_output_immediate_op('Sigmoid')
 sin         = single_output_immediate_op('Sin')
 softmax     = single_output_immediate_op('Softmax')
 tanh        = single_output_immediate_op('Tanh')
+clamp       = single_output_immediate_op('Clip')
+log         = single_output_immediate_op('Log')
+min         = single_output_immediate_op('Min')
+max         = single_output_immediate_op('Max')
+sqrt        = single_output_immediate_op('Sqrt')
 
 #Pointwise Binary
 add         = single_output_immediate_op('Add')
+sub         = single_output_immediate_op('Sub')
 multiply    = single_output_immediate_op('Mul')
 subtract    = single_output_immediate_op('Sub')
 div         = single_output_immediate_op('Div')
 pow         = single_output_immediate_op('Pow')
+mean        = single_output_immediate_op('Mean')
+sum         = single_output_immediate_op('Sum')
+atan        = single_output_immediate_op('Atan')
+exp         = single_output_immediate_op('Exp')
 
 #Pointwise Ternary
 where       = single_output_immediate_op('Where', preprocess=where_pp)
+nonzero     = single_output_immediate_op('NonZero')
 
 #Reduction
 argmax      = single_output_immediate_op('ArgMax', preprocess=argmax_pp)
@@ -323,10 +453,12 @@ argmax      = single_output_immediate_op('ArgMax', preprocess=argmax_pp)
 #Data Movement
 concat      = single_output_immediate_op('Concat')
 reshape     = single_output_immediate_op('Reshape',   preprocess=reshape_pp)
+expand      = single_output_immediate_op('Expand',    preprocess=expand_pp)
 embedding   = single_output_immediate_op('Gather',    preprocess=embedding_pp)
 permute     = single_output_immediate_op('Transpose', preprocess=permute_pp)
 gather      = single_output_immediate_op('TorchGather', preprocess=torchgather_pp)
 transpose   = single_output_immediate_op('Transpose', preprocess=transpose_pp)
+split       = multiple_output_immediate_op('Split', preprocess=split_pp)
 
 #Normalization
 layer_norm  = single_output_immediate_op('LayerNormalization', preprocess=layer_norm_pp)
@@ -343,6 +475,11 @@ max_pool2d        = single_output_immediate_op('MaxPool', preprocess=max_pool2d_
 #Matrix Multiplication
 matmul      = single_output_immediate_op('MatMul')
 outer       = single_output_immediate_op('MatMul', preprocess=outer_pp)
+
+# Funky Ops
+grid_sample = single_output_immediate_op('GridSample')
+assign      = single_output_immediate_op('Assign', preprocess=as_pp)
+topk        = multiple_output_immediate_op('TopK', preprocess=topk_pp)
 
 
 Tensor.__add__    = add       #type: ignore

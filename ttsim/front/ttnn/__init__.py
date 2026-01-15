@@ -2,7 +2,7 @@
 # SPDX-FileCopyrightText: (C) 2025 Tenstorrent AI ULC
 # SPDX-License-Identifier: Apache-2.0
 
-from .device import open_device, close_device, ARCH, num_cores_to_corerangeset, create_sharded_memory_config
+from .device import open_device, close_device, ARCH, num_cores_to_corerangeset, create_sharded_memory_config, ReadDeviceProfiler
 from .device import interleaved_to_sharded
 from .tensor import _rand, full, zeros, ones, from_torch, to_torch, to_layout, to_device, DataType, ShardTensor2dMesh, typecast, pad
 from .tensor import Layout, Shape, as_tensor, arange, stack, ShardStrategy, unsqueeze_to_4D, ReplicateTensorToMesh

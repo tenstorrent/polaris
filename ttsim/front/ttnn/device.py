@@ -128,3 +128,6 @@ def create_sharded_memory_config(*args, **kwargs):
 
 def interleaved_to_sharded(input_tensor, *args, **kwargs):
     return input_tensor
+
+def ReadDeviceProfiler(device: Device):
+    return

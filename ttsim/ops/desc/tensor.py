@@ -435,6 +435,31 @@ def reshape_sinf(iTList, oTList, op, **kwargs):
             }
     return
 
+def expand_sinf(iTList, oTList, op, **kwargs):
+    A = iTList[0]
+    shapeT = iTList[1].clone_by_shape(data_maybe_missing=True) #shapeT.data should exist
+    target_shape = [x.item() for x in shapeT.data]
+    input_shape  = A.shape
+
+    # Align shapes by prepending 1s to input_shape if needed
+    if len(target_shape) > len(input_shape):
+        input_shape = [1] * (len(target_shape) - len(input_shape)) + input_shape
+
+    assert len(target_shape) == len(input_shape), f"Input & Target shapes length mismatch: {input_shape} vs {target_shape}"
+    for i, (in_dim, tgt_dim) in enumerate(zip(input_shape, target_shape)):
+        if tgt_dim != in_dim and in_dim != 1:
+            raise ValueError(f"Cannot expand dimension {i}: input dim {in_dim} to target dim {tgt_dim}")
+    oTList[0].shape = target_shape
+    oTList[0].dtype = A.dtype
+    op.perf_stats = {
+            'inElems' : A.nelems() + shapeT.nelems(),
+            'outElems': oTList[0].nelems(),
+            'inBytes' : A.nbytes(op.precision) + shapeT.nbytes(op.precision),
+            'outBytes': oTList[0].nbytes(op.precision),
+            'instrs'  : {'mov': oTList[0].nelems()}
+            }
+    return
+
 def split_sinf(iTList, oTList, op, **kwargs):
     num_outputs = op.attrs.get('num_outputs', len(oTList))
     axis        = op.attrs.get('axis',0)
@@ -563,6 +588,7 @@ def register_tensor_ops():
             ['Cast',      'ARITY_1->1', 'ai.onnx',  'COMMON',  24,  21,  1,  1,  1,  1, cast_sinf,  True,  True,  True,  True,  True],
 
             ['Reshape',   'ARITY_2->1', 'ai.onnx',  'COMMON',  24,  21,  2,  2,  1,  1, reshape_sinf,  True,  True,  True,  True,  True],
+            ['Expand',    'ARITY_2->1', 'ai.onnx',  'COMMON',  13,  13,  2,  2,  1,  1, expand_sinf,  True,  True,  True,  True,  True],
 
             ['Unsqueeze', 'ARITY_2->1', 'ai.onnx',  'COMMON',  24,  21,  2,  2,  1,  1,
              unsqueeze_sinf,  True,  True,  True,  True,  True],

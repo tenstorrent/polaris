@@ -122,6 +122,16 @@ class Layout(Enum):
     def cname(self)->str:
         return self.name.lower()
 
+    @classmethod
+    def from_numpy(cls, numpy_layout_str):
+        layout_str = numpy_layout_str.lower()
+        if layout_str in ['c', 'row_major', 'row_major_layout']:
+            return cls.ROW_MAJOR_LAYOUT
+        elif layout_str in ['f', 'column_major', 'column_major_layout']:
+            raise NotImplementedError("Column major layout not supported yet")
+        else:
+            raise ValueError(f"Unknown numpy layout string: {numpy_layout_str}")
+
 class Shape(list):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -218,7 +228,7 @@ class Tensor(SimTensor):
     def squeeze(self, dim: int):
         """Squeeze the tensor at the specified dimension."""
         if dim < 0:
-            dim += len(self.shape) + 1
+            dim += len(self.shape)
         if dim >= len(self.shape) or self.shape[dim] != 1:
             print(f"Cannot squeeze dimension {dim} of shape {self.shape}")
             return self
@@ -241,8 +251,10 @@ class Tensor(SimTensor):
     def float(self):
         return Tensor(shape=self.shape, dtype=DataType.FLOAT32, device=self.device)
 
-    def size(self):
-        return tuple(self.shape)
+    def size(self, dim: int = None): # type: ignore[assignment]
+        if dim is None:
+            return self.shape # type: ignore[unreachable]
+        return self.shape[dim]
 
     def gather(self, dim, index):
         import ttsim.front.ttnn.op as ttnn_op
@@ -331,6 +343,15 @@ class Tensor(SimTensor):
             device=self.device,
         )
         return cloned_tensor
+
+    def new_zeros(self, shape):
+        return Tensor(shape=shape, dtype=DataType.from_numpy(self.dtype.name), device=self.device, fill_value=0)
+
+    def new_tensor(self, data):
+        if isinstance(data, list) and all(isinstance(item, np.ndarray) for item in data):
+            # Convert list of arrays to single concatenated array
+            data = np.concatenate(data).reshape(1, -1)
+        return Tensor(shape=data.shape, dtype=DataType.from_numpy(self.dtype.name), device=self.device, data=data)
 
 class ShardStrategy(Enum):
     HEIGHT = auto()

@@ -23,7 +23,7 @@ def r0_func(iTList, oTList, op, **kwargs):
     oTList[0].shape = outShape
     #oTList[0].dtype = np.dtype(np.int64)
     #create dummy index data so that it can work downstream...
-    oTList[0].data  = np.array([0 for i in range(oTList[0].rank())], dtype=np.int64)
+    oTList[0].data  = np.array([0 for i in range(oTList[0].nelems())], dtype=np.int64)
     oTList[0].dtype = oTList[0].data.dtype
     op.perf_stats = {
             'inElems' : dataT.nelems(),

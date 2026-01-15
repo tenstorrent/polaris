@@ -32,6 +32,8 @@ def variadic_sinf(iTList, oTList, op, **kwargs):
     optype2instr = {
             'mean': {'add': i_elems, 'div': o_elems},
             'sum' : {'add': i_elems},
+            'max' : {'cmp': i_elems - o_elems},
+            'min' : {'cmp': i_elems - o_elems},
             }
     op.perf_stats = {
         'inElems': i_elems,
@@ -84,6 +86,48 @@ def matmul_shape_inf(iTList, oTList, op, **kwargs):
             'inBytes' : iTList[0].nbytes(op.precision) + iTList[1].nbytes(op.precision),
             'outBytes': oTList[0].nbytes(op.precision),
             'instrs'  : {'mac': oTList[0].nelems() * reduced_dim}
+            }
+    return
+
+def grid_sample_inf(iTList, oTList, op, **kwargs):
+    A = iTList[0]
+    B = iTList[1]
+    assert A.check_shape(), f"Input tensor-A shape not defined: {A}"
+    assert B.check_shape(), f"Input tensor-B shape not defined: {B}"
+    AShape = iTList[0].shape
+    BShape = iTList[1].shape
+    if len(AShape) != 4:
+        raise ValueError(f"GridSample expects 4D input tensor-A shape; got {AShape}")
+    if len(BShape) != 4:
+        raise ValueError(f"GridSample expects 4D input tensor-B shape; got {BShape}")
+    N, C, H, W = AShape
+    N_grid, H_out, W_out, _ = BShape
+    if N != N_grid:
+        raise ValueError(f"GridSample batch-size mismatch: {N} != {N_grid}")
+    C_out = C
+    oTList[0].shape = [N, C_out, H_out, W_out]
+    oTList[0].dtype = A.dtype
+
+    mode = op.attrs.get('mode', 'bilinear')
+    nElem_out = N * C_out * H_out * W_out
+    instr_count = {}
+    if mode == 'nearest':
+        instr_count['mov'] = nElem_out
+    elif mode == 'bilinear':
+        instr_count['mul'] = nElem_out * 4
+        instr_count['add'] = nElem_out * 3
+    elif mode == 'bicubic':
+        instr_count['mul'] = nElem_out * 16
+        instr_count['add'] = nElem_out * 15
+    else:
+        raise ValueError(f"Unsupported GridSample mode: {mode}")
+
+    op.perf_stats = {
+            'inElems' : iTList[0].nelems() + iTList[1].nelems(),
+            'outElems': oTList[0].nelems(),
+            'inBytes' : iTList[0].nbytes(op.precision) + iTList[1].nbytes(op.precision),
+            'outBytes': oTList[0].nbytes(op.precision),
+            'instrs'  : {'mov': oTList[0].nelems()} #TODO: refine this
             }
     return
 
@@ -190,6 +234,27 @@ def topk_sinf(iTList, oTList, op, **kwargs):
             }
     return
 
+def nonzero_sinf(iTList, oTList, op, **kwargs):
+    A = iTList[0]
+    assert A.check_shape(), f"Input tensor-A shape not defined: {A}"
+    AShape = A.shape
+    AElems = A.nelems()
+    nonzero_count = AElems // 2  # Assume half the elements are non-zero for perf estimation
+
+    rank = A.rank()
+    out_shape = AShape[:-1] + [nonzero_count] # Keep all dimensions except last one, append nonzero_count
+    oTList[0].shape = out_shape
+    oTList[0].dtype = np.dtype(np.int64)
+
+    op.perf_stats = {
+            'inElems' : iTList[0].nelems(),
+            'outElems': oTList[0].nelems(),
+            'inBytes' : iTList[0].nbytes(op.precision),
+            'outBytes': oTList[0].nbytes(op.precision),
+            'instrs'  : {'cmp': AElems, 'mov': nonzero_count * rank}
+            }
+    return
+
 def register_math_ops():
     _xoptbl = [
             ['Clip', 'ARITY_VARIADIC[1-3]->1', 'ai.onnx', 'COMMON',  13,  13,  3,  1,  1,  1,  unary_fwd,  True,  True,  True,  True,  True],
@@ -217,6 +282,7 @@ def register_math_ops():
             ['CumSum', 'ARITY_2->1', 'ai.onnx', 'COMMON',  14,  14,  2,  2, 1,  1,  unary_fwd,        True,  True,  True,  True,  True],
             ['PRelu',  'ARITY_2->1', 'ai.onnx', 'COMMON',  16,  16,  2,  2, 1,  1,  unary_fwd,        True,  True,  True,  True,  True],
             ['MatMul', 'ARITY_2->1', 'ai.onnx', 'COMMON',  13,  13,  2,  2, 1,  1,  matmul_shape_inf, True,  True,  True,  True,  True],
+            ['GridSample', 'ARITY_2->1', 'ai.onnx', 'COMMON',  22,  22,  2,  2, 1,  1,  grid_sample_inf,        True,  True,  True,  True,  True],
             ]
 
     _variadic_input_unary_output_optbl = [
@@ -267,6 +333,7 @@ def register_math_ops():
             ['Erf',              'ARITY_1->1', 'ai.onnx', 'COMMON',  13,  13,  1,  1,  1,  1,  unary_fwd,  True,  True,  True,  True,  True],
             ['Round',            'ARITY_1->1', 'ai.onnx', 'COMMON',  22,  22,  1,  1,  1,  1,  unary_fwd,  True,  True,  True,  True,  True],
             ['Det',              'ARITY_1->1', 'ai.onnx', 'COMMON',  22,  22,  1,  1,  1,  1,  det_sinf,   True,  True,  True,  True,  True],
+            ['NonZero',          'ARITY_1->1', 'ai.onnx', 'COMMON',  13,  13,  1,  1,  1,  1,  nonzero_sinf,  True,  True,  True,  True,  True],
 
             ['HannWindow',       'ARITY_1->1', 'ai.onnx', 'COMMON',  17,  17,  1,  1,  1,  1, data_window_sinf,  True,  True,  True,  True,  True],
             ['HammingWindow',    'ARITY_1->1', 'ai.onnx', 'COMMON',  17,  17,  1,  1,  1,  1, data_window_sinf,  True,  True,  True,  True,  True],
