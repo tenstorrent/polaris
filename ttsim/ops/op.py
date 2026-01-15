@@ -12,6 +12,7 @@ import numpy as np
 class SimOp:
     def __init__(self, cfg):
         self.name         = cfg['name']
+        self.opnum        = cfg.get('opnum', 1)
         self.optype       = cfg['optype']
         self.attrs        = cfg.get('attrs', {})
         self.inList       = cfg.get('inList', [])

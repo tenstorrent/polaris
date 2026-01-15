@@ -28,7 +28,7 @@ class MathFidelity(Enum):
         return self.name.lower()
 
 op_counter = count(start=1, step=1)
-def generate_new_op_name(): return f"ttsim.ttnn.Op_{next(op_counter)}"
+def generate_new_op_name(opnum: int): return f"ttsim.ttnn.Op_{opnum}"
 
 def single_output_immediate_op(optype, /, preprocess=None):
 
@@ -42,8 +42,9 @@ def single_output_immediate_op(optype, /, preprocess=None):
         device      = devchk_list[0]
         assert device and all(x == device for x in devchk_list), f"device check: {devchk_list}"
 
-        op_name = generate_new_op_name()
-        opinfo  = {'name': op_name, 'optype': optype, 'inList': [], 'attrs': kwargs}
+        opnum = next(op_counter)
+        op_name = generate_new_op_name(opnum)
+        opinfo  = {'name': op_name, 'optype': optype, 'inList': [], 'attrs': kwargs, 'opnum': opnum}
         C       = Tensor(name=op_name + '.out',  op_out= [op_name], device=device)
 
         new_args = []

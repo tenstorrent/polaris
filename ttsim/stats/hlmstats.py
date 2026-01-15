@@ -210,7 +210,7 @@ class HLMStats:
         graph_ordered_nodes = self.wlgraph.get_ordered_nodes()
 
         opstats_tbl = []
-        for opnum,opname in enumerate(graph_ordered_nodes):
+        for opname in graph_ordered_nodes:
             op  = self.wlgraph.get_op(opname)
 
             # Extract tensor shape information
@@ -226,7 +226,7 @@ class HLMStats:
                     'wlname'           : self.wlname,
                     'wlinstance'       : self.wlinstance,
                     'batch'            : self.batchsize,
-                    'opnum'            : opnum,
+                    'opnum'            : op.opnum,
                     'opname'           : opname,
                     'is_input_node'    : self.wlgraph.is_input_node(opname),
                     'is_output_node'   : self.wlgraph.is_output_node(opname),
@@ -258,6 +258,9 @@ class HLMStats:
                     }
             val.update(op.exec_stats)
             opstats_tbl.append(val)
+
+        # Sort opstats_tbl by ascending opnum
+        opstats_tbl.sort(key=lambda x: x['opnum'])
 
         model_rows = copy.deepcopy(opstats_tbl)
         for rec in model_rows:
