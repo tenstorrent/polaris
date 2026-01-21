@@ -38,6 +38,8 @@ class ARCH(Enum):
     def cname(self)->str:
         return self.name.lower()
 
+Arch = ARCH
+
 class BoardType(Enum):
     N150    = auto()
     N300    = auto()

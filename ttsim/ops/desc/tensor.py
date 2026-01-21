@@ -591,7 +591,7 @@ def gather_sinf(iTList, oTList, op, **kwargs):
     # Normalize negative axis
     axis = axis if axis >= 0 else data_rank + axis
     assert axis >= 0 and axis < data_rank, f"Axis {axis} is out of bounds for dataT.shape {dataT.shape}"
-    oTList[0].shape = data_shape[:axis] + indicesT.shape + data_shape[axis + 1:]
+    oTList[0].shape = data_shape[:axis] + list(indicesT.shape) + data_shape[axis + 1:]
     oTList[0].dtype = dataT.dtype
 
     op.perf_stats = {

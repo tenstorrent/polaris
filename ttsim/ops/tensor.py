@@ -5,11 +5,79 @@ import functools, operator
 import numpy as np
 from ttsim.utils.types import get_bpe, get_sim_dtype
 
+
+class Shape:
+    """
+    Shape class
+    """
+
+    def __init__(self, shape):
+        if isinstance(shape, (list, tuple)):
+            self._shape = list(shape)
+        elif isinstance(shape, Shape):
+            self._shape = list(shape._shape)
+        else:
+            raise TypeError(f"Invalid shape type: {type(shape)}")
+
+    def __eq__(self, other):
+        if other is None:
+            return False
+        elif isinstance(other, (list, tuple)):
+            return list(other) == list(self._shape)
+        elif not isinstance(other, Shape):
+            return False
+        return self._shape == other._shape
+
+    def __getitem__(self, index):
+        return self._shape[index]
+
+    def __setitem__(self, index, value):
+        self._shape[index] = value
+
+    def __len__(self):
+        return len(self._shape)
+
+    def __iter__(self):
+        return iter(self._shape)
+
+    def __repr__(self):
+        return f"Shape({self._shape})"
+
+    def rank(self):
+        return len(self._shape)
+
+    def copy(self):
+        return Shape(self._shape)
+
+    def volume(self):
+        result = 1
+        for dim in self._shape:
+            result *= dim
+        return result
+
+    def to_rank(self, rank):
+        """Convert shape to specified rank by padding with 1s or truncating."""
+        current_rank = len(self._shape)
+        if current_rank == rank:
+            return Shape(self._shape)
+        elif current_rank < rank:
+            # Pad with 1s at the beginning
+            new_shape = [1] * (rank - current_rank) + self._shape
+            return Shape(new_shape)
+        else:
+            # Truncate from the beginning
+            new_shape = self._shape[-rank:]
+            return Shape(new_shape)
+
+    def view(self):
+        """Return a view of the shape as a list."""
+        return list(self._shape)
+
+
 class SimTensor:
     def __init__(self, cfg):
         self.name        = cfg['name']                # String
-        self.shape       = cfg.get('shape')           # List
-        self.dtype       = cfg.get('dtype')           # Numpy datatype 
+        self.dtype       = cfg.get('dtype')           # Numpy datatype
         self.data        = cfg.get('data', None)      # Actual data (numpy array)
         self.resolve     = cfg.get('resolve','_')     # Has the tensor shape been resolved (intermediate tensor shapes) (Boolean)
         self.op_in       = cfg.get('op_in', [])       # Which operators is this "input" for (consumer list)
@@ -18,6 +86,7 @@ class SimTensor:
         self.is_const    = cfg.get('is_const', False) # Is it constant? Boolean
         self.has_grad    = cfg.get('has_grad', True)  # Has a gradient during bwd pass? Boolean
         self.link_module = None                       # Associated Module
+        self.set_shape(cfg.get('shape'))           # List
 
     def set_module(self, m): self.link_module = m
 
@@ -38,10 +107,12 @@ class SimTensor:
             s += f", link_module={self.link_module.name}"
         return s
 
-    def rank(self): return len(self.shape)
+    def rank(self): return len(self.shape) if self.shape is not None else 0
 
     # Note: data count may not be a simple product of shape dims - may need to provide a custom func
     def nelems(self):
+        if self.shape is None:
+            return 0
         trank = self.rank()
         if trank > 0:
             res = functools.reduce(operator.mul, (k for k in self.shape), 1)
@@ -57,6 +128,12 @@ class SimTensor:
 
     def numel(self):
         return self.nelems()
+
+    def set_shape(self, newshape):
+        if newshape is None:
+            self.shape = None
+        else:
+            self.shape = Shape(newshape)
 
     # Note:
     #   data size may not be just data-count * precision, because you may have compression/sparsity
@@ -102,6 +179,7 @@ class SimTensor:
         return cloned_tensor
 
     def clone_by_shape(self, /, data_maybe_missing = True):
+        assert self.shape is not None, f"Illegal Data in Tensor {self}"  # For mypy type checking
         assert self.check_shape(), f"Illegal Shape in Tensor {self}"
         if data_maybe_missing:
             if self.data is None:

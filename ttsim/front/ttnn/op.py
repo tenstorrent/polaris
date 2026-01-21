@@ -44,7 +44,11 @@ def single_output_immediate_op(optype, /, preprocess=None):
 
         op_name = generate_new_op_name()
         opinfo  = {'name': op_name, 'optype': optype, 'inList': [], 'attrs': kwargs}
-        C       = Tensor(name=op_name + '.out',  op_out= [op_name], device=device)
+        # NOTE: The input tensor could have been created either using 
+        # ttnn.ops.tensor.SimTensor or ttnn.front.ttnn.Tensor. To ensure compatibility,
+        # we use the type of the first tensor argument to create the output tensor.
+        tensor_type = type(tensor_args[0])
+        C       = tensor_type(name=op_name + '.out',  op_out= [op_name], device=device)
 
         new_args = []
         for i,x in enumerate(args):
@@ -217,6 +221,7 @@ def outer_pp(args_list, kwargs_dict):
     tensor_b = args_list[1]
     assert isinstance(tensor_a, Tensor), f"ttnn.outer 1st input should be a ttnn.Tensor"
     assert isinstance(tensor_b, Tensor), f"ttnn.outer 2nd input should be a ttnn.Tensor"
+    assert tensor_a.shape is not None and tensor_b.shape is not None
 
     # Validate that inputs are 1D tensors
     if len(tensor_a.shape) != 1:

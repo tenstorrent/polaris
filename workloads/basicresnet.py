@@ -116,6 +116,7 @@ class ResNet(SimNN.Module):
 
     def __call__(self):
         x = self.input_tensors['x_in']
+        assert x.shape is not None
         batch, img_chnl, img_width, img_height = x.shape
 
         x = self.conv0(x)

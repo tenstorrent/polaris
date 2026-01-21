@@ -4,14 +4,17 @@
 
 from .device import open_device, close_device, ARCH, num_cores_to_corerangeset, create_sharded_memory_config, ReadDeviceProfiler
 from .device import interleaved_to_sharded
-from .tensor import _rand, full, zeros, ones, from_torch, to_torch, to_layout, to_device, DataType, ShardTensor2dMesh, typecast, pad
-from .tensor import Layout, Shape, as_tensor, arange, stack, ShardStrategy, unsqueeze_to_4D, ReplicateTensorToMesh
+from .tensor import _rand, full, zeros, ones, from_torch, to_torch, to_device, DataType, ShardTensor2dMesh, typecast, pad
+from .tensor import Layout, as_tensor, arange, stack, ShardStrategy, unsqueeze_to_4D, ReplicateTensorToMesh
 from .config import Conv2dConfig, WormholeComputeKernelConfig, init_device_compute_kernel_config
 from .config import MatmulMultiCoreReuseMultiCast1DProgramConfig
 from .buffer import TensorMemoryLayout, ShardOrientation, BufferType
 from .memory import MemoryConfig, create_sharded_memory_config_, get_memory_config, to_memory_config
+from .ttnn_shim import to_layout
+from .types import TILE_HEIGHT, TILE_WIDTH
 from .core   import CoreCoord, CoreRange, CoreRangeSet, CoreGrid
 from .op     import *
+from ttsim.ops.tensor import Shape
 
 float32  = DataType.FLOAT32
 bfloat16 = DataType.BFLOAT16

@@ -297,7 +297,7 @@ class Device:
                     logger.warning(f"Error during operator perf lookup for {opname}: {e}", once=True)
             else:
                 logger.warning(
-                    f"Operator {opname} has {len(op.inList)} inputs, expected 2 for perf lookup",
+                    f"Operator {op.optype} has {len(op.inList)} inputs, expected 2 for perf lookup",
                     once=True
                 )
 
