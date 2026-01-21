@@ -137,7 +137,7 @@ def test_batchnorm_new():
         op_obj = SimOp(op_info)
         for x in i_tensors: x.op_in  = [op_name]
         for x in o_tensors: x.op_out = [op_name]
-        op_perf = op_obj.get_perf_counts(i_tensors, o_tensors)
+        op_obj.get_perf_counts(i_tensors, o_tensors)
 
         ref_shapes  = ref_impl_onnx(XShape, SShape, BShape, MShape, VShape, output_mean_var, **attrs)
         inf_y_shape = o_tensors[0].shape

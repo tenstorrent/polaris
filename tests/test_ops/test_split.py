@@ -240,7 +240,7 @@ def test_split():
         for x in i_tensors: x.op_in  = [op_name]
         for x in o_tensors: x.op_out = [op_name]
 
-        op_perf = op_obj.get_perf_counts(i_tensors, o_tensors)
+        op_obj.get_perf_counts(i_tensors, o_tensors)
 
         check = all([o_tensors[i].shape == list(trec['expected_outputs'][i].shape) for i in range(num_outputs)]) #type: ignore
 

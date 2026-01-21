@@ -185,7 +185,7 @@ def check_pooltype(pooltype):
         op_obj = SimOp(op_info) if pooltype == 'MaxPool' else SimOp(op_info)
         for x in i_tensors: x.op_in  = [op_name]
         for x in o_tensors: x.op_out = [op_name]
-        op_perf = op_obj.get_perf_counts(i_tensors, o_tensors)
+        op_obj.get_perf_counts(i_tensors, o_tensors)
 
         ref_shapes = ref_impl_onnx(pooltype, XShape, YShape, ZShape, **attrs)
         assert YShape == ref_shapes['Y'], \
@@ -199,4 +199,3 @@ def check_pooltype(pooltype):
 def test_pooling():
     check_pooltype('MaxPool')
     check_pooltype('AveragePool')
-

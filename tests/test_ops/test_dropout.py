@@ -125,7 +125,7 @@ def test_dropout():
         for x in i_tensors: x.op_in  = [op_name]
         for x in o_tensors: x.op_out = [op_name]
 
-        op_perf = op_obj.get_perf_counts(i_tensors, o_tensors)
+        op_obj.get_perf_counts(i_tensors, o_tensors)
 
         if num_outputs == 2:
             Y, M = ref_impl(XShape, **KWARGS)

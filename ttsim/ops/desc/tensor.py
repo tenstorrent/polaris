@@ -151,6 +151,10 @@ def squeeze_sinf(iTList, oTList, op, **kwargs):
     data_idx   = [ d + data_rank if d < 0 else d for d in axesT.data]
     checkshape = [d >= 0 and d < data_rank for d in data_idx]
     assert all(checkshape), f"axes={axesT.data} out of bounds: [-{data_rank}, {data_rank-1}]"
+    # Squeeze only removes dimensions of size 1. This validates that.
+    for idx in data_idx:
+        if dataT.shape[idx] != 1:
+            raise ValueError(f"Cannot squeeze dimension {idx} with size {dataT.shape[idx]} (must be 1)")
     outshape   = [dim for i,dim in enumerate(dataT.shape) if i not in data_idx]
 
     oTList[0].shape = outshape
@@ -204,7 +208,8 @@ def slice_sinf(iTList, oTList, op, **kwargs):
     if len(iTList) == 5:
         stepsT = iTList[4].clone_by_shape(data_maybe_missing=False) #stepsT.data must be present
     else:
-        stepsT = build_tmp_data_tensor(np.array([1 for _ in range(dataT.rank())]),
+        # When partial axes are provided and steps are not, stepsT should have length len(axes). 
+        stepsT = build_tmp_data_tensor(np.array([1 for _ in range(len(axesT.data))]),
                                       op.name + '__tmp_stepsT')
 
     #print('Slice dataT=',   dataT)
@@ -219,6 +224,14 @@ def slice_sinf(iTList, oTList, op, **kwargs):
     assert startsT.shape == axesT.shape,  f"Slice Error 2, {startsT.shape} != {axesT.shape}"
     assert startsT.shape == stepsT.shape, f"Slice Error 3, {startsT.shape} != {stepsT.shape}"
 
+    # Validate axis bounds
+    # Handle the "Mismatched starts/ends lengths" case.
+    # Handle the "Invalid axes out of bounds" case — validates that axis values are within the valid range for the tensor rank.
+    data_rank = dataT.rank()
+    axes_idx = [d + data_rank if d < 0 else d for d in axesT.data]
+    checkshape = [d >= 0 and d < data_rank for d in axes_idx]
+    if not all(checkshape):
+        raise ValueError(f"axes={axesT.data} out of bounds: [-{data_rank}, {data_rank-1}]")
     #slices = [slice(None)] *  dataT.rank()
     #for s in range(startsT.rank()):
     #    s_axis  = axesT.data[s]

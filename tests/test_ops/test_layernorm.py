@@ -145,7 +145,7 @@ def test_layernorm():
             op_obj = SimOp(op_info)
             for x in i_tensors: x.op_in  = [op_name]
             for x in o_tensors: x.op_out = [op_name]
-            op_perf = op_obj.get_perf_counts(i_tensors, o_tensors)
+            op_obj.get_perf_counts(i_tensors, o_tensors)
 
             assert o_tensors[0].shape == o0Shape, f"Y shape mismatch: {o_tensors[0].shape} != {o0Shape}"
             assert o_tensors[1].shape == o1Shape, f"mean shape mismatch: {o_tensors[1].shape} != {o1Shape}"

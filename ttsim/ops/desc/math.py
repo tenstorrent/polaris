@@ -54,30 +54,41 @@ def matmul_shape_inf(iTList, oTList, op, **kwargs):
         raise ValueError("Shapes must have at least 1 dimension")
 
     # Handle 1D cases
+    # Note: 1D cases must be handled separately and return early to avoid executing
+    # the 2D+ code path, which would try to access mat2[-2] on 1-element lists,
+    # causing IndexError. Additionally, we must set reduced_dim here since mat1/mat2
+    # are not defined for 1D cases.
     if len(AShape) == 1 and len(BShape) == 1:
+        # Vector-Vector: [n] × [n] -> [] (scalar result)
         if AShape[0] != BShape[0]:
             raise ValueError(f"Matmul incompatible: {AShape[0]} != {BShape[0]}")
         CShape = [] # Scalar result
+        reduced_dim = AShape[0]  # The dimension being reduced
     elif len(AShape) == 1:
+        # Vector-Matrix: [n] × [..., n, m] -> [..., m]
         if AShape[0] != BShape[-2]:
             raise ValueError(f"Matmul incompatible: {AShape[0]} != {BShape[-2]}")
         CShape = BShape[:-2] + [BShape[-1]]
+        reduced_dim = AShape[0]  # The vector length (dimension being reduced)
     elif len(BShape) == 1:
+        # Matrix-Vector: [..., m, n] × [n] -> [..., m]
         if AShape[-1] != BShape[0]:
             raise ValueError(f"Matmul incompatible: {AShape[-1]} != {BShape[0]}")
         CShape = AShape[:-1]
+        reduced_dim = AShape[-1]  # The last dimension of the matrix (dimension being reduced)
+    else:
+        # Handle 2D+ cases
+        # For 2D and higher-dimensional tensors, split into batch and matrix dimensions
+        batch1, mat1 = AShape[:-2], AShape[-2:]
+        batch2, mat2 = BShape[:-2], BShape[-2:]
 
-    # Handle 2D+ cases
-    batch1, mat1 = AShape[:-2], AShape[-2:]
-    batch2, mat2 = BShape[:-2], BShape[-2:]
-
-    # Check matrix multiplication compatibility
-    if mat1[-1] != mat2[-2]:
-        raise ValueError(f"Matmul incompatible: {mat1[-1]} != {mat2[-2]}")
-    broadcast_batch = bidirectional_broadcast_shape_inference(batch1, batch2)
-    CShape = broadcast_batch + [mat1[0], mat2[-1]]
-
-    reduced_dim     = mat1[-1]
+        # Check matrix multiplication compatibility: inner dimensions must match
+        if mat1[-1] != mat2[-2]:
+            raise ValueError(f"Matmul incompatible: {mat1[-1]} != {mat2[-2]}")
+        # Broadcast batch dimensions and compute output shape
+        broadcast_batch = bidirectional_broadcast_shape_inference(batch1, batch2)
+        CShape = broadcast_batch + [mat1[0], mat2[-1]]
+        reduced_dim = mat1[-1]  # The inner dimension being reduced
     oTList[0].shape = CShape
     oTList[0].dtype = A.dtype
     op.perf_stats = {

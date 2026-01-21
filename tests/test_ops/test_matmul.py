@@ -18,11 +18,14 @@ def ref_impl(shape0, shape1):
 test_name  = 'test_matmul'
 test_cases = [
     ("Standard 2D Matrix Multiplication", [3, 4],    [4, 5]   ),
-    #("Vector-Matrix Multiplication",      [4],       [4, 5]   ),
-    #("Matrix-Vector Multiplication",      [3, 4],    [4]      ),
+    ("Vector-Matrix Multiplication",      [4],       [4, 5]   ),
+    ("Matrix-Vector Multiplication",      [3, 4],    [4]      ),
+    ("Vector-Vector Multiplication",      [4],       [4]      ),
     ("Batched Matrix Multiplication",     [2, 3, 4], [2, 4, 5]),
     ("Single Element Matrices",           [1, 1],    [1, 1]   ),
     ("Empty Dimension Case",              [3, 0],    [0, 4]   ),
+    ("Batched Vector Operations",         [2, 4],    [2, 4, 5]),
+    ("High-dimensional Batched",          [2, 3, 4, 5], [2, 3, 5, 6]),
 ]
 
 @pytest.mark.unit
@@ -46,7 +49,7 @@ def test_matmul():
         for x in i_tensors: x.op_in  = [op_name]
         for x in o_tensors: x.op_out = [op_name]
 
-        op_perf = op_obj.get_perf_counts(i_tensors, o_tensors)
+        op_obj.get_perf_counts(i_tensors, o_tensors)
 
         inf_shape = o_tensors[0].shape
         ref_shape = ref_impl(shape0, shape1)
@@ -59,3 +62,38 @@ def test_matmul():
             print('OUTPUTS:')
             for x in o_tensors: print('\t', x)
             assert False, f"TEST[{tno:3d}] {tmsg:{msgw}s} FAIL {inf_shape} != {ref_shape}"
+
+# Error test cases
+test_name_errors = 'test_matmul_errors'
+test_cases_errors = [
+    ("Incompatible matrix dimensions", [3, 4], [3, 5]),
+    ("Mismatched batch dimensions", [2, 3, 4], [3, 4, 5]),
+    ("Incompatible inner dimensions", [3, 4], [5, 6]),
+]
+
+@pytest.mark.unit
+@pytest.mark.opunit
+def test_matmul_errors():
+    """Test MatMul with incompatible shapes that should raise errors"""
+    msgw = max([len(x[0]) for x in test_cases_errors])
+    for tno, (tmsg, shape0, shape1) in enumerate(test_cases_errors):
+        op_name = f'{test_name_errors}_{tno}'
+        i_tensors = [
+                F._from_shape('X0', shape0, np_dtype=np.float32),
+                F._from_shape('X1', shape1, np_dtype=np.float32),
+                ]
+        o_tensors = [make_tensor('Y')]
+        op_info = {
+                'name'   : op_name,
+                'optype' : 'MatMul',
+                'inList' : [x.name for x in i_tensors],
+                'outList': [x.name for x in o_tensors]
+                }
+        op_obj = SimOp(op_info)
+        for x in i_tensors: x.op_in  = [op_name]
+        for x in o_tensors: x.op_out = [op_name]
+
+        # These should raise exceptions during shape inference
+        with pytest.raises((ValueError, AssertionError)):
+            op_obj.get_perf_counts(i_tensors, o_tensors)
+            print(f"TEST[{tno:3d}] {tmsg:{msgw}s} PASS (raised exception as expected)")

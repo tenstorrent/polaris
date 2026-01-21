@@ -50,7 +50,7 @@ def test_gather():
         for x in i_tensors: x.op_in  = [op_name]
         for x in o_tensors: x.op_out = [op_name]
 
-        op_perf = op_obj.get_perf_counts(i_tensors, o_tensors)
+        op_obj.get_perf_counts(i_tensors, o_tensors)
 
         inf_shape = o_tensors[0].shape
         ref_shape = ref_impl(data_shape, indices, axis)
