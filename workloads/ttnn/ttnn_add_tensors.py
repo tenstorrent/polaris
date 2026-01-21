@@ -6,7 +6,43 @@ import os, sys
 sys.path.append(os.path.join(os.path.dirname(__file__), '../..'))
 
 import ttsim.front.ttnn as ttnn
+from ttsim.front.ttnn.device import Device as TTNNDevice
 from loguru import logger
+
+
+def run_ttnn_add_tensors(wlname: str, device: TTNNDevice, cfg: dict) -> None:
+    # Create two TT-NN tensors with TILE_LAYOUT
+
+    shapeX = 11520
+    shapeY = 320
+
+    tt_tensor1 = ttnn.full(
+        shape=(shapeX, shapeY),
+        fill_value=1.0,
+        dtype=ttnn.bfloat16,
+        layout=ttnn.TILE_LAYOUT,
+        device=device,
+    )
+    tt_tensor2 = ttnn.full(
+        shape=(shapeX, shapeY),
+        fill_value=2.0,
+        dtype=ttnn.bfloat16,
+        layout=ttnn.TILE_LAYOUT,
+        device=device,
+    )
+
+    # Log input tensors
+    logger.info("Input tensors:")
+    logger.info(tt_tensor1)
+    logger.info(tt_tensor2)
+
+    # Perform eltwise addition on the device
+    tt_result = ttnn.add(tt_tensor1, tt_tensor2)
+
+    # Log output tensor
+    logger.info("Output tensor:")
+    logger.info(tt_result)
+
 
 def main():
     # Open Tenstorrent device

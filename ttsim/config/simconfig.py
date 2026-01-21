@@ -472,6 +472,22 @@ class PackageInstanceModel(BaseModel, extra='forbid'):
         ipc      = pipe_obj.peak_ipc(instr, precision)
         return N * ipc
 
+    def _num_cores(self):
+        compute_group = self.get_ipgroup(iptype='compute')
+        if TYPE_CHECKING:
+            assert compute_group.ipobj is not None
+            assert isinstance(compute_group.ipobj, ComputeBlockModel)
+        return compute_group.num_units
+
+    def _ipc_per_core(self, pipe: str, instr: str, precision: str):
+        compute_group = self.get_ipgroup(iptype='compute')
+        if TYPE_CHECKING:
+            assert compute_group.ipobj is not None
+            assert isinstance(compute_group.ipobj, ComputeBlockModel)
+        pipe_obj = compute_group.ipobj.get_pipe(pipe)
+        ipc      = pipe_obj.peak_ipc(instr, precision)
+        return ipc
+
     def peak_flops(self, pipe, instr, precision, mul_factor=1, units='TFLOPS') -> float:
         compute_group = self.get_ipgroup(iptype='compute')
         if TYPE_CHECKING:

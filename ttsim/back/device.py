@@ -9,11 +9,16 @@ from loguru import logger
 
 from ttsim.utils.types import get_bpe, get_sim_dtype
 
+import argparse
+import copy
+import ttsim.back.tensix_neo.tneoSim as neosim
+
 LOG     = logger
 INFO    = LOG.info
 DEBUG   = LOG.debug
 ERROR   = LOG.error
 WARNING = LOG.warning
+ENABLE_LLK = 1
 
 class Component:
     def __init__(self, name: str, atype: str, **kwargs):
@@ -115,6 +120,10 @@ class Device:
         self.memory_ip      = memory_ips[0]
         self.peak_bw_bytes_per_cycle  = simcfg_obj.peak_bandwidth_per_cycle()
         self.eff_bw_bytes_per_cycle   = self.peak_bw_bytes_per_cycle * self.DG_MEMORY_UTIL_CONSTANT
+
+        self.neosim_cache = {}
+        self.llkVersionTag = 'dec22'
+
         return
 
     def execute_graph(self, wlgraph, wlmapspec):
@@ -185,16 +194,86 @@ class Device:
 
         return
 
+    def compileOp(self, op):
+        #TODO: Add precision as a factor as well
+        match op.optype:
+            case 'Add':     
+                return [f'./__config_files/baseline/{self.llkVersionTag}/inputcfg_t6-quas-n1-ttx-elwadd-broadcast-row0-fp16-llk.json', 18*32*32]
+            case _:         return None
+
+    def generateArgs(self, op):
+        parser = argparse.ArgumentParser('Tensix Core Arguments')
+        parser.add_argument('--defCfg', help='Configuration File', required=False)
+        parser.add_argument('--cfg', help='Configuration File', required=False)
+        parser.add_argument('--memoryMap', help='Memory Map File', required=False)
+        parser.add_argument('--ttISAFileName', help='Tensix instruction set File', required=False)
+        parser.add_argument('--inputcfg', help='Input Configuration File', required=True)
+        parser.add_argument('--debug', type=int,
+                        help='Debug Mode. 0: No Debug Statement, 1: TRISC Low detail, 4: TRISC Med detail, 16: TRISC High detail, 2: Tensix Low Detail, 8: Tensix Med detail, 32: Tensix High detail, 3: TRISC + Tensix Low detail.',
+                        required=False)
+        parser.add_argument('--risc.cpi', type=float, help='RISC IPC', required=False)
+        parser.add_argument('--odir', type=str, help = "Output directory under logs", required = False)
+        parser.add_argument('--exp', type=str, help = "Prefix to demarcate different experiment logs", required = False)
+
+        archCfg = f'./config/tensix_neo/ttqs_neo4_{self.llkVersionTag}.json'
+        memMap = f'./config/tensix_neo/ttqs_memory_map_{self.llkVersionTag}.json'
+        ttISA = f'./__ext/rtl_test_data_set/{self.llkVersionTag}/src/meta/instructions/yaml/assembly.yaml'
+        debug = 0
+        risc_cpi = 1.0
+        inputCfg = self.compileOp(op)[0]
+
+        assert inputCfg is not None, f"generateArgs: compileOp returned None for op {op.optype}"
+
+        args = parser.parse_args(['--defCfg', None, '--cfg',  archCfg, '--memoryMap', memMap, '--ttISAFileName',  ttISA, '--inputcfg',  inputCfg, '--debug', str(debug), '--risc.cpi', str(risc_cpi), '--odir', '__addt/addt_llk'])
+        return args
+
+    def neosim_run(self, op):
+        args = self.generateArgs(op)
+        args_dict = copy.deepcopy(vars(args))
+
+        neosim.update_args_dict_with_inputcfg(args, args_dict)
+        neosim.update_args_dict_with_cfg(args, args_dict)
+        neosim.update_args_dict_with_memory_map(args, args_dict)
+        neosim.update_args_dict_with_tt_isa(args, args_dict)
+        neosim.check_max_num_threads_per_neo_core(args_dict)
+        neosim.update_args_dict_with_enableAutoLoop(args, args_dict)
+
+        if(op.optype not in self.neosim_cache):
+            cycles = neosim.execute_test(args_dict)
+            self.neosim_cache[op.optype] = cycles
+        else:
+            assert op.optype in self.neosim_cache, f"neosim_run: optype {op.optype} not in neosim_cache"
+            cycles = self.neosim_cache[op.optype]
+
+        return [self.compileOp(op)[1], self.neosim_cache[op.optype]]         #TODO: return num_tiles_per_llk, cycles
+
+    def execute_llk(self, op):
+        total_num_elements = 0
+        for instr,instr_count in op.perf_stats['instrs'].items():
+            total_num_elements+= instr_count                    # TODO: To FIX: Currently using instr_count as proxy of num_elements
+            break
+
+        [num_elems_per_llk, llk_cycles] = self.neosim_run(op)
+
+        peak_total_num_elements_per_clk = num_elems_per_llk * self.simconfig_obj._num_cores()
+        real_total_num_elements_per_clk = peak_total_num_elements_per_clk * 1.0
+        logger.debug(f'LLK: op.uses_compute_pipe={op.uses_compute_pipe}, instr={instr}, op.precision={op.precision} peak_total_num_elements_per_clk={peak_total_num_elements_per_clk}, num_elems_per_llk={num_elems_per_llk}, numCores={self.simconfig_obj._num_cores()}, IPC_PerCore={self.simconfig_obj._ipc_per_core(op.uses_compute_pipe, instr, op.precision)}' )
+        op.compute_cycles += llk_cycles * math.ceil(total_num_elements / real_total_num_elements_per_clk)
+        logger.debug(f'LLK: Device={self.name} OpName={op.name} Op={op.optype} Instr={instr}, InstrCount={instr_count} llkCyclesPerCore={llk_cycles} ipc_per_core={self.simconfig_obj._ipc_per_core(op.uses_compute_pipe, instr, op.precision) * 32} total_num_elements={total_num_elements} real_total_num_elements_per_clk={real_total_num_elements_per_clk} tiledOpCycles={total_num_elements/real_total_num_elements_per_clk} Cycles={op.compute_cycles} non.ceil.ipc={(llk_cycles * total_num_elements) / real_total_num_elements_per_clk}')
+
     def execute_op(self, op):
         if TYPE_CHECKING:
             assert op.perf_stats is not None, f"SimOp {op.name} has no perf_stats set, cannot execute"
 
-        #find compute cycles
         op.compute_cycles = 0
-        for instr,instr_count in op.perf_stats['instrs'].items():
-            peak_ipc = self.simconfig_obj.peak_ipc(op.uses_compute_pipe, instr, op.precision)
-            real_ipc = peak_ipc * self.DG_COMPUTE_UTIL_CONSTANT
-            op.compute_cycles += math.ceil(instr_count / real_ipc)
+        if not ENABLE_LLK or self.compileOp(op) is None:
+            for instr,instr_count in op.perf_stats['instrs'].items():
+                peak_ipc = self.simconfig_obj.peak_ipc(op.uses_compute_pipe, instr, op.precision)
+                real_ipc = peak_ipc * self.DG_COMPUTE_UTIL_CONSTANT
+                op.compute_cycles += math.ceil(instr_count / real_ipc)
+                logger.debug(f'HLM: Device={self.name} Pipe={op.uses_compute_pipe} OpName={op.name} Op={op.optype} Instr={instr}, InstrCount={instr_count} peak_ipc={peak_ipc} real_ipc={real_ipc} Cycles={op.compute_cycles} non.ceil.ipc={instr_count / real_ipc}')
+        else:
+            self.execute_llk(op)
 
         # Find memory cycles.
         # NOTE: This calculation is done at the unit of bytes to avoid potential ambiguity of GB (1024 or 1000)
