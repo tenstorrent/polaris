@@ -1,20 +1,18 @@
 #!/usr/bin/env python
 # SPDX-FileCopyrightText: (C) 2025 Tenstorrent AI ULC
 # SPDX-License-Identifier: Apache-2.0
-from loguru import logger
-import math
-import networkx as nx
 from collections import defaultdict
 
+import networkx as nx
+import numpy as np
 #for graph2onnx
 import onnx
+from loguru import logger
 from onnx import TensorProto
-from onnx.helper import make_model, make_node, make_graph, make_tensor_value_info, make_tensor
 from onnx.checker import check_model
-import numpy as np
+from onnx.helper import make_graph, make_model, make_node, make_tensor, make_tensor_value_info
 
 from ttsim.ops import SimOp, SimTensor
-from ttsim.back.device import Device
 
 LOG   = logger
 INFO  = LOG.info
@@ -34,6 +32,10 @@ class WorkloadGraph():
         self._input_tensors  = []                # Input Tensors in the Graph  : List[Str] Op Names
         self._output_tensors = []                # Output Tensors in the Graph : List[Str] Op Names
         self._optype_hist    = defaultdict(int)  # Op Type Histogram           : Dict[Str, Int]
+        # Per-graph sequence counter to assign unique sequence numbers to operators based on
+        # addition order. This ensures deterministic ordering when multiple valid topological
+        # orderings exist, which is critical for reproducible CSV stats output.
+        self._seqcounter     = 0
 
     def get_node_count(self)     : return self._graph.number_of_nodes()
     def get_edge_count(self)     : return self._graph.number_of_edges()
@@ -43,7 +45,21 @@ class WorkloadGraph():
     def get_output_nodes(self)   : return self._output_nodes
     def get_input_tensors(self)  : return self._input_tensors
     def get_output_tensors(self) : return self._output_tensors
-    def get_ordered_nodes(self)  : return list(nx.topological_sort(self._graph))
+    def get_ordered_nodes(self):
+        """
+        Return nodes in a deterministic topological order.
+
+        Uses lexicographical topological sort with operator sequence numbers (seqno) as the
+        tie-breaking key. This ensures that when multiple valid topological orderings exist,
+        the same ordering is always chosen based on the addition order of operators to this graph.
+        This determinism is essential for:
+        - Consistent CSV stats output (opnum and row ordering)
+        - Reproducible results across multiple runs
+
+        Returns:
+            List of operator names in deterministic topological order.
+        """
+        return list(nx.lexicographical_topological_sort(self._graph, key=lambda x: self._ops[x].seqno))
 
     def is_input_node(self, opname): return opname in self._input_nodes
     def is_output_node(self, opname): return opname in self._output_nodes
@@ -59,6 +75,11 @@ class WorkloadGraph():
             assert tensor_name in self._tensors, \
                     f"Output SimTensor {tensor_name} for SimOp {op.name} not found in WorkloadGraph"
         assert op.name not in self._ops, f"SimOp({op.name}) is not unique!!!"
+        # Assign sequence number based on addition order to this graph. This is used as a
+        # tie-breaker in lexicographical topological sort to ensure deterministic operator
+        # ordering, even when the graph has multiple valid orderings.
+        op.seqno = self._seqcounter
+        self._seqcounter += 1
         self._ops[op.name] = op
 
     def add_tensor(self, tensor: SimTensor):

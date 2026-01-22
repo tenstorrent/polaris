@@ -2,12 +2,15 @@
 # SPDX-FileCopyrightText: (C) 2025 Tenstorrent AI ULC
 # SPDX-License-Identifier: Apache-2.0
 
-from .tensor import SimTensor
-from .desc.registry import get_opdesc_registry
+from typing import TYPE_CHECKING, Any, Union
+
+import numpy as np
+
 import ttsim.utils.common as common
 
-from typing import TYPE_CHECKING, Any, Union
-import numpy as np
+from .desc.registry import get_opdesc_registry
+from .tensor import SimTensor
+
 
 class SimOp:
     def __init__(self, cfg):
@@ -19,7 +22,10 @@ class SimOp:
         self.domain       = cfg.get('domain', "")
         self.docstr       = cfg.get('docstr', "")
         self.opclass_str  = 'None'
-
+        # Sequence number assigned when operator is added to a WorkloadGraph (see WorkloadGraph.add_op).
+        # This is used as a tie-breaker in lexicographical topological sort to ensure deterministic
+        # operator ordering in CSV stats and other outputs, even when the graph has multiple valid orderings.
+        self.seqno        = None
         #special counter for some workloads, e.g., Transformer Blocks
         # where we execute the op only once, but account for repeated
         # executions for the full workload
