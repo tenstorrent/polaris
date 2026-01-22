@@ -48,6 +48,62 @@ workloads:
     instances:
       bert_base : { path: 'onnx/bert-fixed-128.onnx', seq_len: 128, bs: 1 }
 
+  - api: ONNX
+    name: VIT-BASE
+    basedir: workloads/onnx
+    module: vit-base-fixed-224.onnx
+    instances:
+      default: { path: vit-base-fixed-224.onnx,
+                 bs: 8,
+                 img_height: 224,
+                 img_width: 224 }
+
+  - api: ONNX
+    name: UNET-BASE
+    basedir: workloads/onnx
+    module: unet-fixed-256.onnx
+    instances:
+      default: { path: unet-fixed-256.onnx,
+                 bs: 1,
+                 img_height: 256,
+                 img_width: 256 }
+
+  - api: ONNX
+    name: LLAMA3_1B
+    basedir: workloads/onnx
+    module: llama3_1b_fixed-128.onnx
+    instances:
+      default: { path: llama3_1b_fixed-128.onnx,
+                 bs: 1,
+                 seq_len: 128 }
+
+  - api: ONNX
+    name: LLAMA3_3B
+    basedir: workloads/onnx
+    module: llama3_3b_fixed-128.onnx
+    instances:
+      default: { path: llama3_3b_fixed-128.onnx,
+                 bs: 1,
+                 seq_len: 128 }
+
+  - api: ONNX
+    name: LLAMA3_8B
+    basedir: workloads/onnx
+    module: llama3_8b_fixed-128.onnx
+    instances:
+      default: { path: llama3_8b_fixed-128.onnx,
+                 bs: 1,
+                 seq_len: 128 }
+
+  - api: ONNX
+    name: MAMBA_2.8B
+    basedir: workloads/onnx
+    module: mamba_2.8b_fixed-128.onnx
+    instances:
+      default: { path: mamba_2.8b_fixed-128.onnx,
+                 bs: 1,
+                 seq_len: 128 }
+
   - api: TTSIM
     name: BEVDepth
     basedir: workloads/bevdepth

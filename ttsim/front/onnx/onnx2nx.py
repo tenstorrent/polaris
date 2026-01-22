@@ -5,7 +5,7 @@ from typing import Any
 from collections import defaultdict
 
 import onnx
-from onnx import helper, numpy_helper, shape_inference
+from onnx import helper, numpy_helper, shape_inference, TensorProto
 import onnx.checker
 
 from ttsim.graph import WorkloadGraph
@@ -37,8 +37,20 @@ def parse_onnx_model(wlname, wlpath):
     """
 
     onnxhdrinfo = {'name': wlname, 'framework_type': 'ONNX'}
-    modelpb = onnx.load(wlpath)
-    onnx.checker.check_model(modelpb)
+    # Intentionally load the model without external data: we only need shapes/graph structure (shape-only mode).
+    modelpb = onnx.load_model(wlpath, load_external_data=False)
+    try:
+        onnx.checker.check_model(modelpb)
+    except RuntimeError as e:
+        msg = str(e)
+        if "should be stored in" in msg and "doesn't exist or is not accessible" in msg:
+            print(
+                f"WARNING: skipping onnx.checker.check_model for {wlpath} "
+                f"because external data is missing (shape-only mode)."
+            )
+        else:
+            raise
+
     modelpb_inferred = shape_inference.infer_shapes(modelpb)
     modelpb = modelpb_inferred
 
@@ -97,16 +109,24 @@ def parse_onnx_model(wlname, wlpath):
     onnxgraphinfo['value_info']  = parse_value_info_list(modelpb.graph.value_info)
     onnxgraphinfo['initializer'] = {}
     for tensor in modelpb.graph.initializer:
-        dims       = [int(dim) for dim in tensor.dims]
-        dtype      = helper.tensor_dtype_to_np_dtype(tensor.data_type)
-        data       = numpy_helper.to_array(tensor)
-        assert tensor.name not in onnxgraphinfo['initializer'], f"Initializer Tensor {tensor.name} not unique"
+        dims = [int(dim) for dim in tensor.dims]
+        dtype = helper.tensor_dtype_to_np_dtype(tensor.data_type)
+        # Default to no data; we only load data for non-external (small) tensors.
+        data = None
+        if tensor.data_location != TensorProto.DataLocation.EXTERNAL:  # type: ignore[attr-defined]
+            try:
+                data = numpy_helper.to_array(tensor)
+            except Exception:
+                data = None
+
+        assert tensor.name not in onnxgraphinfo['initializer'], \
+            f"Initializer Tensor {tensor.name} not unique"
         onnxgraphinfo['initializer'][tensor.name] = {
-                "name": tensor.name,
-                "dtype": dtype,
-                "dims": dims,
-                "data": data
-                }
+            "name": tensor.name,
+            "dtype": dtype,
+            "dims": dims,
+            "data": data,
+        }
 
     #Node Fields
         #name	    string	    An optional name of the node, used for diagnostic purposes only.
@@ -195,17 +215,14 @@ def onnx_get_value_from_attrs(attr, **kwargs):
 
     if len(attr.ints) > 0:       return [int(value) for value in attr.ints]
     elif len(attr.floats) > 0:   return [float(value) for value in attr.floats]
-    elif len(attr.strings) > 0:  return [str(value) for value in attr.strings]
+    elif len(attr.strings) > 0:
+        return [value.decode("utf-8") for value in attr.strings]
     elif len(attr.tensors) > 0:  return [numpy_helper.to_array(t) for t in attr.tensors]
-    #elif len(attr.graphs) > 0:   return [onnx_get_graph_from_attrs(g, **kwargs) for g in attr.graphs]
-
     elif attr.HasField("i"):     return int(attr.i)
     elif attr.HasField("f"):     return float(attr.f)
-    elif attr.HasField("s"):     return str(attr.s)
+    elif attr.HasField("s"):
+        return attr.s.decode("utf-8")
     elif attr.HasField("t"):     return numpy_helper.to_array(attr.t)
-    #elif attr.HasField("g"):     return onnx_get_graph_from_attrs(attr.g, **kwargs)
-
-    #TODO: fix this!! hack...for now
     elif len(attr.graphs) > 0:
         print(f"WARNING Subgraphs Present for {attr.name} but not parsed!!")
         return "<GRAPHS>"

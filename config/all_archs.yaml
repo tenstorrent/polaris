@@ -34,8 +34,11 @@ ipblocks:
             -   {name: reciprocal,  tpt: {int8: 128.,  int32: 32., fp32: 32. }}
             -   {name: equal, tpt: {int8: 128.,  int32: 32., fp32: 32. }}
             -   {name: cmp,   tpt: {int8: 128.,  int32: 32., fp32: 32. }}
+            -   {name: greater, tpt: {int8: 128.,  int32: 32., fp32: 32. }}
             -   {name: mov,   tpt: {int8: 128.,  int32: 32., fp32: 32. }}
             -   {name: max,   tpt: {int8: 128.,  int32: 32., fp32: 32. }}
+            -   {name: and,   tpt: {int8: 128.,  int32: 32., fp32: 32. }}
+            -   {name: neg,   tpt: {int8: 128.,  int32: 32., fp32: 32. }}
             -   {name: sin, tpt: { int32: 32., fp32: 32. }}
             -   {name: cos, tpt: { int32: 32., fp32: 32. }}
 

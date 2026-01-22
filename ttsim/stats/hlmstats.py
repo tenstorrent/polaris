@@ -10,6 +10,7 @@ from typing import TYPE_CHECKING, Any, Set, TypeVar
 
 import numpy
 import yaml
+import json
 from loguru import logger
 from pydantic import BaseModel
 
@@ -101,21 +102,39 @@ def prepare_model_for_json(model: BaseModel_SubType) -> BaseModel_SubType:
                     process_numpy_attr(v, op_index, opstats, k)
     return model_to_dump
 
+def _to_builtin(obj: Any) -> Any:
+    """Recursively convert numpy scalars/arrays in nested structures
+    into plain Python types so YAML/JSON (and Pydantic) can serialize them."""
+
+    if isinstance(obj, numpy.generic):
+        return obj.item()
+    if isinstance(obj, numpy.ndarray):
+        return obj.tolist()
+    if isinstance(obj, dict):
+        return {k: _to_builtin(v) for k, v in obj.items()}
+    if isinstance(obj, list):
+        return [_to_builtin(v) for v in obj]
+    if isinstance(obj, tuple):
+        return tuple(_to_builtin(v) for v in obj)
+    if isinstance(obj, set):
+        return [_to_builtin(v) for v in obj]
+    return obj
+
+
 def save_data(model: BaseModel, filename, outputfmt: OutputFormat)->None:
     if outputfmt == OutputFormat.FMT_NONE:
         return
     elif outputfmt == OutputFormat.FMT_YAML:
         with open(filename, 'w') as fout:
-            # Note: model_dump is a method and must be called to get the model data.
-            # Dumping model.model_dump without parentheses would dump the method object itself.
-            yaml.dump(model.model_dump(), fout, indent=4, Dumper=yaml.CDumper)
+            data = model.model_dump()
+            data = _to_builtin(data)
+            yaml.dump(data, fout, indent=4, Dumper=yaml.CDumper)
     elif outputfmt == OutputFormat.FMT_JSON:
-        # Handle any numpy arrays in attrs by converting to lists
-        # This is needed because pydantic's model_dump_json does not
-        # automatically convert numpy arrays to JSON-serializable types
         model_to_dump = prepare_model_for_json(model)
+        data = model_to_dump.model_dump()
+        data = _to_builtin(data)
         with open(filename, 'w') as fout:
-            print(model_to_dump.model_dump_json(indent=4), file=fout)
+            json.dump(data, fout, indent=4, default=str)
     elif outputfmt == OutputFormat.FMT_PICKLE:
         with open(filename, 'wb') as foutbin:
             pickle.dump(model, foutbin)

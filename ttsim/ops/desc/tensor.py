@@ -4,7 +4,7 @@
 
 import numpy as np
 
-from ttsim.ops.desc.helpers import build_tmp_data_tensor, unary_fwd, update_output_tensor
+from ttsim.ops.desc.helpers import build_tmp_data_tensor, bidir_bcast, unary_fwd, update_output_tensor, multidirectional_broadcast_shape_inference
 from ttsim.ops.desc.registry import register_ops
 from ttsim.utils.common import prod_ints
 
@@ -43,26 +43,35 @@ def trilu_sinf(iTList, oTList, op, **kwargs):
     return op.perf_stats
 
 def where_sinf(iTList, oTList, op, **kwargs):
-    '''
-    ASSUME ONNX SHAPE INFERENCE
-    condB = clone_tensor_by_shape(iTList[0], data_maybe_missing=False) #condB.data should exist
-    X     = clone_tensor_by_shape(iTList[1])
-    Y     = clone_tensor_by_shape(iTList[2])
-    assert condB.dtype == np.bool_, f"Illegal Input Tensor Data Type: {condB}"
-    np_out = np.where(condB.data, X.data, Y.data)
-    tmp_outT = build_tmp_data_tensor(np_out, op.name + '__tmp_out__')
-    update_output_tensor(op, tmp_outT, oTList[0])
-    '''
-    #assert oTList[0].check_shape(), f"SHAPE INFERENCE ERROR!!"
-    oTList[0].shape = iTList[1].shape
-    oTList[0].dtype = iTList[1].dtype
+    condT = iTList[0]
+    XT    = iTList[1]
+    YT    = iTList[2]
+    outT  = oTList[0]
+
+    assert condT.check_shape(), f"Illegal shape for cond in Where: {condT}"
+    assert XT.check_shape(),    f"Illegal shape for X in Where: {XT}"
+    assert YT.check_shape(),    f"Illegal shape for Y in Where: {YT}"
+
+    if not (np.issubdtype(condT.dtype, np.bool_) or np.issubdtype(condT.dtype, np.number)):
+        raise AssertionError(f"Where cond must be bool or numeric, got {condT.dtype}")
+
+    assert XT.dtype == YT.dtype, f"Where X/Y dtypes must match: {XT.dtype} vs {YT.dtype}"
+    out_shape = multidirectional_broadcast_shape_inference(
+        [condT.shape, XT.shape, YT.shape]
+    )
+
+    outT.shape = out_shape
+    outT.dtype = XT.dtype
+
     op.perf_stats = {
-            'inElems' : iTList[0].nelems() + iTList[1].nelems() + iTList[2].nelems(),
-            'outElems': oTList[0].nelems(),
-            'inBytes' : iTList[0].nbytes(op.precision) + iTList[1].nbytes(op.precision) + iTList[2].nbytes(op.precision),
-            'outBytes': oTList[0].nbytes(op.precision),
-            'instrs'  : {'mov': oTList[0].nelems(), 'cmp': oTList[0].nelems()}
-            }
+        'inElems' : condT.nelems() + XT.nelems() + YT.nelems(),
+        'outElems': outT.nelems(),
+        'inBytes' : condT.nbytes(op.precision)
+                    + XT.nbytes(op.precision)
+                    + YT.nbytes(op.precision),
+        'outBytes': outT.nbytes(op.precision),
+        'instrs'  : {'mov': outT.nelems(), 'cmp': outT.nelems()},
+    }
     return
 
 def cast_sinf(iTList, oTList, op, **kwargs):
@@ -87,6 +96,26 @@ def cast_sinf(iTList, oTList, op, **kwargs):
             }
     return
 
+def isnan_sinf(iTList, oTList, op, **kwargs):
+    X = iTList[0]
+    Y = oTList[0]
+    if Y.check_shape():
+        pass
+    else:
+        assert X.check_shape(), f"Input tensor shape not defined: {X}"
+        Y.shape = list(X.shape)
+    Y.dtype = X.dtype
+
+    n = Y.nelems()
+    op.perf_stats = {
+        "inElems": X.nelems(),
+        "outElems": n,
+        "inBytes": X.nbytes(op.precision),
+        "outBytes": Y.nbytes(op.precision),
+        "instrs": {"cmp": n},
+    }
+    return
+
 def pad_sinf(iTList, oTList, op, **kwargs):
     X = iTList[0]
     pad_tensor = iTList[1]
@@ -94,20 +123,43 @@ def pad_sinf(iTList, oTList, op, **kwargs):
     value = op.attrs.get('value', 0)
 
     assert pad_tensor.data is not None, "PadOp requires pad_tensor with data"
-    pads = [int(x) for x in pad_tensor.data.tolist()]
-    # Only pad the last 2 dimensions
-    assert len(pads) == 4, f"pads length {len(pads)} != 4 (for last 2 dims only)"
+    pads = [int(x) for x in pad_tensor.data.flatten().tolist()]
+
     rank = X.rank()
-    pad_before = [0] * (rank - 2) + pads[:2]
-    pad_after = [0] * (rank - 2) + pads[2:]
-    output_shape = [X.shape[i] + pad_before[i] + pad_after[i] for i in range(rank)]
+    assert rank >= 2, "Pad expects at least 2D input"
+    if len(pads) == 4:
+        h_beg, w_beg, h_end, w_end = pads
+        pad_before = [0] * (rank - 2) + [h_beg, w_beg]
+        pad_after  = [0] * (rank - 2) + [h_end, w_end]
+    elif len(pads) == 2 * rank:
+        before_all = pads[:rank]
+        after_all  = pads[rank:]
+
+        # We only support padding on the last 2 dims; earlier pads must be zero.
+        if any(before_all[i] != 0 or after_all[i] != 0 for i in range(rank - 2)):
+            raise AssertionError(
+                f"Pad supports only last 2 dims; got non-zero pads={pads} for rank={rank}"
+            )
+
+        pad_before = [0] * (rank - 2) + before_all[-2:]
+        pad_after  = [0] * (rank - 2) + after_all[-2:]
+    else:
+        raise AssertionError(
+            f"pads length {len(pads)} != 4 or 2*rank (2*{rank}) "
+            "(Pad supports only last 2 dims)"
+        )
+
+    output_shape = [
+        int(X.shape[i]) + pad_before[i] + pad_after[i]
+        for i in range(rank)
+    ]
 
     oTList[0].shape = output_shape
     oTList[0].dtype = X.dtype
 
-    # Estimate instruction count: each output element is a copy or fill
+
     nElem_in = X.nelems()
-    nElem_out = np.prod(output_shape)
+    nElem_out = int(np.prod(output_shape))
 
     op.perf_stats = {
         'inElems': nElem_in + pad_tensor.nelems(),
@@ -195,75 +247,84 @@ def unsqueeze_sinf(iTList, oTList, op, **kwargs):
     return
 
 def slice_sinf(iTList, oTList, op, **kwargs):
-    dataT   = iTList[0]
-    startsT = iTList[1].clone_by_shape(data_maybe_missing=False) #startsT.data must be present
-    endsT   = iTList[2].clone_by_shape(data_maybe_missing=False) #endsT.data must be present
+    dataT = iTList[0]
+    startsT = iTList[1].clone_by_shape(data_maybe_missing=False)
+    endsT = iTList[2].clone_by_shape(data_maybe_missing=False)
 
     if len(iTList) >= 4:
-        axesT = iTList[3].clone_by_shape(data_maybe_missing=False) #axesT.data must be present
+        axesT = iTList[3].clone_by_shape(data_maybe_missing=False)
     else:
-        axesT = build_tmp_data_tensor(np.array([i for i in range(dataT.rank())]),
-                                      op.name + '__tmp_axesT__')
+        axesT = build_tmp_data_tensor(
+            np.array([i for i in range(dataT.rank())]),
+            op.name + "__tmp_axesT__",
+        )
 
     if len(iTList) == 5:
-        stepsT = iTList[4].clone_by_shape(data_maybe_missing=False) #stepsT.data must be present
+        stepsT = iTList[4].clone_by_shape(data_maybe_missing=False)
     else:
-        # When partial axes are provided and steps are not, stepsT should have length len(axes). 
-        stepsT = build_tmp_data_tensor(np.array([1 for _ in range(len(axesT.data))]),
-                                      op.name + '__tmp_stepsT')
+        stepsT = build_tmp_data_tensor(
+            np.array([1 for _ in range(len(axesT.data))]),
+            op.name + "__tmp_stepsT__",
+        )
 
-    #print('Slice dataT=',   dataT)
-    #print('Slice startsT=', startsT)
-    #print('Slice endsT=',   endsT)
-    #print('Slice axesT=',   axesT)
-    #print('Slice stepsT=',  stepsT)
-
-    #sanity checks...
-    assert startsT.rank() == 1,           f"Slice Error 0, {startsT.shape}, rank != 1"
-    assert startsT.shape == endsT.shape,  f"Slice Error 1, {startsT.shape} != {endsT.shape}"
-    assert startsT.shape == axesT.shape,  f"Slice Error 2, {startsT.shape} != {axesT.shape}"
+    assert startsT.rank() == 1, f"Slice Error 0, {startsT.shape}, rank != 1"
+    assert startsT.shape == endsT.shape, f"Slice Error 1, {startsT.shape} != {endsT.shape}"
+    assert startsT.shape == axesT.shape, f"Slice Error 2, {startsT.shape} != {axesT.shape}"
     assert startsT.shape == stepsT.shape, f"Slice Error 3, {startsT.shape} != {stepsT.shape}"
 
-    # Validate axis bounds
-    # Handle the "Mismatched starts/ends lengths" case.
-    # Handle the "Invalid axes out of bounds" case — validates that axis values are within the valid range for the tensor rank.
-    data_rank = dataT.rank()
-    axes_idx = [d + data_rank if d < 0 else d for d in axesT.data]
-    checkshape = [d >= 0 and d < data_rank for d in axes_idx]
-    if not all(checkshape):
-        raise ValueError(f"axes={axesT.data} out of bounds: [-{data_rank}, {data_rank-1}]")
-    #slices = [slice(None)] *  dataT.rank()
-    #for s in range(startsT.rank()):
-    #    s_axis  = axesT.data[s]
-    #    s_start = startsT.data[s]
-    #    s_end   = endsT.data[s]
-    #    s_step  = stepsT.data[s]
-    #    slices[s_axis] = slice(s_start, s_end, s_step)
-    #np_out = dataT.data[tuple(slices)]
-    #tmp_outT = build_tmp_data_tensor(np_out, op.name + '__tmp_out__')
-    #update_output_tensor(op, tmp_outT, oTList[0])
+    Y = oTList[0]
+    api = getattr(op, "api", None)
 
-    if ('out_shape' not in op.attrs) or (op.attrs['out_shape'] is None):
-        op.attrs['out_shape'] = dataT.shape
+    if api == "ONNX" and Y.check_shape():
+        out_shape = Y.shape
+    elif "out_shape" in op.attrs and op.attrs["out_shape"] is not None:
+        out_shape = [int(i) for i in op.attrs["out_shape"]]
+    else:
+        out_shape = list(dataT.shape)
 
-    assert 'out_shape' in op.attrs, "No out_shape specified in Slice!! " + \
-                         "Look at tensor_getitem implementation in ttsim/.../tensor_op.py"
-    op.attrs['out_shape'] = [int(i) for i in op.attrs['out_shape']]
-    oTList[0].shape = op.attrs['out_shape']
-    oTList[0].dtype = dataT.dtype
+    rank = dataT.rank()
+    for s in range(startsT.rank()):
+        axis = int(axesT.data[s])
+        if axis < 0:
+            axis += rank
+        assert 0 <= axis < rank, f"Slice axis {axis} out of bounds for rank {rank}"
 
-    inBytes = dataT.nbytes(op.precision) + startsT.nbytes(op.precision) + endsT.nbytes(op.precision)
-    inBytes += axesT.nbytes(op.precision)  if len(iTList) >= 4 else 0 #assume 4 bytes per axis spec
-    inBytes += stepsT.nbytes(op.precision) if len(iTList) == 5 else 0 #assume 4 bytes per steps spec
+        dim = int(dataT.shape[axis])
+        start = int(startsT.data[s])
+        end = int(endsT.data[s])
+        step = int(stepsT.data[s])
 
-    assert oTList[0].check_shape(), f"SHAPE INFERENCE ERROR!!"
+        if step <= 0:
+            raise ValueError(f"Slice step <= 0 not supported (got {step})")
+
+        if start < 0:
+            start += dim
+        if end < 0:
+            end += dim
+
+        start = max(0, min(dim, start))
+        end = max(0, min(dim, end))
+
+        if end <= start:
+            length = 0
+        else:
+            length = (end - start + step - 1) // step
+
+        out_shape[axis] = length
+
+    Y.shape = out_shape
+    Y.dtype = dataT.dtype
+    inBytes = sum(x.nbytes(op.precision) for x in iTList)
+    inElems = sum(x.nelems() for x in iTList)
+
+    assert Y.check_shape(), "SHAPE INFERENCE ERROR!!"
     op.perf_stats = {
-            'inBytes' : int(sum([x.nbytes(op.precision) for x in iTList])),
-            'inElems' : int(sum([x.nelems() for x in iTList])),
-            'outBytes': int(oTList[0].nbytes(op.precision)),
-            'outElems': int(oTList[0].nelems()),
-            'instrs'  : {'mov': int(oTList[0].nelems())}
-            }
+        "inBytes": int(inBytes),
+        "inElems": int(inElems),
+        "outBytes": int(Y.nbytes(op.precision)),
+        "outElems": int(Y.nelems()),
+        "instrs": {"mov": int(Y.nelems())},
+    }
     return
 
 def resize_sinf(iTList, oTList, op, **kwargs):
@@ -542,6 +603,39 @@ def gather_sinf(iTList, oTList, op, **kwargs):
             }
     return
 
+def gathernd_sinf(iTList, oTList, op, **kwargs):
+    data = iTList[0]
+    indices = iTList[1]
+
+    data_shape = list(data.shape)
+    idx_shape = list(indices.shape)
+    batch_dims = int(op.attrs.get("batch_dims", 0))
+    assert isinstance(batch_dims, int) and batch_dims >= 0, (
+        f"GatherND: batch_dims ({batch_dims}) must be a non-negative integer"
+    )
+    assert batch_dims == 0, "GatherND: batch_dims != 0 not yet supported"
+    assert len(idx_shape) >= 1, "GatherND: indices must have rank >= 1"
+    q = idx_shape[-1]
+    assert q <= len(data_shape), (
+        f"GatherND: last dim of indices ({q}) > rank of data ({len(data_shape)})"
+    )
+    out_shape = idx_shape[:-1] + data_shape[q:]
+
+    oTList[0].shape = out_shape
+    oTList[0].dtype = data.dtype
+
+    in_elems = data.nelems() + indices.nelems()
+    out_elems = oTList[0].nelems()
+
+    op.perf_stats = {
+        "inElems": in_elems,
+        "inBytes": data.nbytes(op.precision) + indices.nbytes(op.precision),
+        "outElems": out_elems,
+        "outBytes": oTList[0].nbytes(op.precision),
+        "instrs": {"mov": out_elems},
+    }
+    return
+
 def shape_op_inf_func(iTList, oTList, op, **kwargs):
     A = iTList[0].clone_by_shape()
 
@@ -600,10 +694,12 @@ def register_tensor_ops():
 
             ['Shape',     'ARITY_1->1', 'ai.onnx',  'COMMON',  24,  21,  1,  1,  1,  1, shape_op_inf_func,  True,  True,  True,  True,  True],
             ['Transpose', 'ARITY_1->1', 'ai.onnx',  'COMMON',  24,  21,  1,  1,  1,  1, transpose_op_inf_func,  True,  True,  True,  True,  True],
-            ['Identity',  'ARITY_1->1', 'ai.onnx',  'COMMON',  24,  21,  1,  1,  1,  1,  unary_fwd,  True,  True,  True,  True,  True],
+            ['Identity',  'ARITY_1->1', 'ai.onnx',  'COMMON',  24,  21,  1,  1,  1,  1, unary_fwd,  True,  True,  True,  True,  True],
 
             ['Gather',    'ARITY_2->1', 'ai.onnx',  'COMMON',  13,  13,  2,  2,  1,  1, gather_sinf,  True,  True,  True,  True,  True],
+            ['GatherND',  'ARITY_2->1', 'ai.onnx',  'COMMON',  13,  13,  2,  2,  1,  1, gathernd_sinf, True, True, True, True, True],
             ['Cast',      'ARITY_1->1', 'ai.onnx',  'COMMON',  24,  21,  1,  1,  1,  1, cast_sinf,  True,  True,  True,  True,  True],
+            ['IsNaN',     'ARITY_1->1', 'ai.onnx',   'COMMON',  20,  20,  1,  1,  1,  1, isnan_sinf,    True, True, True, True, True],
 
             ['Reshape',   'ARITY_2->1', 'ai.onnx',  'COMMON',  24,  21,  2,  2,  1,  1, reshape_sinf,  True,  True,  True,  True,  True],
             ['Expand',    'ARITY_2->1', 'ai.onnx',  'COMMON',  13,  13,  2,  2,  1,  1, expand_sinf,  True,  True,  True,  True,  True],
