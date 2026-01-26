@@ -168,8 +168,10 @@ class Tensor(SimTensor):
         if 'device' in kwargs and not isinstance(kwargs['device'], Device):
             raise TypeError(f"Error: Tensor Creation -- attribute device={kwargs['device']} should be of type Device")
 
-        if 'dtype' in kwargs and isinstance(kwargs['dtype'], DataType):
-            kwargs['dtype'] = kwargs['dtype'].to_numpy
+        # TODO: Why was this converted to to_numpy?
+        # if 'dtype' in kwargs and isinstance(kwargs['dtype'], DataType):
+        #     kwargs['dtype'] = kwargs['dtype'].to_numpy
+        logger.warning('restore dtype handling in Tensor constructor')
 
         if 'name' not in kwargs:
             kwargs['name'] = f"ttsim.ttnn.Tensor_{next(self.tensor_counter)}"
@@ -207,7 +209,8 @@ class Tensor(SimTensor):
         self.fill_value = kwargs.get('fill_value', None)
         self._memory_config = None
         self._storage_type = "DEVICE" if self.device is not None else "HOST"
-        self._buffer = None if self.device is None else "buffer_placeholder"
+        # TODO: Check if this is required here
+        # self._buffer = None if self.device is None else "buffer_placeholder"
         if self.device:
             self.device.add_tensor(self)
         return
@@ -294,7 +297,6 @@ class Tensor(SimTensor):
         return self._storage_type
 
     def logical_shape(self):
-        logger.warning('returning {} of type {}', self._logical_shape, type(self._logical_shape))
         return self.shape # self._logical_shape
 
     def to(self, dt):

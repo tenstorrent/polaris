@@ -850,7 +850,9 @@ def squeeze_from_ND_to_4D(tensor, sub_core_grids=None):
             # Simulate squeeze by removing dimension
             new_shape = list(shape._shape)
             new_shape.pop(0)
-            squeezed = TensorProxy(
+            # There are few different Tensor types, and this tensor is created
+            # using the same type as the input tensor.
+            squeezed = type(tensor)(
                 shape=Shape(new_shape),
                 dtype=tensor.dtype,
                 layout=tensor.get_layout(),
@@ -908,9 +910,16 @@ def reshape(tensor, shape, padded_shape=None, memory_config=None, pad_value=None
         _tracker.track_reshape(tensor.logical_shape()._shape, shape._shape)
     
     # Preserve data if available (reshape doesn't change data, just view)
-    output_data = tensor.get_data() if tensor.has_data() else None
-    
-    return TensorProxy(
+    output_data = None
+    if hasattr(tensor, 'has_data') and tensor.has_data():
+        output_data = tensor.get_data()
+    elif hasattr(tensor, 'get_data'):
+        try:
+            output_data = tensor.get_data()
+        except:
+            output_data = None
+    # Use the same tensor type among the different tensor types as the input tensor
+    return type(tensor)(
         shape=shape,
         dtype=tensor.dtype,
         layout=tensor.get_layout(),
@@ -940,7 +949,8 @@ def squeeze(tensor, dim):
     # Preserve data if available (squeeze doesn't change data, just removes dimension)
     output_data = tensor.get_data() if tensor.has_data() else None
     
-    return TensorProxy(
+    # Use the same tensor type among the different tensor types as the input tensor
+    return type(tensor)(
         shape=Shape(new_shape),
         dtype=tensor.dtype,
         layout=tensor.get_layout(),
@@ -993,7 +1003,8 @@ def pad(tensor, padding, pad_value, output_memory_config=None):
         for i in range(min(len(input_data), len(output_data))):
             output_data[i] = input_data[i]
     
-    return TensorProxy(
+    # Use the same tensor type among the different tensor types as the input tensor
+    return type(tensor)(
         shape=logical_shape,
         dtype=tensor.dtype,
         layout=tensor.get_layout(),
@@ -1042,7 +1053,7 @@ def tilize(input_tensor, memory_config=None, output_dtype=None, use_multicore=Tr
                     DataType.INT32, DataType.UINT16]
     if input_tensor.dtype not in valid_dtypes:
         raise RuntimeError(
-            "data type must be bfloat16, float32, uint32, int32, or uint16"
+            f"data type must be bfloat16, float32, uint32, int32, or uint16, was {input_tensor.dtype}"
         )
     
     # Handle empty tensors
@@ -1051,7 +1062,9 @@ def tilize(input_tensor, memory_config=None, output_dtype=None, use_multicore=Tr
         output_padded = pad_to_tile_shape(output_shape._shape)
         # Preserve data if available (empty tensor case)
         output_data = input_tensor.get_data() if input_tensor.has_data() else None
-        return TensorProxy(
+
+        # Use the same tensor type among the different tensor types as the input tensor
+        return type(input_tensor)(
             shape=output_shape,
             dtype=output_dtype or input_tensor.dtype,
             layout=Layout.TILE_LAYOUT,
@@ -1119,7 +1132,8 @@ def tilize(input_tensor, memory_config=None, output_dtype=None, use_multicore=Tr
             element_size
         )
     
-    return TensorProxy(
+    # Use the same tensor type among the different tensor types as the input tensor
+    return type(input_tensor)(
         shape=output_shape,
         dtype=output_dtype or input_tensor.dtype,
         layout=Layout.TILE_LAYOUT,
@@ -1174,7 +1188,9 @@ def untilize(input_tensor, memory_config=None, use_multicore=True,
     if input_tensor.physical_volume() == 0:
         # Preserve data if available (empty tensor case)
         output_data = input_tensor.get_data() if input_tensor.has_data() else None
-        return TensorProxy(
+
+        # Use the same tensor type among the different tensor types as the input tensor
+        return type(input_tensor)(
             shape=input_tensor.logical_shape(),
             dtype=input_tensor.dtype,
             layout=Layout.ROW_MAJOR_LAYOUT,
@@ -1241,8 +1257,8 @@ def untilize(input_tensor, memory_config=None, use_multicore=True,
             use_pack_untilize,
             element_size
         )
-    
-    return TensorProxy(
+    # Use the same tensor type among the different tensor types as the input tensor
+    return type(input_tensor)(
         shape=output_shape,
         dtype=input_tensor.dtype,
         layout=Layout.ROW_MAJOR_LAYOUT,
@@ -1305,7 +1321,9 @@ def tilize_with_val_padding(input_tensor, output_padded_shape, pad_value,
     if input_tensor.physical_volume() == 0:
         # Preserve data if available (empty tensor case)
         output_data = input_tensor.get_data() if input_tensor.has_data() else None
-        return TensorProxy(
+
+        # Use the same tensor type among the different tensor types as the input tensor
+        return type(input_tensor)(
             shape=input_tensor.logical_shape(),
             dtype=output_dtype or input_tensor.dtype,
             layout=Layout.TILE_LAYOUT,
@@ -1368,7 +1386,8 @@ def tilize_with_val_padding(input_tensor, output_padded_shape, pad_value,
             num_tiles
         )
     
-    return TensorProxy(
+    # Use the same tensor type among the different tensor types as the input tensor
+    return type(input_tensor)(
         shape=output_logical,
         dtype=output_dtype or input_tensor.dtype,
         layout=Layout.TILE_LAYOUT,
@@ -1417,7 +1436,8 @@ def untilize_with_unpadding(input_tensor, output_tensor_end, memory_config=None,
         output_shape = Shape([end + 1 for end in output_tensor_end._shape])
         # Preserve data if available (empty tensor case)
         output_data = input_tensor.get_data() if input_tensor.has_data() else None
-        return TensorProxy(
+        # Use the same tensor type among the different tensor types as the input tensor
+        return type(input_tensor)(
             shape=output_shape,
             dtype=input_tensor.dtype,
             layout=Layout.ROW_MAJOR_LAYOUT,
@@ -1480,7 +1500,8 @@ def untilize_with_unpadding(input_tensor, output_tensor_end, memory_config=None,
             num_tiles
         )
     
-    return TensorProxy(
+    # Use the same tensor type among the different tensor types as the input tensor
+    return type(input_tensor)(
         shape=output_shape,
         dtype=input_tensor.dtype,
         layout=Layout.ROW_MAJOR_LAYOUT,
@@ -1516,6 +1537,10 @@ def to_layout(tensor, layout, dtype=None, memory_config=None, sub_core_grids=Non
     
     # If already in requested layout
     if tensor.get_layout() == layout:
+        # Check if dtype is specified when converting to ROW_MAJOR_LAYOUT (error case)
+        if layout == Layout.ROW_MAJOR_LAYOUT and dtype is not None:
+            raise RuntimeError("dtype cannot be specified when converting to ROW_MAJOR_LAYOUT!")
+
         if dtype is not None and dtype != tensor.dtype:
             import warnings
             warnings.warn(
@@ -1543,7 +1568,18 @@ def to_layout(tensor, layout, dtype=None, memory_config=None, sub_core_grids=Non
     output_memory_config = memory_config or tensor.memory_config() or DRAM_MEMORY_CONFIG
     
     # Handle device tensors
-    if tensor.storage_type() == "DEVICE":
+    # Check if tensor has a buffer to distinguish real device tensors from host tensors (SHIM) with device reference
+    # Host tensors may have a device but no buffer, and should use host conversion path
+    has_buffer = False
+    if hasattr(tensor, 'buffer'):
+        try:
+            has_buffer = tensor.buffer() is not None
+        except:
+            has_buffer = False
+
+    is_device_tensor = tensor.storage_type() == "DEVICE" and has_buffer
+
+    if is_device_tensor:
         needs_padding_change = requires_padding_change(tensor, layout)
         
         if not needs_padding_change:
@@ -1554,7 +1590,8 @@ def to_layout(tensor, layout, dtype=None, memory_config=None, sub_core_grids=Non
                 if should_execute:
                     return untilize(tensor, output_memory_config, True, True, sub_core_grids)
                 else:
-                    return TensorProxy(
+                    # Use the same tensor type among the different tensor types as the input tensor
+                    return type(tensor)(
                         shape=tensor.logical_shape(),
                         dtype=tensor.dtype,
                         layout=layout,
@@ -1566,7 +1603,8 @@ def to_layout(tensor, layout, dtype=None, memory_config=None, sub_core_grids=Non
                 if should_execute:
                     return tilize(tensor, output_memory_config, dtype, True, False, sub_core_grids)
                 else:
-                    return TensorProxy(
+                    # Use the same tensor type among the different tensor types as the input tensor
+                    return type(tensor)(
                         shape=tensor.logical_shape(),
                         dtype=dtype or tensor.dtype,
                         layout=layout,
@@ -1592,7 +1630,8 @@ def to_layout(tensor, layout, dtype=None, memory_config=None, sub_core_grids=Non
                     )
                     return reshape(result, output_shape, None, None, None, sub_core_grids)
                 else:
-                    return TensorProxy(
+                    # Use the same tensor type among the different tensor types as the input tensor
+                    return type(tensor)(
                         shape=output_shape,
                         dtype=tensor.dtype,
                         layout=layout,
@@ -1621,7 +1660,8 @@ def to_layout(tensor, layout, dtype=None, memory_config=None, sub_core_grids=Non
                         padded_tensor = pad(tensor, padding, 0, output_memory_config)
                         return tilize(padded_tensor, output_memory_config, dtype, True, False, sub_core_grids)
                     else:
-                        return TensorProxy(
+                        # Use the same tensor type among the different tensor types as the input tensor
+                        return type(tensor)(
                             shape=logical_shape,
                             dtype=dtype or tensor.dtype,
                             layout=layout,
@@ -1638,7 +1678,8 @@ def to_layout(tensor, layout, dtype=None, memory_config=None, sub_core_grids=Non
                         )
                     else:
                         logger.warning('device is {}', tensor.device)
-                        return TensorProxy(
+                        # Use the same tensor type among the different tensor types as the input tensor
+                        return type(tensor)(
                             shape=logical_shape,
                             dtype=dtype or tensor.dtype,
                             layout=layout,
@@ -1651,51 +1692,83 @@ def to_layout(tensor, layout, dtype=None, memory_config=None, sub_core_grids=Non
         if dtype is not None:
             raise RuntimeError("dtype cannot be specified when converting layout on host!")
         
+        # Perform actual data conversion if in execute mode
+        output_data = None
+        if should_execute and tensor.has_data():
+            input_data = tensor.get_data()
+            input_layout = tensor.get_layout()
+            logical_shape = tensor.logical_shape()
+
+            if layout == Layout.ROW_MAJOR_LAYOUT:
+                # Convert from tile layout to row major
+                if input_layout == Layout.TILE_LAYOUT:
+                    # Get padded shape for untilize
+                    input_padded_shape = tensor.padded_shape()
+                    output_data = _perform_untilize_operation(
+                        input_data,
+                        input_padded_shape._shape,
+                        logical_shape._shape
+                    )
+                else:
+                    # Already in row major, just use the data
+                    output_data = input_data
+            elif layout == Layout.TILE_LAYOUT:
+                # Convert from row major to tile layout
+                if input_layout == Layout.ROW_MAJOR_LAYOUT:
+                    # Calculate padded output shape
+                    padded_output_shape = pad_to_tile_shape(logical_shape._shape)
+                    pad_value = 0.0 if tensor.dtype in [DataType.BFLOAT16, DataType.FLOAT32] else 0
+                    output_data = _perform_tilize_operation(
+                        input_data,
+                        logical_shape._shape,
+                        padded_output_shape._shape,
+                        pad_value=pad_value
+                    )
+                else:
+                    # Already in tile layout, just use the data
+                    output_data = input_data
+
         if not requires_padding_change(tensor, layout):
             # Simple conversion - just change layout attribute
-            return TensorProxy(
+            # Use the same tensor type among the different tensor types as the input tensor
+            return type(tensor)(
                 shape=tensor.logical_shape(),
                 dtype=tensor.dtype,
                 layout=layout,
                 memory_config=output_memory_config,
                 padded_shape=tensor.padded_shape(),
-                device=tensor.device
+                device=tensor.device,
+                data=output_data
             )
         else:
             if layout == Layout.ROW_MAJOR_LAYOUT:
                 # Convert to row major and unpad
-                result = TensorProxy(
+                # Use the same tensor type among the different tensor types as the input tensor
+                result = type(tensor)(
                     shape=tensor.logical_shape(),
                     dtype=tensor.dtype,
                     layout=layout,
                     memory_config=output_memory_config,
                     padded_shape=tensor.logical_shape(),  # Unpadded
-                    device=tensor.device
+                    device=tensor.device,
+                    data=output_data
                 )
                 return reshape(result, tensor.logical_shape(), None, None, None, sub_core_grids)
             elif layout == Layout.TILE_LAYOUT:
                 # Pad and convert to tile
                 logical_shape = tensor.logical_shape()
                 padded_output_shape = pad_to_tile_shape(logical_shape._shape)
-                
-                # Simulate padding
-                padded_tensor = TensorProxy(
-                    shape=logical_shape,
-                    dtype=tensor.dtype,
-                    layout=tensor.get_layout(),
-                    memory_config=output_memory_config,
-                    padded_shape=padded_output_shape,
-                    device=tensor.device
-                )
-                
+
                 # Convert to tile layout
-                return TensorProxy(
+                # Use the same tensor type among the different tensor types as the input tensor
+                return type(tensor)(
                     shape=logical_shape,
                     dtype=tensor.dtype,
                     layout=layout,
                     memory_config=output_memory_config,
                     padded_shape=padded_output_shape,
-                    device=tensor.device
+                    device=tensor.device,
+                    data=output_data
                 )
     
     raise RuntimeError(f"ttnn::to_layout: Unsupported output layout: {layout}!")
