@@ -12,8 +12,10 @@ This test suite generates test cases covering:
 - Edge cases and error cases
 - Different dtypes and memory configs
 
-Each test outputs input and output tensor content in JSON format for functional validation
-of other similar tiling modules.
+Mode (global TO_LAYOUT_TEST_MODE, or env TO_LAYOUT_TEST_MODE):
+- "generate": Generate inputs with existing logic, run to_layout, save input and output to JSON.
+- "verify": Read input from JSON files produced by the hardware run (tests/test_ttnn/test_to_layout_comprehensive.py),
+  run to_layout, compare output to the saved output and fail if they differ.
 """
 
 import json
@@ -46,9 +48,15 @@ from ttsim.front.ttnn.ttnn_shim import (
 # Tile size constants
 TILE_SIZE = 32
 
-# Output directory for test results
+# Output directory for test results (generate mode writes here; shim-specific)
 OUTPUT_DIR = Path("test_outputs/to_layout_shim")
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+
+# Directory where hardware test (test_to_layout_comprehensive.py) saves; verify mode reads from here.
+VERIFY_INPUT_DIR = Path("test_outputs/to_layout_ttnn")
+
+# Test mode: "generate" | "verify". Overridable via env TO_LAYOUT_TEST_MODE.
+TO_LAYOUT_TEST_MODE = os.environ.get("TO_LAYOUT_TEST_MODE", "generate")
 
 
 class TensorProxy(TensorProxy_Orig):
@@ -220,6 +228,92 @@ def save_test_result(
     return test_result
 
 
+def load_test_result(test_name: str) -> Dict[str, Any]:
+    """Load test result from JSON file saved by hardware run (test_to_layout_comprehensive.py)."""
+    output_file = VERIFY_INPUT_DIR / f"{test_name}.json"
+    if not output_file.exists():
+        raise FileNotFoundError(
+            f"Verify mode: expected golden file {output_file}. "
+            "Run test_to_layout_comprehensive.py on hardware first to produce it."
+        )
+    with open(output_file) as f:
+        return json.load(f)
+
+
+def _parse_layout(s: str) -> Layout:
+    """Parse layout string from JSON to Layout enum."""
+    name = s.split(".")[-1] if "." in s else s
+    # Map ttnn/hardware names to our enum names
+    name = name.replace("-", "_").upper()
+    if name == "ROW_MAJOR":
+        return Layout.ROW_MAJOR_LAYOUT
+    if name == "TILE":
+        return Layout.TILE_LAYOUT
+    return Layout[name]
+
+
+def _parse_dtype(s: str) -> DataType:
+    """Parse dtype string from JSON (e.g. 'torch.bfloat16', 'DataType.BFLOAT16') to DataType enum."""
+    name = s.split(".")[-1] if "." in s else s
+    name = name.upper().replace("FLOAT32", "FLOAT32").replace("BFLOAT16", "BFLOAT16")
+    dtype_map = {"BFLOAT16": DataType.BFLOAT16, "FLOAT32": DataType.FLOAT32, "UINT32": DataType.UINT32, "INT32": DataType.INT32}
+    return dtype_map.get(name, DataType[name])
+
+
+def build_input_from_saved(saved: Dict[str, Any], device) -> Tuple[TensorProxy, List[float], Layout, Layout, DataType]:
+    """Build TensorProxy and params from loaded test result. Returns (ttnn_input, input_data, input_layout, output_layout, dtype)."""
+    meta = saved["test_metadata"]
+    inp = saved["input_tensor"]
+    content = inp["content"]
+    shape = tuple(content["shape"]) if "shape" in content else tuple(inp["logical_shape"])
+    input_layout = _parse_layout(inp["layout"])
+    output_layout = _parse_layout(meta["output_layout"])
+    dtype_str = meta["dtype"]
+    dtype = _parse_dtype(dtype_str)
+    input_data = content["values"]
+    ttnn_input = TensorProxy(
+        shape=shape,
+        dtype=dtype,
+        layout=input_layout,
+        memory_config=DRAM_MEMORY_CONFIG,
+        device=device,
+        data=input_data,
+        buffer=list(),
+    )
+    return ttnn_input, input_data, input_layout, output_layout, dtype
+
+
+def compare_output_to_saved(
+    our_output_data: List[float],
+    our_logical_shape: Tuple[int, ...],
+    saved_output_content: Dict[str, Any],
+    dtype: DataType,
+    rtol: float = 1e-3,
+    atol: float = 1e-4,
+) -> None:
+    """Compare our output to saved output; raise AssertionError if they differ beyond tolerance."""
+    expected_values = saved_output_content["values"]
+    n_logical = 1
+    for d in our_logical_shape:
+        n_logical *= d
+    our_flat = our_output_data[:n_logical] if len(our_output_data) >= n_logical else our_output_data
+    expected_flat = expected_values[:n_logical] if len(expected_values) >= n_logical else expected_values
+    if len(our_flat) != len(expected_flat):
+        raise AssertionError(
+            f"Output length mismatch: got {len(our_flat)}, expected {len(expected_flat)} "
+            f"(logical shape {our_logical_shape})"
+        )
+    torch_dtype = torch.bfloat16 if dtype == DataType.BFLOAT16 else torch.float32
+    our_t = torch.tensor(our_flat, dtype=torch_dtype)
+    exp_t = torch.tensor(expected_flat, dtype=torch_dtype)
+    if not torch.allclose(our_t, exp_t, rtol=rtol, atol=atol):
+        max_diff = torch.max(torch.abs(our_t - exp_t)).item()
+        raise AssertionError(
+            f"Output differs from saved (max diff={max_diff}, rtol={rtol}, atol={atol}). "
+            f"Logical shape: {our_logical_shape}"
+        )
+
+
 # Test case definitions
 # Shapes where all dimensions are multiples of tile size
 TILE_ALIGNED_SHAPES = [
@@ -279,17 +373,26 @@ def setup_execution_mode():
 @pytest.mark.parametrize("dtype", [DataType.BFLOAT16, DataType.FLOAT32])
 def test_to_layout_tile_aligned_shapes(shape, input_layout, output_layout, dtype, device):
     """Test to_layout with shapes where all dimensions are multiples of tile size."""
+    test_name = f"tile_aligned_{'_'.join(map(str, shape))}_{input_layout}_{output_layout}_{dtype}"
+    if TO_LAYOUT_TEST_MODE == "verify":
+        saved = load_test_result(test_name)
+        ttnn_input, _, _, out_layout, out_dtype = build_input_from_saved(saved, device)
+        ttnn_output = to_layout(ttnn_input, layout=out_layout)
+        if out_layout != Layout.ROW_MAJOR_LAYOUT:
+            ttnn_out_ver = to_layout(ttnn_output, layout=Layout.ROW_MAJOR_LAYOUT)
+        else:
+            ttnn_out_ver = ttnn_output
+        output_data = ttnn_out_ver.get_data() if ttnn_out_ver.has_data() else []
+        logical_shape = tuple(ttnn_out_ver.logical_shape())
+        rtol, atol = (1e-5, 1e-6) if out_dtype == DataType.FLOAT32 else (1e-3, 1e-4)
+        compare_output_to_saved(output_data, logical_shape, saved["output_tensor"]["content"], out_dtype, rtol=rtol, atol=atol)
+        return
     torch.manual_seed(42)
-    
-    # Create input tensor data
     if dtype == DataType.FLOAT32:
         torch_input = torch.randn(shape, dtype=torch.float32)
     else:
         torch_input = torch.randn(shape, dtype=torch.bfloat16)
-    
     input_data = torch_to_list(torch_input)
-    
-    # Create shim tensor
     ttnn_input = TensorProxy(
         shape=shape,
         dtype=dtype,
@@ -297,54 +400,32 @@ def test_to_layout_tile_aligned_shapes(shape, input_layout, output_layout, dtype
         memory_config=DRAM_MEMORY_CONFIG,
         device=device,
         data=input_data,
-        buffer=list()
+        buffer=list(),
     )
-    
-    # Perform layout conversion
     ttnn_output = to_layout(ttnn_input, layout=output_layout)
-    
-    # For verification, convert both input and output to ROW_MAJOR for comparison
-    # This ensures we're comparing the logical data, not the layout-specific format
     if input_layout != Layout.ROW_MAJOR_LAYOUT:
         ttnn_input_for_verification = to_layout(ttnn_input, layout=Layout.ROW_MAJOR_LAYOUT)
         input_data_for_verification = ttnn_input_for_verification.get_data() if ttnn_input_for_verification.has_data() else input_data
     else:
         input_data_for_verification = input_data
-    
     if output_layout != Layout.ROW_MAJOR_LAYOUT:
         ttnn_output_for_verification = to_layout(ttnn_output, layout=Layout.ROW_MAJOR_LAYOUT)
     else:
         ttnn_output_for_verification = ttnn_output
-    
-    # Extract output data
     assert isinstance(ttnn_output, TensorProxy)
     output_data = ttnn_output_for_verification.get_data() if ttnn_output_for_verification.has_data() else []
-    
-    # Convert back to torch for verification
     if len(output_data) > 0:
         output_torch = list_to_torch(
-            output_data,
-            tuple(ttnn_output_for_verification.logical_shape()),
-            torch_input.dtype
+            output_data, tuple(ttnn_output_for_verification.logical_shape()), torch_input.dtype
         )
-        
-        # For tile layout, we need to handle padding
-        # Extract only the logical shape portion
         logical_shape = tuple(ttnn_output_for_verification.logical_shape())
         if len(logical_shape) == len(output_torch.shape):
             output_torch = output_torch.reshape(logical_shape)
-        
-        # Verify correctness (only for logical shape)
-        # Use the verification input data (converted to row-major if needed)
         input_verification_torch = list_to_torch(
-            input_data_for_verification,
-            tuple(ttnn_input.logical_shape()),
-            torch_input.dtype
+            input_data_for_verification, tuple(ttnn_input.logical_shape()), torch_input.dtype
         )
         input_flat = input_verification_torch.flatten()
         output_flat = output_torch.flatten()[:len(input_flat)]
-        
-        # Allow some tolerance for floating point operations
         if dtype == DataType.FLOAT32:
             assert torch.allclose(input_flat, output_flat, rtol=1e-5, atol=1e-6)
         else:
@@ -353,20 +434,11 @@ def test_to_layout_tile_aligned_shapes(shape, input_layout, output_layout, dtype
             logger.debug(f"Maximum difference: {max_diff}")
             if max_diff > 0:
                 close_mask = torch.isclose(input_flat, output_flat, rtol=1e-5, atol=1e-6)
-
-                # Find the indices of elements that are NOT close
-                # Use torch.logical_not to flip the mask
-                # Use torch.nonzero to get the indices of False values
                 not_close_indices = torch.nonzero(torch.logical_not(close_mask))
-
-                # Print the values at these indices for inspection
                 for idx in not_close_indices:
                     logger.debug(f"Indices: {idx}, Value A: {input_flat[tuple(idx)]}, Value B: {output_flat[tuple(idx)]}")
                 logger.debug(f"Differences: {diff[diff > 0]}")
             assert torch.allclose(input_flat, output_flat, rtol=1e-3, atol=1e-4)
-    
-    # Save test result
-    test_name = f"tile_aligned_{'_'.join(map(str, shape))}_{input_layout}_{output_layout}_{dtype}"
     save_test_result(
         test_name=test_name,
         input_tensor=ttnn_input,
@@ -385,13 +457,22 @@ def test_to_layout_tile_aligned_shapes(shape, input_layout, output_layout, dtype
 @pytest.mark.parametrize("output_layout", [Layout.ROW_MAJOR_LAYOUT, Layout.TILE_LAYOUT])
 def test_to_layout_partial_tile_aligned_shapes(shape, input_layout, output_layout, device):
     """Test to_layout with shapes where some dimensions are multiples of tile size."""
+    test_name = f"partial_aligned_{'_'.join(map(str, shape))}_{input_layout}_{output_layout}"
+    if TO_LAYOUT_TEST_MODE == "verify":
+        saved = load_test_result(test_name)
+        ttnn_input, _, _, out_layout, out_dtype = build_input_from_saved(saved, device)
+        ttnn_output = to_layout(ttnn_input, layout=out_layout)
+        if out_layout != Layout.ROW_MAJOR_LAYOUT:
+            ttnn_out_ver = to_layout(ttnn_output, layout=Layout.ROW_MAJOR_LAYOUT)
+        else:
+            ttnn_out_ver = ttnn_output
+        output_data = ttnn_out_ver.get_data() if ttnn_out_ver.has_data() else []
+        logical_shape = tuple(ttnn_out_ver.logical_shape())
+        compare_output_to_saved(output_data, logical_shape, saved["output_tensor"]["content"], out_dtype)
+        return
     torch.manual_seed(42)
-    
-    # Create input tensor data
     torch_input = torch.randn(shape, dtype=torch.bfloat16)
     input_data = torch_to_list(torch_input)
-    
-    # Create shim tensor
     ttnn_input = TensorProxy(
         shape=shape,
         dtype=DataType.BFLOAT16,
@@ -400,52 +481,30 @@ def test_to_layout_partial_tile_aligned_shapes(shape, input_layout, output_layou
         device=device,
         data=input_data,
     )
-    
-    # Perform layout conversion
     ttnn_output = to_layout(ttnn_input, layout=output_layout)
-    
-    # For verification, convert both input and output to ROW_MAJOR for comparison
-    # This ensures we're comparing the logical data, not the layout-specific format
     if input_layout != Layout.ROW_MAJOR_LAYOUT:
         ttnn_input_for_verification = to_layout(ttnn_input, layout=Layout.ROW_MAJOR_LAYOUT)
         input_data_for_verification = ttnn_input_for_verification.get_data() if ttnn_input_for_verification.has_data() else input_data
     else:
         input_data_for_verification = input_data
-    
     if output_layout != Layout.ROW_MAJOR_LAYOUT:
         ttnn_output_for_verification = to_layout(ttnn_output, layout=Layout.ROW_MAJOR_LAYOUT)
     else:
         ttnn_output_for_verification = ttnn_output
-    
-    # Extract output data
     output_data = ttnn_output_for_verification.get_data() if ttnn_output_for_verification.has_data() else []
-    
-    # Convert back to torch for verification
     if len(output_data) > 0:
         output_torch = list_to_torch(
-            output_data,
-            tuple(ttnn_output_for_verification.logical_shape()),
-            torch_input.dtype
+            output_data, tuple(ttnn_output_for_verification.logical_shape()), torch_input.dtype
         )
-        
         logical_shape = tuple(ttnn_output_for_verification.logical_shape())
         if len(logical_shape) == len(output_torch.shape):
             output_torch = output_torch.reshape(logical_shape)
-        
-        # Verify correctness (only for logical shape)
-        # Use the verification input data (converted to row-major if needed)
         input_verification_torch = list_to_torch(
-            input_data_for_verification,
-            tuple(ttnn_input.logical_shape()),
-            torch_input.dtype
+            input_data_for_verification, tuple(ttnn_input.logical_shape()), torch_input.dtype
         )
         input_flat = input_verification_torch.flatten()
         output_flat = output_torch.flatten()[:len(input_flat)]
-        
         assert torch.allclose(input_flat, output_flat, rtol=1e-3, atol=1e-4)
-    
-    # Save test result
-    test_name = f"partial_aligned_{'_'.join(map(str, shape))}_{input_layout}_{output_layout}"
     save_test_result(
         test_name=test_name,
         input_tensor=ttnn_input,
@@ -464,13 +523,22 @@ def test_to_layout_partial_tile_aligned_shapes(shape, input_layout, output_layou
 @pytest.mark.parametrize("output_layout", [Layout.ROW_MAJOR_LAYOUT, Layout.TILE_LAYOUT])
 def test_to_layout_edge_cases(shape, input_layout, output_layout, device):
     """Test to_layout with edge case shapes."""
+    test_name = f"edge_case_{'_'.join(map(str, shape))}_{input_layout}_{output_layout}"
+    if TO_LAYOUT_TEST_MODE == "verify":
+        saved = load_test_result(test_name)
+        ttnn_input, _, _, out_layout, out_dtype = build_input_from_saved(saved, device)
+        ttnn_output = to_layout(ttnn_input, layout=out_layout)
+        if out_layout != Layout.ROW_MAJOR_LAYOUT:
+            ttnn_out_ver = to_layout(ttnn_output, layout=Layout.ROW_MAJOR_LAYOUT)
+        else:
+            ttnn_out_ver = ttnn_output
+        output_data = ttnn_out_ver.get_data() if ttnn_out_ver.has_data() else []
+        logical_shape = tuple(ttnn_out_ver.logical_shape())
+        compare_output_to_saved(output_data, logical_shape, saved["output_tensor"]["content"], out_dtype)
+        return
     torch.manual_seed(42)
-    
-    # Create input tensor data
     torch_input = torch.randn(shape, dtype=torch.bfloat16)
     input_data = torch_to_list(torch_input)
-    
-    # Create shim tensor
     ttnn_input = TensorProxy(
         shape=shape,
         dtype=DataType.BFLOAT16,
@@ -479,52 +547,30 @@ def test_to_layout_edge_cases(shape, input_layout, output_layout, device):
         device=device,
         data=input_data,
     )
-    
-    # Perform layout conversion
     ttnn_output = to_layout(ttnn_input, layout=output_layout)
-    
-    # For verification, convert both input and output to ROW_MAJOR for comparison
-    # This ensures we're comparing the logical data, not the layout-specific format
     if input_layout != Layout.ROW_MAJOR_LAYOUT:
         ttnn_input_for_verification = to_layout(ttnn_input, layout=Layout.ROW_MAJOR_LAYOUT)
         input_data_for_verification = ttnn_input_for_verification.get_data() if ttnn_input_for_verification.has_data() else input_data
     else:
         input_data_for_verification = input_data
-    
     if output_layout != Layout.ROW_MAJOR_LAYOUT:
         ttnn_output_for_verification = to_layout(ttnn_output, layout=Layout.ROW_MAJOR_LAYOUT)
     else:
         ttnn_output_for_verification = ttnn_output
-    
-    # Extract output data
     output_data = ttnn_output_for_verification.get_data() if ttnn_output_for_verification.has_data() else []
-    
-    # Convert back to torch for verification
     if len(output_data) > 0:
         output_torch = list_to_torch(
-            output_data,
-            tuple(ttnn_output_for_verification.logical_shape()),
-            torch_input.dtype
+            output_data, tuple(ttnn_output_for_verification.logical_shape()), torch_input.dtype
         )
-        
         logical_shape = tuple(ttnn_output_for_verification.logical_shape())
         if len(logical_shape) == len(output_torch.shape):
             output_torch = output_torch.reshape(logical_shape)
-        
-        # Verify correctness (only for logical shape)
-        # Use the verification input data (converted to row-major if needed)
         input_verification_torch = list_to_torch(
-            input_data_for_verification,
-            tuple(ttnn_input.logical_shape()),
-            torch_input.dtype
+            input_data_for_verification, tuple(ttnn_input.logical_shape()), torch_input.dtype
         )
         input_flat = input_verification_torch.flatten()
         output_flat = output_torch.flatten()[:len(input_flat)]
-        
         assert torch.allclose(input_flat, output_flat, rtol=1e-3, atol=1e-4)
-    
-    # Save test result
-    test_name = f"edge_case_{'_'.join(map(str, shape))}_{input_layout}_{output_layout}"
     save_test_result(
         test_name=test_name,
         input_tensor=ttnn_input,
@@ -542,27 +588,29 @@ def test_to_layout_edge_cases(shape, input_layout, output_layout, device):
 @pytest.mark.parametrize("dtype", [DataType.BFLOAT16, DataType.FLOAT32, DataType.UINT32, DataType.INT32])
 def test_to_layout_different_dtypes(shape, dtype, device):
     """Test to_layout with different data types."""
+    test_name = f"dtype_{dtype}_{'_'.join(map(str, shape))}"
+    if TO_LAYOUT_TEST_MODE == "verify":
+        saved = load_test_result(test_name)
+        ttnn_input, _, _, out_layout, out_dtype = build_input_from_saved(saved, device)
+        ttnn_output = to_layout(ttnn_input, layout=Layout.TILE_LAYOUT)
+        ttnn_output = to_layout(ttnn_output, layout=Layout.ROW_MAJOR_LAYOUT)
+        output_data = ttnn_output.get_data() if ttnn_output.has_data() else []
+        logical_shape = tuple(ttnn_output.logical_shape())
+        compare_output_to_saved(output_data, logical_shape, saved["output_tensor"]["content"], out_dtype)
+        return
     torch.manual_seed(42)
-    
-    # Map shim dtype to torch dtype
     dtype_map = {
         DataType.BFLOAT16: torch.bfloat16,
         DataType.FLOAT32: torch.float32,
         DataType.UINT32: torch.int32,
         DataType.INT32: torch.int32,
     }
-    
     torch_dtype = dtype_map[dtype]
-    
-    # Create input tensor data
     if dtype in [DataType.UINT32, DataType.INT32]:
         torch_input = torch.randint(0, 100, shape, dtype=torch_dtype)
     else:
         torch_input = torch.randn(shape, dtype=torch_dtype)
-    
     input_data = torch_to_list(torch_input)
-    
-    # Create shim tensor
     ttnn_input = TensorProxy(
         shape=shape,
         dtype=dtype,
@@ -571,18 +619,9 @@ def test_to_layout_different_dtypes(shape, dtype, device):
         device=device,
         data=input_data,
     )
-    
-    # Convert to tile layout
     ttnn_output = to_layout(ttnn_input, layout=Layout.TILE_LAYOUT)
-    
-    # Convert back to row major
     ttnn_output = to_layout(ttnn_output, layout=Layout.ROW_MAJOR_LAYOUT)
-    
-    # Extract output data
     output_data = ttnn_output.get_data() if ttnn_output.has_data() else []
-    
-    # Save test result
-    test_name = f"dtype_{dtype}_{'_'.join(map(str, shape))}"
     save_test_result(
         test_name=test_name,
         input_tensor=ttnn_input,
@@ -600,12 +639,19 @@ def test_to_layout_different_dtypes(shape, dtype, device):
 @pytest.mark.parametrize("memory_config", [DRAM_MEMORY_CONFIG, L1_MEMORY_CONFIG])
 def test_to_layout_memory_configs(shape, memory_config, device):
     """Test to_layout with different memory configurations."""
+    test_name = f"mem_config_{memory_config.buffer_type}_{'_'.join(map(str, shape))}"
+    if TO_LAYOUT_TEST_MODE == "verify":
+        saved = load_test_result(test_name)
+        ttnn_input, _, _, _, out_dtype = build_input_from_saved(saved, device)
+        ttnn_output = to_layout(ttnn_input, layout=Layout.TILE_LAYOUT)
+        ttnn_output = to_layout(ttnn_output, layout=Layout.ROW_MAJOR_LAYOUT)
+        output_data = ttnn_output.get_data() if ttnn_output.has_data() else []
+        logical_shape = tuple(ttnn_output.logical_shape())
+        compare_output_to_saved(output_data, logical_shape, saved["output_tensor"]["content"], out_dtype)
+        return
     torch.manual_seed(42)
-    
     torch_input = torch.randn(shape, dtype=torch.bfloat16)
     input_data = torch_to_list(torch_input)
-    
-    # Create shim tensor with specific memory config
     ttnn_input = TensorProxy(
         shape=shape,
         dtype=DataType.BFLOAT16,
@@ -614,18 +660,9 @@ def test_to_layout_memory_configs(shape, memory_config, device):
         device=device,
         data=input_data,
     )
-    
-    # Convert to tile layout
     ttnn_output = to_layout(ttnn_input, layout=Layout.TILE_LAYOUT)
-    
-    # Convert back to row major
     ttnn_output = to_layout(ttnn_output, layout=Layout.ROW_MAJOR_LAYOUT)
-    
-    # Extract output data
     output_data = ttnn_output.get_data() if ttnn_output.has_data() else []
-    
-    # Save test result
-    test_name = f"mem_config_{memory_config.buffer_type}_{'_'.join(map(str, shape))}"
     save_test_result(
         test_name=test_name,
         input_tensor=ttnn_input,
@@ -641,13 +678,19 @@ def test_to_layout_memory_configs(shape, memory_config, device):
 
 def test_to_layout_same_layout_no_change(device):
     """Test to_layout when tensor is already in requested layout."""
+    test_name = "same_layout_no_change"
+    if TO_LAYOUT_TEST_MODE == "verify":
+        saved = load_test_result(test_name)
+        ttnn_input, _, _, out_layout, out_dtype = build_input_from_saved(saved, device)
+        ttnn_output = to_layout(ttnn_input, layout=out_layout)
+        output_data = ttnn_output.get_data() if ttnn_output.has_data() else []
+        logical_shape = tuple(ttnn_output.logical_shape())
+        compare_output_to_saved(output_data, logical_shape, saved["output_tensor"]["content"], out_dtype)
+        return
     torch.manual_seed(42)
-    
     shape = (64, 64)
     torch_input = torch.randn(shape, dtype=torch.bfloat16)
     input_data = torch_to_list(torch_input)
-    
-    # Create tensor in TILE_LAYOUT
     ttnn_input = TensorProxy(
         shape=shape,
         dtype=DataType.BFLOAT16,
@@ -656,15 +699,8 @@ def test_to_layout_same_layout_no_change(device):
         device=device,
         data=input_data,
     )
-    
-    # Try to convert to same layout (should return same tensor)
     ttnn_output = to_layout(ttnn_input, layout=Layout.TILE_LAYOUT)
-    
-    # Extract output data
     output_data = ttnn_output.get_data() if ttnn_output.has_data() else []
-    
-    # Save test result
-    test_name = "same_layout_no_change"
     save_test_result(
         test_name=test_name,
         input_tensor=ttnn_input,
@@ -681,13 +717,20 @@ def test_to_layout_same_layout_no_change(device):
 
 def test_to_layout_round_trip(device):
     """Test round-trip conversion: ROW_MAJOR -> TILE -> ROW_MAJOR."""
+    test_name = "round_trip_conversion"
+    if TO_LAYOUT_TEST_MODE == "verify":
+        saved = load_test_result(test_name)
+        ttnn_input, _, _, out_layout, out_dtype = build_input_from_saved(saved, device)
+        ttnn_tile = to_layout(ttnn_input, layout=Layout.TILE_LAYOUT)
+        ttnn_output = to_layout(ttnn_tile, layout=Layout.ROW_MAJOR_LAYOUT)
+        output_data = ttnn_output.get_data() if ttnn_output.has_data() else []
+        logical_shape = tuple(ttnn_output.logical_shape())
+        compare_output_to_saved(output_data, logical_shape, saved["output_tensor"]["content"], out_dtype)
+        return
     torch.manual_seed(42)
-    
-    shape = (33, 65)  # Not tile-aligned
+    shape = (33, 65)
     torch_input = torch.randn(shape, dtype=torch.bfloat16)
     input_data = torch_to_list(torch_input)
-    
-    # Start with ROW_MAJOR
     ttnn_input = TensorProxy(
         shape=shape,
         dtype=DataType.BFLOAT16,
@@ -696,18 +739,9 @@ def test_to_layout_round_trip(device):
         device=device,
         data=input_data,
     )
-    
-    # Convert to TILE
     ttnn_tile = to_layout(ttnn_input, layout=Layout.TILE_LAYOUT)
-    
-    # Convert back to ROW_MAJOR
     ttnn_output = to_layout(ttnn_tile, layout=Layout.ROW_MAJOR_LAYOUT)
-    
-    # Extract output data
     output_data = ttnn_output.get_data() if ttnn_output.has_data() else []
-    
-    # Save test result
-    test_name = "round_trip_conversion"
     save_test_result(
         test_name=test_name,
         input_tensor=ttnn_input,
@@ -753,11 +787,22 @@ def test_to_layout_error_cases(device):
 @pytest.mark.parametrize("output_layout", [Layout.ROW_MAJOR_LAYOUT, Layout.TILE_LAYOUT])
 def test_to_layout_high_dimensional_tensors(shape, input_layout, output_layout, device):
     """Test to_layout with 5D and 6D tensors."""
+    test_name = f"high_dim_{len(shape)}D_{'_'.join(map(str, shape))}_{input_layout}_{output_layout}"
+    if TO_LAYOUT_TEST_MODE == "verify":
+        saved = load_test_result(test_name)
+        ttnn_input, _, _, out_layout, out_dtype = build_input_from_saved(saved, device)
+        ttnn_output = to_layout(ttnn_input, layout=out_layout)
+        if out_layout != Layout.ROW_MAJOR_LAYOUT:
+            ttnn_out_ver = to_layout(ttnn_output, layout=Layout.ROW_MAJOR_LAYOUT)
+        else:
+            ttnn_out_ver = ttnn_output
+        output_data = ttnn_out_ver.get_data() if ttnn_out_ver.has_data() else []
+        logical_shape = tuple(ttnn_out_ver.logical_shape())
+        compare_output_to_saved(output_data, logical_shape, saved["output_tensor"]["content"], out_dtype)
+        return
     torch.manual_seed(42)
-    
     torch_input = torch.randn(shape, dtype=torch.bfloat16)
     input_data = torch_to_list(torch_input)
-    
     ttnn_input = TensorProxy(
         shape=shape,
         dtype=DataType.BFLOAT16,
@@ -766,11 +811,8 @@ def test_to_layout_high_dimensional_tensors(shape, input_layout, output_layout, 
         device=device,
         data=input_data,
     )
-    
     ttnn_output = to_layout(ttnn_input, layout=output_layout)
     output_data = ttnn_output.get_data() if ttnn_output.has_data() else []
-    
-    test_name = f"high_dim_{len(shape)}D_{'_'.join(map(str, shape))}_{input_layout}_{output_layout}"
     save_test_result(
         test_name=test_name,
         input_tensor=ttnn_input,
@@ -790,11 +832,22 @@ def test_to_layout_high_dimensional_tensors(shape, input_layout, output_layout, 
 @pytest.mark.skip(reason="Very large tensors may exceed memory limits in some environments")
 def test_to_layout_very_large_tensors(shape, input_layout, output_layout, device):
     """Test to_layout with very large tensors."""
+    test_name = f"very_large_{'_'.join(map(str, shape))}_{input_layout}_{output_layout}"
+    if TO_LAYOUT_TEST_MODE == "verify":
+        saved = load_test_result(test_name)
+        ttnn_input, _, _, out_layout, out_dtype = build_input_from_saved(saved, device)
+        ttnn_output = to_layout(ttnn_input, layout=out_layout)
+        if out_layout != Layout.ROW_MAJOR_LAYOUT:
+            ttnn_out_ver = to_layout(ttnn_output, layout=Layout.ROW_MAJOR_LAYOUT)
+        else:
+            ttnn_out_ver = ttnn_output
+        output_data = ttnn_out_ver.get_data() if ttnn_out_ver.has_data() else []
+        logical_shape = tuple(ttnn_out_ver.logical_shape())
+        compare_output_to_saved(output_data, logical_shape, saved["output_tensor"]["content"], out_dtype)
+        return
     torch.manual_seed(42)
-    
     torch_input = torch.randn(shape, dtype=torch.bfloat16)
     input_data = torch_to_list(torch_input)
-    
     ttnn_input = TensorProxy(
         shape=shape,
         dtype=DataType.BFLOAT16,
@@ -803,11 +856,8 @@ def test_to_layout_very_large_tensors(shape, input_layout, output_layout, device
         device=device,
         data=input_data,
     )
-    
     ttnn_output = to_layout(ttnn_input, layout=output_layout)
     output_data = ttnn_output.get_data() if ttnn_output.has_data() else []
-    
-    test_name = f"very_large_{'_'.join(map(str, shape))}_{input_layout}_{output_layout}"
     save_test_result(
         test_name=test_name,
         input_tensor=ttnn_input,
@@ -826,11 +876,22 @@ def test_to_layout_very_large_tensors(shape, input_layout, output_layout, device
 @pytest.mark.parametrize("output_layout", [Layout.ROW_MAJOR_LAYOUT, Layout.TILE_LAYOUT])
 def test_to_layout_boundary_conditions(shape, input_layout, output_layout, device):
     """Test to_layout with boundary conditions (just below/above tile size)."""
+    test_name = f"boundary_{'_'.join(map(str, shape))}_{input_layout}_{output_layout}"
+    if TO_LAYOUT_TEST_MODE == "verify":
+        saved = load_test_result(test_name)
+        ttnn_input, _, _, out_layout, out_dtype = build_input_from_saved(saved, device)
+        ttnn_output = to_layout(ttnn_input, layout=out_layout)
+        if out_layout != Layout.ROW_MAJOR_LAYOUT:
+            ttnn_out_ver = to_layout(ttnn_output, layout=Layout.ROW_MAJOR_LAYOUT)
+        else:
+            ttnn_out_ver = ttnn_output
+        output_data = ttnn_out_ver.get_data() if ttnn_out_ver.has_data() else []
+        logical_shape = tuple(ttnn_out_ver.logical_shape())
+        compare_output_to_saved(output_data, logical_shape, saved["output_tensor"]["content"], out_dtype)
+        return
     torch.manual_seed(42)
-    
     torch_input = torch.randn(shape, dtype=torch.bfloat16)
     input_data = torch_to_list(torch_input)
-    
     ttnn_input = TensorProxy(
         shape=shape,
         dtype=DataType.BFLOAT16,
@@ -839,11 +900,8 @@ def test_to_layout_boundary_conditions(shape, input_layout, output_layout, devic
         device=device,
         data=input_data,
     )
-    
     ttnn_output = to_layout(ttnn_input, layout=output_layout)
     output_data = ttnn_output.get_data() if ttnn_output.has_data() else []
-    
-    test_name = f"boundary_{'_'.join(map(str, shape))}_{input_layout}_{output_layout}"
     save_test_result(
         test_name=test_name,
         input_tensor=ttnn_input,
@@ -859,12 +917,22 @@ def test_to_layout_boundary_conditions(shape, input_layout, output_layout, devic
 
 def test_to_layout_multiple_consecutive_conversions(device):
     """Test multiple consecutive layout conversions."""
+    test_name = "multiple_consecutive_conversions"
+    if TO_LAYOUT_TEST_MODE == "verify":
+        saved = load_test_result(test_name)
+        ttnn_input, _, _, out_layout, out_dtype = build_input_from_saved(saved, device)
+        t1 = to_layout(ttnn_input, layout=Layout.TILE_LAYOUT)
+        t2 = to_layout(t1, layout=Layout.ROW_MAJOR_LAYOUT)
+        t3 = to_layout(t2, layout=Layout.TILE_LAYOUT)
+        t4 = to_layout(t3, layout=Layout.ROW_MAJOR_LAYOUT)
+        output_data = t4.get_data() if t4.has_data() else []
+        logical_shape = tuple(t4.logical_shape())
+        compare_output_to_saved(output_data, logical_shape, saved["output_tensor"]["content"], out_dtype)
+        return
     torch.manual_seed(42)
-    
     shape = (64, 64)
     torch_input = torch.randn(shape, dtype=torch.bfloat16)
     input_data = torch_to_list(torch_input)
-    
     ttnn_input = TensorProxy(
         shape=shape,
         dtype=DataType.BFLOAT16,
@@ -873,16 +941,11 @@ def test_to_layout_multiple_consecutive_conversions(device):
         device=device,
         data=input_data,
     )
-    
-    # Perform multiple conversions: ROW -> TILE -> ROW -> TILE -> ROW
     t1 = to_layout(ttnn_input, layout=Layout.TILE_LAYOUT)
     t2 = to_layout(t1, layout=Layout.ROW_MAJOR_LAYOUT)
     t3 = to_layout(t2, layout=Layout.TILE_LAYOUT)
     t4 = to_layout(t3, layout=Layout.ROW_MAJOR_LAYOUT)
-    
     output_data = t4.get_data() if t4.has_data() else []
-    
-    test_name = "multiple_consecutive_conversions"
     save_test_result(
         test_name=test_name,
         input_tensor=ttnn_input,
@@ -900,16 +963,19 @@ def test_to_layout_multiple_consecutive_conversions(device):
 @pytest.mark.parametrize("shape", [(1, 0), (0, 32), (32, 0)])
 def test_to_layout_empty_tensors(shape, device):
     """Test to_layout with empty/zero-size tensors."""
-    # Skip if shape has zero elements
-    # if any(dim == 0 for dim in shape):
-    #     pytest.skip("Empty tensors may not be fully supported")
-    
+    test_name = f"empty_tensor_{'_'.join(map(str, shape))}"
+    if TO_LAYOUT_TEST_MODE == "verify":
+        saved = load_test_result(test_name)
+        ttnn_input, _, _, out_layout, out_dtype = build_input_from_saved(saved, device)
+        ttnn_output = to_layout(ttnn_input, layout=Layout.TILE_LAYOUT)
+        ttnn_output = to_layout(ttnn_output, layout=Layout.ROW_MAJOR_LAYOUT)
+        output_data = ttnn_output.get_data() if ttnn_output.has_data() else []
+        logical_shape = tuple(ttnn_output.logical_shape())
+        compare_output_to_saved(output_data, logical_shape, saved["output_tensor"]["content"], out_dtype)
+        return
     torch.manual_seed(42)
-    
-    # Create empty tensor
     torch_input = torch.empty(shape, dtype=torch.bfloat16)
     input_data = torch_to_list(torch_input)
-    
     try:
         ttnn_input = TensorProxy(
             shape=shape,
@@ -919,12 +985,9 @@ def test_to_layout_empty_tensors(shape, device):
             device=device,
             data=input_data,
         )
-        
         ttnn_output = to_layout(ttnn_input, layout=Layout.TILE_LAYOUT)
         ttnn_output = to_layout(ttnn_output, layout=Layout.ROW_MAJOR_LAYOUT)
         output_data = ttnn_output.get_data() if ttnn_output.has_data() else []
-        
-        test_name = f"empty_tensor_{'_'.join(map(str, shape))}"
         save_test_result(
             test_name=test_name,
             input_tensor=ttnn_input,
@@ -944,20 +1007,24 @@ def test_to_layout_empty_tensors(shape, device):
 @pytest.mark.parametrize("shape", [(32, 32), (64, 64)])
 def test_to_layout_precision_edge_cases(shape, device):
     """Test to_layout with precision edge cases (NaN, Inf, dtype limits)."""
+    test_name = f"precision_edge_cases_{'_'.join(map(str, shape))}"
+    if TO_LAYOUT_TEST_MODE == "verify":
+        saved = load_test_result(test_name)
+        ttnn_input, _, _, out_layout, out_dtype = build_input_from_saved(saved, device)
+        ttnn_output = to_layout(ttnn_input, layout=Layout.TILE_LAYOUT)
+        ttnn_output = to_layout(ttnn_output, layout=Layout.ROW_MAJOR_LAYOUT)
+        output_data = ttnn_output.get_data() if ttnn_output.has_data() else []
+        logical_shape = tuple(ttnn_output.logical_shape())
+        compare_output_to_saved(output_data, logical_shape, saved["output_tensor"]["content"], out_dtype)
+        return
     torch.manual_seed(42)
-    
-    # Create tensor with special values
     torch_input = torch.randn(shape, dtype=torch.bfloat16)
-    
-    # Add some special values
     torch_input[0, 0] = float('inf')
     torch_input[0, 1] = float('-inf')
     torch_input[0, 2] = float('nan')
     torch_input[0, 3] = torch.finfo(torch.bfloat16).max
     torch_input[0, 4] = torch.finfo(torch.bfloat16).min
-    
     input_data = torch_to_list(torch_input)
-    
     ttnn_input = TensorProxy(
         shape=shape,
         dtype=DataType.BFLOAT16,
@@ -966,12 +1033,9 @@ def test_to_layout_precision_edge_cases(shape, device):
         device=device,
         data=input_data,
     )
-    
     ttnn_output = to_layout(ttnn_input, layout=Layout.TILE_LAYOUT)
     ttnn_output = to_layout(ttnn_output, layout=Layout.ROW_MAJOR_LAYOUT)
     output_data = ttnn_output.get_data() if ttnn_output.has_data() else []
-    
-    test_name = f"precision_edge_cases_{'_'.join(map(str, shape))}"
     save_test_result(
         test_name=test_name,
         input_tensor=ttnn_input,
