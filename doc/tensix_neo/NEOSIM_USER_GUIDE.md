@@ -50,7 +50,7 @@ NeoSim is a cycle-accurate simulator for Tenstorrent's Tensix Neo architecture, 
 - **Pipeline modeling** including unpacker, SFPU, matrix, and packer engines
 - **Memory hierarchy simulation** with L1 cache, register files, and memory mapping
 - **Performance analysis** with detailed instruction traces and Chrome trace output
-- **Configurable architecture** supporting different Tensix variants (TTQS, TTWH, TTBH)
+- **Configurable architecture** designed to support different Tensix variants; currently only the Quasar architecture is supported.
 
 ## Quick Start
 
@@ -736,6 +736,9 @@ Key metrics available in simulation output:
    The `execute_test.py` script has been renamed to `run_rtl_neosim_correlation.py` and also has been
    moved from `polaris/tests/standalone` to `polaris/tools` directory. Please execute
    `python tools/run_rtl_neosim_correlation.py` with the same command-line arguments.
+
+6. **Errors when running Wormhole or Blackhole ELF files as input**
+   Currently, only Quasar-architecture ELF files are supported. Support for other architectures will be added in a future update.
 
 ## Support
 
