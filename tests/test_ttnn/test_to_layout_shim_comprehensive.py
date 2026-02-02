@@ -275,15 +275,43 @@ def build_input_from_saved(saved: Dict[str, Any], device) -> Tuple[TensorProxy, 
     # both tilize and untilize). With buffer=list(), the first to_layout would take
     # the device path (tilize) and the second would take the host path (untilize),
     # which can cause verify-mode failures for some shapes (e.g. shape5 / 96x96).
-    ttnn_input = TensorProxy(
-        shape=shape,
-        dtype=dtype,
-        layout=input_layout,
-        memory_config=DRAM_MEMORY_CONFIG,
-        device=device,
-        data=input_data,
-        buffer=None,
-    )
+    #
+    # When the saved input_layout is TILE, the golden stores logical (untilized) values
+    # from to_torch(); we must convert that data to tile layout before building the
+    # tensor so that to_layout(., ROW_MAJOR) untilizes correctly.
+    if input_layout == Layout.TILE_LAYOUT:
+        temp_rm = TensorProxy(
+            shape=shape,
+            dtype=dtype,
+            layout=Layout.ROW_MAJOR_LAYOUT,
+            memory_config=DRAM_MEMORY_CONFIG,
+            device=device,
+            data=input_data,
+            buffer=None,
+        )
+        tiled_tensor = to_layout(temp_rm, layout=Layout.TILE_LAYOUT)
+        input_data = tiled_tensor.get_data() if tiled_tensor.has_data() else input_data
+        padded_shape = tiled_tensor.padded_shape()
+        ttnn_input = TensorProxy(
+            shape=shape,
+            dtype=dtype,
+            layout=Layout.TILE_LAYOUT,
+            memory_config=DRAM_MEMORY_CONFIG,
+            device=device,
+            data=input_data,
+            buffer=None,
+            padded_shape=padded_shape,
+        )
+    else:
+        ttnn_input = TensorProxy(
+            shape=shape,
+            dtype=dtype,
+            layout=input_layout,
+            memory_config=DRAM_MEMORY_CONFIG,
+            device=device,
+            data=input_data,
+            buffer=None,
+        )
     return ttnn_input, input_data, input_layout, output_layout, dtype
 
 
