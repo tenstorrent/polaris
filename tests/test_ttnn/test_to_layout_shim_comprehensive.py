@@ -271,6 +271,10 @@ def build_input_from_saved(saved: Dict[str, Any], device) -> Tuple[TensorProxy, 
     dtype_str = meta["dtype"]
     dtype = _parse_dtype(dtype_str)
     input_data = content["values"]
+    # Use buffer=None so to_layout uses the host conversion path (same code path for
+    # both tilize and untilize). With buffer=list(), the first to_layout would take
+    # the device path (tilize) and the second would take the host path (untilize),
+    # which can cause verify-mode failures for some shapes (e.g. shape5 / 96x96).
     ttnn_input = TensorProxy(
         shape=shape,
         dtype=dtype,
@@ -278,7 +282,7 @@ def build_input_from_saved(saved: Dict[str, Any], device) -> Tuple[TensorProxy, 
         memory_config=DRAM_MEMORY_CONFIG,
         device=device,
         data=input_data,
-        buffer=list(),
+        buffer=None,
     )
     return ttnn_input, input_data, input_layout, output_layout, dtype
 
@@ -366,6 +370,11 @@ def setup_execution_mode():
     yield
     set_execution_mode(ExecutionMode.TRACK_ONLY)  # Reset to default
 
+def normalize_testname(name):
+    """Normalize test name by replacing enum substrings."""
+    name = name.replace('_LAYOUT', '')
+    return name
+
 
 @pytest.mark.parametrize("shape", TILE_ALIGNED_SHAPES)
 @pytest.mark.parametrize("input_layout", [Layout.ROW_MAJOR_LAYOUT, Layout.TILE_LAYOUT])
@@ -374,6 +383,7 @@ def setup_execution_mode():
 def test_to_layout_tile_aligned_shapes(shape, input_layout, output_layout, dtype, device):
     """Test to_layout with shapes where all dimensions are multiples of tile size."""
     test_name = f"tile_aligned_{'_'.join(map(str, shape))}_{input_layout}_{output_layout}_{dtype}"
+    test_name = normalize_testname(test_name)
     if TO_LAYOUT_TEST_MODE == "verify":
         saved = load_test_result(test_name)
         ttnn_input, _, _, out_layout, out_dtype = build_input_from_saved(saved, device)
@@ -458,6 +468,7 @@ def test_to_layout_tile_aligned_shapes(shape, input_layout, output_layout, dtype
 def test_to_layout_partial_tile_aligned_shapes(shape, input_layout, output_layout, device):
     """Test to_layout with shapes where some dimensions are multiples of tile size."""
     test_name = f"partial_aligned_{'_'.join(map(str, shape))}_{input_layout}_{output_layout}"
+    test_name = normalize_testname(test_name)
     if TO_LAYOUT_TEST_MODE == "verify":
         saved = load_test_result(test_name)
         ttnn_input, _, _, out_layout, out_dtype = build_input_from_saved(saved, device)
@@ -524,6 +535,7 @@ def test_to_layout_partial_tile_aligned_shapes(shape, input_layout, output_layou
 def test_to_layout_edge_cases(shape, input_layout, output_layout, device):
     """Test to_layout with edge case shapes."""
     test_name = f"edge_case_{'_'.join(map(str, shape))}_{input_layout}_{output_layout}"
+    test_name = normalize_testname(test_name)
     if TO_LAYOUT_TEST_MODE == "verify":
         saved = load_test_result(test_name)
         ttnn_input, _, _, out_layout, out_dtype = build_input_from_saved(saved, device)
@@ -589,6 +601,7 @@ def test_to_layout_edge_cases(shape, input_layout, output_layout, device):
 def test_to_layout_different_dtypes(shape, dtype, device):
     """Test to_layout with different data types."""
     test_name = f"dtype_{dtype}_{'_'.join(map(str, shape))}"
+    test_name = normalize_testname(test_name)
     if TO_LAYOUT_TEST_MODE == "verify":
         saved = load_test_result(test_name)
         ttnn_input, _, _, out_layout, out_dtype = build_input_from_saved(saved, device)
@@ -640,6 +653,7 @@ def test_to_layout_different_dtypes(shape, dtype, device):
 def test_to_layout_memory_configs(shape, memory_config, device):
     """Test to_layout with different memory configurations."""
     test_name = f"mem_config_{memory_config.buffer_type}_{'_'.join(map(str, shape))}"
+    test_name = normalize_testname(test_name)
     if TO_LAYOUT_TEST_MODE == "verify":
         saved = load_test_result(test_name)
         ttnn_input, _, _, _, out_dtype = build_input_from_saved(saved, device)
@@ -679,6 +693,7 @@ def test_to_layout_memory_configs(shape, memory_config, device):
 def test_to_layout_same_layout_no_change(device):
     """Test to_layout when tensor is already in requested layout."""
     test_name = "same_layout_no_change"
+    test_name = normalize_testname(test_name)
     if TO_LAYOUT_TEST_MODE == "verify":
         saved = load_test_result(test_name)
         ttnn_input, _, _, out_layout, out_dtype = build_input_from_saved(saved, device)
@@ -718,6 +733,7 @@ def test_to_layout_same_layout_no_change(device):
 def test_to_layout_round_trip(device):
     """Test round-trip conversion: ROW_MAJOR -> TILE -> ROW_MAJOR."""
     test_name = "round_trip_conversion"
+    test_name = normalize_testname(test_name)
     if TO_LAYOUT_TEST_MODE == "verify":
         saved = load_test_result(test_name)
         ttnn_input, _, _, out_layout, out_dtype = build_input_from_saved(saved, device)
@@ -788,6 +804,7 @@ def test_to_layout_error_cases(device):
 def test_to_layout_high_dimensional_tensors(shape, input_layout, output_layout, device):
     """Test to_layout with 5D and 6D tensors."""
     test_name = f"high_dim_{len(shape)}D_{'_'.join(map(str, shape))}_{input_layout}_{output_layout}"
+    test_name = normalize_testname(test_name)
     if TO_LAYOUT_TEST_MODE == "verify":
         saved = load_test_result(test_name)
         ttnn_input, _, _, out_layout, out_dtype = build_input_from_saved(saved, device)
@@ -833,6 +850,7 @@ def test_to_layout_high_dimensional_tensors(shape, input_layout, output_layout, 
 def test_to_layout_very_large_tensors(shape, input_layout, output_layout, device):
     """Test to_layout with very large tensors."""
     test_name = f"very_large_{'_'.join(map(str, shape))}_{input_layout}_{output_layout}"
+    test_name = normalize_testname(test_name)
     if TO_LAYOUT_TEST_MODE == "verify":
         saved = load_test_result(test_name)
         ttnn_input, _, _, out_layout, out_dtype = build_input_from_saved(saved, device)
@@ -877,6 +895,7 @@ def test_to_layout_very_large_tensors(shape, input_layout, output_layout, device
 def test_to_layout_boundary_conditions(shape, input_layout, output_layout, device):
     """Test to_layout with boundary conditions (just below/above tile size)."""
     test_name = f"boundary_{'_'.join(map(str, shape))}_{input_layout}_{output_layout}"
+    test_name = normalize_testname(test_name)
     if TO_LAYOUT_TEST_MODE == "verify":
         saved = load_test_result(test_name)
         ttnn_input, _, _, out_layout, out_dtype = build_input_from_saved(saved, device)
@@ -918,6 +937,7 @@ def test_to_layout_boundary_conditions(shape, input_layout, output_layout, devic
 def test_to_layout_multiple_consecutive_conversions(device):
     """Test multiple consecutive layout conversions."""
     test_name = "multiple_consecutive_conversions"
+    test_name = normalize_testname(test_name)
     if TO_LAYOUT_TEST_MODE == "verify":
         saved = load_test_result(test_name)
         ttnn_input, _, _, out_layout, out_dtype = build_input_from_saved(saved, device)
@@ -964,6 +984,7 @@ def test_to_layout_multiple_consecutive_conversions(device):
 def test_to_layout_empty_tensors(shape, device):
     """Test to_layout with empty/zero-size tensors."""
     test_name = f"empty_tensor_{'_'.join(map(str, shape))}"
+    test_name = normalize_testname(test_name)
     if TO_LAYOUT_TEST_MODE == "verify":
         saved = load_test_result(test_name)
         ttnn_input, _, _, out_layout, out_dtype = build_input_from_saved(saved, device)
@@ -1008,6 +1029,7 @@ def test_to_layout_empty_tensors(shape, device):
 def test_to_layout_precision_edge_cases(shape, device):
     """Test to_layout with precision edge cases (NaN, Inf, dtype limits)."""
     test_name = f"precision_edge_cases_{'_'.join(map(str, shape))}"
+    test_name = normalize_testname(test_name)
     if TO_LAYOUT_TEST_MODE == "verify":
         saved = load_test_result(test_name)
         ttnn_input, _, _, out_layout, out_dtype = build_input_from_saved(saved, device)
