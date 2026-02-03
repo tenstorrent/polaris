@@ -168,10 +168,10 @@ class Tensor(SimTensor):
         if 'device' in kwargs and not isinstance(kwargs['device'], Device):
             raise TypeError(f"Error: Tensor Creation -- attribute device={kwargs['device']} should be of type Device")
 
-        # TODO: Why was this converted to to_numpy?
-        # if 'dtype' in kwargs and isinstance(kwargs['dtype'], DataType):
-        #     kwargs['dtype'] = kwargs['dtype'].to_numpy
-        logger.warning('restore dtype handling in Tensor constructor')
+        # NOTE: Convert DataType enum to np.dtype for compatibility with downstream operations
+        # that expect np.dtype (e.g., typesize in ops/tensor.py).
+        if 'dtype' in kwargs and isinstance(kwargs['dtype'], DataType):
+            kwargs['dtype'] = kwargs['dtype'].to_numpy
 
         if 'name' not in kwargs:
             kwargs['name'] = f"ttsim.ttnn.Tensor_{next(self.tensor_counter)}"
