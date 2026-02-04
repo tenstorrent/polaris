@@ -13,7 +13,7 @@ addopts = "--durations=0"
 [tool.mypy]
 check_untyped_defs = true
 explicit_package_bases = true
-exclude = "^__.*/|^tests/|ttsim/back/tensix_neo|ttsim/front/llk"
+exclude = "^__.*/|^tests/|ttsim/back/tensix_neo|ttsim/front/llk|/reference/"
 # disallow_untyped_calls = true
 # disallow_untyped_defs = true
 warn_unreachable = true
