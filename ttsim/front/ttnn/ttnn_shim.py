@@ -16,6 +16,7 @@ track compute and memory operations that would be required.
 # Constants matching TTNN
 
 from loguru import logger
+import numpy as np
 
 from .tensor import DataType, Layout, Shape
 from .types import TILE_HEIGHT, TILE_WIDTH, TILE_HW
@@ -74,7 +75,7 @@ _execution_mode = ExecutionMode.TRACK_ONLY
 
 def set_execution_mode(mode):
     """Set global execution mode.
-    
+
     Args:
         mode: ExecutionMode.TRACK_ONLY, ExecutionMode.EXECUTE, or ExecutionMode.EXECUTE_AND_TRACK
     """
@@ -91,7 +92,7 @@ def get_execution_mode():
 class OperationTracker:
     def __init__(self):
         self.reset()
-    
+
     def reset(self):
         self.tilize_count = 0
         self.untilize_count = 0
@@ -101,7 +102,7 @@ class OperationTracker:
         self.reshape_count = 0
         self.pad_count = 0
         self.memory_operations = []
-        
+
         # Detailed internal operation tracking
         self.compute_operations = []  # Individual compute operations
         self.memory_reads = []  # Memory read operations
@@ -109,12 +110,12 @@ class OperationTracker:
         self.circular_buffer_ops = []  # Circular buffer operations
         self.kernel_invocations = []  # Kernel execution tracking
         self.data_movements = []  # Data movement between buffers
-    
-    def track_tilize(self, tensor_shape, num_tiles, num_tiles_per_row=None, num_tiles_per_col=None, 
+
+    def track_tilize(self, tensor_shape, num_tiles, num_tiles_per_row=None, num_tiles_per_col=None,
                      use_multicore=True, element_size=2):
         """Track tilize operation with internal operation details."""
         self.tilize_count += 1
-        
+
         # Calculate internal operations
         if num_tiles_per_row is None or num_tiles_per_col is None:
             # Estimate from shape
@@ -126,12 +127,12 @@ class OperationTracker:
             else:
                 num_tiles_per_row = 1
                 num_tiles_per_col = 1
-        
+
         # Calculate memory operations
         tile_size_bytes = TILE_HW * element_size
         total_input_bytes = num_tiles * tile_size_bytes  # Input in row-major
         total_output_bytes = num_tiles * tile_size_bytes  # Output in tile layout
-        
+
         # Track memory reads (reading row-major input)
         self.memory_reads.append({
             'op': 'tilize_read',
@@ -140,7 +141,7 @@ class OperationTracker:
             'tiles_per_row': num_tiles_per_row,
             'tiles_per_col': num_tiles_per_col
         })
-        
+
         # Track memory writes (writing tile layout output)
         self.memory_writes.append({
             'op': 'tilize_write',
@@ -149,7 +150,7 @@ class OperationTracker:
             'tiles_per_row': num_tiles_per_row,
             'tiles_per_col': num_tiles_per_col
         })
-        
+
         # Track compute operations (one per tile)
         compute_ops = num_tiles
         self.compute_operations.append({
@@ -159,7 +160,7 @@ class OperationTracker:
             'num_tiles': num_tiles,
             'use_multicore': use_multicore
         })
-        
+
         # Track circular buffer operations
         # Tilize typically uses: input CB -> unpack -> compute -> pack -> output CB
         self.circular_buffer_ops.append({
@@ -168,21 +169,21 @@ class OperationTracker:
             'output_cb_ops': num_tiles,  # Writes to output CB
             'num_tiles': num_tiles
         })
-        
+
         # Track kernel invocations
         if use_multicore:
             # Multicore: one kernel per core, estimate cores from tile distribution
             estimated_cores = min(num_tiles, 128)  # Reasonable upper bound
         else:
             estimated_cores = 1
-        
+
         self.kernel_invocations.append({
             'op': 'tilize_kernel',
             'count': estimated_cores,
             'num_tiles_per_core': num_tiles // max(estimated_cores, 1),
             'use_multicore': use_multicore
         })
-        
+
         # Track data movement
         self.data_movements.append({
             'op': 'tilize_movement',
@@ -191,7 +192,7 @@ class OperationTracker:
             'bytes': total_input_bytes,
             'num_tiles': num_tiles
         })
-        
+
         # High-level operation tracking
         self.memory_operations.append({
             'op': 'tilize',
@@ -204,12 +205,12 @@ class OperationTracker:
             'compute_operations': compute_ops,
             'kernel_invocations': estimated_cores
         })
-    
+
     def track_untilize(self, tensor_shape, num_tiles, num_tiles_per_row=None, num_tiles_per_col=None,
                        use_multicore=True, use_pack_untilize=True, element_size=2):
         """Track untilize operation with internal operation details."""
         self.untilize_count += 1
-        
+
         # Calculate internal operations
         if num_tiles_per_row is None or num_tiles_per_col is None:
             # Estimate from shape
@@ -221,12 +222,12 @@ class OperationTracker:
             else:
                 num_tiles_per_row = 1
                 num_tiles_per_col = 1
-        
+
         # Calculate memory operations
         tile_size_bytes = TILE_HW * element_size
         total_input_bytes = num_tiles * tile_size_bytes  # Input in tile layout
         total_output_bytes = num_tiles * tile_size_bytes  # Output in row-major
-        
+
         # Track memory reads (reading tile layout input)
         self.memory_reads.append({
             'op': 'untilize_read',
@@ -235,7 +236,7 @@ class OperationTracker:
             'tiles_per_row': num_tiles_per_row,
             'tiles_per_col': num_tiles_per_col
         })
-        
+
         # Track memory writes (writing row-major output)
         self.memory_writes.append({
             'op': 'untilize_write',
@@ -244,7 +245,7 @@ class OperationTracker:
             'tiles_per_row': num_tiles_per_row,
             'tiles_per_col': num_tiles_per_col
         })
-        
+
         # Track compute operations
         # Untilize: unpack -> compute (datacopy) -> pack
         compute_ops = num_tiles
@@ -256,7 +257,7 @@ class OperationTracker:
             'use_pack_untilize': use_pack_untilize,
             'use_multicore': use_multicore
         })
-        
+
         # Track circular buffer operations
         self.circular_buffer_ops.append({
             'op': 'untilize_cb',
@@ -265,13 +266,13 @@ class OperationTracker:
             'num_tiles': num_tiles,
             'use_pack_untilize': use_pack_untilize
         })
-        
+
         # Track kernel invocations
         if use_multicore:
             estimated_cores = min(num_tiles, 128)
         else:
             estimated_cores = 1
-        
+
         self.kernel_invocations.append({
             'op': 'untilize_kernel',
             'count': estimated_cores,
@@ -279,7 +280,7 @@ class OperationTracker:
             'use_multicore': use_multicore,
             'use_pack_untilize': use_pack_untilize
         })
-        
+
         # Track data movement
         self.data_movements.append({
             'op': 'untilize_movement',
@@ -288,7 +289,7 @@ class OperationTracker:
             'bytes': total_input_bytes,
             'num_tiles': num_tiles
         })
-        
+
         # High-level operation tracking
         self.memory_operations.append({
             'op': 'untilize',
@@ -302,7 +303,7 @@ class OperationTracker:
             'kernel_invocations': estimated_cores,
             'use_pack_untilize': use_pack_untilize
         })
-    
+
     def track_tilize_with_val_padding(self, input_shape, output_shape, num_tiles):
         self.tilize_with_val_padding_count += 1
         self.memory_operations.append({
@@ -311,7 +312,7 @@ class OperationTracker:
             'output_shape': output_shape,
             'num_tiles': num_tiles
         })
-    
+
     def track_untilize_with_unpadding(self, input_shape, output_shape, num_tiles):
         self.untilize_with_unpadding_count += 1
         self.memory_operations.append({
@@ -320,7 +321,7 @@ class OperationTracker:
             'output_shape': output_shape,
             'num_tiles': num_tiles
         })
-    
+
     def track_to_layout(self, from_layout, to_layout):
         self.to_layout_count += 1
         self.memory_operations.append({
@@ -328,7 +329,7 @@ class OperationTracker:
             'from_layout': from_layout,
             'to_layout': to_layout
         })
-    
+
     def track_reshape(self, from_shape, to_shape):
         self.reshape_count += 1
         self.memory_operations.append({
@@ -336,7 +337,7 @@ class OperationTracker:
             'from_shape': from_shape,
             'to_shape': to_shape
         })
-    
+
     def track_pad(self, from_shape, to_shape):
         self.pad_count += 1
         self.memory_operations.append({
@@ -344,7 +345,7 @@ class OperationTracker:
             'from_shape': from_shape,
             'to_shape': to_shape
         })
-    
+
     def get_summary(self):
         """Get summary of all tracked operations."""
         total_memory_read_bytes = sum(op.get('bytes', 0) for op in self.memory_reads)
@@ -352,7 +353,7 @@ class OperationTracker:
         total_compute_ops = sum(op.get('count', 0) for op in self.compute_operations)
         total_kernel_invocations = sum(op.get('count', 0) for op in self.kernel_invocations)
         total_cb_ops = sum(op.get('input_cb_ops', 0) + op.get('output_cb_ops', 0) for op in self.circular_buffer_ops)
-        
+
         return {
             'tilize_count': self.tilize_count,
             'untilize_count': self.untilize_count,
@@ -375,7 +376,7 @@ class OperationTracker:
             'circular_buffer_op_count': len(self.circular_buffer_ops),
             'data_movement_count': len(self.data_movements)
         }
-    
+
     def get_detailed_summary(self):
         """Get detailed summary with all internal operations."""
         return {
@@ -651,16 +652,16 @@ def _unflatten_data(data, flat_shape, original_shape):
     """Reshape flattened data back to original shape."""
     if len(original_shape) <= 2:
         return data
-    
+
     # Calculate total elements
     total_elements = 1
     for dim in original_shape:
         total_elements *= dim
-    
+
     # If shapes match, return as-is
     if len(data) == total_elements:
         return data
-    
+
     # Otherwise, we need to reshape
     # For simplicity, just return the data (actual reshaping would be more complex)
     return data[:total_elements]
@@ -669,27 +670,27 @@ def _unflatten_data(data, flat_shape, original_shape):
 def _row_major_to_tile_layout_swizzled(data, H, W):
     """
     Convert row-major data to tile layout (swizzled format).
-    
+
     This implements a simplified version of the tilize operation:
     - Divides data into 32x32 tiles
     - Each tile is stored in swizzled format (4 faces of 16x16)
     - Face order: face0, face1, face2, face3 (row-major within tile)
-    
+
     Args:
         data: List of values in row-major order
         H: Height dimension
         W: Width dimension
-    
+
     Returns:
         List of values in tile layout
     """
     if len(data) != H * W:
         raise ValueError(f"Data size {len(data)} doesn't match shape {H}x{W}")
-    
+
     num_tiles_h = (H + TILE_HEIGHT - 1) // TILE_HEIGHT
     num_tiles_w = (W + TILE_WIDTH - 1) // TILE_WIDTH
     output = []
-    
+
     for tile_h in range(num_tiles_h):
         for tile_w in range(num_tiles_w):
             # Process one 32x32 tile
@@ -701,28 +702,28 @@ def _row_major_to_tile_layout_swizzled(data, H, W):
                             # Calculate position in original row-major data
                             global_row = tile_h * TILE_HEIGHT + face_row * 16 + row_in_face
                             global_col = tile_w * TILE_WIDTH + face_col * 16 + col_in_face
-                            
+
                             if global_row < H and global_col < W:
                                 idx = global_row * W + global_col
                                 output.append(data[idx])
                             else:
                                 # Padding - use 0
                                 output.append(0.0)
-    
+
     return output
 
 
 def _tile_layout_swizzled_to_row_major(data, H, W):
     """
     Convert tile layout (swizzled format) back to row-major.
-    
+
     This is the inverse of _row_major_to_tile_layout_swizzled.
-    
+
     Args:
         data: List of values in tile layout
         H: Height dimension (logical)
         W: Width dimension (logical)
-    
+
     Returns:
         List of values in row-major order
     """
@@ -730,7 +731,7 @@ def _tile_layout_swizzled_to_row_major(data, H, W):
     num_tiles_w = (W + TILE_WIDTH - 1) // TILE_WIDTH
     output = [0.0] * (H * W)
     data_idx = 0
-    
+
     for tile_h in range(num_tiles_h):
         for tile_w in range(num_tiles_w):
             # Process one 32x32 tile
@@ -742,32 +743,32 @@ def _tile_layout_swizzled_to_row_major(data, H, W):
                             # Calculate position in output row-major data
                             global_row = tile_h * TILE_HEIGHT + face_row * 16 + row_in_face
                             global_col = tile_w * TILE_WIDTH + face_col * 16 + col_in_face
-                            
+
                             if global_row < H and global_col < W and data_idx < len(data):
                                 idx = global_row * W + global_col
                                 output[idx] = data[data_idx]
                             data_idx += 1
-    
+
     return output
 
 
 def _perform_tilize_operation(input_data, input_shape, output_padded_shape, pad_value=0.0):
     """
     Perform actual tilize operation on data.
-    
+
     Args:
         input_data: Input data in row-major format
         input_shape: Logical input shape
         output_padded_shape: Padded output shape
         pad_value: Value to use for padding
-    
+
     Returns:
         Output data in tile layout format
     """
     # Flatten to 2D for processing
     H_in, W_in = _flatten_shape(input_shape)
     H_out, W_out = _flatten_shape(output_padded_shape)
-    
+
     # Pad input data to output shape if needed
     if H_in < H_out or W_in < W_out:
         padded_data = _create_empty_data([H_out, W_out], DataType.FLOAT32, pad_value)
@@ -780,32 +781,32 @@ def _perform_tilize_operation(input_data, input_shape, output_padded_shape, pad_
                     padded_data[idx_out] = input_data[idx_in]
         input_data = padded_data
         H_in, W_in = H_out, W_out
-    
+
     # Convert to tile layout
     tiled_data = _row_major_to_tile_layout_swizzled(input_data, H_in, W_in)
-    
+
     return tiled_data
 
 
 def _perform_untilize_operation(input_data, input_padded_shape, output_shape):
     """
     Perform actual untilize operation on data.
-    
+
     Args:
         input_data: Input data in tile layout format
         input_padded_shape: Padded input shape
         output_shape: Logical output shape (unpadded)
-    
+
     Returns:
         Output data in row-major format
     """
     # Flatten to 2D for processing
     H_in, W_in = _flatten_shape(input_padded_shape)
     H_out, W_out = _flatten_shape(output_shape)
-    
+
     # Convert from tile layout to row-major
     row_major_data = _tile_layout_swizzled_to_row_major(input_data, H_in, W_in)
-    
+
     # Extract only the logical shape (unpad)
     if H_out < H_in or W_out < W_in:
         output_data = []
@@ -815,7 +816,7 @@ def _perform_untilize_operation(input_data, input_padded_shape, output_shape):
                 if idx < len(row_major_data):
                     output_data.append(row_major_data[idx])
         return output_data
-    
+
     return row_major_data
 
 
@@ -835,13 +836,13 @@ def squeeze_from_ND_to_4D(tensor, sub_core_grids=None):
     """Squeeze tensor from N dimensions to 4D."""
     shape = tensor.logical_shape()
     rank = shape.rank()
-    
+
     if rank < 4:
         raise RuntimeError(f"Tensor has to be of rank >= 4! Instead is {rank}")
-    
+
     if rank == 4:
         return tensor
-    
+
     # Handle leading 1s
     if shape[0] == 1:
         squeezed = tensor
@@ -863,7 +864,7 @@ def squeeze_from_ND_to_4D(tensor, sub_core_grids=None):
             i += 1
             if rank <= 4:
                 return squeezed
-    
+
     # Reshape to 4D
     squeezed_shape = squeeze_shape_to_4D(shape)
     return reshape(squeezed, squeezed_shape, None, None, None, sub_core_grids)
@@ -873,42 +874,42 @@ def squeeze_shape_to_4D(shape):
     """Convert shape to 4D by collapsing leading dimensions."""
     if shape.rank() <= 4:
         return Shape(shape)
-    
+
     shape_4d = [1, 1, 1, 1]
     # Collapse all leading dimensions into first dimension
     shape_4d[0] = 1
     for i in range(shape.rank() - 4 + 1):
         shape_4d[0] *= shape[i]
     shape_4d[0] -= 1 if shape_4d[0] > 0 else 0
-    
+
     # Copy last 3 dimensions
     extra_rank = shape.rank() - 4
     shape_4d[1] = shape[1 + extra_rank] if 1 + extra_rank < shape.rank() else 1
     shape_4d[2] = shape[2 + extra_rank] if 2 + extra_rank < shape.rank() else 1
     shape_4d[3] = shape[3 + extra_rank] if 3 + extra_rank < shape.rank() else 1
-    
+
     return Shape(shape_4d)
 
 
-def reshape(tensor, shape, padded_shape=None, memory_config=None, pad_value=None, 
+def reshape(tensor, shape, padded_shape=None, memory_config=None, pad_value=None,
             reshape_map_mode=None, sub_core_grids=None):
     """Reshape tensor to new shape."""
     if isinstance(shape, (list, tuple)):
         shape = Shape(shape)
-    
+
     if padded_shape is None:
         padded_shape = pad_to_tile_shape(shape._shape) if tensor.get_layout() == Layout.TILE_LAYOUT else shape
-    
+
     if isinstance(padded_shape, (list, tuple)):
         padded_shape = Shape(padded_shape)
-    
+
     # Check execution mode for tracking
     mode = get_execution_mode()
     should_track = (mode == ExecutionMode.TRACK_ONLY or mode == ExecutionMode.EXECUTE_AND_TRACK)
-    
+
     if should_track:
         _tracker.track_reshape(tensor.logical_shape()._shape, shape._shape)
-    
+
     # Preserve data if available (reshape doesn't change data, just view)
     output_data = None
     if hasattr(tensor, 'has_data') and tensor.has_data():
@@ -935,20 +936,20 @@ def squeeze(tensor, dim):
     shape = tensor.logical_shape()
     if dim >= shape.rank():
         raise RuntimeError(f"Dimension {dim} out of range for tensor of rank {shape.rank()}")
-    
+
     if shape[dim] != 1:
         raise RuntimeError(f"Cannot squeeze dimension {dim} with size {shape[dim]}")
-    
+
     new_shape = list(shape._shape)
     new_shape.pop(dim)
-    
+
     new_padded_shape = list(tensor.padded_shape()._shape)
     if dim < len(new_padded_shape):
         new_padded_shape.pop(dim)
-    
+
     # Preserve data if available (squeeze doesn't change data, just removes dimension)
     output_data = tensor.get_data() if tensor.has_data() else None
-    
+
     # Use the same tensor type among the different tensor types as the input tensor
     return type(tensor)(
         shape=Shape(new_shape),
@@ -965,7 +966,7 @@ def pad(tensor, padding, pad_value, output_memory_config=None):
     """Pad tensor with specified padding."""
     logical_shape = tensor.logical_shape()
     padded_shape = tensor.padded_shape()
-    
+
     # Calculate new padded shape
     new_padded = list(padded_shape._shape)
     if len(padding) >= 2:
@@ -973,15 +974,15 @@ def pad(tensor, padding, pad_value, output_memory_config=None):
         if len(new_padded) >= 2:
             new_padded[-2] += padding[-2][0] + padding[-2][1]
             new_padded[-1] += padding[-1][0] + padding[-1][1]
-    
+
     # Check execution mode for tracking
     mode = get_execution_mode()
     should_track = (mode == ExecutionMode.TRACK_ONLY or mode == ExecutionMode.EXECUTE_AND_TRACK)
     should_execute = (mode == ExecutionMode.EXECUTE or mode == ExecutionMode.EXECUTE_AND_TRACK)
-    
+
     if should_track:
         _tracker.track_pad(tensor.padded_shape()._shape, new_padded)
-    
+
     # Perform actual padding if in execute mode
     output_data = None
     if should_execute and tensor.has_data():
@@ -989,20 +990,20 @@ def pad(tensor, padding, pad_value, output_memory_config=None):
         input_data = tensor.get_data()
         input_shape = tensor.padded_shape()._shape
         output_shape = new_padded
-        
+
         # Calculate total elements
         total_output_elements = 1
         for dim in output_shape:
             total_output_elements *= dim
-        
+
         python_type = _get_dtype_python_type(tensor.dtype)
         output_data = [python_type(pad_value) for _ in range(total_output_elements)]
-        
+
         # Copy input data to output (simplified - assumes padding at end)
         # This is a simplified implementation
         for i in range(min(len(input_data), len(output_data))):
             output_data[i] = input_data[i]
-    
+
     # Use the same tensor type among the different tensor types as the input tensor
     return type(tensor)(
         shape=logical_shape,
@@ -1015,11 +1016,11 @@ def pad(tensor, padding, pad_value, output_memory_config=None):
     )
 
 
-def tilize(input_tensor, memory_config=None, output_dtype=None, use_multicore=True, 
+def tilize(input_tensor, memory_config=None, output_dtype=None, use_multicore=True,
            use_low_perf=False, sub_core_grids=None):
     """
     Tilize operation - converts ROW_MAJOR_LAYOUT to TILE_LAYOUT.
-    
+
     Args:
         input_tensor: Input tensor in ROW_MAJOR_LAYOUT
         memory_config: Optional output memory configuration
@@ -1027,35 +1028,41 @@ def tilize(input_tensor, memory_config=None, output_dtype=None, use_multicore=Tr
         use_multicore: Whether to use multicore (default: True)
         use_low_perf: Whether to use low performance mode (default: False)
         sub_core_grids: Optional sub-core grid specification
-    
+
     Returns:
         TensorProxy with TILE_LAYOUT
     """
     # Validation
     if input_tensor.storage_type() != "DEVICE":
         raise RuntimeError("Operands to tilize need to be on device!")
-    
+
     if input_tensor.buffer() is None:
         raise RuntimeError("Operands to tilize need to be allocated in buffers on device!")
-    
+
     if input_tensor.get_layout() != Layout.ROW_MAJOR_LAYOUT:
         raise RuntimeError("Can only tilize row major data")
-    
+
     # Check physical volume
     physical_vol = input_tensor.physical_volume()
     if physical_vol % TILE_HW != 0:
         raise RuntimeError(
             f"Input tensor physical volume ({physical_vol}) must be divisible by TILE_HW ({TILE_HW})"
         )
-    
-    # Check data type
-    valid_dtypes = [DataType.BFLOAT16, DataType.FLOAT32, DataType.UINT32, 
+
+    # Check data type - handle both DataType enums and numpy dtypes
+    # (Tensor class converts DataType to numpy dtype in __init__)
+    tensor_dtype = input_tensor.dtype
+    if isinstance(tensor_dtype, np.dtype):
+        # Convert numpy dtype back to DataType for validation
+        tensor_dtype = DataType.from_numpy(tensor_dtype)
+
+    valid_dtypes = [DataType.BFLOAT16, DataType.FLOAT32, DataType.UINT32,
                     DataType.INT32, DataType.UINT16]
-    if input_tensor.dtype not in valid_dtypes:
+    if tensor_dtype not in valid_dtypes:
         raise RuntimeError(
-            f"data type must be bfloat16, float32, uint32, int32, or uint16, was {input_tensor.dtype}"
+            f"Can only tilize bfloat16/float32 or int32/uint32/uint16 tensors"
         )
-    
+
     # Handle empty tensors
     if physical_vol == 0:
         output_shape = input_tensor.logical_shape()
@@ -1073,31 +1080,31 @@ def tilize(input_tensor, memory_config=None, output_dtype=None, use_multicore=Tr
             device=input_tensor.device,
             data=output_data
         )
-    
+
     # Handle rank > 4
     if input_tensor.logical_shape().rank() > 4:
         squeezed = squeeze_from_ND_to_4D(input_tensor, sub_core_grids)
-        result = tilize(squeezed, memory_config, output_dtype, use_multicore, 
+        result = tilize(squeezed, memory_config, output_dtype, use_multicore,
                        use_low_perf, sub_core_grids)
         # Unsqueeze back
-        return reshape(result, input_tensor.logical_shape(), 
+        return reshape(result, input_tensor.logical_shape(),
                      input_tensor.padded_shape(), memory_config, None, None, sub_core_grids)
-    
+
     # Calculate number of tiles
     padded_shape = input_tensor.padded_shape()
     num_tiles_per_row = padded_shape[-1] // TILE_WIDTH
     num_tiles_per_col = padded_shape[-2] // TILE_HEIGHT if len(padded_shape) >= 2 else 1
     num_tiles = num_tiles_per_row * num_tiles_per_col
-    
+
     # Calculate output shape (padded to tile boundaries)
     output_shape = input_tensor.logical_shape()
     output_padded = pad_to_tile_shape(output_shape._shape)
-    
+
     # Check execution mode
     mode = get_execution_mode()
     should_execute = (mode == ExecutionMode.EXECUTE or mode == ExecutionMode.EXECUTE_AND_TRACK)
     should_track = (mode == ExecutionMode.TRACK_ONLY or mode == ExecutionMode.EXECUTE_AND_TRACK)
-    
+
     # Perform actual tilize operation if in execute mode
     output_data = None
     if should_execute:
@@ -1111,7 +1118,7 @@ def tilize(input_tensor, memory_config=None, output_dtype=None, use_multicore=Tr
                 input_tensor.dtype,
                 0.0
             )
-        
+
         # Perform tilize
         output_data = _perform_tilize_operation(
             input_data,
@@ -1119,19 +1126,19 @@ def tilize(input_tensor, memory_config=None, output_dtype=None, use_multicore=Tr
             output_padded._shape,
             pad_value=0.0
         )
-    
+
     # Track operation if needed
     if should_track:
         element_size = input_tensor.element_size()
         _tracker.track_tilize(
-            input_tensor.logical_shape()._shape, 
+            input_tensor.logical_shape()._shape,
             num_tiles,
             num_tiles_per_row,
             num_tiles_per_col,
             use_multicore,
             element_size
         )
-    
+
     # Use the same tensor type among the different tensor types as the input tensor
     return type(input_tensor)(
         shape=output_shape,
@@ -1144,46 +1151,51 @@ def tilize(input_tensor, memory_config=None, output_dtype=None, use_multicore=Tr
     )
 
 
-def untilize(input_tensor, memory_config=None, use_multicore=True, 
+def untilize(input_tensor, memory_config=None, use_multicore=True,
              use_pack_untilize=True, sub_core_grids=None):
     """
     Untilize operation - converts TILE_LAYOUT to ROW_MAJOR_LAYOUT.
-    
+
     Args:
         input_tensor: Input tensor in TILE_LAYOUT
         memory_config: Optional output memory configuration
         use_multicore: Whether to use multicore (default: True)
         use_pack_untilize: Whether to use pack untilize (default: True)
         sub_core_grids: Optional sub-core grid specification
-    
+
     Returns:
         TensorProxy with ROW_MAJOR_LAYOUT
     """
     # Validation
     if input_tensor.storage_type() != "DEVICE":
         raise RuntimeError("Operands to untilize need to be on device!")
-    
+
     if input_tensor.buffer() is None:
         raise RuntimeError("Operands to untilize need to be allocated in buffers on device!")
-    
+
     if input_tensor.get_layout() != Layout.TILE_LAYOUT:
         raise RuntimeError("Can only untilize tile major data")
-    
+
     padded_shape = input_tensor.padded_shape()
     tensor_width = padded_shape[-1] if len(padded_shape) >= 1 else 1
     tensor_height = input_tensor.physical_volume() // tensor_width if tensor_width > 0 else 1
-    
+
     # Validate tile alignment
     if tensor_width % TILE_WIDTH != 0:
         raise RuntimeError("Width must be evenly divisible into tiles")
     if tensor_height % TILE_HEIGHT != 0:
         raise RuntimeError("Height must be evenly divisible into tiles")
-    
+
     # Check data type for pack untilize
+    # Handle both DataType enums and numpy dtypes
+    tensor_dtype = input_tensor.dtype
+    if isinstance(tensor_dtype, np.dtype):
+        tensor_dtype = DataType.from_numpy(tensor_dtype)
+
     if not use_pack_untilize:
-        if input_tensor.dtype in [DataType.UINT32, DataType.INT32]:
+        if tensor_dtype in [DataType.UINT32, DataType.INT32]:
             raise RuntimeError("Pack untilize must be enabled to support uint32/int32 data types")
-    
+
     # Handle empty tensors
     if input_tensor.physical_volume() == 0:
         # Preserve data if available (empty tensor case)
@@ -1199,31 +1211,31 @@ def untilize(input_tensor, memory_config=None, use_multicore=True,
             device=input_tensor.device,
             data=output_data
         )
-    
+
     # Handle rank > 4
     if input_tensor.logical_shape().rank() > 4:
         original_logical = input_tensor.logical_shape()
         original_padded = input_tensor.padded_shape()
         squeezed = squeeze_from_ND_to_4D(input_tensor)
-        result = untilize(squeezed, memory_config, use_multicore, 
+        result = untilize(squeezed, memory_config, use_multicore,
                          use_pack_untilize, sub_core_grids)
         # Unsqueeze back
-        return reshape(result, original_logical, original_padded, 
+        return reshape(result, original_logical, original_padded,
                      memory_config, None, None, sub_core_grids)
-    
+
     # Calculate number of tiles
     num_tiles_per_row = tensor_width // TILE_WIDTH
     num_tiles_per_col = tensor_height // TILE_HEIGHT
     num_tiles = num_tiles_per_row * num_tiles_per_col
-    
+
     # Output is unpadded (logical shape)
     output_shape = input_tensor.logical_shape()
-    
+
     # Check execution mode
     mode = get_execution_mode()
     should_execute = (mode == ExecutionMode.EXECUTE or mode == ExecutionMode.EXECUTE_AND_TRACK)
     should_track = (mode == ExecutionMode.TRACK_ONLY or mode == ExecutionMode.EXECUTE_AND_TRACK)
-    
+
     # Perform actual untilize operation if in execute mode
     output_data = None
     if should_execute:
@@ -1237,19 +1249,19 @@ def untilize(input_tensor, memory_config=None, use_multicore=True,
                 input_tensor.dtype,
                 0.0
             )
-        
+
         # Perform untilize
         output_data = _perform_untilize_operation(
             input_data,
             input_tensor.padded_shape()._shape,
             output_shape._shape
         )
-    
+
     # Track operation if needed
     if should_track:
         element_size = input_tensor.element_size()
         _tracker.track_untilize(
-            input_tensor.logical_shape()._shape, 
+            input_tensor.logical_shape()._shape,
             num_tiles,
             num_tiles_per_row,
             num_tiles_per_col,
@@ -1269,12 +1281,12 @@ def untilize(input_tensor, memory_config=None, use_multicore=True,
     )
 
 
-def tilize_with_val_padding(input_tensor, output_padded_shape, pad_value, 
-                            memory_config=None, output_dtype=None, 
+def tilize_with_val_padding(input_tensor, output_padded_shape, pad_value,
+                            memory_config=None, output_dtype=None,
                             use_multicore=True, sub_core_grids=None):
     """
     Tilize with value padding - converts ROW_MAJOR_LAYOUT to TILE_LAYOUT with padding.
-    
+
     Args:
         input_tensor: Input tensor in ROW_MAJOR_LAYOUT
         output_padded_shape: Target padded shape for output
@@ -1283,40 +1295,44 @@ def tilize_with_val_padding(input_tensor, output_padded_shape, pad_value,
         output_dtype: Optional output data type
         use_multicore: Whether to use multicore (default: True)
         sub_core_grids: Optional sub-core grid specification
-    
+
     Returns:
         TensorProxy with TILE_LAYOUT
     """
     # Validation
     if input_tensor.storage_type() != "DEVICE":
         raise RuntimeError("Operands need to be on device!")
-    
+
     if input_tensor.buffer() is None:
         raise RuntimeError("Operands need to be allocated in buffers on device!")
-    
+
     if input_tensor.get_layout() != Layout.ROW_MAJOR_LAYOUT:
         raise RuntimeError("Can only tilize row major data")
-    
-    # Check data type
-    valid_dtypes = [DataType.BFLOAT16, DataType.FLOAT32, DataType.UINT32, 
+
+    # Check data type - handle both DataType enums and numpy dtypes
+    tensor_dtype = input_tensor.dtype
+    if isinstance(tensor_dtype, np.dtype):
+        tensor_dtype = DataType.from_numpy(tensor_dtype)
+
+    valid_dtypes = [DataType.BFLOAT16, DataType.FLOAT32, DataType.UINT32,
                     DataType.INT32, DataType.UINT16]
-    if input_tensor.dtype not in valid_dtypes:
+    if tensor_dtype not in valid_dtypes:
         raise RuntimeError(
             "Can only tilize bfloat16/float32 or int32/uint32/uint16 tensors"
         )
-    
+
     # Handle shape input
     if isinstance(output_padded_shape, (list, tuple)):
         output_padded_shape = Shape(output_padded_shape)
     elif not isinstance(output_padded_shape, Shape):
         raise TypeError(f"Invalid output_padded_shape type: {type(output_padded_shape)}")
-    
+
     # Validate rank
     if output_padded_shape.rank() < 1:
         raise RuntimeError(
             f"Input tensor must be of rank >= 1, but its shape is {output_padded_shape}"
         )
-    
+
     # Handle empty tensors
     if input_tensor.physical_volume() == 0:
         # Preserve data if available (empty tensor case)
@@ -1332,7 +1348,7 @@ def tilize_with_val_padding(input_tensor, output_padded_shape, pad_value,
             device=input_tensor.device,
             data=output_data
         )
-    
+
     # Handle rank > 4
     if input_tensor.logical_shape().rank() > 4:
         squeezed = squeeze_from_ND_to_4D(input_tensor, sub_core_grids)
@@ -1342,20 +1358,20 @@ def tilize_with_val_padding(input_tensor, output_padded_shape, pad_value,
         # Unsqueeze back
         return reshape(result, input_tensor.logical_shape(), output_padded_shape,
                      memory_config, None, None, sub_core_grids)
-    
+
     # Calculate number of tiles
     num_tiles_per_row = output_padded_shape[-1] // TILE_WIDTH
     num_tiles_per_col = output_padded_shape[-2] // TILE_HEIGHT if len(output_padded_shape) >= 2 else 1
     num_tiles = num_tiles_per_row * num_tiles_per_col
-    
+
     # Output logical shape is same as input
     output_logical = input_tensor.logical_shape()
-    
+
     # Check execution mode
     mode = get_execution_mode()
     should_execute = (mode == ExecutionMode.EXECUTE or mode == ExecutionMode.EXECUTE_AND_TRACK)
     should_track = (mode == ExecutionMode.TRACK_ONLY or mode == ExecutionMode.EXECUTE_AND_TRACK)
-    
+
     # Perform actual tilize operation if in execute mode
     output_data = None
     if should_execute:
@@ -1369,7 +1385,7 @@ def tilize_with_val_padding(input_tensor, output_padded_shape, pad_value,
                 input_tensor.dtype,
                 0.0
             )
-        
+
         # Perform tilize with padding
         output_data = _perform_tilize_operation(
             input_data,
@@ -1377,7 +1393,7 @@ def tilize_with_val_padding(input_tensor, output_padded_shape, pad_value,
             output_padded_shape._shape,
             pad_value=pad_value
         )
-    
+
     # Track operation if needed
     if should_track:
         _tracker.track_tilize_with_val_padding(
@@ -1385,7 +1401,7 @@ def tilize_with_val_padding(input_tensor, output_padded_shape, pad_value,
             output_padded_shape._shape,
             num_tiles
         )
-    
+
     # Use the same tensor type among the different tensor types as the input tensor
     return type(input_tensor)(
         shape=output_logical,
@@ -1399,11 +1415,11 @@ def tilize_with_val_padding(input_tensor, output_padded_shape, pad_value,
 
 
 def untilize_with_unpadding(input_tensor, output_tensor_end, memory_config=None,
-                            use_multicore=True, use_pack_untilize=True, 
+                            use_multicore=True, use_pack_untilize=True,
                             sub_core_grids=None):
     """
     Untilize with unpadding - converts TILE_LAYOUT to ROW_MAJOR_LAYOUT with unpadding.
-    
+
     Args:
         input_tensor: Input tensor in TILE_LAYOUT
         output_tensor_end: Shape specifying the end indices for output (unpadded)
@@ -1411,26 +1427,26 @@ def untilize_with_unpadding(input_tensor, output_tensor_end, memory_config=None,
         use_multicore: Whether to use multicore (default: True)
         use_pack_untilize: Whether to use pack untilize (default: True)
         sub_core_grids: Optional sub-core grid specification
-    
+
     Returns:
         TensorProxy with ROW_MAJOR_LAYOUT
     """
     # Validation
     if input_tensor.storage_type() != "DEVICE":
         raise RuntimeError("Operands need to be on device!")
-    
+
     if input_tensor.buffer() is None:
         raise RuntimeError("Operands need to be allocated in buffers on device!")
-    
+
     if input_tensor.get_layout() != Layout.TILE_LAYOUT:
         raise RuntimeError("Can only untilize tile major data")
-    
+
     # Handle shape input
     if isinstance(output_tensor_end, (list, tuple)):
         output_tensor_end = Shape(output_tensor_end)
     elif not isinstance(output_tensor_end, Shape):
         raise TypeError(f"Invalid output_tensor_end type: {type(output_tensor_end)}")
-    
+
     # Handle empty tensors
     if input_tensor.physical_volume() == 0:
         output_shape = Shape([end + 1 for end in output_tensor_end._shape])
@@ -1446,7 +1462,7 @@ def untilize_with_unpadding(input_tensor, output_tensor_end, memory_config=None,
             device=input_tensor.device,
             data=output_data
         )
-    
+
     # Handle rank > 4
     if input_tensor.logical_shape().rank() > 4:
         original_logical = input_tensor.logical_shape()
@@ -1456,21 +1472,21 @@ def untilize_with_unpadding(input_tensor, output_tensor_end, memory_config=None,
                                         use_multicore, use_pack_untilize, sub_core_grids)
         # Unsqueeze back
         return reshape(result, original_logical, None, memory_config, None, None, sub_core_grids)
-    
+
     # Calculate output shape from end indices
     output_shape = Shape([end + 1 for end in output_tensor_end._shape])
-    
+
     # Calculate number of tiles
     padded_shape = input_tensor.padded_shape()
     num_tiles_per_row = padded_shape[-1] // TILE_WIDTH
     num_tiles_per_col = padded_shape[-2] // TILE_HEIGHT if len(padded_shape) >= 2 else 1
     num_tiles = num_tiles_per_row * num_tiles_per_col
-    
+
     # Check execution mode
     mode = get_execution_mode()
     should_execute = (mode == ExecutionMode.EXECUTE or mode == ExecutionMode.EXECUTE_AND_TRACK)
     should_track = (mode == ExecutionMode.TRACK_ONLY or mode == ExecutionMode.EXECUTE_AND_TRACK)
-    
+
     # Perform actual untilize operation if in execute mode
     output_data = None
     if should_execute:
@@ -1484,14 +1500,14 @@ def untilize_with_unpadding(input_tensor, output_tensor_end, memory_config=None,
                 input_tensor.dtype,
                 0.0
             )
-        
+
         # Perform untilize with unpadding
         output_data = _perform_untilize_operation(
             input_data,
             padded_shape._shape,
             output_shape._shape
         )
-    
+
     # Track operation if needed
     if should_track:
         _tracker.track_untilize_with_unpadding(
@@ -1499,7 +1515,7 @@ def untilize_with_unpadding(input_tensor, output_tensor_end, memory_config=None,
             output_shape._shape,
             num_tiles
         )
-    
+
     # Use the same tensor type among the different tensor types as the input tensor
     return type(input_tensor)(
         shape=output_shape,
@@ -1515,14 +1531,14 @@ def untilize_with_unpadding(input_tensor, output_tensor_end, memory_config=None,
 def to_layout(tensor, layout, dtype=None, memory_config=None, sub_core_grids=None):
     """
     Convert tensor to specified layout.
-    
+
     Args:
         tensor: Input tensor
         layout: Target layout (ROW_MAJOR_LAYOUT or TILE_LAYOUT)
         dtype: Optional output data type (only for TILE_LAYOUT conversion)
         memory_config: Optional output memory configuration
         sub_core_grids: Optional sub-core grid specification
-    
+
     Returns:
         TensorProxy with requested layout
     """
@@ -1530,11 +1546,11 @@ def to_layout(tensor, layout, dtype=None, memory_config=None, sub_core_grids=Non
     mode = get_execution_mode()
     should_execute = (mode == ExecutionMode.EXECUTE or mode == ExecutionMode.EXECUTE_AND_TRACK)
     should_track = (mode == ExecutionMode.TRACK_ONLY or mode == ExecutionMode.EXECUTE_AND_TRACK)
-    
+
     # Track operation if needed
     if should_track:
         _tracker.track_to_layout(tensor.get_layout(), layout)
-    
+
     # If already in requested layout
     if tensor.get_layout() == layout:
         # Check if dtype is specified when converting to ROW_MAJOR_LAYOUT (error case)
@@ -1556,17 +1572,17 @@ def to_layout(tensor, layout, dtype=None, memory_config=None, sub_core_grids=Non
                     "So, the memory_config won't be changed!"
                 )
         return tensor
-    
+
     # Validate supported layouts
     supported_layouts = [Layout.ROW_MAJOR_LAYOUT, Layout.TILE_LAYOUT]
     if layout not in supported_layouts:
         raise RuntimeError(
             f"ttnn::to_layout: Unsupported layout conversion from {tensor.get_layout()} to {layout}!"
         )
-    
+
     # Get output memory config
     output_memory_config = memory_config or tensor.memory_config() or DRAM_MEMORY_CONFIG
-    
+
     # Handle device tensors
     # Check if tensor has a buffer to distinguish real device tensors from host tensors (SHIM) with device reference
     # Host tensors may have a device but no buffer, and should use host conversion path
@@ -1581,7 +1597,7 @@ def to_layout(tensor, layout, dtype=None, memory_config=None, sub_core_grids=Non
 
     if is_device_tensor:
         needs_padding_change = requires_padding_change(tensor, layout)
-        
+
         if not needs_padding_change:
             # Simple conversion without padding change
             if layout == Layout.ROW_MAJOR_LAYOUT:
@@ -1619,11 +1635,11 @@ def to_layout(tensor, layout, dtype=None, memory_config=None, sub_core_grids=Non
                     raise RuntimeError(
                         "dtype cannot be different from tensor dtype when converting to ROW_MAJOR_LAYOUT on device!"
                     )
-                
+
                 # Calculate output shape (unpadded)
                 output_shape = tensor.logical_shape()
                 output_tensor_end = Shape([dim - 1 for dim in output_shape._shape])
-                
+
                 if should_execute:
                     result = untilize_with_unpadding(
                         tensor, output_tensor_end, output_memory_config, True, True, sub_core_grids
@@ -1639,12 +1655,12 @@ def to_layout(tensor, layout, dtype=None, memory_config=None, sub_core_grids=Non
                         padded_shape=output_shape,
                         device=tensor.device
                     )
-            
+
             elif layout == Layout.TILE_LAYOUT:
                 # Calculate padded output shape
                 logical_shape = tensor.logical_shape()
                 padded_output_shape = pad_to_tile_shape(logical_shape._shape)
-                
+
                 # Check for height sharded tensors (if memory_layout is set)
                 mem_config = tensor.memory_config()
                 if hasattr(mem_config, 'memory_layout') and mem_config.memory_layout == "HEIGHT_SHARDED":
@@ -1655,7 +1671,7 @@ def to_layout(tensor, layout, dtype=None, memory_config=None, sub_core_grids=Non
                         padding.append([0, padded_output_shape[-1] - logical_shape[-1]])
                     else:
                         padding = [[0, 0], [0, 0]]
-                    
+
                     if should_execute:
                         padded_tensor = pad(tensor, padding, 0, output_memory_config)
                         return tilize(padded_tensor, output_memory_config, dtype, True, False, sub_core_grids)
@@ -1691,7 +1707,7 @@ def to_layout(tensor, layout, dtype=None, memory_config=None, sub_core_grids=Non
         # Host tensor conversion
         if dtype is not None:
             raise RuntimeError("dtype cannot be specified when converting layout on host!")
-        
+
         # Perform actual data conversion if in execute mode
         output_data = None
         if should_execute and tensor.has_data():
@@ -1770,7 +1786,7 @@ def to_layout(tensor, layout, dtype=None, memory_config=None, sub_core_grids=Non
                     device=tensor.device,
                     data=output_data
                 )
-    
+
     raise RuntimeError(f"ttnn::to_layout: Unsupported output layout: {layout}!")
 
 
@@ -1779,28 +1795,32 @@ def tilize_with_zero_padding(input_tensor, memory_config=None, output_dtype=None
                             use_multicore=True, sub_core_grids=None):
     """
     Tilize with zero padding - convenience function that auto-calculates padded shape.
-    
+
     Args:
         input_tensor: Input tensor in ROW_MAJOR_LAYOUT
         memory_config: Optional output memory configuration
         output_dtype: Optional output data type
         use_multicore: Whether to use multicore (default: True)
         sub_core_grids: Optional sub-core grid specification
-    
+
     Returns:
         TensorProxy with TILE_LAYOUT
     """
     # Calculate padded shape
     padded_shape = input_tensor.padded_shape()
     padded_shape = pad_to_tile_shape(padded_shape._shape)
-    
-    # Determine pad value based on dtype
-    if input_tensor.dtype in [DataType.BFLOAT16, DataType.FLOAT32]:
+
+    # Determine pad value based on dtype - handle both DataType enums and numpy dtypes
+    tensor_dtype = input_tensor.dtype
+    if isinstance(tensor_dtype, np.dtype):
+        tensor_dtype = DataType.from_numpy(tensor_dtype)
+
+    if tensor_dtype in [DataType.BFLOAT16, DataType.FLOAT32]:
         pad_value = 0.0
     else:
         pad_value = 0
-    
+
     return tilize_with_val_padding(
-        input_tensor, padded_shape, pad_value, memory_config, output_dtype, 
+        input_tensor, padded_shape, pad_value, memory_config, output_dtype,
         use_multicore, sub_core_grids
     )

@@ -520,7 +520,7 @@ def expand_sinf(iTList, oTList, op, **kwargs):
 
     # Align shapes by prepending 1s to input_shape if needed
     if len(target_shape) > len(input_shape):
-        input_shape = [1] * (len(target_shape) - len(input_shape)) + input_shape
+        input_shape = [1] * (len(target_shape) - len(input_shape)) + list(input_shape)
 
     assert len(target_shape) == len(input_shape), f"Input & Target shapes length mismatch: {input_shape} vs {target_shape}"
     for i, (in_dim, tgt_dim) in enumerate(zip(input_shape, target_shape)):
