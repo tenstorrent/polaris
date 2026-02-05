@@ -7,8 +7,9 @@ markers = [
     "integration: integration tests",
 ]
 testpaths = ["tests"]
+ignore = ["tests/test_ttnn/reference"]
 pythonpath = "."
-addopts = "--durations=0"
+addopts = "--durations=0 --ignore=tests/test_ttnn/reference/"
 
 [tool.mypy]
 check_untyped_defs = true
