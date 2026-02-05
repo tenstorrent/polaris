@@ -10,6 +10,27 @@ LOG   = logger
 INFO  = LOG.info
 DEBUG = LOG.debug
 
+# Import compute functions for data propagation
+from ttsim.ops.desc.data_compute import (
+    compute_mish,
+    compute_sigmoid,
+    compute_relu,
+    compute_relu6,
+    compute_identity,
+    compute_tanh,
+    compute_exp,
+    compute_log,
+    compute_sqrt,
+    compute_softmax,
+    compute_clip,
+    compute_add,
+    compute_mul,
+    compute_sub,
+    compute_div,
+    compute_pow,
+    try_compute_data,
+)
+
 def update_output_tensor(op, in_tensor, out_tensor):
     assert in_tensor.check_shape(), f"ERROR: {op} Invalid Input SHAPE in {in_tensor}"
     if out_tensor.check_shape():
@@ -197,6 +218,24 @@ def unary_fwd(iTList, oTList, op, **kwargs):
     assert X.check_shape(), f"Input tensor shape not defined: {X}"
     Y.shape = X.shape
     Y.dtype = X.dtype
+
+    # Compute actual data if inputs have data
+    _unary_compute_funcs = {
+        'Mish': compute_mish,
+        'Sigmoid': compute_sigmoid,
+        'Relu': compute_relu,
+        'Relu6': compute_relu6,
+        'Identity': compute_identity,
+        'Tanh': compute_tanh,
+        'Exp': compute_exp,
+        'Log': compute_log,
+        'Sqrt': compute_sqrt,
+        'Softmax': compute_softmax,
+        'Clip': compute_clip,
+    }
+    if op.optype in _unary_compute_funcs:
+        Y.data = try_compute_data(_unary_compute_funcs[op.optype], iTList, op)
+
     optype2instr = {
             'Identity': {'mov': 0},
             'Clip'    : {'cmp': 2*Y.nelems(), 'mov': Y.nelems() },
@@ -328,6 +367,18 @@ def bidir_bcast(iTList, oTList, op, **kwargs):
     assert X1.check_shape(), f"Input tensor-1 shape not defined: {X1}"
     Y.shape = bidirectional_broadcast_shape_inference(X0.shape, X1.shape)
     Y.dtype = X0.dtype
+
+    # Compute actual data if inputs have data
+    _binary_compute_funcs = {
+        'Add': compute_add,
+        'Mul': compute_mul,
+        'Sub': compute_sub,
+        'Div': compute_div,
+        'Pow': compute_pow,
+    }
+    if op.optype in _binary_compute_funcs:
+        Y.data = try_compute_data(_binary_compute_funcs[op.optype], iTList, op)
+
     op.perf_stats =  {
             'inElems' : X0.nelems() + X1.nelems(),
             'outElems': Y.nelems(),

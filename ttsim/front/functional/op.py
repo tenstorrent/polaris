@@ -584,6 +584,19 @@ def AdaptiveAvgPool1d(name, adaptive=True, output_size=1, **kwargs):
                           **kwargs)
     return op_hndl
 
+def AdaptiveAvgPool2d(name, output_size=1, **kwargs):
+    # Implement as ReduceMean over spatial dimensions [2, 3] for 4D tensors (B, C, H, W)
+    # This achieves global average pooling: (b,c,h,w) → (b,c,1,1)
+    if output_size == 1:
+        # ReduceMean over axes [2, 3] (height and width) with keepdims=True
+        axes_tensor = _from_data(name + '.axes', np.array([2, 3], dtype=np.int64), is_param=False, is_const=True)
+        op_hndl = SimOpHandle(name, 'ReduceMean', params=[(1, axes_tensor)], ipos=[0], keepdims=1, **kwargs)
+        # Store axes_tensor as implicit input for ONNX export
+        op_hndl.implicit_inputs.append(axes_tensor)
+    else:
+        raise NotImplementedError(f"AdaptiveAvgPool2d with output_size={output_size} not yet supported. Only output_size=1 is implemented.")
+    return op_hndl
+
 def conv1d(name, **kwargs):
     op_hndl = SimOpHandle(
         name,
@@ -643,11 +656,23 @@ Gelu          = partial(UnaryOperator, optype='Gelu')
 Relu          = partial(UnaryOperator, optype='Relu')
 LeakyReLU     = partial(UnaryOperator, optype='LeakyRelu')
 Sigmoid       = partial(UnaryOperator, optype='Sigmoid')
+Mish          = partial(UnaryOperator, optype='Mish')
 AveragePool2d = partial(UnaryOperator, optype='AveragePool')
 Sum           = partial(UnaryOperator, optype='Sum')
 Mean          = partial(UnaryOperator, optype='Mean')
 Reciprocal    = partial(UnaryOperator, optype='Reciprocal')
 Hardswish     = partial(UnaryOperator, optype='HardSwish')
+
+# Added ReLU6 using Clip with min=0 and max=6
+def Relu6(name, **kwargs):
+    """ReLU6 = Clip(x, min=0, max=6)"""
+    min_tensor = _from_data(name + '.min', np.array([0.0], dtype=np.float32), is_const=True)
+    max_tensor = _from_data(name + '.max', np.array([6.0], dtype=np.float32), is_const=True)
+    op_hndl = SimOpHandle(name, 'Clip',
+                          params=[(1, min_tensor), (2, max_tensor)],
+                          ipos=[0],
+                          **kwargs)
+    return op_hndl
 
 #Binary Operators
 BinaryOperator = partial(UniversalOperator, params=[], ipos=[0,1])

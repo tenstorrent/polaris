@@ -8,6 +8,7 @@ from ttsim.ops.op import SimOp
 from ttsim.ops.tensor import make_tensor
 import ttsim.front.functional.op as F
 
+
 # Layer normalization's reference implementation
 def _layer_normalization(X, W, B, axis=-1, epsilon=1e-5):  # type: ignore
     X_shape = X.shape
@@ -56,72 +57,77 @@ def _layer_normalization(X, W, B, axis=-1, epsilon=1e-5):  # type: ignore
 
     return Y, X_mean, X_inv_std_dev
 
+
 def calculate_normalized_shape(X_shape, axis):  # type: ignore
     X_rank = len(X_shape)
     if axis < 0:
         axis = axis + X_rank
     return X_shape[axis:]
 
+
 # Test cases
-test_name  = 'test_layernorm'
+test_name = "test_layernorm"
 test_cases = [
-        {
-            'name': f"test_layer_normalization_4d",
-            'x'   : [2, 3, 4, 5],
-            'in'  : ["X", "W", "B"],
-            'out' : ["Y", "Mean", "InvStdDev"],
-            },
-        {
-            'name': "test_layer_normalization_default_axis",
-            'x'   : [2, 3, 4, 5],
-            'in'  : ["X", "W", "B"],
-            'out' : ["Y", "Mean", "InvStdDev"],
-            },
-        {
-            'name': "test_layer_normalization_2d",
-            'x'   : [3, 4],
-            'in'  : ["X", "W", "B"],
-            'out' : ["Y", "Mean", "InvStdDev"],
-            },
-        {
-            'name': f"test_layer_normalization_3d_epsilon",
-            'x'   : [2, 3, 5],
-            'in'  : ["X", "W", "B"],
-            'out' : ["Y", "Mean", "InvStdDev"],
-            'eps' : 1e-1,
-            },
+    {
+        "name": f"test_layer_normalization_4d",
+        "x": [2, 3, 4, 5],
+        "in": ["X", "W", "B"],
+        "out": ["Y", "Mean", "InvStdDev"],
+    },
+    {
+        "name": "test_layer_normalization_default_axis",
+        "x": [2, 3, 4, 5],
+        "in": ["X", "W", "B"],
+        "out": ["Y", "Mean", "InvStdDev"],
+    },
+    {
+        "name": "test_layer_normalization_2d",
+        "x": [3, 4],
+        "in": ["X", "W", "B"],
+        "out": ["Y", "Mean", "InvStdDev"],
+    },
+    {
+        "name": f"test_layer_normalization_3d_epsilon",
+        "x": [2, 3, 5],
+        "in": ["X", "W", "B"],
+        "out": ["Y", "Mean", "InvStdDev"],
+        "eps": 1e-1,
+    },
 ]
+
 
 @pytest.mark.unit
 @pytest.mark.opunit
 def test_layernorm():
     for trec in test_cases:
-        tname = trec['name'] #type: ignore
-        if tname.endswith('default_axis'):
+        tname = trec["name"]  # type: ignore
+        if tname.endswith("default_axis"):
             axes = [-1]
             names = [tname]
         else:
-            xrank = len(trec['x']) #type: ignore
-            axes  = [i for i in range(xrank)]
+            xrank = len(trec["x"])  # type: ignore
+            axes = [i for i in range(xrank)]
             axes += [i - xrank for i in range(xrank)]
-            names = [f'{tname}_neg_axis_{-a}' if a < 0 else f'{tname}_axis_{a}' for a in axes]
-        trec['axes']  = axes #type: ignore
-        trec['names'] = names #type: ignore
-    msgw = max([len(y) for x in test_cases for y in x['names']]) #type: ignore
+            names = [
+                f"{tname}_neg_axis_{-a}" if a < 0 else f"{tname}_axis_{a}" for a in axes
+            ]
+        trec["axes"] = axes  # type: ignore
+        trec["names"] = names  # type: ignore
+    msgw = max([len(y) for x in test_cases for y in x["names"]])  # type: ignore
     for tno, trec in enumerate(test_cases):
-        for cno, axis in enumerate(trec['axes']): #type: ignore
-            test_name = trec['names'][cno] #type: ignore
-            op_name = f'{test_name}_{tno}_{cno}'
+        for cno, axis in enumerate(trec["axes"]):  # type: ignore
+            test_name = trec["names"][cno]  # type: ignore
+            op_name = f"{test_name}_{tno}_{cno}"
 
-            XShape = trec['x'] #type: ignore
+            XShape = trec["x"]  # type: ignore
             normalized_shape = calculate_normalized_shape(XShape, axis)
             X = np.random.randn(*XShape).astype(np.float32)
             W = np.random.randn(*normalized_shape).astype(np.float32)
             B = np.random.randn(*normalized_shape).astype(np.float32)
-            attrs = {'axis': axis}
-            if 'eps' in trec: #type: ignore
-                eps = trec['eps'] #type: ignore
-                attrs['epsilon'] = eps
+            attrs = {"axis": axis}
+            if "eps" in trec:  # type: ignore
+                eps = trec["eps"]  # type: ignore
+                attrs["epsilon"] = eps
                 Y, mean, inv_std_dev = _layer_normalization(X, W, B, axis, eps)
             else:
                 Y, mean, inv_std_dev = _layer_normalization(X, W, B, axis)
@@ -130,26 +136,40 @@ def test_layernorm():
             o2Shape = list(inv_std_dev.shape)
 
             i_tensors = [
-                    F._from_shape('X', XShape,           np_dtype=np.float32), #data
-                    F._from_shape('W', normalized_shape, np_dtype=np.float32), #scale
-                    F._from_shape('B', normalized_shape, np_dtype=np.float32), #bias
-                    ]
-            o_tensors = [ make_tensor('Y'), make_tensor('mean'), make_tensor('inv_std_dev')]
+                F._from_shape("X", XShape, np_dtype=np.float32),  # data
+                F._from_shape("W", normalized_shape, np_dtype=np.float32),  # scale
+                F._from_shape("B", normalized_shape, np_dtype=np.float32),  # bias
+            ]
+            o_tensors = [
+                make_tensor("Y"),
+                make_tensor("mean"),
+                make_tensor("inv_std_dev"),
+            ]
             op_info = {
-                    'name'   : op_name,
-                    'optype' : 'LayerNormalization',
-                    'inList' : [x.name for x in i_tensors],
-                    'outList': [x.name for x in o_tensors],
-                    'attrs'  : attrs,
-                    }
+                "name": op_name,
+                "optype": "LayerNormalization",
+                "inList": [x.name for x in i_tensors],
+                "outList": [x.name for x in o_tensors],
+                "attrs": attrs,
+            }
             op_obj = SimOp(op_info)
-            for x in i_tensors: x.op_in  = [op_name]
-            for x in o_tensors: x.op_out = [op_name]
+            for x in i_tensors:
+                x.op_in = [op_name]
+            for x in o_tensors:
+                x.op_out = [op_name]
             op_obj.get_perf_counts(i_tensors, o_tensors)
 
-            assert o_tensors[0].shape == o0Shape, f"Y shape mismatch: {o_tensors[0].shape} != {o0Shape}"
-            assert o_tensors[1].shape == o1Shape, f"mean shape mismatch: {o_tensors[1].shape} != {o1Shape}"
-            assert o_tensors[2].shape == o2Shape, f"inv_std_dev shape mismatch: {o_tensors[2].shape} != {o2Shape}"
+            assert (
+                o_tensors[0].shape == o0Shape
+            ), f"Y shape mismatch: {o_tensors[0].shape} != {o0Shape}"
+            assert (
+                o_tensors[1].shape == o1Shape
+            ), f"mean shape mismatch: {o_tensors[1].shape} != {o1Shape}"
+            assert (
+                o_tensors[2].shape == o2Shape
+            ), f"inv_std_dev shape mismatch: {o_tensors[2].shape} != {o2Shape}"
 
-            eps_str = f"{eps:.2f}" if 'eps' in trec else '-' #type: ignore
-            print(f"TEST[{tno:3d}] CASE[{cno:4d}] {test_name:{msgw}s} axis={axis:3d} eps={eps_str} PASS")
+            eps_str = f"{eps:.2f}" if "eps" in trec else "-"  # type: ignore
+            print(
+                f"TEST[{tno:3d}] CASE[{cno:4d}] {test_name:{msgw}s} axis={axis:3d} eps={eps_str} PASS"
+            )

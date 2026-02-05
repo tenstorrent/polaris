@@ -50,6 +50,17 @@ workloads:
     instances:
       bert_base : { nL: 12, nH: 12, dE:  768, nW:  512}
       bert_large: { nL: 24, nH: 16, dE: 1024, nW:  512}
+
+  - api: TTSIM
+    name: ScaledYOLOv4
+    basedir: workloads/ScaledYOLOv4/models
+    module : Model@yolo.py
+    instances:
+      yolov4-csp       : {yaml_cfg_path: 'https://raw.githubusercontent.com/WongKinYiu/ScaledYOLOv4/refs/heads/yolov4-large/models/yolov4-csp.yaml', in_channels: 3, in_resolution: 640, bs: 1}
+      yolov4-p5        : {yaml_cfg_path: 'https://raw.githubusercontent.com/WongKinYiu/ScaledYOLOv4/refs/heads/yolov4-large/models/yolov4-p5.yaml',  in_channels: 3, in_resolution: 640, bs: 1}
+      yolov4-p6        : {yaml_cfg_path: 'https://raw.githubusercontent.com/WongKinYiu/ScaledYOLOv4/refs/heads/yolov4-large/models/yolov4-p6.yaml',  in_channels: 3, in_resolution: 640, bs: 1}
+      yolov4-p7        : {yaml_cfg_path: 'https://raw.githubusercontent.com/WongKinYiu/ScaledYOLOv4/refs/heads/yolov4-large/models/yolov4-p7.yaml',  in_channels: 3, in_resolution: 640, bs: 1}
+
   - api: TTSIM
     name: YOLOv7
     basedir: workloads

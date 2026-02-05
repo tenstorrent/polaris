@@ -53,7 +53,7 @@ op_rsrc_spec:
              Hardswish,
              Identity,
              LayerNormalization, LeakyRelu, Log,
-             MaxPool, Mean, Mul,
+             MaxPool, Mean, Mish, Mul,
              Neg, NonMaxSuppression,
              Pad, Permute, Pow,
              Reciprocal, ReduceMax, ReduceMean, ReduceSum, Relu, Reshape, Resize,

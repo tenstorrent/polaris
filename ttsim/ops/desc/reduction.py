@@ -79,6 +79,12 @@ def r1_func(iTList, oTList, op, **kwargs):
 
     oTList[0].shape = outShape
     oTList[0].dtype = dataT.dtype
+
+    # Compute data if inputs have data (for ReduceMean used by AdaptiveAvgPool2d)
+    if op.optype == 'ReduceMean':
+        from ttsim.ops.desc.data_compute import try_compute_data, compute_reducemean
+        oTList[0].data = try_compute_data(compute_reducemean, iTList, op)
+
     op.perf_stats = {
             'inElems' : sum([x.nelems() for x in iTList]),
             'inBytes' : sum([x.nbytes(op.precision) for x in iTList]),
