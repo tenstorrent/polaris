@@ -87,14 +87,23 @@ class ttSplRegs:
     TREG_NUMREGS    = 0
     TREG_STARTADDR  = 1
     TREG_ADDRSIZE   = 2
-    TREG_NUMBANKS   = 3
+    TREG_NUMSLICES  = 3
+    TREG_NUMBANKS   = 4
+
+    pipeRegABValX = 64;     pipeRegABValY = 16; pipeRegABNumSlices = 1;  pipeRegABNumBanks = 2
+    pipeRegDValX = 1024;    pipeRegDValY = 16;  pipeRegDNumSlices = 1;   pipeRegDNumBanks = 2
+    pipeRegSValX = 8;       pipeRegSValY = 16;  pipeRegSNumSlices = 3;   pipeRegSNumBanks = 2
+
+    BYTES_PER_REGISTER = 4
 
     def __init__(self,coreId, args):
         self.debug      = args['debug']
         self.args       = args
         self.coreId     = coreId
+        self.arch       = args['arch']
         ### REGISTERS
-        #       REGTYPE: NUM_REGISTERS, MMR_START, MMR_SIZE, NUM_BANKS
+        #       REGTYPE: NUM_REGISTERS, MMR_START, MMR_SIZE, NUM_BANKS, NUM_SLICES
+        #       MMR_SIZE = NUM_REGISTERS * NUM_SLICES * NUM_BANKS * BYTES_PER_REGISTER
         self.regTypeDict = {
             'cfg' : [
                 (args[MEMORY_MAP_KEY_TRISC_MAP][MEMORY_MAP_KEY_TRISC_MAP_CFG][MEMORY_MAP_KEY_END] - \
@@ -102,39 +111,45 @@ class ttSplRegs:
                  args[MEMORY_MAP_KEY_TRISC_MAP][MEMORY_MAP_KEY_TRISC_MAP_CFG][MEMORY_MAP_KEY_NUM_BYTES_PER_REG],
                 args[MEMORY_MAP_KEY_TRISC_MAP][MEMORY_MAP_KEY_TRISC_MAP_CFG][MEMORY_MAP_KEY_START],
                 (args[MEMORY_MAP_KEY_TRISC_MAP][MEMORY_MAP_KEY_TRISC_MAP_CFG][MEMORY_MAP_KEY_END] - \
-                 args[MEMORY_MAP_KEY_TRISC_MAP][MEMORY_MAP_KEY_TRISC_MAP_CFG][MEMORY_MAP_KEY_START]),
-                1,
+                 args[MEMORY_MAP_KEY_TRISC_MAP][MEMORY_MAP_KEY_TRISC_MAP_CFG][MEMORY_MAP_KEY_START]), 1, 1,
             ],
             'instrBuffer' : [
-                (args[MEMORY_MAP_KEY_TRISC_MAP][MEMORY_MAP_KEY_TRISC_MAP_INSTR_BUFFER][MEMORY_MAP_KEY_START]+4 -  args[MEMORY_MAP_KEY_TRISC_MAP][MEMORY_MAP_KEY_TRISC_MAP_INSTR_BUFFER][MEMORY_MAP_KEY_START])/\
+                (args[MEMORY_MAP_KEY_TRISC_MAP][MEMORY_MAP_KEY_TRISC_MAP_INSTR_BUFFER][MEMORY_MAP_KEY_START]+4 - \
+                 args[MEMORY_MAP_KEY_TRISC_MAP][MEMORY_MAP_KEY_TRISC_MAP_INSTR_BUFFER][MEMORY_MAP_KEY_START])/\
                  args[MEMORY_MAP_KEY_TRISC_MAP][MEMORY_MAP_KEY_TRISC_MAP_INSTR_BUFFER][MEMORY_MAP_KEY_NUM_BYTES_PER_REG],
                 args[MEMORY_MAP_KEY_TRISC_MAP][MEMORY_MAP_KEY_TRISC_MAP_INSTR_BUFFER][MEMORY_MAP_KEY_START],
-                (args[MEMORY_MAP_KEY_TRISC_MAP][MEMORY_MAP_KEY_TRISC_MAP_INSTR_BUFFER][MEMORY_MAP_KEY_START]+4 - args[MEMORY_MAP_KEY_TRISC_MAP][MEMORY_MAP_KEY_TRISC_MAP_INSTR_BUFFER][MEMORY_MAP_KEY_START]),
-                1,
+                (args[MEMORY_MAP_KEY_TRISC_MAP][MEMORY_MAP_KEY_TRISC_MAP_INSTR_BUFFER][MEMORY_MAP_KEY_START]+4 - \
+                 args[MEMORY_MAP_KEY_TRISC_MAP][MEMORY_MAP_KEY_TRISC_MAP_INSTR_BUFFER][MEMORY_MAP_KEY_START]), 1, 1,
             ],
             'mop' : [
                 64*MAX_THREADS,
                 args[MEMORY_MAP_KEY_TRISC_MAP][MEMORY_MAP_KEY_TRISC_MAP_MOP][MEMORY_MAP_KEY_START],
-                64,
-                1,
+                64, 1, 1,
             ],
             'mopSync' : [
                 MAX_THREADS,
                 args[MEMORY_MAP_KEY_TRISC_MAP][MEMORY_MAP_KEY_TRISC_MAP_PCBUFFER][MEMORY_MAP_KEY_START] + MEMORY_MAP_VALUE_TRISC_MAP_MOPSYNC,    # TODO: Get this from cfg itself
-                4,
-                1,
+                4, 1, 1,
             ],
             'idleSync' : [
                 MAX_THREADS,
                 args[MEMORY_MAP_KEY_TRISC_MAP][MEMORY_MAP_KEY_TRISC_MAP_PCBUFFER][MEMORY_MAP_KEY_START] + MEMORY_MAP_VALUE_TRISC_MAP_IDLESYNC,   # TODO: Get this from cfg itself
-                4,
-                1,
+                4, 1, 1,
             ],
             'ttsemaphores' : [
                 NUM_VARIABLES_PER_TTSEMAPHORE * NUM_TTSEMAPHORES_PER_BANK,
                 args[MEMORY_MAP_KEY_TRISC_MAP][MEMORY_MAP_KEY_TRISC_MAP_PCBUFFER][MEMORY_MAP_KEY_START] + MEMORY_MAP_VALUE_TRISC_MAP_SEMAPHORES,    #TODO: Get this from cfg itself
-                64,
-                32,                                                                                                                                 #There are most likely only 2 banks, but bank ID field width is 5 bits, so we set NUM_BANKS as 32.
+                64, 1, 32,                                                                                                                                 #There are most likely only 2 banks, but bank ID field width is 5 bits, so we set NUM_BANKS as 32.
+            ],
+            'pipeReg' : [
+                [1, -1,
+                 self.pipeRegABValX*self.pipeRegABValY*self.pipeRegABNumSlices*self.pipeRegABNumBanks * self.BYTES_PER_REGISTER, self.pipeRegABNumSlices, self.pipeRegABNumBanks],
+                [1, -1,
+                 self.pipeRegABValX*self.pipeRegABValY*self.pipeRegABNumSlices*self.pipeRegABNumBanks * self.BYTES_PER_REGISTER, self.pipeRegABNumSlices, self.pipeRegABNumBanks],
+                [1, -1,
+                  self.pipeRegSValX*self.pipeRegSValY*self.pipeRegSNumSlices*self.pipeRegSNumBanks * self.BYTES_PER_REGISTER, self.pipeRegSNumSlices, self.pipeRegSNumBanks],
+                [1, -1,
+                 self.pipeRegDValX*self.pipeRegDValY*self.pipeRegDNumSlices*self.pipeRegDNumBanks * self.BYTES_PER_REGISTER, self.pipeRegDNumSlices, self.pipeRegDNumBanks],
             ]
         }
         if(args['llkVersionTag'] in ["jul1", "jul27", "sep23"]):
@@ -147,6 +162,7 @@ class ttSplRegs:
                     args[MEMORY_MAP_KEY_TRISC_MAP][MEMORY_MAP_KEY_TRISC_MAP_TILE_COUNTERS][MEMORY_MAP_KEY_START],
                     # MMR_SIZE
                     int(args[MEMORY_MAP_KEY_TRISC_MAP][MEMORY_MAP_KEY_TRISC_MAP_TILE_COUNTERS][MEMORY_MAP_KEY_END] + 1 -  args[MEMORY_MAP_KEY_TRISC_MAP][MEMORY_MAP_KEY_TRISC_MAP_TILE_COUNTERS][MEMORY_MAP_KEY_START]),
+                    1,                  #NUM_SLICES
                     1,                  #NUM_BANKS
                 ]
             }
@@ -161,13 +177,29 @@ class ttSplRegs:
                     args[MEMORY_MAP_KEY_TRISC_MAP][MEMORY_MAP_KEY_TRISC_MAP_TILE_COUNTERS][MEMORY_MAP_KEY_START],
                     # MMR_SIZE
                     int(args[MEMORY_MAP_KEY_TRISC_MAP][MEMORY_MAP_KEY_TRISC_MAP_TILE_COUNTERS][MEMORY_MAP_KEY_END] + 1 -  args[MEMORY_MAP_KEY_TRISC_MAP][MEMORY_MAP_KEY_TRISC_MAP_TILE_COUNTERS][MEMORY_MAP_KEY_START]),
+                    1,                  #NUM_SLICES
                     1,                  #NUM_BANKS
                 ]
             }
         self.regTypeDict.update(tileCounters_RegDict)
 
         self.regTypes = [ key for key, val in self.regTypeDict.items() ]
-        self.regSizes = [ int(self.regTypeDict[key][0])*self.regTypeDict[key][3] for key,val in self.regTypeDict.items() ]
+        # self.regSizes = [ int(self.regTypeDict[key][self.TREG_NUMREGS])*self.regTypeDict[key][self.TREG_NUMBANKS] for key,val in self.regTypeDict.items() ]
+        # self.regSizeInBytes = [ int(self.regTypeDict[key][self.TREG_ADDRSIZE]) for key,val in self.regTypeDict.items() ]
+        self.regSizes = []
+        self.regSizeInBytes = []
+        for key,val in self.regTypeDict.items():
+            if(key == 'pipeReg'):
+                size = 0
+                sizeInBytes = 0
+                for subReg in range(len(self.regTypeDict[key])):
+                    size        += int(self.regTypeDict[key][subReg][self.TREG_NUMREGS])*self.regTypeDict[key][subReg][self.TREG_NUMBANKS]*self.regTypeDict[key][subReg][self.TREG_NUMSLICES]
+                    sizeInBytes += int(self.regTypeDict[key][subReg][self.TREG_ADDRSIZE])
+                self.regSizes.append(size)
+                self.regSizeInBytes.append(sizeInBytes)
+            else:
+                self.regSizes.append( int(self.regTypeDict[key][self.TREG_NUMREGS])*self.regTypeDict[key][self.TREG_NUMBANKS]*self.regTypeDict[key][self.TREG_NUMSLICES] )
+                self.regSizeInBytes.append( int(self.regTypeDict[key][self.TREG_ADDRSIZE]) )
 
         self.reg = {}
 
@@ -238,6 +270,7 @@ class ttSplRegs:
         offset = -1
         # 1. Check MMR or not
         for key, val in self.regTypeDict.items():
+            if(key in ['pipeReg']):   continue # pipeRegs are not MMRs
             if (addr in range(self.regTypeDict[key][1], (self.regTypeDict[key][1] + self.regTypeDict[key][2]))):
                 if(self.debug & DEBUG_TENSIX_HIGH_LEVEL):       print(f"Is MMR, addr={hex(addr)},type={key},AddrStart={hex(self.regTypeDict[key][1])},AddrEnd={hex(self.regTypeDict[key][1] + self.regTypeDict[key][2])}")
                 regTypeSel = key
@@ -375,8 +408,14 @@ class ttSplRegs:
         elif any(reg_name.endswith("_DEST_DVALID_CTRL_disable_auto_bank_id_toggle") for reg_name in regs_with_offsets.keys()):
             return "DEST_DVALID_CTRL"
 
+        elif any(reg_name.startswith("BUFFER_DESCRIPTOR_TABLE_REG") for reg_name in regs_with_offsets.keys()):
+            return "BUFFER_DESCRIPTOR_TABLE_REG"
         else:
             return "UNKNOWN"
+
+    def getSubRegsInCfgRegClass(self, offset: int):
+        regs_with_offsets = self.getCfgRegsInfowithOffset(offset)
+        return regs_with_offsets.keys()
 
     def updateDstRegBankId(self, offset: int):
         assert "DEST_TARGET_REG_CFG_MATH" == self.getCfgRegUpdateClass(offset)
@@ -461,6 +500,9 @@ class ttSplRegs:
                     f"condWriVld[{isaFunctions.regIndex.dst}][{context_id}] = {condWriVld[isaFunctions.regIndex.dst][context_id]} "
                     f"for instruction: {ins}")
 
+            case "BUFFER_DESCRIPTOR_TABLE_REG":
+                print(f"Buffer Descriptor Table Register Attributes: {self.getSubRegsInCfgRegClass(addr)}")
+
             case _:
                 print(f"WARNING: Unhandled special register (TENSIX) cfg[{addr}]. Current values: {self.readCfgRegswithOffset(addr)}. Instruction: {ins}")
 
@@ -524,18 +566,23 @@ class ttSplRegs:
         return (max_instrn_count + 1) * (max_instrn_loop_count + 1)
 
 class tensixFunc:
+    TTSPLREG_NAME = 0
+    TTSPLREG_VAL  = 1
+    # Constructor
     def __init__(self, coreId, mem, args, pipeGrps, pipes, tensixSplRegs, triscRegs):
         self.debug      = args['debug']
         self.args       = args
         self.pipeGrps   = pipeGrps
         self.pipes      = pipes
         self.coreId     = coreId
+        self.arch       = args['arch']
         #Memory Space.
         self.memData    = mem
         self.tensixSplRegs = tensixSplRegs
         self.triscRegs  = triscRegs
         print(args)
 
+    #Helper Functions
     def _compute_num_datums_from_row_cnt_enc(self, ins):
         """Helper method to compute ``numDatums`` based on the Row_Cnt_Enc attribute.
 
@@ -571,6 +618,79 @@ class tensixFunc:
                     assert False, f"Unhandled Row_Cnt_Enc value={row_cnt_enc} for instruction {ins.getOp()}"
         else:
             return 4 * 16
+
+    #Special Register Helper Functions - Returns [name, value]
+    def  getCBFormat(self, ins):
+        match self.arch:
+            case 'ttqs':
+                assert "Buffer_Descriptor_Table_Sel" in ins.getAttr(), f"Instruction {ins.getOp()} is expected to have Buffer_Descriptor_Table_Sel attribute to determine CB format"
+                regName = f'BUFFER_DESCRIPTOR_TABLE_REG{ins.getAttr()["Buffer_Descriptor_Table_Sel"]}_TILE_FORMAT'
+                regVal = self.tensixSplRegs.readCfgReg(regName)
+                return [regName,regVal]
+            case _:
+                assert False, f"Unsupported architecture: {self.arch}"
+
+    def  getCBDim(self, ins, dim):
+        match self.arch:
+            case 'ttqs':
+                assert "Buffer_Descriptor_Table_Sel" in ins.getAttr(), f"Instruction {ins.getOp()} is expected to have Buffer_Descriptor_Table_Sel attribute to determine CB format"
+                match dim:
+                    case 'X':
+                        regName = f'BUFFER_DESCRIPTOR_TABLE_REG{ins.getAttr()["Buffer_Descriptor_Table_Sel"]}_TILE_X_DIM'
+                    case 'Y':
+                        regName = f'BUFFER_DESCRIPTOR_TABLE_REG{ins.getAttr()["Buffer_Descriptor_Table_Sel"]}_TILE_Y_DIM'
+                    case 'Z':
+                        regName = f'BUFFER_DESCRIPTOR_TABLE_REG{ins.getAttr()["Buffer_Descriptor_Table_Sel"]}_TILE_Z_DIM'
+                    case _:
+                        assert dim in ['X', 'Y', 'Z'], f"Dimension must be either 'X', 'Y' or 'Z'. Received: {dim}"
+                regVal = self.tensixSplRegs.readCfgReg(regName)
+                return [regName,regVal]
+            case _:
+                assert False, f"Unsupported architecture: {self.arch}"
+
+    def getCBL1BaseAddr(self, ins):
+        match self.arch:
+            case 'ttqs':
+                assert "Buffer_Descriptor_Table_Sel" in ins.getAttr(), f"Instruction {ins.getOp()} is expected to have Buffer_Descriptor_Table_Sel attribute to determine CB format"
+                regName = f'BUFFER_DESCRIPTOR_TABLE_REG{ins.getAttr()["Buffer_Descriptor_Table_Sel"]}_L1_BASE_ADDR'
+                regVal = self.tensixSplRegs.readCfgReg(regName)
+                return [regName,regVal]
+            case _:
+                assert False, f"Unsupported architecture: {self.arch}"
+
+    def getCBL1LimitAddr(self, ins):
+        match self.arch:
+            case 'ttqs':
+                assert "Buffer_Descriptor_Table_Sel" in ins.getAttr(), f"Instruction {ins.getOp()} is expected to have Buffer_Descriptor_Table_Sel attribute to determine CB format"
+                regName = f'BUFFER_DESCRIPTOR_TABLE_REG{ins.getAttr()["Buffer_Descriptor_Table_Sel"]}_L1_LIMIT_ADDR'
+                regVal = self.tensixSplRegs.readCfgReg(regName)
+                return [regName,regVal]
+            case _:
+                assert False, f"Unsupported architecture: {self.arch}"
+
+    def getRegFormat(self, ins, exPipe):
+        match self.arch:
+            case 'ttqs':
+                if(exPipe in self.pipeGrps['UNPACK']):        regName = f'THCON_{exPipe}_REG0_OUT_DATA_FORMAT'
+                elif(exPipe in self.pipeGrps['PACK']):        regName = f'THCON_{exPipe}_REG0_IN_DATA_FORMAT'
+                else:
+                    assert False, f"Instruction {ins.getOp()} is expected to belong to either UNPACK or PACK pipe groups to determine register format. Current pipe groups: {self.pipeGrps}"
+
+                regVal = self.tensixSplRegs.readCfgReg(regName)
+                return [regName, regVal]
+            case _:
+                assert False, f"Unsupported architecture: {self.arch}"
+
+    def getNumDatums(self, ins):
+        match self.arch:
+            case 'ttqs':
+                allowedZYXCombinations = [[4,16,16], [1,16,16], [1,8,16], [1,4,16], [1,2,16], [1,1,16]]
+                assert [self.getCBDim(ins, 'Z')[self.TTSPLREG_VAL], self.getCBDim(ins, 'Y')[self.TTSPLREG_VAL], self.getCBDim(ins, 'X')[self.TTSPLREG_VAL]] in allowedZYXCombinations, f"Unexpected tile dimensions (Z,Y,X) = ({self.getCBDim(ins, 'Z')[self.TTSPLREG_VAL]}, {self.getCBDim(ins, 'Y')[self.TTSPLREG_VAL]}, {self.getCBDim(ins, 'X')[self.TTSPLREG_VAL]}) for instruction {ins.getOp()}. Expected dimensions are (4,16,16), (1,16,16), (1,8,16), (1,4,16), (1,2,16) or (1,1,16)"
+                return self.getCBDim(ins, 'Z')[self.TTSPLREG_VAL] * \
+                       self.getCBDim(ins, 'Y')[self.TTSPLREG_VAL] * \
+                       self.getCBDim(ins, 'X')[self.TTSPLREG_VAL]
+            case _:
+                assert False, f"Unsupported architecture: {self.arch}"
 
     def __execunpacrti__(self,ins):
         opList0 = ["UNPACR0_TILE_INC", "UNPACR1_TILE_INC", "UNPACR2_TILE_INC", "UNPACR_DEST_TILE_INC"]
@@ -631,23 +751,19 @@ class tensixFunc:
             else:
                 vldUpd[reg_id] = 0; bankUpd[reg_id] = 0; #dst
             exPipe = "UNPACKER0"
+        else:
+            assert False, f"Unhandled instruction {ins.getOp()}. Expected UNPACR0/1/2/DEST_TILE/FACE/ROW_INC"
 
         # Finding mapped formats and numDatums
         assert exPipe in self.pipes , str(exPipe) + " not found in configured engines"
-        bufferFormatReg = f'BUFFER_DESCRIPTOR_TABLE_REG{ins.getAttr()["Buffer_Descriptor_Table_Sel"]}_TILE_FORMAT'
-        outFormatReg = f'THCON_{exPipe}_REG0_OUT_DATA_FORMAT'
-        srcFormat = self.tensixSplRegs.readCfgReg(bufferFormatReg)
-        dstFormat = self.tensixSplRegs.readCfgReg(outFormatReg)
+        [bufferFormatReg, srcFormat]    = self.getCBFormat(ins)
+        [outFormatReg, dstFormat]       = self.getRegFormat(ins, exPipe)
         if self.debug & 0x8:            print(f"Reading cfgReg {bufferFormatReg} and {outFormatReg}. Setting srcFormat={srcFormat}, dstFormat={dstFormat}")
 
         assert isaFunctions.getNumBytesFromDataFormat(srcFormat) != None, f"Unsupported format {srcFormat} in {bufferFormatReg}"
         assert isaFunctions.getNumBytesFromDataFormat(dstFormat) != None, f"Unsupported format {dstFormat} in {outFormatReg}"
-        if("TILE" in ins.mnemonic):     numDatums = 32 * 32
-        elif("FACE" in ins.mnemonic):   numDatums = 16 * 16
-        elif("ROW" in ins.mnemonic):    numDatums = 1 * 16
-        else:
-            print(f"WARNING: Don't know how to calculate numDatums. Setting to 1")
-            numDatums = 1
+
+        numDatums = self.getNumDatums(ins)
         if self.debug & 0x8:            print(f"Computed srcSize={isaFunctions.getNumBytesFromDataFormat(srcFormat)}, dstSize={isaFunctions.getNumBytesFromDataFormat(dstFormat)} numDatums={numDatums}")
 
         ins.setSrcInt(src)
@@ -725,20 +841,14 @@ class tensixFunc:
 
         # Finding mapped formats and numDatums
         assert exPipe in self.pipes , str(exPipe) + " not found in configured engines"
-        bufferFormatReg = f'BUFFER_DESCRIPTOR_TABLE_REG{ins.getAttr()["Buffer_Descriptor_Table_Sel"]}_TILE_FORMAT'
-        outFormatReg = f'THCON_{exPipe}_REG0_OUT_DATA_FORMAT'
-        srcFormat = self.tensixSplRegs.readCfgReg(bufferFormatReg)
-        dstFormat = self.tensixSplRegs.readCfgReg(outFormatReg)
+        [bufferFormatReg, srcFormat]    = self.getCBFormat(ins)
+        [outFormatReg, dstFormat]       = self.getRegFormat(ins, exPipe)
         if self.debug & 0x8:            print(f"Reading cfgReg {bufferFormatReg} and {outFormatReg}. Setting srcFormat={srcFormat}, dstFormat={dstFormat}")
 
         assert isaFunctions.getNumBytesFromDataFormat(srcFormat) != None, f"Unsupported format {srcFormat} in {bufferFormatReg}"
         assert isaFunctions.getNumBytesFromDataFormat(dstFormat) != None, f"Unsupported format {dstFormat} in {outFormatReg}"
-        if("TILE" in ins.mnemonic):     numDatums = 32 * 32
-        elif("FACE" in ins.mnemonic):   numDatums = 16 * 16
-        elif("ROW" in ins.mnemonic):    numDatums = 1 * 16
-        else:
-            print(f"WARNING: Don't know how to calculate numDatums. Setting to 1")
-            numDatums = 1
+
+        numDatums = self.getNumDatums(ins)
         if self.debug & 0x8:            print(f"Computed srcSize={isaFunctions.getNumBytesFromDataFormat(srcFormat)}, dstSize={isaFunctions.getNumBytesFromDataFormat(dstFormat)} numDatums={numDatums}")
 
         ins.setSrcInt(src)
@@ -806,17 +916,18 @@ class tensixFunc:
 
         # Finding mapped formats and numDatums
         assert exPipe in self.pipes , str(exPipe) + " not found in configured engines"
-        bufferFormatReg = f'BUFFER_DESCRIPTOR_TABLE_REG{ins.getAttr()["Buffer_Descriptor_Table_Sel"]}_TILE_FORMAT'
-        outFormatReg = f'THCON_{exPipe}_REG0_OUT_DATA_FORMAT'
-        srcFormat = self.tensixSplRegs.readCfgReg(bufferFormatReg)
-        dstFormat = self.tensixSplRegs.readCfgReg(outFormatReg)
+        [bufferFormatReg, srcFormat]    = self.getCBFormat(ins)
+        [outFormatReg, dstFormat]       = self.getRegFormat(ins, exPipe)
         if self.debug & 0x8:            print(f"Reading cfgReg {bufferFormatReg} and {outFormatReg}. Setting srcFormat={srcFormat}, dstFormat={dstFormat}")
 
         assert isaFunctions.getNumBytesFromDataFormat(srcFormat) != None, f"Unsupported format {srcFormat} in {bufferFormatReg}"
         assert isaFunctions.getNumBytesFromDataFormat(dstFormat) != None, f"Unsupported format {dstFormat} in {outFormatReg}"
-        numDatums = 8 * 16  # TODO: Upto 8 Rows. Check for THCON_UNPACKER<0/1/2>_REG1_UNPACK_STRIDE_NO_WRITE
-                            # We can write at least 128 datums per cycle, so ignore because of no BW savings ?
-                            # Also check if THCON_UNPACKER0/1/2_REG1_UNPACK_STRIDE_ROW_MASK and THCON_UNPACKER0/1/2_REG1_UNPACK_STRIDE_ROW_MASK are needed
+        # TODO: Upto 8 Rows. Check for THCON_UNPACKER<0/1/2>_REG1_UNPACK_STRIDE_NO_WRITE
+        # We can write at least 128 datums per cycle, so ignore because of no BW savings ?
+        # Also check if THCON_UNPACKER0/1/2_REG1_UNPACK_STRIDE_ROW_MASK and THCON_UNPACKER0/1/2_REG1_UNPACK_STRIDE_ROW_MASK are needed
+        numDatums = self.getNumDatums(ins)
+        assert numDatums <= 8*16, f"Number of datums for stride instruction should be less than or equal to 128. Computed numDatums={numDatums} for instruction {ins.getOp()}"
+
         if self.debug & 0x8:            print(f"Computed srcSize={isaFunctions.getNumBytesFromDataFormat(srcFormat)}, dstSize={isaFunctions.getNumBytesFromDataFormat(dstFormat)} numDatums={numDatums}")
 
         ins.setSrcInt(src)
@@ -880,15 +991,13 @@ class tensixFunc:
 
         # Finding mapped formats and numDatums
         assert exPipe in self.pipes , str(exPipe) + " not found in configured engines"
-        bufferFormatReg = f'BUFFER_DESCRIPTOR_TABLE_REG{ins.getAttr()["Buffer_Descriptor_Table_Sel"]}_TILE_FORMAT'
-        outFormatReg = f'THCON_{exPipe}_REG0_OUT_DATA_FORMAT'
-        srcFormat = self.tensixSplRegs.readCfgReg(bufferFormatReg)
-        dstFormat = self.tensixSplRegs.readCfgReg(outFormatReg)
+        [bufferFormatReg, srcFormat]    = self.getCBFormat(ins)
+        [outFormatReg, dstFormat]       = self.getRegFormat(ins, exPipe)
         if self.debug & 0x8:            print(f"Reading cfgReg {bufferFormatReg} and {outFormatReg}. Setting srcFormat={srcFormat}, dstFormat={dstFormat}")
 
         assert isaFunctions.getNumBytesFromDataFormat(srcFormat) != None, f"Unsupported format {srcFormat} in {bufferFormatReg}"
         assert isaFunctions.getNumBytesFromDataFormat(dstFormat) != None, f"Unsupported format {dstFormat} in {outFormatReg}"
-        numDatums = 32 * 32     #Tile
+        numDatums = self.getNumDatums(ins) #TODO: Does it only expect full tiles
         if self.debug & 0x8:            print(f"Computed srcSize={isaFunctions.getNumBytesFromDataFormat(srcFormat)}, dstSize={isaFunctions.getNumBytesFromDataFormat(dstFormat)} numDatums={numDatums}")
 
         ins.setSrcInt(src)
@@ -948,10 +1057,8 @@ class tensixFunc:
 
         # Finding mapped formats and numDatums
         assert exPipe in self.pipes , str(exPipe) + " not found in configured engines"
-        bufferFormatReg = f'BUFFER_DESCRIPTOR_TABLE_REG{ins.getAttr()["Buffer_Descriptor_Table_Sel"]}_TILE_FORMAT'
-        outFormatReg = f'THCON_{exPipe}_REG0_OUT_DATA_FORMAT'
-        srcFormat = self.tensixSplRegs.readCfgReg(bufferFormatReg)
-        dstFormat = self.tensixSplRegs.readCfgReg(outFormatReg)
+        [bufferFormatReg, srcFormat]    = self.getCBFormat(ins)
+        [outFormatReg, dstFormat]       = self.getRegFormat(ins, exPipe)
         if self.debug & 0x8:            print(f"Reading cfgReg {bufferFormatReg} and {outFormatReg}. Setting srcFormat={srcFormat}, dstFormat={dstFormat}")
 
         assert isaFunctions.getNumBytesFromDataFormat(srcFormat) != None, f"Unsupported format {srcFormat} in {bufferFormatReg}"
@@ -1083,14 +1190,14 @@ class tensixFunc:
 
         # Finding mapped formats and numDatums
         assert exPipe in self.pipes , str(exPipe) + " not found in configured engines"
-        bufferFormatReg = f'BUFFER_DESCRIPTOR_TABLE_REG{ins.getAttr()["Buffer_Descriptor_Table_Sel"]}_TILE_FORMAT'
-        outFormatReg = f'THCON_{exPipe}_REG0_OUT_DATA_FORMAT'
-        srcFormat = self.tensixSplRegs.readCfgReg(bufferFormatReg)
-        dstFormat = self.tensixSplRegs.readCfgReg(outFormatReg)
+        [bufferFormatReg, srcFormat]    = self.getCBFormat(ins)
+        [outFormatReg, dstFormat]       = self.getRegFormat(ins, exPipe)
         if self.debug & 0x8:            print(f"Reading cfgReg {bufferFormatReg} and {outFormatReg}. Setting srcFormat={srcFormat}, dstFormat={dstFormat}")
 
         assert isaFunctions.getNumBytesFromDataFormat(srcFormat) != None, f"Unsupported format {srcFormat} in {bufferFormatReg}"
         assert isaFunctions.getNumBytesFromDataFormat(dstFormat) != None, f"Unsupported format {dstFormat} in {outFormatReg}"
+
+        #TODO: Pre-Quasar. Needs to be handled differently.
         numDatums = 16*16 #Tile
         if self.debug & 0x8:            print(f"Computed srcSize={isaFunctions.getNumBytesFromDataFormat(srcFormat)}, dstSize={isaFunctions.getNumBytesFromDataFormat(dstFormat)} numDatums={numDatums}")
 
@@ -1149,20 +1256,14 @@ class tensixFunc:
 
         # Finding mapped formats and numDatums
         assert exPipe in self.pipes , f"{exPipe} not found in configured engines"
-        bufferFormatReg = f'BUFFER_DESCRIPTOR_TABLE_REG{ins.getAttr()["Buffer_Descriptor_Table_Sel"]}_TILE_FORMAT'
-        outFormatReg = f'THCON_{exPipe}_REG0_IN_DATA_FORMAT'
-        srcFormat = self.tensixSplRegs.readCfgReg(outFormatReg)
-        dstFormat = self.tensixSplRegs.readCfgReg(bufferFormatReg)
+        [bufferFormatReg, dstFormat]    = self.getCBFormat(ins)
+        [outFormatReg, srcFormat]       = self.getRegFormat(ins, exPipe)
         if self.debug & 0x8:            print(f"Reading cfgReg {bufferFormatReg} and {outFormatReg}. Setting srcFormat={srcFormat}, dstFormat={dstFormat}")
 
         assert isaFunctions.getNumBytesFromDataFormat(srcFormat) != None, f"Unsupported format {srcFormat} in {bufferFormatReg}"
         assert isaFunctions.getNumBytesFromDataFormat(dstFormat) != None, f"Unsupported format {dstFormat} in {outFormatReg}"
-        if("TILE" in ins.mnemonic):     numDatums = 32 * 32
-        elif("FACE" in ins.mnemonic):   numDatums = 16 * 16
-        elif("ROW" in ins.mnemonic):    numDatums = 1 * 16
-        else:
-            print(f"WARNING: Don't know how to calculate numDatums. Setting to 1")
-            numDatums = 1
+
+        numDatums = self.getNumDatums(ins)
         if self.debug & 0x8:            print(f"Computed srcSize={isaFunctions.getNumBytesFromDataFormat(srcFormat)}, dstSize={isaFunctions.getNumBytesFromDataFormat(dstFormat)} numDatums={numDatums}")
 
         ins.setSrcInt(src)
@@ -1214,16 +1315,16 @@ class tensixFunc:
 
         # Finding mapped formats and numDatums
         assert exPipe in self.pipes , f"{exPipe} not found in configured engines"
-        bufferFormatReg = f'BUFFER_DESCRIPTOR_TABLE_REG{ins.getAttr()["Buffer_Descriptor_Table_Sel"]}_TILE_FORMAT'
-        outFormatReg = f'THCON_{exPipe}_REG0_IN_DATA_FORMAT'
-        srcFormat = self.tensixSplRegs.readCfgReg(outFormatReg)
-        dstFormat = self.tensixSplRegs.readCfgReg(bufferFormatReg)
+        [bufferFormatReg, dstFormat]    = self.getCBFormat(ins)
+        [outFormatReg, srcFormat]       = self.getRegFormat(ins, exPipe)
         if self.debug & 0x8:            print(f"Reading cfgReg {bufferFormatReg} and {outFormatReg}. Setting srcFormat={srcFormat}, dstFormat={dstFormat}")
 
         assert isaFunctions.getNumBytesFromDataFormat(srcFormat) != None, f"Unsupported format {srcFormat} in {bufferFormatReg}"
         assert isaFunctions.getNumBytesFromDataFormat(dstFormat) != None, f"Unsupported format {dstFormat} in {outFormatReg}"
-        numDatums = 4 * 16  # TODO: Upto 4 Rows. Check for THCON_PACKER<0/1>_REG3_PACK_STRIDE_NO_WRITE. A contiguous 64B with NoWrite Set could save a write.
-                            # We can write at least 64 datums per cycle, so ignore because of no BW savings ?
+        # TODO: Upto 4 Rows. Check for THCON_PACKER<0/1>_REG3_PACK_STRIDE_NO_WRITE. A contiguous 64B with NoWrite Set could save a write.
+        # We can write at least 64 datums per cycle, so ignore because of no BW savings ?
+        numDatums = self.getNumDatums(ins)
+        assert numDatums <= 4*16, f"Number of datums for stride instruction should be less than or equal to 64. Computed numDatums={numDatums} for instruction {ins.getOp()}"
         if self.debug & 0x8:            print(f"Computed srcSize={isaFunctions.getNumBytesFromDataFormat(srcFormat)}, dstSize={isaFunctions.getNumBytesFromDataFormat(dstFormat)} numDatums={numDatums}")
 
         ins.setSrcInt(src)
@@ -1275,10 +1376,8 @@ class tensixFunc:
 
         # Finding mapped formats and numDatums
         assert exPipe in self.pipes , f"{exPipe} not found in configured engines"
-        bufferFormatReg = f'BUFFER_DESCRIPTOR_TABLE_REG{ins.getAttr()["Buffer_Descriptor_Table_Sel"]}_TILE_FORMAT'
-        outFormatReg = f'THCON_{exPipe}_REG0_IN_DATA_FORMAT'
-        srcFormat = self.tensixSplRegs.readCfgReg(outFormatReg)
-        dstFormat = self.tensixSplRegs.readCfgReg(bufferFormatReg)
+        [bufferFormatReg, dstFormat]    = self.getCBFormat(ins)
+        [outFormatReg, srcFormat]       = self.getRegFormat(ins, exPipe)
         if self.debug & 0x8:            print(f"Reading cfgReg {bufferFormatReg} and {outFormatReg}. Setting srcFormat={srcFormat}, dstFormat={dstFormat}")
 
         assert isaFunctions.getNumBytesFromDataFormat(srcFormat) != None, f"Unsupported format {srcFormat} in {bufferFormatReg}"

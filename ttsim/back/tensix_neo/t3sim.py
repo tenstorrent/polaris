@@ -21,6 +21,7 @@ from ttsim.back.tensix_neo.isaFunctions import decodeElf, decodeFn, decodeInstr,
 from ttsim.back.tensix_neo.isaFunctions import instr
 from ttsim.back.tensix_neo.isaFunctions import THREADMAP
 from ttsim.back.tensix_neo.isaFunctions import valueStatus
+from ttsim.back.tensix_neo.isaFunctions import regIndex
 
 NOP = "0x2000000"
 enableSync      = True
@@ -854,7 +855,7 @@ class thread:
                 raise Exception(msg)
 
             instruction = copy.deepcopy(self.threadListofListsWithAddr[self.startKernel][targetAddr])
-            if self.debug & DEBUG_TENSIX_HIGH_LEVEL:   print(f'Cycle:{self.env.now} TCore{self.coreId} Thread{self.threadId} Address:{hex(targetAddr)} ObjectId:{hex(id(instruction))} Found Instruction in kernel {self.startKernel}: {instruction.mnemonic} ')
+            if self.debug & DEBUG_TENSIX_HIGH_LEVEL:   print(f'Cycle:{self.env.now} Addr:{hex(targetAddr)} TCore{self.coreId} Thread{self.threadId} ObjectId:{hex(id(instruction))} Found Instruction in kernel {self.startKernel}: {instruction.mnemonic} ')
             return(instruction)
         else:
             for i in range(len(self.allFnsRanges)):
@@ -871,7 +872,7 @@ class thread:
                     else:                               self.addrHist[targetAddr] = 1
 
                     instruction = copy.deepcopy(self.threadListofListsWithAddr[kernel][targetAddr])
-                    if self.debug & DEBUG_TENSIX_HIGH_LEVEL:   print(f'Cycle:{self.env.now} TCore{self.coreId} Thread{self.threadId} Address:{hex(targetAddr)} ObjectId:{hex(id(instruction))} Found Instruction in kernel {kernel}: {instruction.mnemonic} ')
+                    if self.debug & DEBUG_TENSIX_HIGH_LEVEL:   print(f'Cycle:{self.env.now} Addr:{hex(targetAddr)} TCore{self.coreId} Thread{self.threadId} ObjectId:{hex(id(instruction))} Found Instruction in kernel {kernel}: {instruction.mnemonic} ')
                     return(instruction)
 
         print("Could not find instruction at ", hex(targetAddr))
@@ -1248,9 +1249,10 @@ class thread:
             if(self.debug & DEBUG_TENSIX_MED_LEVEL):
                 print(f"Cycle:{self.env.now} Addr:{hex(pipeIns.getRelAddr())} TCore{self.coreId} Thread{pipeIns.getThread()} Pipe[{self.targetResource(pipeIns)}] Instruction:{pipeIns.mnemonic}: Waiting for pipe[{self.pipes[pipeIns.getSrcPipes()[i]]}] thread [{pipeIns.getPipesThreadId()}] Len of pipeCondCheck1={len(pipeCondCheck1)}, Len of srcPipes={len(pipeIns.getSrcPipes())}")
 
+        checkTime = self.env.now
         yield simpy.events.AllOf(self.env, pipeCondCheck1)
         if (self.debug & DEBUG_TENSIX_MED_LEVEL) and (len(pipeIns.getSrcPipes()) > 0):
-            print(f"Cycle:{self.env.now} Addr:{hex(pipeIns.getRelAddr())} TCore{self.coreId} Thread{pipeIns.getThread()} Pipe[{self.targetResource(pipeIns)}] Instruction:{pipeIns.mnemonic}: WaitRes completed")
+            print(f"Cycle:{self.env.now} Addr:{hex(pipeIns.getRelAddr())} TCore{self.coreId} Thread{pipeIns.getThread()} Pipe[{self.targetResource(pipeIns)}] Instruction:{pipeIns.mnemonic}: WaitRes completed. StallTime={self.env.now - checkTime}. Src Pipes Checked: {pipeIns.getSrcPipes()}")
 
     def _wait_on_exe_pipe(self, pipeIns):
         # Wait on execution pipe to be free
@@ -1516,6 +1518,7 @@ class tensixCore:
     PACKERFE_DELAY_CYCLES       = 3
     DEFAULT_INPUTFIFO_CAPACITY  = 2
     DEFAULT_L1_PORT_WIDTH       = 128
+    DEFAULT_L1_UNPACKER2_PACKER1_PORT_WIDTH = 64 
     DEFAULT_REG_PORT_WIDTH      = 256
 
     def __init__(self,env, args_dict, coreId, l1IBuffer, l1OBuffer):
@@ -1911,7 +1914,10 @@ class tensixCore:
             pipeIns = self.tensixPipeTrk[sourceReq.__getSrc__()][sourceReq.__getInsId__()]
 
             #Set portWidth - TODO: This should be configurable
-            l1PortWidth = self.DEFAULT_L1_PORT_WIDTH;   regPortWidth = self.DEFAULT_REG_PORT_WIDTH
+            if(self.pipes[pipeId] in ["UNPACKER2", "PACKER1"]):
+                l1PortWidth = self.DEFAULT_L1_UNPACKER2_PACKER1_PORT_WIDTH;   regPortWidth = self.DEFAULT_REG_PORT_WIDTH
+            else:
+                l1PortWidth = self.DEFAULT_L1_PORT_WIDTH;   regPortWidth = self.DEFAULT_REG_PORT_WIDTH
             portWidth = -1
 
             match sourceReq.__getOp__():
@@ -2507,8 +2513,11 @@ class tensixCore:
             if self.debug & DEBUG_TENSIX_MED_LEVEL:
                 print(f"Cycle:{self.env.now} TCore{self.coreId} Thread{req.__getThreadId__()} insId{req.__getInsId__()} req{req.__getReqId__()} reqOp={req.__getOp__()} parents={req.__getParentReqIds__()} Converting format by scaleFactor={scaleFactor}. Old ReqWidth={req.__getBytes__()} New ReqWidth={int(req.__getBytes__()*scaleFactor)}    Placing in outBuffer")
 
+            if(self.pipes[pipeId] in ["UNPACKER2", "PACKER1"]):     l1PortWidth = self.DEFAULT_L1_UNPACKER2_PACKER1_PORT_WIDTH
+            else:                                                   l1PortWidth = self.DEFAULT_L1_PORT_WIDTH
+
             if req.__getTarget__() == "L1":
-                assert accumReqs[pipeId] * self.DEFAULT_L1_PORT_WIDTH == accumBytes[pipeId], f"Cycle:{self.env.now} TCore{self.coreId} Thread{req.__getThreadId__()} insId{req.__getInsId__()} Accumulated Bytes {accumBytes[pipeId]}B does not match expected {accumReqs[pipeId] * self.DEFAULT_L1_PORT_WIDTH}B"
+                assert accumReqs[pipeId] * l1PortWidth == accumBytes[pipeId], f"Cycle:{self.env.now} TCore{self.coreId} Thread{req.__getThreadId__()} insId{req.__getInsId__()} Accumulated Bytes {accumBytes[pipeId]}B does not match expected {accumReqs[pipeId] * l1PortWidth}B"
                 if self.debug & DEBUG_TENSIX_MED_LEVEL:   print(f"Cycle:{self.env.now} TCore{self.coreId} Thread{req.__getThreadId__()} insId{req.__getInsId__()} req{req.__getReqId__()} reqOp={req.__getOp__()} reqBytes={req.__getBytes__()} parents={req.__getParentReqIds__()} Pipe={self.pipes[pipeId]} Target:{req.__getTarget__()} Accumulated Reqs={accumReqs[pipeId]} Accumulated Bytes={accumBytes[pipeId]}B TotalReqs={ins.getMemInfo('numTotalL1Reads')} ")
             elif req.__getTarget__() == "REG":
                 assert accumReqs[pipeId] * self.DEFAULT_REG_PORT_WIDTH == accumBytes[pipeId], f"Cycle:{self.env.now} TCore{self.coreId} Thread{req.__getThreadId__()} insId{req.__getInsId__()} Accumulated Bytes {accumBytes[pipeId]}B does not match expected {accumReqs[pipeId] * self.DEFAULT_REG_PORT_WIDTH}B"
@@ -2516,7 +2525,7 @@ class tensixCore:
             req.__setBytes__(int(req.__getBytes__()*scaleFactor))
             yield oBuf.put(req)
 
-            if ((req.__getTarget__() == "L1" and accumReqs[pipeId] == ins.getMemInfo('numTotalL1Reads') and accumBytes[pipeId] == ins.getMemInfo('numTotalL1Reads')*self.DEFAULT_L1_PORT_WIDTH)
+            if ((req.__getTarget__() == "L1" and accumReqs[pipeId] == ins.getMemInfo('numTotalL1Reads') and accumBytes[pipeId] == ins.getMemInfo('numTotalL1Reads')*l1PortWidth)
                 or (req.__getTarget__() == "REG" and accumReqs[pipeId] == ins.getMemInfo('numTotalRegReads') and accumBytes[pipeId] == ins.getMemInfo('numTotalRegReads')*self.DEFAULT_REG_PORT_WIDTH)):
                 accumBytes[pipeId] = 0
                 accumReqs[pipeId]  = 0
@@ -2576,7 +2585,7 @@ class tensixCore:
 
             # 3. Execution Delay
             # yield self.env.timeout(round(self.UNPACKERFE_DELAY_CYCLES))
-            if self.debug & DEBUG_TENSIX_MED_LEVEL:     print(f"Cycle:{self.env.now} Addr:{hex(pipeIns.getRelAddr())} TCore{self.coreId} Thread{pipeIns.getThread()} insId{pipeIns.getInsId()} TCoreFromInstr{pipeIns.getCoreId()} Instruction:{pipeIns.getOp()} Pipeline Stage 1 (done)      in pipe:{pipeIns.getExPipe()} ExecTime={self.env.now - execStartTime}")
+            if self.debug & DEBUG_TENSIX_MED_LEVEL:     print(f"Cycle:{self.env.now} Addr:{hex(pipeIns.getRelAddr())} TCore{self.coreId} Thread{pipeIns.getThread()} insId{pipeIns.getInsId()} TCoreFromInstr{pipeIns.getCoreId()} Instruction:{pipeIns.getOp()} Execution Pipeline Stage 1 (done)      in pipe:{pipeIns.getExPipe()} ExecTime={self.env.now - execStartTime}")
 
             self.tensixPipeTrk[pipeId][pipeIns.getInsId()] = pipeIns
 
@@ -2589,7 +2598,10 @@ class tensixCore:
 
             if (pipeIns.getOp() not in "POP_TILES" and pipeIns.getSrcSize() > 0):
                 # 4a bytes(L1 Req) = f(Input Format, Tile/Face/Row)
-                l1PortWidth = self.DEFAULT_L1_PORT_WIDTH; regPortWidth = self.DEFAULT_REG_PORT_WIDTH                       #TODO: This should come from args
+                if pipeIns.getExPipe() in ["UNPACKER2"]:
+                    l1PortWidth = self.DEFAULT_L1_UNPACKER2_PACKER1_PORT_WIDTH; regPortWidth = self.DEFAULT_REG_PORT_WIDTH                       #TODO: This should come from args
+                else:
+                    l1PortWidth = self.DEFAULT_L1_PORT_WIDTH; regPortWidth = self.DEFAULT_REG_PORT_WIDTH                       #TODO: This should come from args
 
                 # Src --> convert --> Dst
                 if self.debug & DEBUG_TENSIX_MED_LEVEL:
@@ -2802,7 +2814,10 @@ class tensixCore:
             pipeIns.setMemInfo("numL1WritesSent", 0);             pipeIns.setMemInfo("numL1WritesRcvd", 0);
 
             if (pipeIns.getOp() not in "PUSH_TILES" and pipeIns.getSrcSize() > 0):
-                l1PortWidth = self.DEFAULT_L1_PORT_WIDTH; regPortWidth = self.DEFAULT_REG_PORT_WIDTH  #TODO: This should come from args
+                if pipeIns.getExPipe() in ["PACKER1"]:
+                    l1PortWidth = self.DEFAULT_L1_UNPACKER2_PACKER1_PORT_WIDTH; regPortWidth = self.DEFAULT_REG_PORT_WIDTH  #TODO: This should come from args
+                else:
+                    l1PortWidth = self.DEFAULT_L1_PORT_WIDTH; regPortWidth = self.DEFAULT_REG_PORT_WIDTH  #TODO: This should come from args
 
                 # Src --> convert --> Dst
                 # Src Request
