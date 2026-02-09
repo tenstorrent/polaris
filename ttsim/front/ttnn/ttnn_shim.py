@@ -18,9 +18,12 @@ track compute and memory operations that would be required.
 from loguru import logger
 import numpy as np
 
+from ttsim.ops.op import SimOp
+
 from .tensor import DataType, Layout, Shape
 from .types import TILE_HEIGHT, TILE_WIDTH, TILE_HW
 from .tensor import Tensor
+from .op import generate_new_op_name
 
 # # Layout constants
 # class Layout:
@@ -1449,6 +1452,160 @@ def untilize_with_unpadding(input_tensor, output_tensor_end, memory_config=None,
         device=input_tensor.device,
         data=output_data
     )
+
+
+# =============================================================================
+# Layout operator APIs (SimOp-only; no execution, no _tracker)
+# =============================================================================
+
+def tilize_op(input_tensor, use_multicore=True, element_size=2, memory_config=None):
+    """
+    Create a Tilize SimOp and output tensor (tracking-only; no execution).
+    Output logical shape = input shape; padded = last two dims rounded up to tile.
+    """
+    assert input_tensor.device is not None, "tilize_op requires input_tensor on device"
+    op_name = generate_new_op_name()
+    out_logical = input_tensor.logical_shape()
+    out_padded = pad_to_tile_shape(out_logical._shape)
+    out_tensor = Tensor(
+        name=op_name + '.out',
+        shape=out_logical._shape,
+        dtype=input_tensor.dtype,
+        layout=Layout.TILE_LAYOUT,
+        padded_shape=out_padded._shape,
+        op_out=[op_name],
+        device=input_tensor.device,
+    )
+    input_tensor.op_in.append(op_name)
+    opinfo = {
+        'name': op_name,
+        'optype': 'Tilize',
+        'inList': [input_tensor.name],
+        'outList': [out_tensor.name],
+        'attrs': {'use_multicore': use_multicore, 'element_size': element_size},
+    }
+    opobj = SimOp(opinfo)
+    opobj.get_perf_counts([input_tensor], [out_tensor])
+    opobj.update_tensor_counts([input_tensor], [out_tensor])
+    input_tensor.device.add_op(opobj)
+    return out_tensor
+
+
+def untilize_op(input_tensor, use_multicore=True, use_pack_untilize=True, element_size=2, memory_config=None):
+    """
+    Create an Untilize SimOp and output tensor (tracking-only; no execution).
+    Output ROW_MAJOR, same logical shape as input.
+    """
+    assert input_tensor.device is not None, "untilize_op requires input_tensor on device"
+    op_name = generate_new_op_name()
+    out_shape = input_tensor.logical_shape()
+    out_tensor = Tensor(
+        name=op_name + '.out',
+        shape=out_shape._shape,
+        dtype=input_tensor.dtype,
+        layout=Layout.ROW_MAJOR_LAYOUT,
+        padded_shape=out_shape._shape,
+        op_out=[op_name],
+        device=input_tensor.device,
+    )
+    input_tensor.op_in.append(op_name)
+    opinfo = {
+        'name': op_name,
+        'optype': 'Untilize',
+        'inList': [input_tensor.name],
+        'outList': [out_tensor.name],
+        'attrs': {
+            'use_multicore': use_multicore,
+            'use_pack_untilize': use_pack_untilize,
+            'element_size': element_size,
+        },
+    }
+    opobj = SimOp(opinfo)
+    opobj.get_perf_counts([input_tensor], [out_tensor])
+    opobj.update_tensor_counts([input_tensor], [out_tensor])
+    input_tensor.device.add_op(opobj)
+    return out_tensor
+
+
+def tilize_with_val_padding_op(input_tensor, output_padded_shape, pad_value,
+                                use_multicore=True, element_size=2, memory_config=None):
+    """
+    Create a TilizeWithValPadding SimOp and output tensor (tracking-only; no execution).
+    output_padded_shape and pad_value are stored in op attrs.
+    """
+    assert input_tensor.device is not None, "tilize_with_val_padding_op requires input_tensor on device"
+    if isinstance(output_padded_shape, Shape):
+        output_padded_shape = output_padded_shape._shape
+    output_padded_shape = list(output_padded_shape)
+    op_name = generate_new_op_name()
+    out_logical = input_tensor.logical_shape()
+    out_tensor = Tensor(
+        name=op_name + '.out',
+        shape=out_logical._shape,
+        dtype=input_tensor.dtype,
+        layout=Layout.TILE_LAYOUT,
+        padded_shape=output_padded_shape,
+        op_out=[op_name],
+        device=input_tensor.device,
+    )
+    input_tensor.op_in.append(op_name)
+    opinfo = {
+        'name': op_name,
+        'optype': 'TilizeWithValPadding',
+        'inList': [input_tensor.name],
+        'outList': [out_tensor.name],
+        'attrs': {
+            'output_padded_shape': output_padded_shape,
+            'pad_value': pad_value,
+            'use_multicore': use_multicore,
+            'element_size': element_size,
+        },
+    }
+    opobj = SimOp(opinfo)
+    opobj.get_perf_counts([input_tensor], [out_tensor])
+    opobj.update_tensor_counts([input_tensor], [out_tensor])
+    input_tensor.device.add_op(opobj)
+    return out_tensor
+
+
+def untilize_with_unpadding_op(input_tensor, output_shape,
+                                use_multicore=True, use_pack_untilize=True, element_size=2, memory_config=None):
+    """
+    Create an UntilizeWithUnpadding SimOp and output tensor (tracking-only; no execution).
+    output_shape is the logical output shape (list or tuple); stored in op attrs.
+    """
+    assert input_tensor.device is not None, "untilize_with_unpadding_op requires input_tensor on device"
+    if isinstance(output_shape, Shape):
+        output_shape = output_shape._shape
+    output_shape = list(output_shape)
+    op_name = generate_new_op_name()
+    out_tensor = Tensor(
+        name=op_name + '.out',
+        shape=output_shape,
+        dtype=input_tensor.dtype,
+        layout=Layout.ROW_MAJOR_LAYOUT,
+        padded_shape=output_shape,
+        op_out=[op_name],
+        device=input_tensor.device,
+    )
+    input_tensor.op_in.append(op_name)
+    opinfo = {
+        'name': op_name,
+        'optype': 'UntilizeWithUnpadding',
+        'inList': [input_tensor.name],
+        'outList': [out_tensor.name],
+        'attrs': {
+            'output_shape': output_shape,
+            'use_multicore': use_multicore,
+            'use_pack_untilize': use_pack_untilize,
+            'element_size': element_size,
+        },
+    }
+    opobj = SimOp(opinfo)
+    opobj.get_perf_counts([input_tensor], [out_tensor])
+    opobj.update_tensor_counts([input_tensor], [out_tensor])
+    input_tensor.device.add_op(opobj)
+    return out_tensor
 
 
 def to_layout(tensor, layout, dtype=None, memory_config=None, sub_core_grids=None):
