@@ -41,12 +41,16 @@ def tilize_sinf(iTList, oTList, op, **kwargs):
     assert len(iTList) == 1 and len(oTList) == 1
     X = iTList[0]
     in_shape = list(X.shape) if X.shape is not None else []
+
+    # Output logical shape is unchanged: tilize only reorders data within tile boundaries.
     out_logical = in_shape
+    # Padded shape rounds last two dims up to TILE_HEIGHT/TILE_WIDTH so data fits in whole tiles.
     out_padded = _pad_to_tile_shape(in_shape) if len(in_shape) >= 2 else in_shape
 
     oTList[0].shape = out_logical
     oTList[0].dtype = X.dtype
 
+    # perf_stats: element counts and bytes for input (row-major) and output (tiled); instrs model data movement.
     elem_size = op.attrs.get('element_size', 2)
     in_elems = _nelems(in_shape)
     out_elems = _nelems(out_padded)
@@ -68,11 +72,14 @@ def untilize_sinf(iTList, oTList, op, **kwargs):
     assert len(iTList) == 1 and len(oTList) == 1
     X = iTList[0]
     in_shape = list(X.shape) if X.shape is not None else []
+
+    # Untilize preserves logical shape; output is row-major with same dimensions (no padding change in logical view).
     out_shape = in_shape
 
     oTList[0].shape = out_shape
     oTList[0].dtype = X.dtype
 
+    # perf_stats: same element count in and out (reshape only); bytes = elems * element_size; mov counts elements written.
     elem_size = op.attrs.get('element_size', 2)
     n = _nelems(in_shape)
     nbytes = n * elem_size
@@ -92,13 +99,17 @@ def tilize_with_val_padding_sinf(iTList, oTList, op, **kwargs):
     assert len(iTList) == 1 and len(oTList) == 1
     X = iTList[0]
     in_shape = list(X.shape) if X.shape is not None else []
+
+    # Output padded shape comes from op attrs (caller may request larger tile-aligned shape); fallback = tile-round input.
     output_padded_shape = op.attrs.get('output_padded_shape', _pad_to_tile_shape(in_shape))
     out_padded = list(output_padded_shape)
+    # Logical shape of output is still the input shape; only physical/padded layout is expanded.
     out_logical = in_shape
 
     oTList[0].shape = out_logical
     oTList[0].dtype = X.dtype
 
+    # perf_stats: in_elems from input shape, out_elems from padded shape (includes padding); mov = elements written out.
     elem_size = op.attrs.get('element_size', 2)
     in_elems = _nelems(in_shape)
     out_elems = _nelems(out_padded)
@@ -117,12 +128,15 @@ def untilize_with_unpadding_sinf(iTList, oTList, op, **kwargs):
     assert len(iTList) == 1 and len(oTList) == 1
     X = iTList[0]
     in_shape = list(X.shape) if X.shape is not None else []
+
+    # Output logical shape is given in attrs (unpadded/cropped size); input may be tile-padded, output is smaller.
     output_shape = op.attrs.get('output_shape', in_shape)
     out_shape = list(output_shape)
 
     oTList[0].shape = out_shape
     oTList[0].dtype = X.dtype
 
+    # perf_stats: in_elems from (possibly padded) input; out_elems from requested output shape; mov = elements written.
     elem_size = op.attrs.get('element_size', 2)
     in_elems = _nelems(in_shape)
     out_elems = _nelems(out_shape)

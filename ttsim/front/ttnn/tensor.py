@@ -209,11 +209,16 @@ class Tensor(SimTensor):
         self.fill_value = kwargs.get('fill_value', None)
         self._memory_config = None
         self._storage_type = "DEVICE" if self.device is not None else "HOST"
-        # TODO: Check if this is required here
-        # self._buffer = None if self.device is None else "buffer_placeholder"
+        # Essential for to_layout: device vs host is decided by buffer() is not None; without this,
+        # ttsim Tensors would always be treated as host and layout _op (tilize_op, etc.) would never be used.
+        self._buffer = None if self.device is None else "buffer_placeholder"
         if self.device:
             self.device.add_tensor(self)
         return
+
+    def buffer(self):
+        """Return the buffer placeholder when tensor is on device; None when on host. Used by to_layout to distinguish device vs host path."""
+        return getattr(self, '_buffer', None)
 
     def __str__(self):
         return f"{super().__str__()} ==> ttnn: {self.device}, {self.layout}"

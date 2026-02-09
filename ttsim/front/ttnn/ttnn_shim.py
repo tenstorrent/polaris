@@ -1625,9 +1625,7 @@ def to_layout(tensor, layout, dtype=None, memory_config=None, sub_core_grids=Non
     should_execute = (mode == ExecutionMode.EXECUTE or mode == ExecutionMode.EXECUTE_AND_TRACK)
     should_track = (mode == ExecutionMode.TRACK_ONLY or mode == ExecutionMode.EXECUTE_AND_TRACK)
 
-    # Track operation if needed
-    if should_track:
-        _tracker.track_to_layout(tensor.get_layout(), layout)
+    # When not executing, we either use operator-style SimOps (_op) or _tracker; tracking is done per-branch below.
 
     # If already in requested layout
     if tensor.get_layout() == layout:
@@ -1661,13 +1659,13 @@ def to_layout(tensor, layout, dtype=None, memory_config=None, sub_core_grids=Non
     output_memory_config = memory_config or tensor.memory_config() or DRAM_MEMORY_CONFIG
 
     # Handle device tensors
-    # Check if tensor has a buffer to distinguish real device tensors from host tensors (SHIM) with device reference
-    # Host tensors may have a device but no buffer, and should use host conversion path
+    # Check if tensor has a buffer to distinguish real device tensors from host tensors (SHIM) with device reference.
+    # ttsim Tensor sets _buffer to a placeholder when on device and implements buffer(); other types may have a real buffer.
     has_buffer = False
     if hasattr(tensor, 'buffer'):
         try:
             has_buffer = tensor.buffer() is not None
-        except:
+        except Exception:
             has_buffer = False
 
     is_device_tensor = tensor.storage_type() == "DEVICE" and has_buffer
@@ -1682,8 +1680,12 @@ def to_layout(tensor, layout, dtype=None, memory_config=None, sub_core_grids=Non
                     raise RuntimeError("dtype cannot be specified when converting to ROW_MAJOR_LAYOUT!")
                 if should_execute:
                     return untilize(tensor, output_memory_config, True, True, sub_core_grids)
+                elif should_track and tensor.device is not None and isinstance(tensor, Tensor):
+                    return untilize_op(tensor, use_multicore=True, use_pack_untilize=True, element_size=2, memory_config=output_memory_config)
                 else:
-                    # Use the same tensor type among the different tensor types as the input tensor
+                    # Not using untilize_op: input is not a ttsim Tensor (e.g. TensorProxy) or has no device; preserve API with tracker + manual tensor.
+                    if should_track:
+                        _tracker.track_to_layout(tensor.get_layout(), layout)
                     return type(tensor)(
                         shape=tensor.logical_shape(),
                         dtype=tensor.dtype,
@@ -1695,8 +1697,12 @@ def to_layout(tensor, layout, dtype=None, memory_config=None, sub_core_grids=Non
             elif layout == Layout.TILE_LAYOUT:
                 if should_execute:
                     return tilize(tensor, output_memory_config, dtype, True, False, sub_core_grids)
+                elif should_track and tensor.device is not None and isinstance(tensor, Tensor):
+                    return tilize_op(tensor, use_multicore=True, element_size=2, memory_config=output_memory_config)
                 else:
-                    # Use the same tensor type among the different tensor types as the input tensor
+                    # Not using tilize_op: input is not a ttsim Tensor (e.g. TensorProxy) or has no device; preserve API with tracker + manual tensor.
+                    if should_track:
+                        _tracker.track_to_layout(tensor.get_layout(), layout)
                     return type(tensor)(
                         shape=tensor.logical_shape(),
                         dtype=dtype or tensor.dtype,
@@ -1722,8 +1728,14 @@ def to_layout(tensor, layout, dtype=None, memory_config=None, sub_core_grids=Non
                         tensor, output_tensor_end, output_memory_config, True, True, sub_core_grids
                     )
                     return reshape(result, output_shape, None, None, None, sub_core_grids)
+                elif should_track and tensor.device is not None and isinstance(tensor, Tensor):
+                    return untilize_with_unpadding_op(
+                        tensor, output_shape._shape, use_multicore=True, use_pack_untilize=True, element_size=2, memory_config=output_memory_config
+                    )
                 else:
-                    # Use the same tensor type among the different tensor types as the input tensor
+                    # Not using untilize_with_unpadding_op: input is not a ttsim Tensor or has no device; preserve API with tracker + manual tensor.
+                    if should_track:
+                        _tracker.track_to_layout(tensor.get_layout(), layout)
                     return type(tensor)(
                         shape=output_shape,
                         dtype=tensor.dtype,
@@ -1740,6 +1752,7 @@ def to_layout(tensor, layout, dtype=None, memory_config=None, sub_core_grids=Non
                 mem_config = tensor.memory_config()
                 if hasattr(mem_config, 'memory_layout') and mem_config.memory_layout == "HEIGHT_SHARDED":
                     # Use pad + tilize for height sharded
+                    # Not using tilize_op / tilize_with_val_padding_op: this path is pad-then-tilize (two ops); there is no layout Pad op, and we do not create an intermediate padded tensor in track-only mode.
                     padding = [[0, 0], [0, 0]]
                     if len(logical_shape) >= 2:
                         padding.append([0, padded_output_shape[-2] - logical_shape[-2]])
@@ -1750,7 +1763,8 @@ def to_layout(tensor, layout, dtype=None, memory_config=None, sub_core_grids=Non
                         padded_tensor = pad(tensor, padding, 0, output_memory_config)
                         return tilize(padded_tensor, output_memory_config, dtype, True, False, sub_core_grids)
                     else:
-                        # Use the same tensor type among the different tensor types as the input tensor
+                        if should_track:
+                            _tracker.track_to_layout(tensor.get_layout(), layout)
                         return type(tensor)(
                             shape=logical_shape,
                             dtype=dtype or tensor.dtype,
@@ -1766,9 +1780,14 @@ def to_layout(tensor, layout, dtype=None, memory_config=None, sub_core_grids=Non
                         return tilize_with_val_padding(
                             tensor, padded_output_shape, pad_value, output_memory_config, dtype, True, sub_core_grids
                         )
+                    elif should_track and tensor.device is not None and isinstance(tensor, Tensor):
+                        return tilize_with_val_padding_op(
+                            tensor, padded_output_shape._shape, pad_value, use_multicore=True, element_size=2, memory_config=output_memory_config
+                        )
                     else:
-                        logger.warning('device is {}', tensor.device)
-                        # Use the same tensor type among the different tensor types as the input tensor
+                        # Not using tilize_with_val_padding_op: input is not a ttsim Tensor or has no device; preserve API with tracker + manual tensor.
+                        if should_track:
+                            _tracker.track_to_layout(tensor.get_layout(), layout)
                         return type(tensor)(
                             shape=logical_shape,
                             dtype=dtype or tensor.dtype,
@@ -1778,7 +1797,7 @@ def to_layout(tensor, layout, dtype=None, memory_config=None, sub_core_grids=Non
                             device=tensor.device
                         )
     else:
-        # Host tensor conversion
+        # Host tensor conversion: not using tiling _op (tilize_op, untilize_op, etc.); layout SimOps are for device op graph only; host path uses in-process conversion and tracker.
         if dtype is not None:
             raise RuntimeError("dtype cannot be specified when converting layout on host!")
 
@@ -1819,8 +1838,9 @@ def to_layout(tensor, layout, dtype=None, memory_config=None, sub_core_grids=Non
                     output_data = input_data
 
         if not requires_padding_change(tensor, layout):
-            # Simple conversion - just change layout attribute
-            # Use the same tensor type among the different tensor types as the input tensor
+            # Simple conversion - just change layout attribute (host path; tiling _op not used—see host comment above).
+            if should_track:
+                _tracker.track_to_layout(tensor.get_layout(), layout)
             return type(tensor)(
                 shape=tensor.logical_shape(),
                 dtype=tensor.dtype,
@@ -1832,8 +1852,10 @@ def to_layout(tensor, layout, dtype=None, memory_config=None, sub_core_grids=Non
             )
         else:
             if layout == Layout.ROW_MAJOR_LAYOUT:
+                # Host path with padding change (tiling _op not used—see host comment above).
+                if should_track:
+                    _tracker.track_to_layout(tensor.get_layout(), layout)
                 # Convert to row major and unpad
-                # Use the same tensor type among the different tensor types as the input tensor
                 result = type(tensor)(
                     shape=tensor.logical_shape(),
                     dtype=tensor.dtype,
@@ -1845,12 +1867,14 @@ def to_layout(tensor, layout, dtype=None, memory_config=None, sub_core_grids=Non
                 )
                 return reshape(result, tensor.logical_shape(), None, None, None, sub_core_grids)
             elif layout == Layout.TILE_LAYOUT:
+                # Host path with padding change (tiling _op not used—see host comment above).
+                if should_track:
+                    _tracker.track_to_layout(tensor.get_layout(), layout)
                 # Pad and convert to tile
                 logical_shape = tensor.logical_shape()
                 padded_output_shape = pad_to_tile_shape(logical_shape._shape)
 
                 # Convert to tile layout
-                # Use the same tensor type among the different tensor types as the input tensor
                 return type(tensor)(
                     shape=logical_shape,
                     dtype=tensor.dtype,
