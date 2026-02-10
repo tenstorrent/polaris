@@ -405,7 +405,7 @@ def get_default_instruction_set_file_name(instr_kind: instruction_kind) -> str:
     return file_name_incl_path
 
 def get_instruction_kinds_rv32_tensix_attributes_dict():
-    rv32_ttwh_attr: list[str] = ["riscv_rv32i2p0_m2p0_xttwh1p0", "riscv_rv32i2p0_m2p0_zmmul1p0_xttwh1p0", "riscvrv32i2p0_m2p0_xttwh1p0"]
+    rv32_ttwh_attr: list[str] = ["riscv_rv32i2p0_m2p0_zmmul1p0", "riscv_rv32i2p0_m2p0_xttwh1p0", "riscv_rv32i2p0_m2p0_zmmul1p0_xttwh1p0", "riscvrv32i2p0_m2p0_xttwh1p0", "riscv_rv32i2p0_m2p0_zmmul1p0_xtttensixwh1p0"]
     rv32_ttbh_attr: list[str] = ["riscv_rv32i2p0_m2p0_xttbh1p0", "riscv#rv32i2p0_m2p0_xttbh1p0", "riscvrv32i2p0_m2p0_xttbh1p0"]
     rv32_ttqs_attr: list[str] = ["riscv_rv32i2p0_m2p0_a2p0_f2p0_v1p0_zfh0p1_zvamo1p0_zvlsseg1p0", "riscvDrv32i2p0_m2p0_a2p0_f2p0_v1p0_zfh0p1_zvamo1p0_zvlsseg1p0", "riscv@rv32i2p0_m2p0_a2p0_f2p0_v1p0_zfh0p1_zvamo1p0_zvlsseg1p0"]
 
