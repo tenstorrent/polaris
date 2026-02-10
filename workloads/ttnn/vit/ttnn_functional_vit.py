@@ -92,6 +92,7 @@ def vit_attention(
 
     query = hidden_states @ parameters.attention.query.weight
     query = query + parameters.attention.query.bias
+    query.layout = ttnn.TILE_LAYOUT
     query = ttnn.to_layout(query, layout=ttnn.ROW_MAJOR_LAYOUT)
     query = ttnn.reshape(query, (batch_size, sequence_size, num_heads, head_size))
     query = ttnn.to_layout(query, layout=ttnn.TILE_LAYOUT)
@@ -99,6 +100,7 @@ def vit_attention(
 
     key = hidden_states @ parameters.attention.key.weight
     key = key + parameters.attention.key.bias
+    key.layout = ttnn.TILE_LAYOUT
     key = ttnn.to_layout(key, layout=ttnn.ROW_MAJOR_LAYOUT)
     key = ttnn.reshape(key, (batch_size, sequence_size, num_heads, head_size))
     key = ttnn.to_layout(key, layout=ttnn.TILE_LAYOUT)
@@ -106,6 +108,7 @@ def vit_attention(
 
     value = hidden_states @ parameters.attention.value.weight
     value = value + parameters.attention.value.bias
+    value.layout = ttnn.TILE_LAYOUT
     value = ttnn.to_layout(value, layout=ttnn.ROW_MAJOR_LAYOUT)
     value = ttnn.reshape(value, (batch_size, sequence_size, num_heads, head_size))
     value = ttnn.to_layout(value, layout=ttnn.TILE_LAYOUT)
@@ -120,6 +123,7 @@ def vit_attention(
 
     context_layer = attention_probs @ value
     context_layer = ttnn.permute(context_layer, (0, 2, 1, 3))
+    context_layer.layout = ttnn.TILE_LAYOUT
     context_layer = ttnn.to_layout(context_layer, ttnn.ROW_MAJOR_LAYOUT)
     context_layer = ttnn.reshape(context_layer, (batch_size, sequence_size, hidden_size))
     context_layer = ttnn.to_layout(context_layer, ttnn.TILE_LAYOUT)

@@ -119,8 +119,12 @@ def test_vit_attention(device, model_name="google/vit-base-patch16-224",
         attention_mask = ttnn.from_torch(torch_attention_mask, layout=ttnn.TILE_LAYOUT, device=device)
     else:
         config = config_obj  # type: ignore[assignment]
-        hidden_states = torch_random((batch_size, sequence_size, config.hidden_size), -0.1, 0.1, dtype=torch.bfloat16)
-        attention_mask = ttnn.ones(1, sequence_size, dtype=torch.bfloat16)
+        # NOTE: .to(ttnn.TILE_LAYOUT) is a no-op for ttsim Tensor; only affects host tensors.
+        # NOTE: HW code uses from_torch to create tensors in TILE_LAYOUT.
+        # NOTE: Without TILE_LAYOUT here, the untilize ops will not be used
+        torch_hidden_states = torch_random((batch_size, sequence_size, config.hidden_size), -0.1, 0.1, dtype=torch.bfloat16)
+        hidden_states = ttnn.from_torch(torch_hidden_states, layout=ttnn.TILE_LAYOUT)
+        attention_mask = ttnn.ones(1, sequence_size, dtype=torch.bfloat16, layout=ttnn.TILE_LAYOUT)
         parameters = Parameters_qkv()
     output = ttnn_functional_vit.vit_attention(
         config,
