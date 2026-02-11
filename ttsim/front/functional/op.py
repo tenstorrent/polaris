@@ -137,6 +137,63 @@ class SimOpHandle:
 
         return self.otensor
 
+# MultiOutputSimOpHandle mirrors SimOpHandle but materializes a list of
+# output SimTensors, enabling ops like TopK that produce multiple values.
+class MultiOutputSimOpHandle:
+    def __init__(self, name, optype, /, params, ipos, num_outputs, **kwargs):
+        self.name        = name
+        self.optype      = optype
+        self.opinfo      = get_opinfo(name, optype, **kwargs)
+        self.params      = params
+        self.ipos        = ipos
+        self.num_outputs = num_outputs
+        self.sim_op      = None
+        self.otensors    = []
+        self.perf_stats  = None
+        self.implicit_inputs = []
+        self.link_module = None
+        check_required_attrs(name, optype, required_attrs(optype), **kwargs)
+
+    def set_module(self, m):
+        if self.link_module is None:
+            self.link_module = m
+
+    def __call__(self, *xargs):
+        assert len(xargs) == len(self.ipos), (
+            f"Length for inputs {len(xargs)} & ipos {len(self.ipos)} don't match"
+        )
+
+        all_itensors = self.params + list(zip(self.ipos, xargs))
+        sorted_all_itensors = sorted(all_itensors, key=lambda v: v[0])
+        xinput = [x for _, x in sorted_all_itensors]
+
+        for tensor in xinput:
+            tensor.op_in.append(self.name)
+            self.opinfo['inList'].append(tensor.name)
+
+        self.otensors = [
+            SimTensor({'name': f"{self.name}.out.{idx}", 'op_out': [self.name]})
+            for idx in range(self.num_outputs)
+        ]
+        self.opinfo['outList'] = [tensor.name for tensor in self.otensors]
+
+        default_dtype = xinput[0].dtype if xinput else np.float32
+        self.sim_op = get_sim_op(self.opinfo, default_dtype=default_dtype)
+
+        self.perf_stats = self.sim_op.get_perf_counts(xinput, self.otensors)
+        self.sim_op.update_tensor_counts(xinput, self.otensors)
+
+        if self.link_module is not None:
+            for tensor in self.otensors:
+                tensor.link_module = self.link_module
+                if tensor.name not in self.link_module._tensors:
+                    self.link_module._tensors[tensor.name] = tensor
+            for _, param_tensor in self.params:
+                if param_tensor.name not in self.link_module._tensors:
+                    self.link_module._tensors[param_tensor.name] = param_tensor
+
+        return self.otensors
+
 # SimOpHandle assumes only N inputs/params & 1 output
 # Split has variadic outputs, need special handling
 class SplitOpHandle:
@@ -545,6 +602,18 @@ def ReduceSum(name: str, axis: int, **kwargs):
 def permute(name, dims, **kwargs):
     kwargs['perm'] = dims
     op_hndl = SimOpHandle(name, 'Transpose', params=[], ipos=[0], **kwargs)
+    return op_hndl
+
+def topk(name, *, k, **kwargs):
+    k_tensor = _from_data(name + '.k', data=np.array([k], dtype=np.int64), is_param=False, is_const=True)
+    op_hndl = MultiOutputSimOpHandle(
+        name,
+        'TopK',
+        params=[(1, k_tensor)],
+        ipos=[0],
+        num_outputs=2,
+        **kwargs,
+    )
     return op_hndl
 
 ######################################################################################################

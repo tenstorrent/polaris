@@ -23,7 +23,7 @@ class Module:
     def __setattr__(self, name, value):
         if isinstance(value, SimTensor):
             self._tensors[name] = value
-        elif isinstance(value, (F.SimOpHandle, F.SplitOpHandle, F.VariadicInputOpHandle)):
+        elif isinstance(value, (F.SimOpHandle, F.SplitOpHandle, F.VariadicInputOpHandle, F.MultiOutputSimOpHandle)):
             #IMPLICIT_INPUTS are not constructed till SimOpHandle::__call__
             # is executed; so, we need to do this after the __call__ is done :-(
             # For an example of this: check SplitOpHandle::__call__

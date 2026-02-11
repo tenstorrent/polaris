@@ -6,6 +6,7 @@ from ttsim.ops.desc.registry import register_ops
 from ttsim.ops.desc.helpers import unary_fwd, bidir_bcast, bidirectional_broadcast_shape_inference
 
 import numpy as np
+import copy
 
 def variadic_sinf(iTList, oTList, op, **kwargs):
     dim = op.attrs.get('dim', None)
@@ -211,7 +212,7 @@ def topk_sinf(iTList, oTList, op, **kwargs):
     K = iTList[1].clone_by_shape(data_maybe_missing=False) #int64
     assert X.check_shape(), f"Input tensor-X shape not defined: {X}"
     assert K.dtype == np.int64, f"Input tensor-K Data-Type should be np.int64 {K}"
-    XShape = X.shape
+    XShape = copy.copy(X.shape)
     XRank  = X.rank()
     _axis   : int = op.attrs.get('axis',   -1)
     _largest: int = op.attrs.get('largest', 1)
