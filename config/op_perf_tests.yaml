@@ -1,0 +1,82 @@
+workloads:
+  - api: TTNN
+    name: Conv2DTest
+    basedir: workloads/op_perf_tests
+    module: run_conv2d@ttnn_functional_conv2d.py
+    instances:
+      default:
+        bs: 1
+        N: 1
+        C_in: 64
+        C_out: 64
+        H: 64
+        W: 64
+        kernel_h: 3
+        kernel_w: 3
+        dtype: bf16
+        warmup: 5
+        iters: 10
+
+  - api: TTNN
+    name: BinaryAdd
+    basedir: workloads/op_perf_tests
+    module: run_binary_add@ttnn_functional_add.py
+    instances:
+      default:
+        bs: 1       # used as N when N not provided
+        N: 1        # or omit to use bs
+        C: 1
+        H: 120
+        W: 120
+        dtype: fp16
+        warmup: 5
+        iters: 10
+
+  - api: TTNN
+    name: Matmul2Tensors
+    basedir: workloads/op_perf_tests
+    module: run_matmul_test@ttnn_functional_matmul.py
+    instances:
+      default: { bs: 1, M: 1024, K: 1024, N: 1024, dtype: bfloat8_b, fidelity: HiFi4, num_runs: 10 }
+
+  - api: TTNN
+    name: ReshapeTest
+    basedir: workloads/op_perf_tests
+    module: run_reshape@ttnn_functional_reshape.py
+    instances:
+      default:
+        bs: 1
+        N: 1
+        C: 64
+        H: 32
+        W: 32
+        target_shape: [1, 1, 2048, 32]  # must have same total elements as N*C*H*W
+        warmup: 5
+        iters: 10
+
+  - api: TTNN
+    name: SoftmaxTest
+    basedir: workloads/op_perf_tests
+    module: run_softmax@ttnn_functional_softmax.py
+    instances:
+      default:
+        bs: 1
+        N: 1
+        C: 64
+        H: 32
+        W: 32
+        axis: -1      # -1 → last dim (W)
+        warmup: 5
+        iters: 10
+
+  - api: TTNN
+    name: TransposeTest
+    basedir: workloads/op_perf_tests
+    module: run_transpose@ttnn_functional_transpose.py
+    instances:
+      default:
+        bs: 1           # <-- add this
+        M: 1024
+        N: 1024
+        dtype: bfloat8_b
+        num_runs: 10
