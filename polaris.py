@@ -13,7 +13,7 @@ from pathlib import Path
 from typing import Any, Set
 
 from ttsim.config import TTSimHLRunSummary, get_arspec_from_yaml, get_wlmapspec_from_yaml, get_wlspec_from_yaml
-from ttsim.front import onnx2graph
+from ttsim.front.onnx.onnx2nx import onnx2graph  # NOTE: import from ttsim.front had potential cyclic dependency
 from ttsim.front.ttnn import open_device, close_device
 from ttsim.utils.common import get_ttsim_functional_instance, get_ttnn_functional_instance, print_csv, str_to_bool, setup_logger
 from ttsim.utils.types import validate_datatype, get_valid_sim_dtypes
