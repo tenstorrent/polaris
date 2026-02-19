@@ -104,6 +104,80 @@ workloads:
                  bs: 1,
                  seq_len: 128 }
 
+  - api: ONNX
+    name: DETR-BASE
+    basedir: workloads/onnx
+    module: detr-fixed-800.onnx
+    instances:
+      default: { path: detr-fixed-800.onnx,
+                 bs: 1,
+                 img_height: 800,
+                 img_width: 800 }
+
+  - api: ONNX
+    name: AUTOENCODER
+    basedir: workloads/onnx
+    module: autoencoder_int8.onnx
+    instances:
+      default: { path: autoencoder_int8.onnx, bs: 1 }
+
+  - api: ONNX
+    name: ECG_AUTOENCODER
+    basedir: workloads/onnx
+    module: ecg_autoencoder_quant_8x8.onnx
+    instances:
+      default: { path: ecg_autoencoder_quant_8x8.onnx, bs: 1 }
+
+  - api: ONNX
+    name: KWS_DSCNN
+    basedir: workloads/onnx
+    module: kws_ds_cnn_quant_8x8.onnx
+    instances:
+      default: { path: kws_ds_cnn_quant_8x8.onnx, bs: 1 }
+
+  - api: ONNX
+    name: MOBILENETV2_INT8
+    basedir: workloads/onnx
+    module: mobilenetv2_original_int8.onnx
+    instances:
+      default: { path: mobilenetv2_original_int8.onnx, bs: 1 }
+
+# YOLOv8 detection + segmentation
+  - api: ONNX
+    name: yolov8s_detection_640x640
+    basedir: workloads/onnx
+    module: yolov8s_detection_640x640.onnx
+    instances:
+      default: { path: yolov8s_detection_640x640.onnx, bs: 1, img_height: 640, img_width: 640 }
+
+  - api: ONNX
+    name: yolov8l_detection_4kx4k
+    basedir: workloads/onnx
+    module: yolov8l_detection_4kx4k.onnx
+    instances:
+      default: { path: yolov8l_detection_4kx4k.onnx, bs: 1, img_height: 4096, img_width: 4096 }
+
+  - api: ONNX
+    name: yolov8l_detection_640x640
+    basedir: workloads/onnx
+    module: yolov8l_detection_640x640.onnx
+    instances:
+      default: { path: yolov8l_detection_640x640.onnx, bs: 1, img_height: 640, img_width: 640 }
+
+  - api: ONNX
+    name: yolov8l_segmentation_4kx4k
+    basedir: workloads/onnx
+    module: yolov8l_segmentation_4kx4k.onnx
+    instances:
+      default: { path: yolov8l_segmentation_4kx4k.onnx, bs: 1, img_height: 4096, img_width: 4096 }
+
+  - api: ONNX
+    name: yolov8l_segmentation_640x640
+    basedir: workloads/onnx
+    module: yolov8l_segmentation_640x640.onnx
+    instances:
+      default: { path: yolov8l_segmentation_640x640.onnx, bs: 1, img_height: 640, img_width: 640 }
+
   - api: TTSIM
     name: BEVDepth
     basedir: workloads/bevdepth

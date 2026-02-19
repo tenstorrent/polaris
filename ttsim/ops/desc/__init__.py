@@ -9,6 +9,7 @@ from .tensor  import register_tensor_ops
 from .custom  import register_custom_ops
 from .reduction import register_reduction_ops
 from .generator import register_generator_ops
+from .misc import register_quantization_ops
 
 first_time = True
 
@@ -22,4 +23,5 @@ def initialize_op_desc():
         register_custom_ops()
         register_reduction_ops()
         register_generator_ops()
+        register_quantization_ops()
         first_time = False
