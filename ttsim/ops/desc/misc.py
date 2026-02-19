@@ -3,6 +3,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 from .registry import register_ops
+import numpy as np
 
 def register_controlflow_ops():
     _optbl = [
@@ -38,11 +39,54 @@ def register_optional_ops():
     register_ops('optional', _optbl)
     return
 
+def dequantizelinear_sinf(iTList, oTList, op, **kwargs):
+    X = iTList[0]
+    Y = oTList[0]
+
+    assert X.check_shape(), f"Input tensor shape not defined: {X}"
+    Y.shape = X.shape
+    Y.dtype = np.dtype(np.float32)
+
+    op.perf_stats = {
+        'inElems': X.nelems(),
+        'outElems': Y.nelems(),
+        'inBytes': X.nbytes(op.precision),
+        'outBytes': Y.nbytes(op.precision),
+        'instrs': {'mov': Y.nelems()},
+    }
+    return
+
+def quantizelinear_sinf(iTList, oTList, op, **kwargs):
+    X = iTList[0]
+    Y = oTList[0]
+
+    assert X.check_shape(), f"Input tensor shape not defined: {X}"
+    Y.shape = X.shape
+    output_dtype = None
+    if len(iTList) >= 3:
+        zero_point = iTList[2]
+        if zero_point.dtype is not None:
+            output_dtype = zero_point.dtype
+
+    if output_dtype is None:
+        output_dtype = np.uint8
+
+    Y.dtype = np.dtype(output_dtype)  
+
+    op.perf_stats = {
+        'inElems': X.nelems(),
+        'outElems': Y.nelems(),
+        'inBytes': X.nbytes(op.precision),
+        'outBytes': Y.nbytes(op.precision),
+        'instrs': {'mov': Y.nelems()},
+    }
+    return
+
 def register_quantization_ops():
     _optbl = [
         ['DynamicQuantizeLinear', 'ARITY_1->3',              'ai.onnx',  'COMMON',  11,  11,  1,  1,  3,  3,  'inline_lambda',  True,  True,  True,  True,  True],
-        ['QuantizeLinear',        'ARITY_VARIADIC[2-3]->1',  'ai.onnx',  'COMMON',  24,  21,  3,  2,  1,  1,  'inline_lambda',  True,  True,  True,  True,  True],
-        ['DequantizeLinear',      'ARITY_VARIADIC[2-3]->1',  'ai.onnx',  'COMMON',  24,  21,  3,  2,  1,  1,  'inline_lambda',  True,  True,  True,  True,  True],
+        ['QuantizeLinear',        'ARITY_VARIADIC[2-3]->1',  'ai.onnx',  'COMMON',  24,  21,  3,  2,  1,  1,  quantizelinear_sinf,  True,  True,  True,  True,  True],
+        ['DequantizeLinear',      'ARITY_VARIADIC[2-3]->1',  'ai.onnx',  'COMMON',  24,  21,  3,  2,  1,  1,  dequantizelinear_sinf,  True,  True,  True,  True,  True],
         ]
     register_ops('quantization', _optbl)
     return

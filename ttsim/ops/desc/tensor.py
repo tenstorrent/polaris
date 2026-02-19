@@ -536,27 +536,28 @@ def reshape_sinf(iTList, oTList, op, **kwargs):
 
 def expand_sinf(iTList, oTList, op, **kwargs):
     A = iTList[0]
-    shapeT = iTList[1].clone_by_shape(data_maybe_missing=True) #shapeT.data should exist
-    target_shape = [x.item() for x in shapeT.data]
-    input_shape  = A.shape
+    shapeT = iTList[1].clone_by_shape(data_maybe_missing=False)  
+    assert shapeT.data is not None, "ExpandOp requires shape tensor with data"
 
-    # Align shapes by prepending 1s to input_shape if needed
-    if len(target_shape) > len(input_shape):
-        input_shape = [1] * (len(target_shape) - len(input_shape)) + input_shape
+    target_shape = [int(x) for x in shapeT.data]
+    input_shape = list(A.shape)
 
-    assert len(target_shape) == len(input_shape), f"Input & Target shapes length mismatch: {input_shape} vs {target_shape}"
-    for i, (in_dim, tgt_dim) in enumerate(zip(input_shape, target_shape)):
-        if tgt_dim != in_dim and in_dim != 1:
-            raise ValueError(f"Cannot expand dimension {i}: input dim {in_dim} to target dim {tgt_dim}")
-    oTList[0].shape = target_shape
+    out_shape = multidirectional_broadcast_shape_inference(
+        [input_shape, target_shape]
+    )
+
+    oTList[0].shape = out_shape
     oTList[0].dtype = A.dtype
+
+    inElems  = A.nelems() + shapeT.nelems()
+    outElems = oTList[0].nelems()
     op.perf_stats = {
-            'inElems' : A.nelems() + shapeT.nelems(),
-            'outElems': oTList[0].nelems(),
-            'inBytes' : A.nbytes(op.precision) + shapeT.nbytes(op.precision),
-            'outBytes': oTList[0].nbytes(op.precision),
-            'instrs'  : {'mov': oTList[0].nelems()}
-            }
+        'inElems':  inElems,
+        'outElems': outElems,
+        'inBytes':  A.nbytes(op.precision) + shapeT.nbytes(op.precision),
+        'outBytes': oTList[0].nbytes(op.precision),
+        'instrs':   {'mov': outElems},
+    }
     return
 
 def split_sinf(iTList, oTList, op, **kwargs):
