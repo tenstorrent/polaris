@@ -44,13 +44,14 @@ class valueStatus(IntEnum):
     UNSET = -1
 
 class TTQSTags(str, Enum):
-    feb19 = "feb19"
-    mar18 = "mar18"
-    jul1  = "jul1"
-    jul27 = "jul27"
-    sep23 = "sep23"
-    nov17 = "nov17"
-    dec22 = "dec22"
+    feb19 = "feb19" # Feb 19, 2025
+    mar18 = "mar18" # Mar 18, 2025
+    jul1  = "jul1"  # Jul  1, 2025
+    jul27 = "jul27" # Jul 27, 2025
+    sep23 = "sep23" # Sep 23, 2025
+    nov17 = "nov17" # Nov 17, 2025
+    dec22 = "dec22" # Dec 22, 2025
+    feb20 = "feb20" # Feb 20, 2026
 
     @property
     def group(self): 

@@ -192,13 +192,13 @@ class Utils:
 class TestStatusUtils:
     @staticmethod
     def get_test_classes():
-        classes: dict[str, set[str]] = dict()
+        classes: dict[str, set[str | tuple[str, ...]]] = dict()
         classes['datacopy'.upper()] = {'datacopy'}
         classes['eltw'.upper()]     = {'elwmul', 'elwadd', 'elwsub'}
         classes['matmul'.upper()]   = {'matmul'}
         classes['pck'.upper()]      = {'pck'}
         classes['reduce'.upper()]   = {'reduce'}
-        classes['sfpu'.upper()]     = {'lrelu', 'tanh', 'sqrt', 'exp', 'recip', 'relu', 'cast'}
+        classes['sfpu'.upper()]     = {'lrelu', 'tanh', 'sqrt', 'exp', 'recip', 'relu', 'cast', ('less', 'than', 'zero'), ('greater', 'than', 'zero')}
         classes['upk'.upper()]      = {'upk'}
 
         return classes
@@ -384,7 +384,7 @@ class InputParams:
         self.num_processes: int                   = 1
         self.rtl_data_path_prefix: str            = f"{RTL_DATA_PATH_ROOT}/rtl_test_data_set"
         self.rtl_status_file_name: str            = "sim_result.yml"
-        self.rtl_tags: list[str]                  = ["jul1", "jul27", "sep23", "nov17", "dec22"]
+        self.rtl_tags: list[str]                  = ["jul1", "jul27", "sep23", "nov17", "dec22", "feb20"]
         self.rtl_test_dir_path_suffix: str        = 'rsim/debug'
         self.rtl_test_dir_suffix: str             = '_0'
         self.rtl_tests: list[str]                 = []
@@ -1071,7 +1071,7 @@ class TestStatus:
             if not test_class.startswith(unclassified_class_prefix):
                 break
             for value in values:
-                if value in test_words:
+                if (isinstance(value, (list, tuple, set)) and all(isinstance(v, str) for v in value) and all(v in test_words for v in value)) or (isinstance(value, str) and (value in test_words)):
                     test_class = key
                     break
 
@@ -1946,7 +1946,7 @@ def execute_all_runs(run_config: RunConfig) -> dict[str, dict[str, bool]]:
 if "__main__" == __name__:
     # Set up argument parser
     parser = argparse.ArgumentParser(description = 'Execute RTL tests via model')
-    parser.add_argument('--tag', nargs = '+', default = None, help = 'Optional: RTL tags to execute tests with (e.g., feb19 mar18 jul1 jul27 sep23 nov17)')
+    parser.add_argument('--tag', nargs = '+', default = None, help = 'Optional: RTL tags to execute tests with (e.g., jul1 jul27 sep23 nov17 dec22 feb20)')
     parser.add_argument('--test', nargs = '+', default = None, help = 'Optional: Specific test names to run (default: run all tests)')
     parser.add_argument('--parallel', '-j', '-np', type = int, default = None, help = 'Optional: Number of parallel processes to use')
     parser.add_argument('--batch-file', type = str, default = None, help = 'Optional: YAML batch file with test runs configuration')
