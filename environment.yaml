@@ -15,6 +15,7 @@ dependencies:
   - matplotlib=3.10.0
   - networkx=3.4.2
   - numpy=2.2.3
+  - scipy=1.17.1 # used by Deformable DETR
   - onnx=1.17.0
   - openpyxl=3.1.5
   - pydantic=2.10.6
