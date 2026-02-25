@@ -506,6 +506,7 @@ def test_conv2d_precision():
     print("\nAll precision tests passed!")
 
 
+@pytest.mark.slow
 @pytest.mark.unit
 @pytest.mark.opunit
 def test_conv2d_properties():
