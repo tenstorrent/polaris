@@ -64,7 +64,10 @@ SPDX_LICENSE_PREFIX = 'SPDX-License-Identifier:'
 SPDX_COPYRIGHT_PREFIX = 'SPDX-FileCopyrightText:'
 SPDX_LICENSE = re.compile(SPDX_LICENSE_PREFIX + '\\s+(?P<license_text>.*)')
 SPDX_COPYRIGHT = re.compile(SPDX_COPYRIGHT_PREFIX + '\\s+(?P<copyright_text>.*)')
-COPYRIGHT_REGEX = re.compile('(?P<cprt_string>Copyright|©|[(][cC][)])\\s+(?P<cprt_years>\\d{4}(-\\d{4})?)\\s+(?P<cprt_holder>.*)')
+COPYRIGHT_REGEX_PARTS = ('Copyright', '©', '[(][cC][)]')
+COPYRIGHT_REGEX = re.compile(f'(?P<cprt_string>{"|".join(COPYRIGHT_REGEX_PARTS)})\\s+(?P<cprt_years>\\d{{4}}(-\\d{{4}})?)\\s+(?P<cprt_holder>.*)')
+COPYRIGHT_PREFIX_STRINGS = ('Copyright', '©', '(c)', '(C)')
+COPYRIGHT_PREFIXES = tuple(s + ' ' for s in COPYRIGHT_PREFIX_STRINGS)
 
 # Valid SPDX license identifiers - maintained as a hardcoded list
 VALID_SPDX_LICENSES = [
@@ -356,6 +359,18 @@ class LanguageParser:
         """
         copyright_text = copyright_match.group('copyright_text')
         if not (copyright_parts_match := COPYRIGHT_REGEX.search(copyright_text)):
+            # Fallback: accept line without year if full text or holder part matches allowed copyright
+            cprt_holder_fallback = copyright_text.strip()
+            if cprt_holder_fallback in self.allowed_copyrights:
+                logger.debug(f'{self.parsing}: Copyright line does not match expected format but holder matches allowed list: "{copyright_text}"')
+                return SPDXHeaderStatus.ST_OK
+            # Strip leading copyright symbols so "Copyright Holder" etc. can match "Holder" in allowed list
+            for prefix in COPYRIGHT_PREFIXES:
+                if cprt_holder_fallback.startswith(prefix):
+                    if cprt_holder_fallback[len(prefix):].strip() in self.allowed_copyrights:
+                        logger.debug(f'{self.parsing}: Copyright line does not match expected format but holder matches allowed list after stripping prefix: "{copyright_text}"')
+                        return SPDXHeaderStatus.ST_OK
+                    break  # If one prefix is at the beginning, we should not check the other prefix as it won't match
             logger.debug(f'{self.parsing}: Copyright line is ill-formed: "{copyright_text}"')
             return SPDXHeaderStatus.ST_ILLFORMED
 

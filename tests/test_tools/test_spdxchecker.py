@@ -45,6 +45,26 @@ def test_analyzes_file_for_spdx_headers(filename, allowed_licenses, allowed_copy
     assert analyze_file(filename, allowed_licenses, allowed_copyrights) == expected_status
 
 
+@pytest.mark.parametrize("filename,allowed_licenses,allowed_copyrights,content,expected_status", [
+    # Copyright lines with (C) prefix but without year
+    ("copyright_no_year_1.py", ["Apache-2.0"], ["Tenstorrent AI ULC"], '\n'.join([lic_header, '# SPDX-FileCopyrightText: (C) Tenstorrent AI ULC']), (SPDXHeaderStatus.ST_OK, SPDXHeaderStatus.ST_OK)),
+    # Copyright lines with (c) prefix but without year
+    ("copyright_no_year_2.py", ["Apache-2.0"], ["Tenstorrent AI ULC"], '\n'.join([lic_header, '# SPDX-FileCopyrightText: (c) Tenstorrent AI ULC']), (SPDXHeaderStatus.ST_OK, SPDXHeaderStatus.ST_OK)),
+    # Copyright lines with "Copyright" prefix but without year
+    ("copyright_no_year_3.py", ["Apache-2.0"], ["Tenstorrent AI ULC"], '\n'.join([lic_header, '# SPDX-FileCopyrightText: Copyright Tenstorrent AI ULC']), (SPDXHeaderStatus.ST_OK, SPDXHeaderStatus.ST_OK)),
+    # Copyright lines with © prefix but without year
+    ("copyright_no_year_4.py", ["Apache-2.0"], ["Tenstorrent AI ULC"], '\n'.join([lic_header, '# SPDX-FileCopyrightText: © Tenstorrent AI ULC']), (SPDXHeaderStatus.ST_OK, SPDXHeaderStatus.ST_OK)),
+    # Multiple copyright holders, one without year
+    ("copyright_no_year_5.py", ["Apache-2.0"], ["Tenstorrent AI ULC", "Other Company"], '\n'.join([lic_header, '# SPDX-FileCopyrightText: (C) Other Company']), (SPDXHeaderStatus.ST_OK, SPDXHeaderStatus.ST_OK)),
+    # Copyright line without year and unmatched holder returns ST_ILLFORMED (fallback logic)
+    ("copyright_no_year_6.py", ["Apache-2.0"], ["Tenstorrent AI ULC"], '\n'.join([lic_header, '# SPDX-FileCopyrightText: (C) Unknown Company']), (SPDXHeaderStatus.ST_OK, SPDXHeaderStatus.ST_ILLFORMED)),
+])
+def test_analyzes_copyright_without_year(filename, allowed_licenses, allowed_copyrights, expected_status, content, mocker):
+    """Test that copyright lines without years are properly validated using fallback logic."""
+    mocker.patch("builtins.open", mocker.mock_open(read_data=content))
+    assert analyze_file(filename, allowed_licenses, allowed_copyrights) == expected_status
+
+
 def test_collects_all_files_in_directory(tmp_path):
     (tmp_path / "file1.py").write_text("")
     (tmp_path / "file2.js").write_text("")
