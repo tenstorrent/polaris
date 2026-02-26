@@ -10,25 +10,37 @@ import copy
 
 def variadic_sinf(iTList, oTList, op, **kwargs):
     dim = op.attrs.get('dim', None)
+    num_tensors = len(iTList)
     input_tensor = iTList[0]
     assert input_tensor.check_shape(), f"Illegal Shape for {input_tensor}"
 
-    rank = input_tensor.rank()
-    if dim is not None and dim < 0:
-        dim += rank
-
-    if dim is None:
-        # operate on all elements, output is scalar
-        output_shape = []
+    if num_tensors > 1:  # compare multiple input tensors and reduce to one output tensor
+        # ONNX variadic elementwise ops follow NumPy broadcasting across all inputs.
+        # Compute the broadcasted shape iteratively across all input tensor shapes.
+        shapes = [tuple(t.shape) for t in iTList]
+        try:
+            broadcast_shape = np.broadcast_shapes(*shapes)
+        except ValueError as e:
+            raise AssertionError(
+                f"Incompatible input shapes for variadic op {op.optype}: {shapes}"
+            ) from e
+        output_shape = list(broadcast_shape)
     else:
-        assert 0 <= dim < rank, f"dim {dim} out of bounds for rank {rank}"
-        # Output shape is input shape with dim removed
-        output_shape = [s for i, s in enumerate(input_tensor.shape) if i != dim]
+        rank = input_tensor.rank()
+        if dim is not None and dim < 0:
+            dim += rank
+        if dim is None:
+            # operate on all elements, output is scalar
+            output_shape = []
+        else:
+            assert 0 <= dim < rank, f"dim {dim} out of bounds for rank {rank}"
+            # Output shape is input shape with dim removed
+            output_shape = [s for i, s in enumerate(input_tensor.shape) if i != dim]
 
     oTList[0].shape = output_shape
     oTList[0].dtype = input_tensor.dtype
 
-    i_elems = input_tensor.nelems()
+    i_elems = input_tensor.nelems() * num_tensors
     o_elems = oTList[0].nelems()
     optype2instr = {
             'mean': {'add': i_elems, 'div': o_elems},
@@ -38,7 +50,7 @@ def variadic_sinf(iTList, oTList, op, **kwargs):
             }
     op.perf_stats = {
         'inElems': i_elems,
-        'inBytes': input_tensor.nbytes(op.precision),
+        'inBytes': input_tensor.nbytes(op.precision) * num_tensors,
         'outElems': o_elems,
         'outBytes': oTList[0].nbytes(op.precision),
         'instrs': optype2instr[op.optype.lower()],
@@ -209,7 +221,12 @@ def data_window_sinf(iTList, oTList, op, **kwargs):
 
 def topk_sinf(iTList, oTList, op, **kwargs):
     X = iTList[0]
-    K = iTList[1].clone_by_shape(data_maybe_missing=False) #int64
+    if iTList[1].data is None:
+        K = iTList[1].clone_by_shape(data_maybe_missing=True)
+        K.data = np.array([1], dtype=np.int64) # default K=1 if input data is missing
+    else:
+        K = iTList[1].clone_by_shape(data_maybe_missing=False)
+
     assert X.check_shape(), f"Input tensor-X shape not defined: {X}"
     assert K.dtype == np.int64, f"Input tensor-K Data-Type should be np.int64 {K}"
     XShape = copy.copy(X.shape)
@@ -254,12 +271,11 @@ def topk_sinf(iTList, oTList, op, **kwargs):
 def nonzero_sinf(iTList, oTList, op, **kwargs):
     A = iTList[0]
     assert A.check_shape(), f"Input tensor-A shape not defined: {A}"
-    AShape = A.shape
     AElems = A.nelems()
     nonzero_count = AElems // 2  # Assume half the elements are non-zero for perf estimation
 
     rank = A.rank()
-    out_shape = AShape[:-1] + [nonzero_count] # Keep all dimensions except last one, append nonzero_count
+    out_shape = [rank, nonzero_count]
     oTList[0].shape = out_shape
     oTList[0].dtype = np.dtype(np.int64)
 

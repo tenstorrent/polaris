@@ -6,9 +6,25 @@ from .registry import register_ops
 import numpy as np
 from loguru import logger
 
+def if_sinf(iTList, oTList, op, **kwargs):
+    if len(iTList) < 1:
+        raise ValueError("If operator expects at least one input (the condition tensor)")
+    cond_tensor = iTList[0]
+    assert cond_tensor.check_shape(), f"Condition tensor shape not defined: {cond_tensor}"
+    oTList[0].shape = [256]  # Placeholder shape; actual shape depends on the branches and is not known at this point
+    oTList[0].dtype = np.dtype(np.float32)
+    op.perf_stats = {
+        'inElems': cond_tensor.nelems(),
+        'outElems': oTList[0].nelems(),
+        'inBytes': cond_tensor.nbytes(op.precision),
+        'outBytes': oTList[0].nbytes(op.precision),
+        'instrs': {'cmp': oTList[0].nelems()},
+    }
+    return
+
 def register_controlflow_ops():
     _optbl = [
-        ['If',   'ARITY_1->VARIADIC[1-*]',             'ai.onnx', 'COMMON',  24,  21,  1,           1,  2147483647,  1,  'IfInferenceFunction',   True,  True,  True,  True,  True],
+        ['If',   'ARITY_1->VARIADIC[1-*]',             'ai.onnx', 'COMMON',  24,  21,  1,           1,  2147483647,  1,  if_sinf,   True,  True,  True,  True,  True],
         ['Loop', 'ARITY_VARIADIC[2-*]->VARIADIC[1-*]', 'ai.onnx', 'COMMON',  24,  21,  2147483647,  2,  2147483647,  1,  'LoopInferenceFunction', True,  True,  True,  True,  True],
         ['Scan', 'ARITY_VARIADIC[1-*]->VARIADIC[1-*]', 'ai.onnx', 'COMMON',  24,  21,  2147483647,  1,  2147483647,  1,  'ScanInferenceFunction', True,  True,  True,  True,  True],
         ]
