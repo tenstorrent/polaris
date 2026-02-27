@@ -8,7 +8,7 @@ from ttsim.ops.op import SimOp
 from ttsim.ops.tensor import make_tensor
 import ttsim.front.functional.op as F
 from ttsim.ops.desc.data_compute import compute_clip
-
+from tests.test_ops.utils import generate_test_data
 
 def get_max_test_msg_len(TL):
     return max([len(x[0]) for x in TL])
@@ -64,24 +64,6 @@ test_cases = [
     ("Only lower bound (effectively)", [4, 4], -1.0, 1e10, "mixed"),
     ("Only upper bound (effectively)", [4, 4], -1e10, 1.0, "mixed"),
 ]
-
-
-def generate_test_data(shape, data_type):
-    """Generate test data based on type"""
-    if data_type == "positive":
-        return np.random.rand(*shape).astype(np.float32) + 1.0  # Range [1, 2]
-    elif data_type == "negative":
-        return -np.random.rand(*shape).astype(np.float32) - 1.0  # Range [-2, -1]
-    elif data_type == "zeros":
-        return np.zeros(shape, dtype=np.float32)
-    elif data_type == "mixed":
-        return (np.random.randn(*shape) * 2).astype(np.float32)  # Mixed pos/neg
-    elif data_type == "small":
-        return np.random.rand(*shape).astype(np.float32) * 1e-6  # Very small
-    elif data_type == "large":
-        return np.random.rand(*shape).astype(np.float32) * 1e6  # Very large
-    else:
-        return np.random.randn(*shape).astype(np.float32)
 
 
 @pytest.mark.unit

@@ -42,6 +42,14 @@ def convert_torch_attrs_to_onnx(optype: str, attrs: dict) -> dict:
         converted_attrs['axis'] = converted_attrs.pop('dim')
         return converted_attrs
 
+    # For Dropout (opset >= 12), 'prob' and 'train_mode' are NOT valid ONNX attributes;
+    # they are already passed as input tensors (ratio, training_mode). Strip them here.
+    if optype == 'Dropout':
+        converted_attrs = attrs.copy()
+        converted_attrs.pop('prob', None)
+        converted_attrs.pop('train_mode', None)
+        return converted_attrs
+
     # Future extensions can be added here:
     # Example: if optype == 'SomeOp' and 'torch_attr' in attrs:
     #     converted_attrs = attrs.copy()

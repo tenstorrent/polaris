@@ -189,9 +189,9 @@ class Attention(SimNN.Module):
         keys = repeat_kv(keys, self.n_rep)  # (bs, cache_len + seqlen, n_local_heads, head_dim)
         values = repeat_kv(values, self.n_rep)  # (bs, cache_len + seqlen, n_local_heads, head_dim)
 
-        xq = xq.transpose(1, 2)  # (bs, n_local_heads, seqlen, head_dim)
-        keys = keys.transpose(1, 2) # (bs, n_local_heads, cache_len + seqlen, head_dim)
-        values = values.transpose(1, 2) # (bs, n_local_heads, cache_len + seqlen, head_dim)
+        xq = xq.transpose(1, 2) # type: ignore[attr-defined] # (bs, n_local_heads, seqlen, head_dim)
+        keys = keys.transpose(1, 2) # type: ignore[attr-defined] # (bs, n_local_heads, cache_len + seqlen, head_dim)
+        values = values.transpose(1, 2) # type: ignore[attr-defined] # (bs, n_local_heads, cache_len + seqlen, head_dim)
 
         scores_mulout = self.matmulop(xq, keys.transpose(2, 3))
         scores = scores_mulout / F._from_data(f'{self.name}_divfactor', np.full(scores_mulout.shape, math.sqrt(self.head_dim)))

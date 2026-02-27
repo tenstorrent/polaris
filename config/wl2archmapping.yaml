@@ -36,17 +36,19 @@ op_fusion_spec:
   - [Conv, BatchNormalization, Sigmoid, Mul]
   - [Conv, BatchNormalization, Mul]
   - [Conv, BatchNormalization]
+  - [Conv, GroupNormalization, Relu]
+  - [Conv, GroupNormalization]
 
 op_rsrc_spec:
   compute:
-    matrix: [Matmul, Conv, ConvTranspose, Gemm]
+    matrix: [Matmul, Conv, ConvTranspose, Gemm, MultiheadAttention]
     vector: [Add, And, ArgMax, AveragePool,
              BatchNormalization,
              Cast, Clip, Concat, Constant, ConstantOfShape, Cos, CumSum,
              DequantizeLinear, Div, Dropout,
              Equal, Erf, Exp, Expand,
              Flatten,
-             Gather, GatherND, Gelu, GlobalAveragePool, Greater,
+             Gather, GatherND, Gelu, GlobalAveragePool, Greater, GroupNormalization,
              HardSigmoid, Hardswish,
              Identity, If, IsNaN,
              LayerNormalization, LeakyRelu, Log,

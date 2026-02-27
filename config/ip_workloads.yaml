@@ -40,6 +40,15 @@ workloads:
     instances:
       rn50_b1_hd : { path: 'onnx/resnet50.onnx', img_height: 1024, img_width: 1024, bs: 1 }
 
+  - api: TTSIM
+    name: DeformableDETR
+    basedir: workloads/Deformable_DETR/models
+    module : DeformableDETR@deformable_detr_ttsim.py
+    params : {num_classes: 80, num_queries: 300, hidden_dim: 256, num_feature_levels: 4, num_encoder_layers: 6, num_decoder_layers: 6, img_channels: 3, bs: 1, name: 'detr'}
+    instances:
+      detr_640x640 : { img_height: 640, img_width: 640 }
+      detr_800x800 : { img_height: 800, img_width: 800 }
+
   # generate bert-fixed-128.onnx using code in workloads/onnx/examples/:
   - api: ONNX
     name: BERT-BASE

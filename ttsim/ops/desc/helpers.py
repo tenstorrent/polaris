@@ -6,38 +6,26 @@ from ttsim.ops.tensor import SimTensor
 
 import math
 from loguru import logger
-LOG   = logger
-INFO  = LOG.info
+
+LOG = logger
+INFO = LOG.info
 DEBUG = LOG.debug
 
-# Import compute functions for data propagation
-from ttsim.ops.desc.data_compute import (
-    compute_mish,
-    compute_sigmoid,
-    compute_relu,
-    compute_relu6,
-    compute_identity,
-    compute_tanh,
-    compute_exp,
-    compute_log,
-    compute_sqrt,
-    compute_softmax,
-    compute_clip,
-    compute_add,
-    compute_mul,
-    compute_sub,
-    compute_div,
-    compute_pow,
-    try_compute_data,
-)
 
 def update_output_tensor(op, in_tensor, out_tensor):
     assert in_tensor.check_shape(), f"ERROR: {op} Invalid Input SHAPE in {in_tensor}"
     if out_tensor.check_shape():
         DEBUG("Validated SimTensor({}) SHAPE: {}", out_tensor.name, out_tensor.shape)
-        assert in_tensor.shape == out_tensor.shape, f"IO shape Mismatch {in_tensor.shape} != {out_tensor.shape} for {out_tensor.name}"
+        assert (
+            in_tensor.shape == out_tensor.shape
+        ), f"IO shape Mismatch {in_tensor.shape} != {out_tensor.shape} for {out_tensor.name}"
     else:
-        DEBUG("Updating SimTensor({}) SHAPE: {} <- {}", out_tensor.name, out_tensor.shape, in_tensor.shape)
+        DEBUG(
+            "Updating SimTensor({}) SHAPE: {} <- {}",
+            out_tensor.name,
+            out_tensor.shape,
+            in_tensor.shape,
+        )
         out_tensor.shape = in_tensor.shape
 
     if in_tensor.data is not None:
@@ -46,16 +34,20 @@ def update_output_tensor(op, in_tensor, out_tensor):
             out_tensor.dtype = in_tensor.dtype
             DEBUG("Updating DATA SimTensor({})", out_tensor)
 
+
 def build_tmp_data_tensor(data, name):
-    return SimTensor({
-        'name' : name,
-        'shape': list(data.shape),
-        'dtype': data.dtype,
-        'data' : data,
-        'resolve': '_',
-        'op_in': [],
-        'op_out': [],
-        })
+    return SimTensor(
+        {
+            "name": name,
+            "shape": list(data.shape),
+            "dtype": data.dtype,
+            "data": data,
+            "resolve": "_",
+            "op_in": [],
+            "op_out": [],
+        }
+    )
+
 
 def bidirectional_broadcast_shape_inference(shape1, shape2):
     """
@@ -65,7 +57,7 @@ def bidirectional_broadcast_shape_inference(shape1, shape2):
     max_len = max(len(shape1), len(shape2))
     padded1 = list(shape1[::-1]) + [1] * (max_len - len(shape1))
     padded2 = list(shape2[::-1]) + [1] * (max_len - len(shape2))
-    result  = []
+    result = []
     for d1, d2 in zip(padded1, padded2):
         if d1 == d2:
             result.append(d1)
@@ -77,11 +69,12 @@ def bidirectional_broadcast_shape_inference(shape1, shape2):
             raise ValueError(f"Shapes {shape1} and {shape2} not broadcast-compatible")
     return result[::-1]
 
+
 def multidirectional_broadcast_shape_inference(shapes):
     """
     cannot handle numpy like broadcasting with [1,0] and [1]
     """
-    max_len    = max(len(shape) for shape in shapes)
+    max_len = max(len(shape) for shape in shapes)
     num_shapes = len(shapes)
 
     padded_shapes = []
@@ -93,12 +86,15 @@ def multidirectional_broadcast_shape_inference(shapes):
     result = []
     for i in range(max_len):
         dim_list = [padded_shapes[j][i] for j in range(num_shapes)]
-        max_dim  = max(dim_list)
+        max_dim = max(dim_list)
         check = all(d == 1 or d == max_dim for d in dim_list)
-        assert check, f"Incompatible shapes at dim: {max_len-1-i}: expect {max_dim} or 1, got {dim_list}"
+        assert (
+            check
+        ), f"Incompatible shapes at dim: {max_len-1-i}: expect {max_dim} or 1, got {dim_list}"
         result.append(max_dim)
 
     return result[::-1]
+
 
 def propagate_shape_and_type(inT, outT, i_idx, o_idx):
     assert len(inT) > i_idx
@@ -107,6 +103,7 @@ def propagate_shape_and_type(inT, outT, i_idx, o_idx):
     outT[o_idx].shape = inT[i_idx].shape
     outT[o_idx].dtype = inT[i_idx].dtype
     return
+
 
 def gelu_instr_counts(nElem):
     """
@@ -121,15 +118,16 @@ def gelu_instr_counts(nElem):
     instr count calc.
      Y= <const> * X * ( <const> + tanh( <const> * ( X + <const> * X^3 ) ) )
     """
-    mul_count, add_count, tanh_count = 0,0,0
-    mul_count  += 2 * nElem # X^3
-    mul_count  += nElem     # <const> * X^3
-    add_count  += nElem     # X + <const> * X^3
-    mul_count  += nElem     # <const> * ( X + ...)
-    tanh_count += nElem     # tanh (...)
-    add_count  += nElem     # <const + tanh(...)
-    mul_count  += 2*nElem   # <const> * X * (...)
-    return {'mul': mul_count, 'add': add_count, 'tanh': tanh_count}
+    mul_count, add_count, tanh_count = 0, 0, 0
+    mul_count += 2 * nElem  # X^3
+    mul_count += nElem  # <const> * X^3
+    add_count += nElem  # X + <const> * X^3
+    mul_count += nElem  # <const> * ( X + ...)
+    tanh_count += nElem  # tanh (...)
+    add_count += nElem  # <const + tanh(...)
+    mul_count += 2 * nElem  # <const> * X * (...)
+    return {"mul": mul_count, "add": add_count, "tanh": tanh_count}
+
 
 def pooling_shape_inference(input_shape, kernel_shape, attrs):
     """Shape inference for pooling operators"""
@@ -140,20 +138,24 @@ def pooling_shape_inference(input_shape, kernel_shape, attrs):
 
     num_spatial_dims = len(kernel_shape)
     if num_spatial_dims > len(input_shape) - 2:
-        raise ValueError(f"Too many spatial dimensions ({num_spatial_dims}) for input shape {input_shape}")
+        raise ValueError(
+            f"Too many spatial dimensions ({num_spatial_dims}) for input shape {input_shape}"
+        )
 
-    auto_pad      = attrs.get('auto_pad',      'NOTSET')
-    ceil_mode     = attrs.get('ceil_mode',     0)
-    dilations     = attrs.get('dilations',     [1] * num_spatial_dims)
-    pads          = attrs.get('pads',          [0] * (2 * num_spatial_dims))
-    storage_order = attrs.get('storage_order', 0)
-    strides       = attrs.get('strides',       [1] * num_spatial_dims)
+    auto_pad = attrs.get("auto_pad", "NOTSET")
+    ceil_mode = attrs.get("ceil_mode", 0)
+    dilations = attrs.get("dilations", [1] * num_spatial_dims)
+    pads = attrs.get("pads", [0] * (2 * num_spatial_dims))
+    storage_order = attrs.get("storage_order", 0)
+    strides = attrs.get("strides", [1] * num_spatial_dims)
 
     # Extract spatial dimensions (assume last num_spatial_dims are spatial)
     non_spatial_dims = input_shape[:-num_spatial_dims]
-    spatial_dims     = input_shape[-num_spatial_dims:]
+    spatial_dims = input_shape[-num_spatial_dims:]
     if len(spatial_dims) != num_spatial_dims:
-        raise ValueError(f"Expected {num_spatial_dims} spatial dimensions, got {spatial_dims}")
+        raise ValueError(
+            f"Expected {num_spatial_dims} spatial dimensions, got {spatial_dims}"
+        )
 
     # Handle padding
     if pads is not None:
@@ -174,7 +176,12 @@ def pooling_shape_inference(input_shape, kernel_shape, attrs):
                 # For SAME padding, output size is ceil(input_size / stride)
                 out_size = math.ceil(spatial_dims[i] / strides[i])
                 # Compute total padding needed
-                pad_total = max((out_size - 1) * strides[i] + effective_kernel_size - spatial_dims[i], 0)
+                pad_total = max(
+                    (out_size - 1) * strides[i]
+                    + effective_kernel_size
+                    - spatial_dims[i],
+                    0,
+                )
                 # Distribute padding
                 if auto_pad == "SAME_UPPER":
                     pad_b = pad_total // 2
@@ -196,7 +203,9 @@ def pooling_shape_inference(input_shape, kernel_shape, attrs):
         # Compute output size
         padded_size = spatial_dims[i] + pad_before[i] + pad_after[i]
         if ceil_mode == 0:
-            out_size = math.floor((padded_size - effective_kernel_size) / strides[i]) + 1
+            out_size = (
+                math.floor((padded_size - effective_kernel_size) / strides[i]) + 1
+            )
         else:  # ceil_mode == 1
             out_size = math.ceil((padded_size - effective_kernel_size) / strides[i]) + 1
         if out_size <= 0:
@@ -212,178 +221,238 @@ def pooling_shape_inference(input_shape, kernel_shape, attrs):
     output_shape = non_spatial_dims + output_spatial_dims
     return output_shape
 
-#shape inference functions
+
+# shape inference functions
 def unary_fwd(iTList, oTList, op, **kwargs):
-    X,Y = iTList[0], oTList[0]
+    from .data_compute import (
+        compute_softmax,
+        compute_sigmoid,
+        compute_relu,
+        compute_tanh,
+        compute_exp,
+        compute_log,
+        compute_sqrt,
+        compute_identity,
+    )
+
+    X, Y = iTList[0], oTList[0]
     assert X.check_shape(), f"Input tensor shape not defined: {X}"
     Y.shape = X.shape
     Y.dtype = X.dtype
 
-    # Compute actual data if inputs have data
-    _unary_compute_funcs = {
-        'Mish': compute_mish,
-        'Sigmoid': compute_sigmoid,
-        'Relu': compute_relu,
-        'Relu6': compute_relu6,
-        'Identity': compute_identity,
-        'Tanh': compute_tanh,
-        'Exp': compute_exp,
-        'Log': compute_log,
-        'Sqrt': compute_sqrt,
-        'Softmax': compute_softmax,
-        'Clip': compute_clip,
-    }
-    if op.optype in _unary_compute_funcs:
-        Y.data = try_compute_data(_unary_compute_funcs[op.optype], iTList, op)
+    # NUMERICAL COMPUTATION (if data available)
+    if X.data is not None:
+        optype_to_compute = {
+            "Softmax": compute_softmax,
+            "Sigmoid": compute_sigmoid,
+            "Relu": compute_relu,
+            "Tanh": compute_tanh,
+            "Exp": compute_exp,
+            "Log": compute_log,
+            "Sqrt": compute_sqrt,
+            "Identity": compute_identity,
+        }
+
+        if op.optype in optype_to_compute:
+            Y.data = optype_to_compute[op.optype](iTList, op)
+        else:
+            Y.data = None  # Other ops not implemented yet
+    else:
+        Y.data = None
 
     optype2instr = {
-            'Identity': {'mov': 0},
-            'Clip'    : {'cmp': 2*Y.nelems(), 'mov': Y.nelems() },
-            'CumSum'  : {'add': Y.nelems()}, #TODO: handle axis: we need to divide by X.shape[axis]
-            'PRelu'   : {'cmp': Y.nelems(), 'mul': Y.nelems() }, #slope * x if x < 0 else = x
+        "Identity": {"mov": 0},
+        "Clip": {"cmp": 2 * Y.nelems(), "mov": Y.nelems()},
+        "CumSum": {
+            "add": Y.nelems()
+        },  # TODO: handle axis: we need to divide by X.shape[axis]
+        "PRelu": {"cmp": Y.nelems(), "mul": Y.nelems()},  # slope * x if x < 0 else = x
+        "BitwiseNot": {"not": Y.nelems()},
+        "Not": {"not": Y.nelems()},
+        # everything below here is math unary operators
+        "Softmax": {
+            # TODO: take care of the axis
+            "cmp": X.nelems(),  # max_x = max(x)
+            "sub": X.nelems(),  # y = x - max_x
+            "exp": X.nelems(),  # exp(y)
+            "add": X.nelems(),  # z = sum(exp(y))
+            "div": X.nelems(),  # o = exp(y) / z
+        },
+        "LogSoftmax": {
+            # TODO: take care of the axis
+            # LogSoftmax(input, axis) = Log(Softmax(input, axis=axis))
+            # Softmax...
+            "cmp": X.nelems(),  # max_x = max(x)
+            "sub": X.nelems(),  # y = x - max_x
+            "exp": X.nelems(),  # exp(y)
+            "add": X.nelems(),  # z = sum(exp(y))
+            "div": X.nelems(),  # o = exp(y) / z
+            "log": X.nelems(),  # log(o)
+        },
+        "Gelu": gelu_instr_counts(X.nelems()),
+        "Softplus": {
+            # Softplus(x) = log(1 + exp(x))
+            "exp": X.nelems(),  # exp(x)
+            "add": X.nelems(),  # 1 + exp(x)
+            "log": X.nelems(),  # log(1 + exp(x))
+            "mov": X.nelems(),  # for output
+        },
+        "Sigmoid": {
+            # 1 / (1 + exp(-x))
+            "exp": X.nelems(),
+            "add": X.nelems(),
+            "div": X.nelems(),
+        },
+        "Celu": {
+            # max(0,x) + min(0,alpha*(exp(x/alpha)-1))
+            #      y = max(0,x)
+            #      z = x * 1/alpha
+            #      z = exp(z)
+            #      z = alpha * z
+            #      z = z - 1
+            #      z = min(0,z)
+            #      w = y + z
+            "cmp": 2 * X.nelems(),
+            "mul": 2 * X.nelems(),
+            "exp": X.nelems(),
+            "sub": X.nelems(),
+            "add": X.nelems(),
+        },
+        "Selu": {
+            # y = gamma * (alpha * e^x - alpha) if x <= 0 else gamma * x
+            # assume worst case: x <= 0
+            "exp": X.nelems(),
+            "mul": 2 * X.nelems(),
+            "sub": X.nelems(),
+        },
+        "Elu": {
+            # f(x) = alpha * (exp(x) - 1.) if x < 0 else  x
+            # we assume the worst case cost (i.e. x < 0)
+            "cmp": X.nelems(),  # x < 0
+            "exp": X.nelems(),  # y = exp(x)
+            "sub": X.nelems(),  # y -= 1
+            "mul": X.nelems(),  # y *= alpha
+        },
+        "Mish": {
+            # x * tanh(softplus(x)) = x * tanh(ln(1 + e^{x}))
+            "exp": X.nelems(),  # y = exp(x)
+            "add": X.nelems(),  # y = y + 1
+            "log": X.nelems(),  # y = ln(y)
+            "tanh": X.nelems(),  # y = tanh(y)
+            "mul": X.nelems(),  # y = x * y
+        },
+        "HardSigmoid": {
+            # max(0, min(1, alpha * x + beta))
+            "mul": X.nelems(),  # x = alpha * x
+            "add": X.nelems(),  # x = x + beta
+            "cmp": 2 * X.nelems(),  # x = min(1, x); x = max(0, x)
+        },
+        "HardSwish": {
+            # x * HardSigmoid<alpha, beta>(x)
+            "mul": 2 * X.nelems(),  # x = alpha * x; x * HardSigmoid
+            "add": X.nelems(),  # x = x + beta
+            "cmp": 2 * X.nelems(),  # x = min(1, x); x = max(0, x)
+        },
+        "Softsign": {
+            # x/(1+|x|)
+            "abs": X.nelems(),
+            "add": X.nelems(),
+            "div": X.nelems(),
+        },
+    }
 
-            'BitwiseNot': {'not': Y.nelems()},
-            'Not'       : {'not': Y.nelems()},
+    for xopname in ["Sign", "Relu", "LeakyRelu", "ThresholdedRelu", "Hardmax"]:
+        # Sign            : x <=> 0
+        # Relu            : max(0,x)
+        # LeakyRelu       : alpha * x if x < 0 else x; additional 'add' accounted outside this loop
+        # ThresholdedRelu : x for x > alpha else 0
+        # Hardmax         : Hardmax(x, axis) = 1 if x == first_max_val_along_xis else 0; TODO: account for axis
+        optype2instr[xopname] = {"cmp": X.nelems(), "mov": X.nelems()}
+    optype2instr["LeakyRelu"]["add"] = X.nelems()
 
-            #everything below here is math unary operators
-            'Softmax': {
-                #TODO: take care of the axis
-                'cmp': X.nelems(), # max_x = max(x)
-                'sub': X.nelems(), # y = x - max_x
-                'exp': X.nelems(), # exp(y)
-                'add': X.nelems(), # z = sum(exp(y))
-                'div': X.nelems(), # o = exp(y) / z
-                },
-            'LogSoftmax': {
-                #TODO: take care of the axis
-                #LogSoftmax(input, axis) = Log(Softmax(input, axis=axis))
-                #Softmax...
-                'cmp': X.nelems(), # max_x = max(x)
-                'sub': X.nelems(), # y = x - max_x
-                'exp': X.nelems(), # exp(y)
-                'add': X.nelems(), # z = sum(exp(y))
-                'div': X.nelems(), # o = exp(y) / z
-                'log': X.nelems(), # log(o)
-                },
-            'Gelu': gelu_instr_counts(X.nelems()),
-            'Softplus': {
-                # Softplus(x) = log(1 + exp(x))
-                'exp': X.nelems(), # exp(x)
-                'add': X.nelems(), # 1 + exp(x)
-                'log': X.nelems(), # log(1 + exp(x))
-                'mov': X.nelems(), # for output
-                },
-            'Sigmoid': {
-                #1 / (1 + exp(-x))
-                'exp': X.nelems(),
-                'add': X.nelems(),
-                'div': X.nelems(),
-                },
-            'Celu': {
-                # max(0,x) + min(0,alpha*(exp(x/alpha)-1))
-                #      y = max(0,x)
-                #      z = x * 1/alpha
-                #      z = exp(z)
-                #      z = alpha * z
-                #      z = z - 1
-                #      z = min(0,z)
-                #      w = y + z
-                'cmp': 2*X.nelems(),
-                'mul': 2*X.nelems(),
-                'exp': X.nelems(),
-                'sub': X.nelems(),
-                'add': X.nelems(),
-                },
-            'Selu': {
-                    #y = gamma * (alpha * e^x - alpha) if x <= 0 else gamma * x
-                    #assume worst case: x <= 0
-                    'exp': X.nelems(),
-                    'mul': 2*X.nelems(),
-                    'sub': X.nelems(),
-                    },
-            'Elu': {
-                    #f(x) = alpha * (exp(x) - 1.) if x < 0 else  x
-                    #we assume the worst case cost (i.e. x < 0)
-                    'cmp': X.nelems(), # x < 0
-                    'exp': X.nelems(), # y = exp(x)
-                    'sub': X.nelems(), # y -= 1
-                    'mul': X.nelems(), # y *= alpha
-                    },
-            'Mish': {
-                    #x * tanh(softplus(x)) = x * tanh(ln(1 + e^{x}))
-                    'exp' : X.nelems(), # y = exp(x)
-                    'add' : X.nelems(), # y = y + 1
-                    'log' : X.nelems(), # y = ln(y)
-                    'tanh': X.nelems(), # y = tanh(y)
-                    'mul' : X.nelems(), # y = x * y
-                    },
-            'HardSigmoid': {
-                    #max(0, min(1, alpha * x + beta))
-                    'mul': X.nelems(), # x = alpha * x
-                    'add': X.nelems(), # x = x + beta
-                    'cmp': 2*X.nelems(), # x = min(1, x); x = max(0, x)
-                    },
-            'HardSwish': {
-                    #x * HardSigmoid<alpha, beta>(x)
-                    'mul': 2*X.nelems(), # x = alpha * x; x * HardSigmoid
-                    'add': X.nelems(), # x = x + beta
-                    'cmp': 2*X.nelems(), # x = min(1, x); x = max(0, x)
-                    },
-            'Softsign': {
-                    #x/(1+|x|) 
-                    'abs': X.nelems(),
-                    'add': X.nelems(),
-                    'div': X.nelems()
-                    },
-            }
-
-    for xopname in ['Sign', 'Relu', 'LeakyRelu', 'ThresholdedRelu', 'Hardmax']:
-        #Sign            : x <=> 0
-        #Relu            : max(0,x)
-        #LeakyRelu       : alpha * x if x < 0 else x; additional 'add' accounted outside this loop
-        #ThresholdedRelu : x for x > alpha else 0
-        #Hardmax         : Hardmax(x, axis) = 1 if x == first_max_val_along_xis else 0; TODO: account for axis
-        optype2instr[xopname] = {'cmp': X.nelems(), 'mov': X.nelems()}
-    optype2instr['LeakyRelu']['add'] = X.nelems()
-
-    for xopname in ['Reciprocal', 'Floor', 'Ceil', 'Sqrt', 'Exp', 'Log',
-                    'Neg', 'Abs', 'Sin', 'Cos', 'Tan', 'Asin', 'Acos', 'Atan',
-                    'Sinh', 'Cosh', 'Tanh', 'Asinh', 'Acosh', 'Atanh', 'Erf',
-                    'Round', ]:
+    for xopname in [
+        "Reciprocal",
+        "Floor",
+        "Ceil",
+        "Sqrt",
+        "Exp",
+        "Log",
+        "Neg",
+        "Abs",
+        "Sin",
+        "Cos",
+        "Tan",
+        "Asin",
+        "Acos",
+        "Atan",
+        "Sinh",
+        "Cosh",
+        "Tanh",
+        "Asinh",
+        "Acosh",
+        "Atanh",
+        "Erf",
+        "Round",
+    ]:
         optype2instr[xopname] = {xopname.lower(): X.nelems()}
 
-    op.perf_stats =  {
-            'inElems' : X.nelems(),
-            'outElems': Y.nelems(),
-            'inBytes' : X.nbytes(op.precision),
-            'outBytes': Y.nbytes(op.precision),
-            'instrs'  : optype2instr[op.optype],
-            }
+    # Use default precision if not set
+    precision = getattr(op, "precision", "fp32")
+    if precision is None or not isinstance(precision, str):
+        precision = "fp32"
+
+    op.perf_stats = {
+        "inElems": X.nelems(),
+        "outElems": Y.nelems(),
+        "inBytes": X.nbytes(precision),
+        "outBytes": Y.nbytes(precision),
+        "instrs": optype2instr[op.optype],
+    }
     return
 
+
 def bidir_bcast(iTList, oTList, op, **kwargs):
-    X0,X1, Y = iTList[0], iTList[1], oTList[0]
+    from .data_compute import (
+        compute_add,
+        compute_mul,
+        compute_sub,
+        compute_div,
+        compute_pow,
+    )
+
+    X0, X1, Y = iTList[0], iTList[1], oTList[0]
     assert X0.check_shape(), f"Input tensor-0 shape not defined: {X0}"
     assert X1.check_shape(), f"Input tensor-1 shape not defined: {X1}"
     Y.shape = bidirectional_broadcast_shape_inference(X0.shape, X1.shape)
     Y.dtype = X0.dtype
 
-    # Compute actual data if inputs have data
-    _binary_compute_funcs = {
-        'Add': compute_add,
-        'Mul': compute_mul,
-        'Sub': compute_sub,
-        'Div': compute_div,
-        'Pow': compute_pow,
-    }
-    if op.optype in _binary_compute_funcs:
-        Y.data = try_compute_data(_binary_compute_funcs[op.optype], iTList, op)
+    # NUMERICAL COMPUTATION (if data available)
+    if X0.data is not None and X1.data is not None:
+        optype_to_compute = {
+            "Add": compute_add,
+            "Mul": compute_mul,
+            "Sub": compute_sub,
+            "Div": compute_div,
+            "Pow": compute_pow,
+        }
 
-    op.perf_stats =  {
-            'inElems' : X0.nelems() + X1.nelems(),
-            'outElems': Y.nelems(),
-            'inBytes' : X0.nbytes(op.precision) + X1.nbytes(op.precision),
-            'outBytes': Y.nbytes(op.precision),
-            'instrs'  : {op.optype.lower(): Y.nelems()}
-            }
+        if op.optype in optype_to_compute:
+            Y.data = optype_to_compute[op.optype](iTList, op)
+        else:
+            Y.data = None  # Other ops not implemented yet
+    else:
+        Y.data = None
+
+    # Use default precision if not set
+    precision = getattr(op, "precision", "fp32")
+    if precision is None or not isinstance(precision, str):
+        precision = "fp32"
+
+    op.perf_stats = {
+        "inElems": X0.nelems() + X1.nelems(),
+        "outElems": Y.nelems(),
+        "inBytes": X0.nbytes(precision) + X1.nbytes(precision),
+        "outBytes": Y.nbytes(precision),
+        "instrs": {op.optype.lower(): Y.nelems()},
+    }
     return

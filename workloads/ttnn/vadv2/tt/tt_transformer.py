@@ -166,9 +166,9 @@ class TtVADPerceptionTransformer(SimNN.Module):
         c0 = DictAsAttr(c0)
         c1 = params.can_bus_mlp["1"]
         c1 = DictAsAttr(c1)
-        can_bus = ttnn.linear(can_bus, c0.weight, bias=c0.bias)
+        can_bus = ttnn.linear(can_bus, c0.weight, bias=c0.bias) # type: ignore[attr-defined]
         can_bus = ttnn.relu(can_bus)
-        can_bus = ttnn.linear(can_bus, c1.weight, bias=c1.bias)
+        can_bus = ttnn.linear(can_bus, c1.weight, bias=c1.bias) # type: ignore[attr-defined]
         can_bus = ttnn.relu(can_bus)
         params = DictAsAttr(self.params, depth=2)
         if self.can_bus_norm:

@@ -48,7 +48,7 @@ class WL2ArchDatatypes(BaseModel):
         Create a WL2ArchDatatypes instance from a dictionary.
         """
         override: Dict[LayerName, TypeName] = {}
-        global_type: TypeName = spec.get('global_type', None)
+        global_type: TypeName = spec.get('global_type', None)  # type: ignore[assignment]
         override_spec = spec.get('override', dict())
         if global_type is None:
             raise AssertionError(f'global_type must be set in {spec}')

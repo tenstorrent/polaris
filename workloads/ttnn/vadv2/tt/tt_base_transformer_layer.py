@@ -169,8 +169,8 @@ class TtBaseTransformerLayer:
                 params_norms = DictAsAttr(params_norms)
                 query = ttnn.layer_norm(
                     query,
-                    weight = params_norms.weight,
-                    bias = params_norms.bias,
+                    weight = params_norms.weight,   # type: ignore[attr-defined]
+                    bias = params_norms.bias,       # type: ignore[attr-defined]
                     # weight=self.params.norms[f"norm{norm_index}"].weight,
                     # bias=self.params.norms[f"norm{norm_index}"].bias,
                 )

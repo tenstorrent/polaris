@@ -523,6 +523,12 @@ def stack(simtensor_list, dim=0):
     op.set_module(link_module)
     link_module._op_hndls[op.name] = op
     final_res = op(*outTensors)
+
+    # Propagate numerical data when all input tensors have data
+    all_have_data = all(t.data is not None for t in simtensor_list)
+    if all_have_data:
+        final_res.data = np.stack([t.data for t in simtensor_list], axis=dim)
+
     return final_res
 
 def interpolate(self, **kwargs):
