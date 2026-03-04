@@ -59,4 +59,4 @@ op_rsrc_spec:
              Tanh, Tile, TorchGather, Transpose, Trilu,
              Unsqueeze, Upsample,
              VoxelPooling,
-             Where,]
+             Where,MSELoss]

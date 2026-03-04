@@ -8,6 +8,36 @@ from ttsim.ops.desc.helpers import unary_fwd, bidir_bcast, bidirectional_broadca
 import numpy as np
 import copy
 
+def mseloss_sinf(iTList, oTList, op, **kwargs):
+    # X: prediction, Y: target
+    X = iTList[0]
+    Y = iTList[1]
+
+    assert X.check_shape(), f"Illegal Shape for {X}"
+    assert Y.check_shape(), f"Illegal Shape for {Y}"
+    assert X.shape == Y.shape, f"MSELoss: X and Y shapes must match, got {X.shape} vs {Y.shape}"
+
+    # Output is scalar loss
+    oTList[0].shape = []
+    oTList[0].dtype = X.dtype
+
+    i_elems = X.nelems()
+    o_elems = oTList[0].nelems()  # 1
+
+    op.perf_stats = {
+        "inElems": 2 * i_elems,
+        "inBytes": X.nbytes(op.precision) + Y.nbytes(op.precision),
+        "outElems": o_elems,
+        "outBytes": oTList[0].nbytes(op.precision),
+        "instrs": {
+            "sub": i_elems,
+            "mul": i_elems,
+            "add": i_elems,
+            "div": o_elems,
+        },
+    }
+    return
+
 def variadic_sinf(iTList, oTList, op, **kwargs):
     dim = op.attrs.get('dim', None)
     input_tensor = iTList[0]
@@ -392,8 +422,13 @@ def register_math_ops():
             ['HannWindow',       'ARITY_1->1', 'ai.onnx', 'COMMON',  17,  17,  1,  1,  1,  1, data_window_sinf,  True,  True,  True,  True,  True],
             ['HammingWindow',    'ARITY_1->1', 'ai.onnx', 'COMMON',  17,  17,  1,  1,  1,  1, data_window_sinf,  True,  True,  True,  True,  True],
             ['BlackmanWindow',   'ARITY_1->1', 'ai.onnx', 'COMMON',  17,  17,  1,  1,  1,  1, data_window_sinf,  True,  True,  True,  True,  True],
-            ]
+    ]
 
-    _optbl = _xoptbl + _binary_optbl + _variadic_input_unary_output_optbl + _unary_optbl
+    _loss_optbl = [
+        ['MSELoss', 'ARITY_2->1', 'ai.onnx', 'COMMON', 13, 13, 2, 2, 1, 1, mseloss_sinf, True, True, True, True, True],
+    ]
+
+    _optbl = _xoptbl + _binary_optbl + _variadic_input_unary_output_optbl + _unary_optbl + _loss_optbl
     register_ops('math', _optbl)
     return
+
