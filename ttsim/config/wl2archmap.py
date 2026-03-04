@@ -48,24 +48,25 @@ class WL2ArchDatatypes(BaseModel):
         Create a WL2ArchDatatypes instance from a dictionary.
         """
         override: Dict[LayerName, TypeName] = {}
-        global_type: TypeName = spec.get('global_type', None)
+        global_type_raw = spec.get('global_type', None)
         override_spec = spec.get('override', dict())
-        if global_type is None:
+        if global_type_raw is None:
             raise AssertionError(f'global_type must be set in {spec}')
         # Validate global_type before converting to lowercase
-        validate_datatype(global_type)
-        global_type = global_type.lower()
+        validate_datatype(global_type_raw)
+        global_type: TypeName = global_type_raw.lower()
         for kk, vv in override_spec.items():
             key_upper = kk.upper()
             value_lower = vv.lower()
             if key_upper in override and override[key_upper] != value_lower:
-                raise AssertionError(f'override {kk} already set to {override[key_upper]}, trying to set to {value_lower}')
+                raise AssertionError(
+                    f'override {kk} already set to {override[key_upper]}, trying to set to {value_lower}'
+                )
             # Validate each override datatype before converting to lowercase
             validate_datatype(vv)
             override[key_upper] = value_lower
 
         return WL2ArchDatatypes(global_type=global_type, override=override)
-
 
 class WL2ArchRemovalLayers(BaseModel):
     """
