@@ -355,7 +355,12 @@ def to_instruction_kind(arg: str) -> instruction_kind:
         if f"{kind}" == arg:
             return kind
 
-    raise Exception(f"- error: could not find instruction_kind associated with str: {arg}")
+    msg = f"- error: could not find instruction_kind associated with str: {arg}\n"
+    msg += "- available instruction kinds: \n"
+    for kind in instruction_kind:
+        msg += f"  - {kind}\n"
+
+    raise Exception(msg.rstrip())
 
 def extend_sign(value: int, bit_num_from_lsb: int) -> int:
     if value & (1 << bit_num_from_lsb):

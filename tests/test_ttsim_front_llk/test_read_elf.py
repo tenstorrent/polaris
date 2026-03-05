@@ -28,17 +28,17 @@ LOCAL_ELF_TEST_DIR = "__ext/tests/data_files/llk_elf_files"
 def _ensure_elf_files_available():
     """
     Ensure ELF test files are available, downloading if necessary.
-    
+
     Returns:
         True if files are available, False otherwise
     """
     if not TEST_WITH_ELF_FILES:
         return False
-    
+
     # Try to ensure the ELF files directory exists
     if ensure_lfc_file_exists(LOCAL_ELF_TEST_DIR, "ext_llk_elf_files.tar.gz"):
         return True
-    
+
     print(f"Warning: ELF test files not available at {LOCAL_ELF_TEST_DIR}")
     print("Tried to download from ext_llk_elf_files.tar.gz but failed.")
     print("Please check LFC connectivity and file availability.")
@@ -49,7 +49,7 @@ def test_get_riscv_attribute_from_elf_object():
     """Test getting RISC-V attributes from ELF objects with automatic LFC file management."""
     if not _ensure_elf_files_available():
         pytest.skip("ELF test files not available")
-    
+
     kinds_attributes = decoded_instruction.get_instruction_kinds_rv32_tensix_attributes_dict()
     for pwd, _, file_names in os.walk(LOCAL_ELF_TEST_DIR):
         for file_name in file_names:
@@ -67,7 +67,7 @@ def test_get_riscv_attribute():
     """Test getting RISC-V attributes with automatic LFC file management."""
     if not _ensure_elf_files_available():
         pytest.skip("ELF test files not available")
-    
+
     kinds_attributes = decoded_instruction.get_instruction_kinds_rv32_tensix_attributes_dict()
     for pwd, _, file_names in os.walk(LOCAL_ELF_TEST_DIR):
         for file_name in file_names:
@@ -1717,6 +1717,28 @@ def test_print_instruction_profile_with_print_instructions(capsys):
         read_elf.print_instruction_profile(file_name, print_instructions = True, print_statistics = False)
         captured = capsys.readouterr()
         funcs_msgs = read_elf.instructions.instruction_to_str(read_elf.decode_all_functions(file_name))
+        assert isinstance(funcs_msgs, dict)
+        for func_name, msgs in funcs_msgs.items():
+            instr_strs = ""
+            for msg in msgs:
+                instr_strs += f"    {msg}\n"
+            assert func_name in captured.out
+            assert instr_strs in captured.out
+
+@pytest.mark.slow
+def test_print_instruction_profile_with_print_instructions_feb20(capsys):
+    if TEST_WITH_ELF_FILES:
+        file_name = os.path.join(LOCAL_ELF_TEST_DIR, "ttqs/rtl/t6-quas-n1-ttx-matmul-block-in0-2-16-in1-16-1-fp16_b-llk_0/ttx/kernels/core_00_00/neo_0/thread_0/out/thread_0.elf")
+
+        isa_file_name = os.path.join(os.path.dirname(__file__), "../../ttsim/config/llk/instruction_sets/ttqs/assembly.feb20.yaml")
+        assert os.path.isfile(isa_file_name), f"ISA file {isa_file_name} does not exist"
+
+        instruction_set = {decoded_instruction.instruction_kind.ttqs : isa_file_name}
+
+        capsys.readouterr()
+        read_elf.print_instruction_profile(file_name, sets = instruction_set, print_instructions = True, print_statistics = False)
+        captured = capsys.readouterr()
+        funcs_msgs = read_elf.instructions.instruction_to_str(read_elf.decode_all_functions(file_name, sets = instruction_set), instruction_set = instruction_set)
         assert isinstance(funcs_msgs, dict)
         for func_name, msgs in funcs_msgs.items():
             instr_strs = ""

@@ -2,8 +2,8 @@
 # SPDX-FileCopyrightText: (C) 2025 Tenstorrent AI ULC
 # SPDX-License-Identifier: Apache-2.0
 
+import argparse
 import os
-import sys
 import types
 import typing
 
@@ -852,7 +852,7 @@ def print_instruction_profile(
         instrs = decode_all_functions(elf_file_name, modules, sets)
 
         if print_instructions:
-            instructions.print_instructions(instrs)
+            instructions.print_instructions(instrs, modules = modules, sets = sets)
 
         if print_statistics:
             print_instruction_profile_tuple(instructions.get_statistics(instructions = instrs, modules = modules, flatten_dict = flatten_dict), preamble, print_offset)
@@ -1040,20 +1040,45 @@ def get_coverage(
 
 # todo: decode_section
 if "__main__" == __name__:
-    if len(sys.argv) < 2:
-        raise Exception("- Please provide elf file/directory containing elf file(s)")
+    parser = argparse.ArgumentParser(description='Process ELF files and analyze instructions')
+    parser.add_argument('--tt_instruction_set', type=str, help='TT instruction set (ISA) YAML file e.g. assembly.yaml (optional, default file is used if not provided)')
+    parser.add_argument('--tt_instruction_kind', type=str, default='ttqs', help='TT instruction kind (default: ttqs)')
+    parser.add_argument('--elf_files', nargs='+', required=True, help='ELF file(s) or directory containing ELF files (mandatory)')
 
+    args = parser.parse_args()
+
+    # Collect all elf files from the provided paths
     elf_files = []
-    for pwd, _, file_names in os.walk(sys.argv[1]):
-        for file_name in file_names:
-            if file_name.endswith(".elf"):
-                elf_files.append(os.path.join(pwd, file_name))
+    for path in args.elf_files:
+        if os.path.isfile(path):
+            if path.endswith(".elf"):
+                elf_files.append(path)
+        elif os.path.isdir(path):
+            for pwd, _, file_names in os.walk(path):
+                for file_name in file_names:
+                    if file_name.endswith(".elf"):
+                        elf_files.append(os.path.join(pwd, file_name))
+        else:
+            print(f"Warning: {path} is neither a file nor a directory, skipping.")
 
     elf_files = sorted(elf_files)
     print("number of elf files: ", len(elf_files))
+
+    # Print parsed arguments if provided
+    if args.tt_instruction_set:
+        print(f"TT instruction set: {args.tt_instruction_set}")
+    print(f"TT instruction kind: {args.tt_instruction_kind}")
+
+    if args.tt_instruction_set:
+        instruction_set = {decoded_instruction.to_instruction_kind(args.tt_instruction_kind) : args.tt_instruction_set}
+
+
     for elf_file in elf_files:
         print(f"file: {elf_file}")
-        print_instruction_profile(elf_file, print_instructions = True, print_statistics = False)
+        if args.tt_instruction_set:
+            print_instruction_profile(elf_file, sets = instruction_set, print_instructions = True, print_statistics = False)
+        else:
+            print_instruction_profile(elf_file, print_instructions = True, print_statistics = False)
 
 
     # print_instructions_from_elf(sys.argv[1], print_instructions = False, print_statistics = True)
