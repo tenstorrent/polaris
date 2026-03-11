@@ -14,6 +14,9 @@ __pycache__/
 __*/
 # Temporary files
 __*
+# But do not ignore __init__.py and __main__.py
+!__init__.py
+!__main__.py
 # Directory not to be checked in
 private/
 
