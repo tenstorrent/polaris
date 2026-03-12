@@ -71,8 +71,8 @@ def get_prefill_rot_mat(head_dim, mesh_device, seq_len, theta, scale_factor, ori
         head_dim, seq_len * 2, theta=theta, scale_factor=scale_factor, orig_context_len=orig_context_len, device=mesh_device
     )
     cos_gathered, sin_gathered = gather_cos_sin(ttnn.arange(start_pos, start_pos + seq_len, device=mesh_device), cos, sin)
-    assert cos_gathered.size() == (1, 1, seq_len, head_dim)
-    assert sin_gathered.size() == (1, 1, seq_len, head_dim)
+    assert cos_gathered.size() == [1, 1, seq_len, head_dim]
+    assert sin_gathered.size() == [1, 1, seq_len, head_dim]
 
     cos_gathereds = ttnn.from_torch(
         cos_gathered,
@@ -101,7 +101,7 @@ class RotarySetup():
         max_seq_len: int,
         rope_theta: float,
         scale_factor,  # use None to disable rope scaling
-        orig_context_len,  # only used if scaling enabled
+        orig_context_len = None,  # only used if scaling enabled
         datatype=ttnn.bfloat16,
     ):
         super().__init__()

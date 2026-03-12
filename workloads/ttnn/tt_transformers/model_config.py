@@ -19,6 +19,9 @@ class ModelArgs:
         self.norm_eps = 1e-5
         self.vocab_size = 128256
         self.n_layers = 1
+        self.num_devices = 1
+        self.num_experts = 1
+        self.moe = False
         self.hidden_size = None # Prevent missing attribute errors
         self.dim = None         # Prevent missing attribute errors
 
@@ -56,10 +59,20 @@ class ModelArgs:
             self.vocab_size = 152064
             self.norm_eps = 1e-6
             self.hidden_size = 3584
+        elif "mixtral" in name_lower:
+            self.model_name = "mixtral-8x7B"
+            self.dim = 4096
+            self.n_heads = 32
+            self.n_kv_heads = 8
+            self.vocab_size = 32000
+            self.norm_eps = 1e-5
+            self.hidden_size = 4096
+            self.moe = True
+            self.num_experts = 8
+            self.num_devices = 8
 
         # 3. Simulator/General Settings
         self.rms_norm_add_unit_offset = False
-        self.num_devices = 1
         self.max_batch_size = max_batch_size
         self.num_reduce_scatter_links = 1
         self.arch_name = ttnn.get_arch_name()
@@ -78,10 +91,12 @@ class ModelArgs:
         self.rope_scaling_factor = None
         self.orig_context_len = None
         self.rope_theta = 1000000.0 if "qwen" in name_lower else 500000.0
+        self.rope_scaling = None
         self.model_config = None
         self.is_multichip = False
         self.dummy_weights = True
         self.cluster_shape = [1,1]
+        self.use_qk_fused = False
         self.query_pre_attn_scalar = None
         self.is_galaxy = False
         self.is_distributed_norm = False
@@ -95,13 +110,23 @@ class ModelArgs:
     def ccl_topology(self):
         return None
     
-    def prepare_residual_tensor_decode(self, x, input_mem_cfg, force_replicated=False, on_host=False):
+    def prepare_residual_tensor_decode(self, x, input_mem_cfg, args=None, force_replicated=False, on_host=False):
         batch = x.shape[0]
         seq_len = x.shape[1]
         assert x.shape[2] == self.dim
 
         x = ttnn.transpose(x, 0, 1).unsqueeze(0)
+        x_shape = x.shape
+
+        if args is not None:
+            if args.moe:
+                x = ttnn._rand(shape=(x_shape[0], seq_len, batch, x_shape[3]//args.num_experts),
+                                device=x.device, dtype=ttnn.bfloat16) # mimics splitting the residual into num_experts parts
+
         return x
+
+    def load_state_dict(self):
+        return None
     
     def is_vision(self):
         return False

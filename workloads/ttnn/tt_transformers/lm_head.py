@@ -38,7 +38,7 @@ class LMHead():
         split_sizes = [min(size_per_device, max_columns_per_device)] * (num_splits - 1)
         split_sizes.append(size_per_device - sum(split_sizes))  # remaining columns
         # Split the output weights
-        weights = ttnn._rand(shape=(args.vocab_size, self.args.dim), device=mesh_device, dtype=dtype)
+        weights = ttnn._rand(shape=(args.vocab_size//self.args.num_experts, self.args.dim), device=mesh_device, dtype=dtype)
         torch_output_weights = ttnn.permute(weights, (1, 0)) #state_dict[f"{state_dict_prefix}output.weight"].permute(1, 0)
 
         self.output_weights = []
@@ -67,7 +67,8 @@ class LMHead():
             #     )
             # )
         elif args.is_simulation(): # for simulation, don't do splits
-            self.output_weights.append(torch_output_weights)
+            for i in range(self.args.num_experts):
+                self.output_weights.append(torch_output_weights)
         else:
             pass ## no splits implementation yet
             # for i, split_size in enumerate(split_sizes):

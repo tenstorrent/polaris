@@ -197,6 +197,20 @@ workloads:
       mistral_7b_prefill: { bs: 1, model_name: Mistral-7B }
 
   - api: TTNN
+    name: mixtral_decode
+    basedir: workloads/ttnn/mixtral
+    module : test_model_inference@test_mixtral_model.py
+    instances:
+      mixtral_8x7b_decode: { bs: 1, model_name: mixtral-8x7b, layers: 2 }
+
+  - api: TTNN
+    name: mixtral_prefill
+    basedir: workloads/ttnn/mixtral
+    module : test_model_inference@test_mixtral_model_prefill.py
+    instances:
+      mixtral_8x7b_prefill: { bs: 1, model_name: mixtral-8x7b }
+
+  - api: TTNN
     name: qwen2.5_decode
     basedir: workloads/ttnn/qwen2.5
     module : test_model_inference_qwen@test_model.py

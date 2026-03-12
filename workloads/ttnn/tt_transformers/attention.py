@@ -57,6 +57,8 @@ class Attention():
         self.mesh_device = mesh_device
         self.num_devices = configuration.num_devices
         self.TG = self.num_devices == 32
+        self.moe = configuration.moe
+        self.num_experts = configuration.num_experts
         self.hidden_size = configuration.dim
         self.n_heads = configuration.n_heads
         self.head_dim = configuration.head_dim
@@ -135,14 +137,17 @@ class Attention():
 
         qkv_list = []
         for i in range(self.num_devices_per_group):
-            wq = ttnn._rand((self.hidden_size, self.head_dim * self.n_heads), device=self.mesh_device, dtype=ttnn.bfloat16)
-            wk = ttnn._rand((self.hidden_size, self.head_dim * self.n_kv_heads), device=self.mesh_device, dtype=ttnn.bfloat16)
-            wv = ttnn._rand((self.hidden_size, self.head_dim * self.n_kv_heads), device=self.mesh_device, dtype=ttnn.bfloat16)
+            wq = ttnn._rand((self.hidden_size, self.head_dim * self.n_heads // self.num_experts), device=self.mesh_device, dtype=ttnn.bfloat16)
+            wk = ttnn._rand((self.hidden_size, self.head_dim * self.n_kv_heads // self.num_experts), device=self.mesh_device, dtype=ttnn.bfloat16)
+            wv = ttnn._rand((self.hidden_size, self.head_dim * self.n_kv_heads // self.num_experts), device=self.mesh_device, dtype=ttnn.bfloat16)
 
             qkv = ttnn.cat([wq, wk, wv], dim=-1)
             qkv_list.append(qkv)
 
-        qkv_cat = ttnn.cat(qkv_list, dim=-1).unsqueeze(0).unsqueeze(0)
+        if self.moe:
+            qkv_cat = qkv_list[0].unsqueeze(0).unsqueeze(0) # For MOE, do not concat weights across experts, as each expert will select its own weights
+        else:
+            qkv_cat = ttnn.cat(qkv_list, dim=-1).unsqueeze(0).unsqueeze(0)
 
         self.wqkv = ttnn.as_tensor(
             qkv_cat,
@@ -160,7 +165,7 @@ class Attention():
         self.k_norm = lambda x, mode: x
 
         self.use_fused_all_gather_matmul = False #self.model_config["USE_FUSED_ALL_GATHER_MATMUL"]
-        wo_str_weight = ttnn._rand((self.hidden_size, self.hidden_size), device=self.mesh_device, dtype=ttnn.bfloat16)
+        wo_str_weight = ttnn._rand((self.hidden_size, self.hidden_size//self.num_experts), device=self.mesh_device, dtype=ttnn.bfloat16)
         pt_wo = wo_str_weight.unsqueeze(0).unsqueeze(0)
         wo_mem_config = None
 
@@ -278,7 +283,6 @@ class Attention():
             dtype=self.ccl_dtype,
             topology=self.ccl_topology,
         )
-
         ttnn.deallocate(xqkv_fused_sharded)
         # Reshape such that true unpadded batch is tracked in shape
         fqkv_shape = xqkv_fused.shape
@@ -402,9 +406,11 @@ class Attention():
                 # dtype=self.ccl_dtype,  # Running bf16 until we have SDPA output bfp8 df; otherwise we have two sharded to interleaved/interleaved to sharded conversions
             )
 
+            attn_output = ttnn.cat([attn_output] * self.num_experts, dim=-1)
+            gather_wo = ttnn.repeat(self.wo, [1, 1, 1, self.num_experts])
             dense_out_sharded = ttnn.matmul(
                 attn_output,
-                self.wo
+                gather_wo
             )
 
             ttnn.deallocate(attn_output_cat)
@@ -422,6 +428,10 @@ class Attention():
                 dtype=self.ccl_dtype,
                 use_composite=True if self.hidden_size == 8192 else False,
             )
+            if self.num_experts > 1:
+                o_shape = dense_out_reduced.shape
+                dense_out_reduced = ttnn._rand(shape=[o_shape[0], o_shape[2], o_shape[1], o_shape[3]//self.num_experts],
+                                            device=self.mesh_device, dtype=ttnn.bfloat16) # mimics reduction of experts' outputs
 
             if not self.TG:
                 dense_out_reduced = ttnn.to_memory_config(
@@ -460,8 +470,6 @@ class Attention():
             compute_kernel_config=self.li_qkv_prefill_compute_kernel_cfg,
             program_config=None, #self.model_config["XQKV_PREFILL_PROGCFG"](seq_len),
         )
-        
-        # FIXME: surely ttnn.linear bias should work?
         if self.wqkv_bias_prefill is not None:
             xqkv_fused = xqkv_fused + self.wqkv_bias_prefill
 
@@ -566,6 +574,7 @@ class Attention():
                 topology=self.ccl_topology,
                 memory_config=ttnn.DRAM_MEMORY_CONFIG,
             )
+        attn_output_11SH = ttnn.cat([attn_output_11SH] * self.num_experts, dim=-1) # gather attn_output for all experts
 
         output_11SH = ttnn.linear(
             attn_output_11SH,

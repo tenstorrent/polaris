@@ -538,22 +538,53 @@ def all_gather(*args, **kwargs):
     raise NotImplementedError("all_gather is not implemented yet!!")
 
 
+def eqz(input_tensor):
+    return compare(input_tensor, zeros_like(input_tensor), op_type='equal')
+
+
+def moe(gate_logits, expert_mask, topE_mask, k, k_tensor):
+    N, C, H, W = gate_logits.shape
+    assert expert_mask.shape == [N, C, 1, W], "expert_mask must be [N, C, 1, W]"
+    assert topE_mask.shape[-1] == k, f"topE_mask last dim must be k"
+
+    # 1) Apply expert_mask to zero out padded experts (set to -inf)
+    #    Broadcast over H: [N,C,H,W] + [N,C,1,W] -> [N,C,H,W]
+    masked_logits = sum(gate_logits, expert_mask)
+
+    # 2) Top-k over experts (last dimension)
+    topk_values, topk_indices = topk(masked_logits, k_tensor, dim=-1)  # [N,C,H,k]
+
+    # 3) Apply topE_mask (implements "e" effective experts within top-k)
+    #    topE_mask: [N,C,1,k] -> broadcast to [N,C,H,k]
+    topk_scores = softmax(topk_values + topE_mask, dim=-1)      # [N,C,H,k]
+
+    # 4) Select only entries that correspond to `target_expert`
+    expert_selector = eqz(topk_indices)       # [N,C,H,k]
+
+    # 5) Aggregate weight for that expert over its (up to e) positions in top-k
+    #    Result is shape [N,C,H,1]
+    weights = sum(topk_scores * expert_selector, dim=-1)
+    weights = unsqueeze(weights, -1)
+
+    return weights
+
+
 # Pointwise Unary
-cos = single_output_immediate_op("Cos")
-gelu = single_output_immediate_op("Gelu")
-identity = single_output_immediate_op("Identity")
-leaky_relu = single_output_immediate_op("LeakyRelu")
-neg = single_output_immediate_op("Neg")
-relu = single_output_immediate_op("Relu")
-sigmoid = single_output_immediate_op("Sigmoid")
-sin = single_output_immediate_op("Sin")
-softmax = single_output_immediate_op("Softmax")
-tanh = single_output_immediate_op("Tanh")
-clamp = single_output_immediate_op("Clip")
-log = single_output_immediate_op("Log")
-min = single_output_immediate_op("Min")
-max = single_output_immediate_op("Max")
-sqrt = single_output_immediate_op("Sqrt")
+cos         = single_output_immediate_op('Cos')
+gelu        = single_output_immediate_op('Gelu')
+identity    = single_output_immediate_op('Identity')
+leaky_relu  = single_output_immediate_op('LeakyRelu')
+neg         = single_output_immediate_op('Neg')
+relu        = single_output_immediate_op('Relu')
+sigmoid     = single_output_immediate_op('Sigmoid')
+sin         = single_output_immediate_op('Sin')
+softmax     = single_output_immediate_op('Softmax')
+tanh        = single_output_immediate_op('Tanh')
+clamp       = single_output_immediate_op('Clip')
+log         = single_output_immediate_op('Log')
+min         = single_output_immediate_op('Min')
+max         = single_output_immediate_op('Max')
+sqrt        = single_output_immediate_op('Sqrt')
 
 # Pointwise Binary
 add = single_output_immediate_op("Add")
@@ -617,7 +648,11 @@ Tensor.__matmul__ = matmul  # type: ignore
 Tensor.reshape = reshape  # type: ignore
 
 
-# Mutli-operator functions
+def silu(x):
+    return x * sigmoid(x)
+
+
+# Multi-operator functions
 def linear(*args, **kwargs):
     assert len(args) == 2, f"linear args #-inputs({len(args)}) != 2"
     A, B = args[0], args[1]
@@ -655,7 +690,7 @@ def linear(*args, **kwargs):
     if bias is not None:
         C = add(C, bias)
     if act is not None:
-        act_op = {"relu": relu, "gelu": gelu}[act]
+        act_op = { 'relu': relu, 'gelu': gelu, 'silu': silu }[act]
         C = act_op(C)
     return C
 

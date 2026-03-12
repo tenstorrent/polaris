@@ -9,6 +9,9 @@ import ttsim.front.ttnn as ttnn
 from workloads.ttnn.tt_transformers.attention import Attention
 from workloads.ttnn.tt_transformers.mlp import MLP
 from workloads.ttnn.tt_transformers.rmsnorm import RMSNorm
+from workloads.ttnn.mixtral.mixtral_rmsnorm import RMSNorm as MixtralRMSNorm
+from workloads.ttnn.mixtral.mixtral_mlp import TtMixtralMLP
+from workloads.ttnn.mixtral.mixtral_moe import TtMoeLayer
 
 class TransformerBlock():
     def __init__(
@@ -37,7 +40,7 @@ class TransformerBlock():
         self.max_batch_size = args.max_batch_size
         self.n_kv_heads = args.n_kv_heads
         self.current = 0
-        self.model_config = None #args.get_model_config()
+        self.model_config = None
 
         self.layer_num = layer_num
 
@@ -52,45 +55,100 @@ class TransformerBlock():
             paged_attention_config=paged_attention_config,
             use_paged_kv_cache=use_paged_kv_cache,
         )
-        self.feed_forward = MLP(
-            mesh_device=mesh_device,
-            args=args,
-            state_dict=state_dict,
-            weight_cache_path=weight_cache_path,
-            layer_num=layer_num,
-            dtype=dtype,
-            model_config=self.model_config,
-        )
-        self.attention_norm = RMSNorm(
-            device=mesh_device,
-            dim=args.dim,
-            eps=args.norm_eps,
-            state_dict=state_dict,
-            state_dict_prefix="", #args.get_state_dict_prefix("", layer_num),
-            weight_cache_path=None if args.dummy_weights else weight_cache_path,
-            weight_dtype=ttnn.bfloat16,
-            weight_key="attention_norm",
-            is_distributed=self.args.is_distributed_norm,
-            add_unit_offset=self.args.rms_norm_add_unit_offset,
-            sharded_program_config=None, #self.model_config["SHARDED_NORM_ATTN_PRGM_CFG"],
-            sharded_output_config=None, #self.model_config["SHARDED_ATTN_INPUT_MEMCFG"],
-            ccl_topology=None, #self.args.ccl_topology(),
-        )
-        self.ff_norm = RMSNorm(
-            device=mesh_device,
-            dim=args.dim,
-            eps=args.norm_eps,
-            state_dict=state_dict,
-            state_dict_prefix="", #args.get_state_dict_prefix("", layer_num),
-            weight_cache_path=None if args.dummy_weights else weight_cache_path,
-            weight_dtype=ttnn.bfloat16,
-            weight_key="ffn_norm",
-            is_distributed=self.args.is_distributed_norm,
-            add_unit_offset=self.args.rms_norm_add_unit_offset,
-            sharded_program_config=None, #self.model_config["SHARDED_NORM_MLP_PRGM_CFG"],
-            sharded_output_config=None, #self.model_config["SHARDED_MLP_INPUT_MEMCFG"],
-            ccl_topology=None, #self.args.ccl_topology(),
-        )
+        if self.args.moe:
+            self.feed_forward = TtMoeLayer(
+                mesh_device=mesh_device,
+                state_dict=state_dict,
+                experts=TtMixtralMLP(
+                    mesh_device=mesh_device,
+                    state_dict=state_dict,
+                    args=args,
+                    layer_num=layer_num,
+                    dtypes={
+                        "w1": dtype,
+                        "w2": dtype,
+                        "w3": dtype,
+                    },
+                ),
+                args=args,
+                layer_num=layer_num,
+                dtype=dtype,
+                tt_ccl=None,
+            )
+        else:
+            self.feed_forward = MLP( # type: ignore[assignment]
+                mesh_device=mesh_device,
+                args=args,
+                state_dict=state_dict,
+                weight_cache_path=weight_cache_path,
+                layer_num=layer_num,
+                dtype=dtype,
+                model_config=self.model_config,
+            )
+        if self.args.moe:
+            self.attention_norm = MixtralRMSNorm(
+                device=mesh_device,
+                dim=args.dim,
+                args=self.args,
+                eps=args.norm_eps,
+                state_dict=state_dict,
+                state_dict_prefix="",
+                weight_cache_path=None if args.dummy_weights else weight_cache_path,
+                weight_dtype=ttnn.bfloat16,
+                weight_key="attention_norm",
+                is_distributed=self.args.is_distributed_norm,
+                add_unit_offset=self.args.rms_norm_add_unit_offset,
+                sharded_program_config=None,
+                sharded_output_config=None,
+                ccl_topology=None,
+            )
+            self.ff_norm = MixtralRMSNorm(
+                device=mesh_device,
+                dim=args.dim,
+                args=self.args,
+                eps=args.norm_eps,
+                state_dict=state_dict,
+                state_dict_prefix="",
+                weight_cache_path=None if args.dummy_weights else weight_cache_path,
+                weight_dtype=ttnn.bfloat16,
+                weight_key="ffn_norm",
+                is_distributed=self.args.is_distributed_norm,
+                add_unit_offset=self.args.rms_norm_add_unit_offset,
+                sharded_program_config=None,
+                sharded_output_config=None,
+                ccl_topology=None,
+            )
+        else:
+            self.attention_norm = RMSNorm( # type: ignore[assignment]
+                device=mesh_device,
+                dim=args.dim,
+                eps=args.norm_eps,
+                state_dict=state_dict,
+                state_dict_prefix="",
+                weight_cache_path=None if args.dummy_weights else weight_cache_path,
+                weight_dtype=ttnn.bfloat16,
+                weight_key="attention_norm",
+                is_distributed=self.args.is_distributed_norm,
+                add_unit_offset=self.args.rms_norm_add_unit_offset,
+                sharded_program_config=None,
+                sharded_output_config=None,
+                ccl_topology=None,
+            )
+            self.ff_norm = RMSNorm( # type: ignore[assignment]
+                device=mesh_device,
+                dim=args.dim,
+                eps=args.norm_eps,
+                state_dict=state_dict,
+                state_dict_prefix="",
+                weight_cache_path=None if args.dummy_weights else weight_cache_path,
+                weight_dtype=ttnn.bfloat16,
+                weight_key="ffn_norm",
+                is_distributed=self.args.is_distributed_norm,
+                add_unit_offset=self.args.rms_norm_add_unit_offset,
+                sharded_program_config=None,
+                sharded_output_config=None,
+                ccl_topology=None,
+            )
 
     def __call__(
         self,
@@ -105,7 +163,7 @@ class TransformerBlock():
         kv_cache=None,
     ) -> ttnn.Tensor:
         TG = self.args.is_galaxy
-        skip_mem_cfg = None #self.model_config["DECODE_RESIDUAL_MEMCFG"] if mode == "decode" else ttnn.DRAM_MEMORY_CONFIG
+        skip_mem_cfg = None
         attn_in = self.attention_norm(x, mode)
         attn_out = self.attention.forward(
             attn_in,
@@ -118,19 +176,16 @@ class TransformerBlock():
             chunk_start_idx=chunk_start_idx,
             kv_cache=kv_cache,
         )
-        h = ttnn.add(x, attn_out, memory_config=skip_mem_cfg) #, dtype=ttnn.bfloat16 if TG else None)
+        h = ttnn.add(x, attn_out, memory_config=skip_mem_cfg)
         ttnn.deallocate(attn_out)
         if mode == "prefill":
-            pass #x.deallocate(True)
+            pass
 
         ff_in = self.ff_norm(h, mode)
-        if TG and mode == "decode":
-            ff_in = ttnn.to_memory_config(ff_in, memory_config=None) # self.model_config["MLP_ACT_MEMCFG"])
         ff_out = self.feed_forward.forward(ff_in, mode)
         out = ttnn.add(
             h,
             ff_out,
             memory_config=skip_mem_cfg,
-            # ttnn.bfloat16,
         )
         return out

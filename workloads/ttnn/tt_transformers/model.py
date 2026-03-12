@@ -7,6 +7,7 @@ sys.path.append(os.path.join(os.path.dirname(__file__), '../../..'))
 import ttsim.front.ttnn as ttnn
 from loguru import logger
 from workloads.ttnn.tt_transformers.rmsnorm import RMSNorm
+from workloads.ttnn.mixtral.mixtral_rmsnorm import RMSNorm as MixtralRMSNorm
 from workloads.ttnn.tt_transformers.decoder import TransformerBlock
 from workloads.ttnn.tt_transformers.embedding import Embedding
 from workloads.ttnn.tt_transformers.lm_head import LMHead
@@ -73,21 +74,39 @@ class Transformer():
             )
             for i in range(self.n_layers)
         ]
-        self.norm = RMSNorm(
-            device=mesh_device,
-            dim=args.dim,
-            eps=args.norm_eps,
-            state_dict=state_dict,
-            state_dict_prefix="", #args.get_state_dict_prefix("", None),
-            weight_cache_path=None if args.dummy_weights else weight_cache_path,
-            weight_dtype=ttnn.bfloat16,
-            weight_key="norm",
-            add_unit_offset=self.args.rms_norm_add_unit_offset,
-            is_distributed=self.args.is_distributed_norm,
-            sharded_program_config=None, #self.model_config["SHARDED_NORM_LM_HEAD_PRGM_CFG"],
-            sharded_output_config=None, #self.model_config["LM_HEAD_INPUT_MEMCFG"],
-            ccl_topology=self.args.ccl_topology(),
-        )
+        if self.args.moe:
+            self.norm = MixtralRMSNorm(
+                device=mesh_device,
+                dim=args.dim,
+                args=self.args,
+                eps=args.norm_eps,
+                state_dict=state_dict,
+                state_dict_prefix="", #args.get_state_dict_prefix("", None),
+                weight_cache_path=None if args.dummy_weights else weight_cache_path,
+                weight_dtype=ttnn.bfloat16,
+                weight_key="norm",
+                add_unit_offset=self.args.rms_norm_add_unit_offset,
+                is_distributed=self.args.is_distributed_norm,
+                sharded_program_config=None, #self.model_config["SHARDED_NORM_LM_HEAD_PRGM_CFG"],
+                sharded_output_config=None, #self.model_config["LM_HEAD_INPUT_MEMCFG"],
+                ccl_topology=self.args.ccl_topology(),
+            )
+        else:
+            self.norm = RMSNorm( # type: ignore[assignment]
+                device=mesh_device,
+                dim=args.dim,
+                eps=args.norm_eps,
+                state_dict=state_dict,
+                state_dict_prefix="", #args.get_state_dict_prefix("", None),
+                weight_cache_path=None if args.dummy_weights else weight_cache_path,
+                weight_dtype=ttnn.bfloat16,
+                weight_key="norm",
+                add_unit_offset=self.args.rms_norm_add_unit_offset,
+                is_distributed=self.args.is_distributed_norm,
+                sharded_program_config=None, #self.model_config["SHARDED_NORM_LM_HEAD_PRGM_CFG"],
+                sharded_output_config=None, #self.model_config["LM_HEAD_INPUT_MEMCFG"],
+                ccl_topology=self.args.ccl_topology(),
+            )
 
         self.lm_head = LMHead(
             args=args,
@@ -111,7 +130,7 @@ class Transformer():
         chunk_start_idx=None,
         get_last_token=-1,
         kv_cache=None,
-    ):
+        ):
         for i, layer in enumerate(self.layers):
             x = layer(
                 x,
@@ -126,7 +145,6 @@ class Transformer():
             )
 
         if mode == "prefill" and get_last_token == -1:
-            logger.info(f'x shape before to_layout is {x.shape}')
             return x
 
         # Slicing the tensor to the nearest ceiling/floor multiples of 32 for the prefill_len, to get the last token
