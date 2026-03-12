@@ -30,7 +30,7 @@ def xavier_uniform_(tensor, gain=1.0, distribution="uniform"):
     """
     if hasattr(tensor, "numpy"):
         # PyTorch tensor
-        import torch.nn.init as init
+        import torch.nn.init as init  # type: ignore[import-not-found]
 
         if distribution == "uniform":
             init.xavier_uniform_(tensor, gain=gain)
@@ -62,7 +62,7 @@ def constant_(tensor, val=0.0):
     """
     if hasattr(tensor, "numpy"):
         # PyTorch tensor
-        import torch.nn.init as init
+        import torch.nn.init as init  # type: ignore[import-not-found]
 
         init.constant_(tensor, val)
     else:
@@ -83,7 +83,7 @@ def normal_(tensor, mean=0.0, std=1.0):
     """
     if hasattr(tensor, "numpy"):
         # PyTorch tensor
-        import torch.nn.init as init
+        import torch.nn.init as init  # type: ignore[import-not-found]
 
         init.normal_(tensor, mean=mean, std=std)
     else:
