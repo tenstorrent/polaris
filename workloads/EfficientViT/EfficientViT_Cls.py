@@ -17,6 +17,7 @@ from ttsim.front.functional.op import SimOpHandle  # used for GAP impl and helpe
 
 # -------------------- Primitives --------------------
 
+
 class ConvLayer(SimNN.Module):
     def __init__(
         self,
@@ -40,8 +41,16 @@ class ConvLayer(SimNN.Module):
         self._use_bn = bool(use_bn)
         self._groups = int(groups)
 
-        self.conv = F.Conv2d(name + ".conv", in_ch, out_ch, kernel_size=ks, stride=stride,
-                             padding=padding, groups=groups, bias=use_bias)
+        self.conv = F.Conv2d(
+            name + ".conv",
+            in_ch,
+            out_ch,
+            kernel_size=ks,
+            stride=stride,
+            padding=padding,
+            groups=groups,
+            bias=use_bias,
+        )
         if hasattr(self.conv, "set_module"):
             self.conv.set_module(self)  # type: ignore[call-arg]
 
@@ -106,14 +115,41 @@ class ResidualBlock(SimNN.Module):
 
 
 class MBConv(SimNN.Module):
-    def __init__(self, name: str, in_ch: int, out_ch: int, stride: int = 1, activation: str = "gelu"):
+    def __init__(
+        self,
+        name: str,
+        in_ch: int,
+        out_ch: int,
+        stride: int = 1,
+        activation: str = "gelu",
+    ):
         super().__init__()
         self.name = name
-        self.use_res = (int(in_ch) == int(out_ch) and int(stride) == 1)
-        self.dw = ConvLayer(name + ".dw", in_ch, in_ch, ks=3, stride=stride, padding=1,
-                            use_bias=False, use_bn=True, activation=None, groups=in_ch)
-        self.pw = ConvLayer(name + ".pw", in_ch, out_ch, ks=1, stride=1, padding=0,
-                            use_bias=False, use_bn=True, activation=activation, groups=1)
+        self.use_res = int(in_ch) == int(out_ch) and int(stride) == 1
+        self.dw = ConvLayer(
+            name + ".dw",
+            in_ch,
+            in_ch,
+            ks=3,
+            stride=stride,
+            padding=1,
+            use_bias=False,
+            use_bn=True,
+            activation=None,
+            groups=in_ch,
+        )
+        self.pw = ConvLayer(
+            name + ".pw",
+            in_ch,
+            out_ch,
+            ks=1,
+            stride=1,
+            padding=0,
+            use_bias=False,
+            use_bn=True,
+            activation=activation,
+            groups=1,
+        )
         self._submodules[self.dw.name] = self.dw
         self._submodules[self.pw.name] = self.pw
         self.add = F.Add(name + ".add")
@@ -125,7 +161,9 @@ class MBConv(SimNN.Module):
         return self.add(x, y) if self.use_res else y
 
     def analytical_param_count(self, lvl=0):
-        return self.dw.analytical_param_count(lvl + 1) + self.pw.analytical_param_count(lvl + 1)
+        return self.dw.analytical_param_count(lvl + 1) + self.pw.analytical_param_count(
+            lvl + 1
+        )
 
 
 class FusedMBConv(SimNN.Module):
@@ -188,17 +226,23 @@ class FusedMBConv(SimNN.Module):
         return y
 
     def analytical_param_count(self, lvl=0):
-        return self.spatial.analytical_param_count(lvl + 1) + self.point.analytical_param_count(lvl + 1)
+        return self.spatial.analytical_param_count(
+            lvl + 1
+        ) + self.point.analytical_param_count(lvl + 1)
 
 
 class LinearLayer(SimNN.Module):
-    def __init__(self, name: str, in_features: int, out_features: int, bias: bool = True):
+    def __init__(
+        self, name: str, in_features: int, out_features: int, bias: bool = True
+    ):
         super().__init__()
         self.name = name
         self.in_features = int(in_features)
         self.out_features = int(out_features)
         self.bias = bool(bias)
-        self.linear = F.Linear(name, self.in_features, self.out_features, bias=self.bias)
+        self.linear = F.Linear(
+            name, self.in_features, self.out_features, bias=self.bias
+        )
         if hasattr(self.linear, "set_module"):
             self.linear.set_module(self)  # type: ignore[call-arg]
 
@@ -209,7 +253,9 @@ class LinearLayer(SimNN.Module):
         b = self.out_features if self.bias else 0
         return self.in_features * self.out_features + b
 
+
 # -------------------- Head --------------------
+
 
 class ClsHead(SimNN.Module):
     def __init__(
@@ -246,26 +292,33 @@ class ClsHead(SimNN.Module):
 
         self._final_hw = 7
         kh, kw = self._final_hw, self._final_hw
-        self.gap_pool = SimOpHandle(name + ".gap", 'AveragePool',
-                                    params=[], ipos=[0],
-                                    kernel_shape=[kh, kw],
-                                    pads=[0, 0, 0, 0],
-                                    strides=[1, 1])
+        self.gap_pool = SimOpHandle(
+            name + ".gap",
+            "AveragePool",
+            params=[],
+            ipos=[0],
+            kernel_shape=[kh, kw],
+            pads=[0, 0, 0, 0],
+            strides=[1, 1],
+        )
         if hasattr(self.gap_pool, "set_module"):
             self.gap_pool.set_module(self)  # type: ignore[call-arg]
         self.gap_div = F.Div(name + ".gap.div")
         if hasattr(self.gap_div, "set_module"):
             self.gap_div.set_module(self)  # type: ignore[call-arg]
 
-        self.squeeze_hw = SimOpHandle(name + ".gap.squeeze_hw", "Squeeze",
-                                      params=[], ipos=[0, 1])
+        self.squeeze_hw = SimOpHandle(
+            name + ".gap.squeeze_hw", "Squeeze", params=[], ipos=[0, 1]
+        )
         if hasattr(self.squeeze_hw, "set_module"):
             self.squeeze_hw.set_module(self)  # type: ignore[call-arg]
 
         self.fc1 = LinearLayer(name + ".fc1.linear", mid, hidden, bias=False)
         self._submodules[self.fc1.name] = self.fc1
 
-        self.ln1 = F.LayerNorm(name + ".fc1.norm", hidden, normalized_shape=[hidden], eps=1e-5)
+        self.ln1 = F.LayerNorm(
+            name + ".fc1.norm", hidden, normalized_shape=[hidden], eps=1e-5
+        )
         if hasattr(self.ln1, "set_module"):
             self.ln1.set_module(self)  # type: ignore[call-arg]
 
@@ -307,7 +360,12 @@ class ClsHead(SimNN.Module):
         y = self.conv1x1(x)
         y = self.gap_pool(y)
 
-        axes_hw = F._from_data(self.name + ".gap.squeeze_hw.axes", np.array([2, 3], dtype=np.int64), is_param=False, is_const=True)
+        axes_hw = F._from_data(
+            self.name + ".gap.squeeze_hw.axes",
+            np.array([2, 3], dtype=np.int64),
+            is_param=False,
+            is_const=True,
+        )
         axes_hw = axes_hw.out if hasattr(axes_hw, "out") else axes_hw
         if hasattr(axes_hw, "name") and axes_hw.name not in self._tensors:
             self._tensors[axes_hw.name] = axes_hw  # type: ignore[index]
@@ -336,7 +394,9 @@ class ClsHead(SimNN.Module):
         cnt += self.fc2.analytical_param_count()
         return int(cnt)
 
+
 # -------------------- Backbones --------------------
+
 
 class EfficientViTBackbone(SimNN.Module):
     def __init__(
@@ -352,8 +412,24 @@ class EfficientViTBackbone(SimNN.Module):
         self.name = name
         self.act = activation
 
-        self.stem1 = ConvLayer(name + ".stem1", img_channels, stem_out, ks=3, stride=2, padding=1, activation=activation)
-        self.stem2 = ConvLayer(name + ".stem2", stem_out,      stem_out, ks=3, stride=1, padding=1, activation=activation)
+        self.stem1 = ConvLayer(
+            name + ".stem1",
+            img_channels,
+            stem_out,
+            ks=3,
+            stride=2,
+            padding=1,
+            activation=activation,
+        )
+        self.stem2 = ConvLayer(
+            name + ".stem2",
+            stem_out,
+            stem_out,
+            ks=3,
+            stride=1,
+            padding=1,
+            activation=activation,
+        )
         self._submodules[self.stem1.name] = self.stem1
         self._submodules[self.stem2.name] = self.stem2
 
@@ -362,12 +438,26 @@ class EfficientViTBackbone(SimNN.Module):
         for si, (cout, nblk) in enumerate(zip(dims, blocks)):
             stage: List[SimNN.Module] = []
             first_stride = 1 if si == 0 else 2
-            blk0 = MBConv(f"{name}.s{si}.b0", in_planes, cout, stride=first_stride, activation=activation)
-            stage.append(blk0); self._submodules[blk0.name] = blk0
+            blk0 = MBConv(
+                f"{name}.s{si}.b0",
+                in_planes,
+                cout,
+                stride=first_stride,
+                activation=activation,
+            )
+            stage.append(blk0)
+            self._submodules[blk0.name] = blk0
             in_planes = cout
             for bi in range(1, int(nblk)):
-                blk = MBConv(f"{name}.s{si}.b{bi}", in_planes, cout, stride=1, activation=activation)
-                stage.append(blk); self._submodules[blk.name] = blk
+                blk = MBConv(
+                    f"{name}.s{si}.b{bi}",
+                    in_planes,
+                    cout,
+                    stride=1,
+                    activation=activation,
+                )
+                stage.append(blk)
+                self._submodules[blk.name] = blk
             self.stages.append(stage)
 
     def __call__(self, x) -> Dict[str, Any]:
@@ -381,7 +471,9 @@ class EfficientViTBackbone(SimNN.Module):
         return feed
 
     def analytical_param_count(self, lvl=0):
-        cnt = self.stem1.analytical_param_count(lvl + 1) + self.stem2.analytical_param_count(lvl + 1)
+        cnt = self.stem1.analytical_param_count(
+            lvl + 1
+        ) + self.stem2.analytical_param_count(lvl + 1)
         for st in self.stages:
             for blk in st:
                 if hasattr(blk, "analytical_param_count"):
@@ -405,15 +497,34 @@ class EfficientViTLargeBackbone(SimNN.Module):
         self.name = name
 
         w0 = int(width_list[0])
-        stem = ConvLayer(name + ".s0.stem", img_channels, w0, ks=3, stride=2, padding=1, activation=act_func)
+        stem = ConvLayer(
+            name + ".s0.stem",
+            img_channels,
+            w0,
+            ks=3,
+            stride=2,
+            padding=1,
+            activation=act_func,
+        )
         self._submodules[stem.name] = stem
         self.stage0: List[SimNN.Module] = [stem]
 
         in_ch = w0
         for bi in range(int(depth_list[0])):
-            blk0 = FusedMBConv(f"{name}.s0.b{bi}", in_ch, in_ch, ks=3, stride=1,
-                               expand_ratio=1.0, activation_spatial=act_func, activation_point=None,
-                               use_bias_spatial=False, use_bias_point=False, use_bn_spatial=True, use_bn_point=True)
+            blk0 = FusedMBConv(
+                f"{name}.s0.b{bi}",
+                in_ch,
+                in_ch,
+                ks=3,
+                stride=1,
+                expand_ratio=1.0,
+                activation_spatial=act_func,
+                activation_point=None,
+                use_bias_spatial=False,
+                use_bias_point=False,
+                use_bn_spatial=True,
+                use_bn_point=True,
+            )
             self._submodules[blk0.name] = blk0
             res0 = ResidualBlock(f"{name}.s0.res{bi}", blk0, use_skip=True)
             self._submodules[res0.name] = res0
@@ -421,13 +532,16 @@ class EfficientViTLargeBackbone(SimNN.Module):
 
         self.stages12: List[List[SimNN.Module]] = []
         for si, (w, d) in enumerate(zip(width_list[1:3], depth_list[1:3]), start=1):
-            w = int(w); d = int(d)
+            w = int(w)
+            d = int(d)
             stage12: List[SimNN.Module] = []
             for bi in range(d):
                 stride = 2 if bi == 0 else 1
-                blk12 = MBConv(f"{name}.s{si}.b{bi}", in_ch, w, stride=stride, activation=act_func)
+                blk12 = MBConv(
+                    f"{name}.s{si}.b{bi}", in_ch, w, stride=stride, activation=act_func
+                )
                 self._submodules[blk12.name] = blk12
-                use_skip = (stride == 1 and in_ch == w)
+                use_skip = stride == 1 and in_ch == w
                 res12 = ResidualBlock(f"{name}.s{si}.res{bi}", blk12, use_skip=use_skip)
                 self._submodules[res12.name] = res12
                 stage12.append(res12)
@@ -436,16 +550,32 @@ class EfficientViTLargeBackbone(SimNN.Module):
 
         self.stages3p: List[List[SimNN.Module]] = []
         for sj, (w, d) in enumerate(zip(width_list[3:], depth_list[3:]), start=3):
-            w = int(w); d = int(d)
+            w = int(w)
+            d = int(d)
             stage3p: List[SimNN.Module] = []
-            trans_mb = MBConv(f"{name}.s{sj}.b0.trans", in_ch, w, stride=2, activation=act_func)
+            trans_mb = MBConv(
+                f"{name}.s{sj}.b0.trans", in_ch, w, stride=2, activation=act_func
+            )
             self._submodules[trans_mb.name] = trans_mb
-            stage3p.append(ResidualBlock(f"{name}.s{sj}.trans", trans_mb, use_skip=False))
+            stage3p.append(
+                ResidualBlock(f"{name}.s{sj}.trans", trans_mb, use_skip=False)
+            )
             in_ch = w
             for bi in range(d):
-                fblk = FusedMBConv(f"{name}.s{sj}.b{bi+1}", in_ch, in_ch, ks=3, stride=1,
-                                   expand_ratio=expand_ratio, activation_spatial=act_func, activation_point=None,
-                                   use_bias_spatial=False, use_bias_point=False, use_bn_spatial=True, use_bn_point=True)
+                fblk = FusedMBConv(
+                    f"{name}.s{sj}.b{bi+1}",
+                    in_ch,
+                    in_ch,
+                    ks=3,
+                    stride=1,
+                    expand_ratio=expand_ratio,
+                    activation_spatial=act_func,
+                    activation_point=None,
+                    use_bias_spatial=False,
+                    use_bias_point=False,
+                    use_bn_spatial=True,
+                    use_bn_point=True,
+                )
                 self._submodules[fblk.name] = fblk
                 res3 = ResidualBlock(f"{name}.s{sj}.res{bi+1}", fblk, use_skip=True)
                 self._submodules[res3.name] = res3
@@ -489,7 +619,9 @@ class EfficientViTLargeBackbone(SimNN.Module):
                     cnt += m.analytical_param_count(lvl + 1)  # type: ignore[call-arg]
         return int(cnt)
 
+
 # -------------------- Top model --------------------
+
 
 class EfficientViT_Cls(SimNN.Module):
     def __init__(self, name: str, cfg: Dict[str, Any]):
@@ -503,18 +635,28 @@ class EfficientViT_Cls(SimNN.Module):
         self.W = int(c.get("img_width", 224))
 
         activation = str(c.get("activation", "gelu"))
-        stem_out   = int(c.get("stem_out", 32))
-        dims       = [int(x) for x in c.get("dims",   [64, 128, 256, 512])]
-        blocks     = [int(x) for x in c.get("blocks", [2, 2, 3, 2])]
+        stem_out = int(c.get("stem_out", 32))
+        dims = [int(x) for x in c.get("dims", [64, 128, 256, 512])]
+        blocks = [int(x) for x in c.get("blocks", [2, 2, 3, 2])]
 
         model_size = str(c.get("model_size", "")).lower()
         if not model_size:
-            inferred = "large" if (int(dims[-1]) >= 768 or int(c.get("head_in", dims[-1])) >= 768) else "small"
+            inferred = (
+                "large"
+                if (int(dims[-1]) >= 768 or int(c.get("head_in", dims[-1])) >= 768)
+                else "small"
+            )
             model_size = inferred
 
         self.backbone: Union[EfficientViTBackbone, EfficientViTLargeBackbone]
         if model_size == "large":
-            width_list = [max(stem_out, dims[0] // 2), dims[0], dims[1], dims[2], dims[3]]
+            width_list = [
+                max(stem_out, dims[0] // 2),
+                dims[0],
+                dims[1],
+                dims[2],
+                dims[3],
+            ]
             depth_list = [1] + blocks
             self.backbone = EfficientViTLargeBackbone(
                 "cls.backbone",
@@ -528,7 +670,14 @@ class EfficientViT_Cls(SimNN.Module):
             )
             backbone_out_ch = width_list[-1]
         else:
-            self.backbone = EfficientViTBackbone("cls.backbone", self.in_ch, stem_out, dims, blocks, activation=activation)
+            self.backbone = EfficientViTBackbone(
+                "cls.backbone",
+                self.in_ch,
+                stem_out,
+                dims,
+                blocks,
+                activation=activation,
+            )
             backbone_out_ch = dims[-1]
 
         self._submodules[self.backbone.name] = self.backbone
@@ -541,7 +690,10 @@ class EfficientViT_Cls(SimNN.Module):
             if len(head_widths) < 2:
                 head_widths = [head_in, head_in]
         else:
-            head_widths = [int(c.get("cls_head_mid", head_in)), int(c.get("cls_head_hidden", head_in))]
+            head_widths = [
+                int(c.get("cls_head_mid", head_in)),
+                int(c.get("cls_head_hidden", head_in)),
+            ]
 
         head_norm = c.get("cls_head_norm", c.get("head_norm", "bn2d"))
         head_act = c.get("cls_head_act", c.get("head_act", "hswish"))
@@ -582,7 +734,7 @@ class EfficientViT_Cls(SimNN.Module):
         self._num_classes = int(c.get("num_classes", 1000))
         self.training = False
 
-        _is_small_bs1 = (model_size == "small" and self.bs == 1)
+        _is_small_bs1 = model_size == "small" and self.bs == 1
         if _is_small_bs1:
             hints_fc: Dict[str, Any] = {
                 "prefer_small_kernel": True,
@@ -603,7 +755,9 @@ class EfficientViT_Cls(SimNN.Module):
                     try:
                         if hasattr(lin1, "set_backend_opts"):
                             lin1.set_backend_opts(hints_fc)  # type: ignore[call-arg]
-                        elif hasattr(lin1, "backend_opts") and isinstance(getattr(lin1, "backend_opts", None), dict):
+                        elif hasattr(lin1, "backend_opts") and isinstance(
+                            getattr(lin1, "backend_opts", None), dict
+                        ):
                             lin1.backend_opts.update(hints_fc)  # type: ignore[union-attr]
                     except Exception:
                         pass
@@ -615,7 +769,9 @@ class EfficientViT_Cls(SimNN.Module):
                     try:
                         if hasattr(lin2, "set_backend_opts"):
                             lin2.set_backend_opts(hints_fc)  # type: ignore[call-arg]
-                        elif hasattr(lin2, "backend_opts") and isinstance(getattr(lin2, "backend_opts", None), dict):
+                        elif hasattr(lin2, "backend_opts") and isinstance(
+                            getattr(lin2, "backend_opts", None), dict
+                        ):
                             lin2.backend_opts.update(hints_fc)  # type: ignore[union-attr]
                     except Exception:
                         pass
@@ -628,11 +784,16 @@ class EfficientViT_Cls(SimNN.Module):
                 ):
                     if lin_mod is None:
                         continue
-                    opts: Dict[str, Any] = {"weight_prepack": True, "weight_static": True}
+                    opts: Dict[str, Any] = {
+                        "weight_prepack": True,
+                        "weight_static": True,
+                    }
                     try:
                         if hasattr(lin_mod, "set_backend_opts"):
                             lin_mod.set_backend_opts(opts)  # type: ignore[call-arg]
-                        elif hasattr(lin_mod, "backend_opts") and isinstance(getattr(lin_mod, "backend_opts", None), dict):
+                        elif hasattr(lin_mod, "backend_opts") and isinstance(
+                            getattr(lin_mod, "backend_opts", None), dict
+                        ):
                             lin_mod.backend_opts.update(opts)  # type: ignore[union-attr]
                     except Exception:
                         pass
@@ -641,11 +802,16 @@ class EfficientViT_Cls(SimNN.Module):
             try:
                 ln1 = getattr(self.head, "ln1", None)
                 if ln1 is not None:
-                    opts_ln: Dict[str, Any] = {"allow_pointwise_fusion": True, "no_upcast_layernorm": True}
+                    opts_ln: Dict[str, Any] = {
+                        "allow_pointwise_fusion": True,
+                        "no_upcast_layernorm": True,
+                    }
                     try:
                         if hasattr(ln1, "set_backend_opts"):
                             ln1.set_backend_opts(opts_ln)  # type: ignore[call-arg]
-                        elif hasattr(ln1, "backend_opts") and isinstance(getattr(ln1, "backend_opts", None), dict):
+                        elif hasattr(ln1, "backend_opts") and isinstance(
+                            getattr(ln1, "backend_opts", None), dict
+                        ):
                             ln1.backend_opts.update(opts_ln)  # type: ignore[union-attr]
                     except Exception:
                         pass
@@ -655,7 +821,9 @@ class EfficientViT_Cls(SimNN.Module):
                     try:
                         if hasattr(a1, "set_backend_opts"):
                             a1.set_backend_opts(opts_act)  # type: ignore[call-arg]
-                        elif hasattr(a1, "backend_opts") and isinstance(getattr(a1, "backend_opts", None), dict):
+                        elif hasattr(a1, "backend_opts") and isinstance(
+                            getattr(a1, "backend_opts", None), dict
+                        ):
                             a1.backend_opts.update(opts_act)  # type: ignore[union-attr]
                     except Exception:
                         pass
@@ -665,7 +833,9 @@ class EfficientViT_Cls(SimNN.Module):
                     try:
                         if hasattr(dr, "set_backend_opts"):
                             dr.set_backend_opts(opts_dr)  # type: ignore[call-arg]
-                        elif hasattr(dr, "backend_opts") and isinstance(getattr(dr, "backend_opts", None), dict):
+                        elif hasattr(dr, "backend_opts") and isinstance(
+                            getattr(dr, "backend_opts", None), dict
+                        ):
                             dr.backend_opts.update(opts_dr)  # type: ignore[union-attr]
                     except Exception:
                         pass
@@ -680,7 +850,9 @@ class EfficientViT_Cls(SimNN.Module):
 
     def create_input_tensors(self):
         self.input_tensors = {
-            "cls_input": self._as_tensor(F._from_shape("cls_input", [self.bs, self.in_ch, self.H, self.W])),
+            "cls_input": self._as_tensor(
+                F._from_shape("cls_input", [self.bs, self.in_ch, self.H, self.W])
+            ),
             "cls.head.gap.hw": self._as_tensor(self._gap_helpers["cls.head.gap.hw"]),
         }
 
@@ -694,6 +866,7 @@ class EfficientViT_Cls(SimNN.Module):
             v2 = v.out if hasattr(v, "out") else v
             v3 = v2.out if hasattr(v2, "out") else v2
             return v3
+
         return {k: unwrap_value(v) for k, v in m.items()}
 
     def __call__(self):
@@ -710,8 +883,8 @@ class EfficientViT_Cls(SimNN.Module):
         x = self.input_tensors.get("cls_input", None)
         hw = self.input_tensors.get("cls.head.gap.hw", None)
 
-        x = x.out if hasattr(x, "out") else x
-        hw = hw.out if hasattr(hw, "out") else hw
+        x = x.out if hasattr(x, "out") else x  # type: ignore[union-attr]
+        hw = hw.out if hasattr(hw, "out") else hw  # type: ignore[union-attr]
 
         seeds: Dict[str, Any] = {}
         if hasattr(x, "shape") and hasattr(x, "nbytes"):
@@ -720,22 +893,43 @@ class EfficientViT_Cls(SimNN.Module):
             seeds["cls.head.gap.hw"] = hw
 
         if not seeds:
-            raise RuntimeError("No valid SimTensor seeds found for forward graph seeding.")
+            raise RuntimeError(
+                "No valid SimTensor seeds found for forward graph seeding."
+            )
 
         return super()._get_forward_graph(seeds)
 
     def analytical_param_count(self, lvl=0):
-        bcnt = self.backbone.analytical_param_count(lvl + 1) if hasattr(self.backbone, "analytical_param_count") else 0
-        acnt = self.adapter.analytical_param_count(lvl + 1) if (self.adapter is not None and hasattr(self.adapter, "analytical_param_count")) else 0
-        hcnt = self.head.analytical_param_count(lvl + 1) if hasattr(self.head, "analytical_param_count") else 0
+        bcnt = (
+            self.backbone.analytical_param_count(lvl + 1)
+            if hasattr(self.backbone, "analytical_param_count")
+            else 0
+        )
+        acnt = (
+            self.adapter.analytical_param_count(lvl + 1)
+            if (
+                self.adapter is not None
+                and hasattr(self.adapter, "analytical_param_count")
+            )
+            else 0
+        )
+        hcnt = (
+            self.head.analytical_param_count(lvl + 1)
+            if hasattr(self.head, "analytical_param_count")
+            else 0
+        )
         return int(bcnt + acnt + hcnt)
+
 
 # Backward-compat alias for YAML
 EFFICIENTVIT = EfficientViT_Cls
 
 if __name__ == "__main__":
     cfg = {
-        "img_channels": 3, "img_height": 224, "img_width": 224, "bs": 1,
+        "img_channels": 3,
+        "img_height": 224,
+        "img_width": 224,
+        "bs": 1,
         "dims": [80, 224, 384, 1024],
         "blocks": [3, 4, 8, 3],
         "stem_out": 48,

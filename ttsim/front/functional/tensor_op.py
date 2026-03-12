@@ -10,6 +10,7 @@ import numpy as np
 
 counter = count(start=1, step=1)
 
+
 ######## helper functions ##################
 def torch2onnx_slice_plan(input_shape, slice_spec):
     """
@@ -26,7 +27,7 @@ def torch2onnx_slice_plan(input_shape, slice_spec):
     """
     # Ensure list for easy manipulation
     slice_spec = list(slice_spec)
-    ndim       = len(input_shape)
+    ndim = len(input_shape)
 
     # Check for multiple ellipsis
     if slice_spec.count(Ellipsis) > 1:
@@ -35,9 +36,13 @@ def torch2onnx_slice_plan(input_shape, slice_spec):
     # Expand ellipsis
     if Ellipsis in slice_spec:
         idx = slice_spec.index(Ellipsis)
-        n_specified = len([s for s in slice_spec if s is not Ellipsis and s is not None])
+        n_specified = len(
+            [s for s in slice_spec if s is not Ellipsis and s is not None]
+        )
         num_missing = ndim - n_specified
-        expanded_spec = (slice_spec[:idx] + [slice(None)] * num_missing + slice_spec[idx+1:])
+        expanded_spec = (
+            slice_spec[:idx] + [slice(None)] * num_missing + slice_spec[idx + 1 :]
+        )
     else:
         expanded_spec = slice_spec[:]
 
@@ -59,9 +64,9 @@ def torch2onnx_slice_plan(input_shape, slice_spec):
 
     # Remove None entries to get the actual slice/gather spec for data axes
     data_spec = [s for s in expanded_spec if s is not None]
-    assert len(data_spec) == ndim, (
-        f"Internal error: after removing Nones, number of axes is {len(data_spec)}, expected {ndim}"
-    )
+    assert (
+        len(data_spec) == ndim
+    ), f"Internal error: after removing Nones, number of axes is {len(data_spec)}, expected {ndim}"
 
     # Build gathers
     gathers = []
@@ -90,11 +95,21 @@ def torch2onnx_slice_plan(input_shape, slice_spec):
     for i, (dim, spec) in enumerate(zip(post_gather_shape, post_gather_spec)):
         if not isinstance(spec, slice):
             raise AssertionError(f"Non-slice object found where slice expected: {spec}")
-        s = 0 if spec.start is None else (spec.start if spec.start >= 0 else dim + spec.start)
-        e = dim if spec.stop is None else (spec.stop if spec.stop >= 0 else dim + spec.stop)
+        s = (
+            0
+            if spec.start is None
+            else (spec.start if spec.start >= 0 else dim + spec.start)
+        )
+        e = (
+            dim
+            if spec.stop is None
+            else (spec.stop if spec.stop >= 0 else dim + spec.stop)
+        )
         step = 1 if spec.step is None else spec.step
         if step < 0:
-            raise NotImplementedError("Negative steps are not supported by ONNX Slice (opset 13).")
+            raise NotImplementedError(
+                "Negative steps are not supported by ONNX Slice (opset 13)."
+            )
         if step > 0:
             e = min(e, dim)
         else:
@@ -119,31 +134,37 @@ def torch2onnx_slice_plan(input_shape, slice_spec):
         final_shape.insert(axis, 1)
 
     plan = {
-        'unsqueezes': unsqueeze_axes if unsqueeze_axes else None,
-        'gathers': gathers if gathers else None,
-        'slice': {
-            'axes': slice_axes,
-            'starts': starts,
-            'ends': ends,
-            'steps': steps,
-        } if slice_axes else None,
-        'squeeze_axes': squeeze_axes,
-        'output_shape': final_shape,
+        "unsqueezes": unsqueeze_axes if unsqueeze_axes else None,
+        "gathers": gathers if gathers else None,
+        "slice": (
+            {
+                "axes": slice_axes,
+                "starts": starts,
+                "ends": ends,
+                "steps": steps,
+            }
+            if slice_axes
+            else None
+        ),
+        "squeeze_axes": squeeze_axes,
+        "output_shape": final_shape,
     }
     return plan
 
+
 ######## specific tensor operations ##################
 def tensor_contiguous(self):
-    return self #identity function for now
+    return self  # identity function for now
+
 
 def tensor_view(self, *shape):
     assert isinstance(self, SimTensor), f"tensor_view self = {self} not a SimTensor!!"
-    shape      = list(shape) #type: ignore
+    shape = list(shape)  # type: ignore
     orig_numel = self.nelems()
 
     # Handle a single shape passed as a tuple/list
     if len(shape) == 1 and isinstance(shape[0], (tuple, list)):
-        shape = list(shape[0]) #type: ignore
+        shape = list(shape[0])  # type: ignore
 
     # Handle -1 for one of the dimensions (PyTorch-style inference)
     infer_idx = None
@@ -160,12 +181,15 @@ def tensor_view(self, *shape):
         if known == 0:
             raise ValueError("Known product of shape dimensions is zero.")
         if orig_numel % known != 0:
-            raise ValueError("Shape is not compatible for view (cannot infer dimension)")
-        shape[infer_idx] = orig_numel // known #type: ignore
+            raise ValueError(
+                "Shape is not compatible for view (cannot infer dimension)"
+            )
+        shape[infer_idx] = orig_numel // known  # type: ignore
 
     # Check total elements match
     new_numel = 1
-    for d in shape: new_numel *= d
+    for d in shape:
+        new_numel *= d
     if new_numel != orig_numel:
         raise ValueError("Shape is not compatible for view (element count mismatch)")
 
@@ -174,25 +198,35 @@ def tensor_view(self, *shape):
     op = F.Reshape(op_name)
     op.set_module(self.link_module)
     self.link_module._op_hndls[op.name] = op
-    shapeTensor = F._from_data(op_name + '.fixshape', is_const=True, data=np.array(shape, dtype=np.int64))
+    shapeTensor = F._from_data(
+        op_name + ".fixshape", is_const=True, data=np.array(shape, dtype=np.int64)
+    )
     for x in [self, shapeTensor]:
         if x.name not in self.link_module._tensors:
             self.link_module._tensors[x.name] = x
     return op(self, shapeTensor)
 
+
 def tensor_transpose(self, dim0, dim1):
     assert isinstance(self, SimTensor), f"transpose self = {self} not a SimTensor!!"
-    if self.rank() < 1: raise ValueError("Tensor rank must be at least 1.")
+    if self.rank() < 1:
+        raise ValueError("Tensor rank must be at least 1.")
 
     # Handle negative indices (convert to positive)
-    if dim0 < 0: dim0 = self.rank() + dim0
-    if dim1 < 0: dim1 = self.rank() + dim1
+    if dim0 < 0:
+        dim0 = self.rank() + dim0
+    if dim1 < 0:
+        dim1 = self.rank() + dim1
 
     # Validate dimension indices
     if dim0 < 0 or dim0 >= self.rank():
-        raise ValueError(f"dim0 ({dim0}) is out of bounds for tensor rank {self.rank()}.")
+        raise ValueError(
+            f"dim0 ({dim0}) is out of bounds for tensor rank {self.rank()}."
+        )
     if dim1 < 0 or dim1 >= self.rank():
-        raise ValueError(f"dim1 ({dim1}) is out of bounds for tensor rank {self.rank()}.")
+        raise ValueError(
+            f"dim1 ({dim1}) is out of bounds for tensor rank {self.rank()}."
+        )
 
     # Create default permutation [0, 1, 2, ..., tensor_rank-1]
     perm = list(range(self.rank()))
@@ -209,6 +243,7 @@ def tensor_transpose(self, dim0, dim1):
         self.link_module._tensors[self.name] = self
     return op(self)
 
+
 def tensor_permute(self, perm):
     assert self.link_module is not None, f"link_module for {self.name} not specified!!"
     op_name = f"{self.link_module.name}.permute.impl_{next(counter)}"
@@ -219,21 +254,25 @@ def tensor_permute(self, perm):
         self.link_module._tensors[self.name] = self
     return op(self)
 
+
 def tensor_unsqueeze(self, dim):
     assert isinstance(self, SimTensor), f"unsqueeze self = {self} not a SimTensor!!"
-    if self.rank() < 0: raise ValueError("Tensor rank must be at least 0.")
+    if self.rank() < 0:
+        raise ValueError("Tensor rank must be at least 0.")
 
     # Handle negative indices (convert to positive)
-    if dim < 0: dim = self.rank() + dim + 1
+    if dim < 0:
+        dim = self.rank() + dim + 1
 
     # Validate dimension indices
     if dim < 0 or dim > self.rank():
-        raise ValueError(f"dim ({dim}) is out of bounds for tensor rank {self.rank()}. "
-                         f"Valid range is [-{self.rank()+1}, {self.rank()}]"
-                         )
+        raise ValueError(
+            f"dim ({dim}) is out of bounds for tensor rank {self.rank()}. "
+            f"Valid range is [-{self.rank()+1}, {self.rank()}]"
+        )
     assert self.link_module is not None, f"link_module for {self.name} not specified!!"
     op_name = f"{self.link_module.name}.unsqueeze.impl_{next(counter)}"
-    axesTensor = F._from_data(op_name + '.axes', is_const=True, data=np.array([dim]))
+    axesTensor = F._from_data(op_name + ".axes", is_const=True, data=np.array([dim]))
     op = F.Unsqueeze(op_name)
     op.set_module(self.link_module)
     self.link_module._op_hndls[op.name] = op
@@ -242,21 +281,25 @@ def tensor_unsqueeze(self, dim):
             self.link_module._tensors[x.name] = x
     return op(self, axesTensor)
 
+
 def tensor_squeeze(self, dim):
     assert isinstance(self, SimTensor), f"unsqueeze self = {self} not a SimTensor!!"
-    if self.rank() < 0: raise ValueError("Tensor rank must be at least 0.")
+    if self.rank() < 0:
+        raise ValueError("Tensor rank must be at least 0.")
 
-    if dim < 0: dim = self.rank() + dim
+    if dim < 0:
+        dim = self.rank() + dim
 
     # Validate dimension indices
     if dim < 0 or dim >= self.rank():
-        raise ValueError(f"dim ({dim}) is out of bounds for tensor rank {self.rank()}. "
-                         f"Valid range is [-{self.rank()}, {self.rank()-1}]"
-                         )
+        raise ValueError(
+            f"dim ({dim}) is out of bounds for tensor rank {self.rank()}. "
+            f"Valid range is [-{self.rank()}, {self.rank()-1}]"
+        )
 
     assert self.link_module is not None, f"link_module for {self.name} not specified!!"
     op_name = f"{self.link_module.name}.unsqueeze.impl_{next(counter)}"
-    axesTensor = F._from_data(op_name + '.axes', is_const=True, data=np.array([dim]))
+    axesTensor = F._from_data(op_name + ".axes", is_const=True, data=np.array([dim]))
     op = F.Squeeze(op_name)
     op.set_module(self.link_module)
     self.link_module._op_hndls[op.name] = op
@@ -264,6 +307,7 @@ def tensor_squeeze(self, dim):
         if x.name not in self.link_module._tensors:
             self.link_module._tensors[x.name] = x
     return op(self, axesTensor)
+
 
 def tensor_getitem(self, idx):
     assert self.link_module is not None, f"link_module for {self.name} not specified!!"
@@ -274,89 +318,115 @@ def tensor_getitem(self, idx):
     op_sub_num = 0
 
     # 1. Unsqueeze for new axes (from None in slice_spec)
-    if plan['unsqueezes']:
-        op_name   = f"{self.link_module.name}.slice.impl_{op_num}.{op_sub_num}"
-        op        = F.Unsqueeze(op_name)
+    if plan["unsqueezes"]:
+        op_name = f"{self.link_module.name}.slice.impl_{op_num}.{op_sub_num}"
+        op = F.Unsqueeze(op_name)
         op.set_module(self.link_module)
         self.link_module._op_hndls[op.name] = op
         op_sub_num += 1
 
-        unsq_axes = F._from_data(op_name + '.axes', data=np.array(plan['unsqueezes'], dtype=np.int64), is_const=True)
+        unsq_axes = F._from_data(
+            op_name + ".axes",
+            data=np.array(plan["unsqueezes"], dtype=np.int64),
+            is_const=True,
+        )
         if unsq_axes not in self.link_module._tensors:
             self.link_module._tensors[unsq_axes.name] = unsq_axes
 
         X = op(X, unsq_axes)
-        #print("HAPPY>>> 1", X)
+        # print("HAPPY>>> 1", X)
 
     # 2. Gather+Squeeze for integer indices
-    if plan['gathers']:
-        for i, (axis, idx) in enumerate(plan['gathers']):
-            assert 0 <= axis < X.rank(), f"Gather axis {axis} out of bounds for {X.shape}"
-            assert 0 <= idx < X.shape[axis], f"Gather idx {idx} out of bounds for axis {axis} (shape={X.shape})"
-            op_name   = f"{self.link_module.name}.slice.impl_{op_num}.{op_sub_num}"
-            op        = F.Gather(op_name)
+    if plan["gathers"]:
+        for i, (axis, idx) in enumerate(plan["gathers"]):
+            assert (
+                0 <= axis < X.rank()
+            ), f"Gather axis {axis} out of bounds for {X.shape}"
+            assert (
+                0 <= idx < X.shape[axis]
+            ), f"Gather idx {idx} out of bounds for axis {axis} (shape={X.shape})"
+            op_name = f"{self.link_module.name}.slice.impl_{op_num}.{op_sub_num}"
+            op = F.Gather(op_name)
             op.set_module(self.link_module)
             self.link_module._op_hndls[op.name] = op
             op_sub_num += 1
-            idx_tensor = F._from_data(op.name + '.idx', np.array([idx], dtype=np.int64), is_const=True)
+            idx_tensor = F._from_data(
+                op.name + ".idx", np.array([idx], dtype=np.int64), is_const=True
+            )
             self.link_module._tensors[idx_tensor.name] = idx_tensor
             idx_tensor.set_module(self.link_module)
             X = op(X, idx_tensor)
-            #print("HAPPY>>> 2", X)
+            # print("HAPPY>>> 2", X)
 
             # Squeeze axis immediately after gather (axis always 0 after gather)
-            #axes_tensor = oh.make_tensor(f'squeeze_axes_{i}', TensorProto.INT64, [1], [0])
-            op_name   = f"{self.link_module.name}.slice.impl_{op_num}.{op_sub_num}"
-            op        = F.Squeeze(op_name)
+            # axes_tensor = oh.make_tensor(f'squeeze_axes_{i}', TensorProto.INT64, [1], [0])
+            op_name = f"{self.link_module.name}.slice.impl_{op_num}.{op_sub_num}"
+            op = F.Squeeze(op_name)
             op.set_module(self.link_module)
             self.link_module._op_hndls[op.name] = op
             op_sub_num += 1
-            axes_tensor = F._from_data(op.name + '.axes', np.array([0], dtype=np.int64), is_const=True)
+            axes_tensor = F._from_data(
+                op.name + ".axes", np.array([0], dtype=np.int64), is_const=True
+            )
             self.link_module._tensors[axes_tensor.name] = axes_tensor
             axes_tensor.set_module(self.link_module)
             X = op(X, axes_tensor)
-            #print("HAPPY>>> 3", X)
+            # print("HAPPY>>> 3", X)
 
     # 3. Slice (if any)
-    if plan['slice']:
-        op_name   = f"{self.link_module.name}.slice.impl_{op_num}.{op_sub_num}"
-        op        = F.SliceF(op_name, out_shape=plan['output_shape'])
+    if plan["slice"]:
+        op_name = f"{self.link_module.name}.slice.impl_{op_num}.{op_sub_num}"
+        op = F.SliceF(op_name, out_shape=plan["output_shape"])
         op.set_module(self.link_module)
         self.link_module._op_hndls[op.name] = op
         op_sub_num += 1
 
-        s = plan['slice']
-        starts_init = F._from_data('starts', data=np.array(s['starts'], dtype=np.int64), is_const=True)
-        ends_init   = F._from_data('ends',   data=np.array(s['ends'],   dtype=np.int64), is_const=True)
-        axes_init   = F._from_data('axes',   data=np.array(s['axes'],   dtype=np.int64), is_const=True)
-        steps_init  = F._from_data('steps',  data=np.array(s['steps'],  dtype=np.int64), is_const=True)
+        s = plan["slice"]
+        starts_init = F._from_data(
+            "starts", data=np.array(s["starts"], dtype=np.int64), is_const=True
+        )
+        ends_init = F._from_data(
+            "ends", data=np.array(s["ends"], dtype=np.int64), is_const=True
+        )
+        axes_init = F._from_data(
+            "axes", data=np.array(s["axes"], dtype=np.int64), is_const=True
+        )
+        steps_init = F._from_data(
+            "steps", data=np.array(s["steps"], dtype=np.int64), is_const=True
+        )
         for t in [starts_init, ends_init, axes_init, steps_init]:
             if t not in self.link_module._tensors:
                 self.link_module._tensors[t.name] = t
 
         X = op(X, starts_init, ends_init, axes_init, steps_init)
-        #print("HAPPY>>> 4", X)
+        # print("HAPPY>>> 4", X)
 
     return X
 
+
 def tensor_repeat(self, *sizes):
     if len(sizes) != len(self.shape):
-        raise ValueError(f"repeat expects {len(self.shape)} arguments, got {len(sizes)}!!")
+        raise ValueError(
+            f"repeat expects {len(self.shape)} arguments, got {len(sizes)}!!"
+        )
 
     assert self.link_module is not None, f"link_module for {self.name} not specified!!"
     op_name = f"{self.link_module.name}.repeat.impl_{next(counter)}"
     op = F.Tile(op_name)
     op.set_module(self.link_module)
     self.link_module._op_hndls[op.name] = op
-    repeatsT = F._from_data(op.name + '.repeats', data=np.array(sizes, dtype=np.int64), is_const=True)
+    repeatsT = F._from_data(
+        op.name + ".repeats", data=np.array(sizes, dtype=np.int64), is_const=True
+    )
     for x in [self, repeatsT]:
         if x.name not in self.link_module._tensors:
             self.link_module._tensors[x.name] = x
     return op(self, repeatsT)
 
+
 def tensor_flatten(self, start_dim=0, end_dim=-1):
     shape = self.shape
-    ndim  = self.rank()
+    ndim = self.rank()
     # Handle negative indices
     start_dim = start_dim if start_dim >= 0 else ndim + start_dim
     end_dim = end_dim if end_dim >= 0 else ndim + end_dim
@@ -365,15 +435,17 @@ def tensor_flatten(self, start_dim=0, end_dim=-1):
 
     # Compute product of dimensions to flatten
     flat_size = 1
-    for d in shape[start_dim:end_dim+1]:
+    for d in shape[start_dim : end_dim + 1]:
         flat_size *= d
 
     # New shape: axes before start_dim, flat_size, axes after end_dim
-    new_shape = shape[:start_dim] + [flat_size] + shape[end_dim+1:]
+    new_shape = shape[:start_dim] + [flat_size] + shape[end_dim + 1 :]
 
     assert self.link_module is not None, f"link_module for {self.name} not specified!!"
     op_name = f"{self.link_module.name}.flatten.impl_{next(counter)}"
-    shapeTensor = F._from_data(op_name + '.shape', is_const=True, data=np.array(new_shape, dtype=np.int64))
+    shapeTensor = F._from_data(
+        op_name + ".shape", is_const=True, data=np.array(new_shape, dtype=np.int64)
+    )
     op = F.Reshape(op_name)
     op.set_module(self.link_module)
     self.link_module._op_hndls[op.name] = op
@@ -382,45 +454,57 @@ def tensor_flatten(self, start_dim=0, end_dim=-1):
             self.link_module._tensors[x.name] = x
     return op(self, shapeTensor)
 
+
 ######## unary-tensor operations ##################
 def unary_op(optype, ophndl_cls, self):
     assert isinstance(self, SimTensor), f"{optype} self = {self} not a SimTensor!!"
     assert self.link_module is not None, f"link_module for {self.name} not specified!!"
     op_name = f"{self.link_module.name}.{optype}.impl_{next(counter)}"
-    assert op_name not in self.link_module._op_hndls, \
-            f"Implicit op_name created via SimTensor.func_op not unique!! {op_name}"
+    assert (
+        op_name not in self.link_module._op_hndls
+    ), f"Implicit op_name created via SimTensor.func_op not unique!! {op_name}"
     op = ophndl_cls(op_name)
     op.set_module(self.link_module)
     self.link_module._op_hndls[op.name] = op
     if self.name not in self.link_module._tensors:
-            self.link_module._tensors[self.name] = self
+        self.link_module._tensors[self.name] = self
     return op
 
+
 def tensor_neg(self):
-    o = unary_op('neg', F.Neg, self)
+    o = unary_op("neg", F.Neg, self)
     return o(self)
+
 
 def tensor_cos(self):
-    o = unary_op('cos', F.Cos, self)
+    o = unary_op("cos", F.Cos, self)
     return o(self)
+
 
 def tensor_sin(self):
-    o = unary_op('sin', F.Sin, self)
+    o = unary_op("sin", F.Sin, self)
     return o(self)
 
+
 def tensor_softmax(self, **kwargs):
-    o = unary_op('softmax', F.Softmax, self)
+    o = unary_op("softmax", F.Softmax, self)
     return o(self)
+
 
 ######## binary-tensor operations ##################
 def binary_op(optype, ophndl_cls, self, arg):
     assert isinstance(self, SimTensor), f"{optype} self = {self} not a SimTensor!!"
     assert isinstance(arg, SimTensor), f"{optype} arg = {arg} not a SimTensor!!"
-    use_link_module = self.link_module if self.link_module is not None else arg.link_module
-    assert use_link_module is not None, f"link_module for {self.name} or {arg.name} not specified!!"
+    use_link_module = (
+        self.link_module if self.link_module is not None else arg.link_module
+    )
+    assert (
+        use_link_module is not None
+    ), f"link_module for {self.name} or {arg.name} not specified!!"
     op_name = f"{use_link_module.name}.{optype}.impl_{next(counter)}"
-    assert op_name not in use_link_module._op_hndls, \
-            f"Implicit op_name created via SimTensor.func_op not unique!! {op_name}"
+    assert (
+        op_name not in use_link_module._op_hndls
+    ), f"Implicit op_name created via SimTensor.func_op not unique!! {op_name}"
     op = ophndl_cls(op_name)
     op.set_module(use_link_module)
     use_link_module._op_hndls[op.name] = op
@@ -429,39 +513,48 @@ def binary_op(optype, ophndl_cls, self, arg):
             use_link_module._tensors[x.name] = x
     return op
 
+
 def tensor_add(self, x):
-    o = binary_op('add', F.Add, self, x)
+    o = binary_op("add", F.Add, self, x)
     return o(self, x)
+
 
 def tensor_sub(self, x):
-    o = binary_op('sub', F.Sub, self, x)
+    o = binary_op("sub", F.Sub, self, x)
     return o(self, x)
+
 
 def tensor_mul(self, x):
-    o = binary_op('mul', F.Mul, self, x)
+    o = binary_op("mul", F.Mul, self, x)
     return o(self, x)
+
 
 def tensor_div(self, x):
-    o = binary_op('div', F.Div, self, x)
+    o = binary_op("div", F.Div, self, x)
     return o(self, x)
+
 
 def tensor_pow(self, x):
-    o = binary_op('pow', F.Pow, self, x)
+    o = binary_op("pow", F.Pow, self, x)
     return o(self, x)
 
+
 def matmul(A, B):
-    o = binary_op('matmul', F.MatMul, A, B)
+    o = binary_op("matmul", F.MatMul, A, B)
     C = o(A, B)
     return C
+
 
 ######## multi-tensor operations ##################
 def cat(simtensor_list, dim=0):
     link_module = None
-    for i,x in  enumerate(simtensor_list):
+    for i, x in enumerate(simtensor_list):
         assert isinstance(x, SimTensor), f"cat: input[{i}] = {x} not a SimTensor!!"
         if link_module is None and x.link_module is not None:
             link_module = x.link_module
-    assert link_module is not None, f"cat: none of the input tensors link_module is specified!!"
+    assert (
+        link_module is not None
+    ), f"cat: none of the input tensors link_module is specified!!"
     op_name = f"{link_module.name}.cat.impl_{next(counter)}"
     op = F.ConcatX(op_name, axis=dim)
     op.set_module(link_module)
@@ -472,6 +565,7 @@ def cat(simtensor_list, dim=0):
     result = op(*simtensor_list)
     result.set_module(link_module)
     return result
+
 
 def stack(simtensor_list, dim=0):
     if not simtensor_list:
@@ -486,7 +580,7 @@ def stack(simtensor_list, dim=0):
 
     base_rank = simtensor_list[0].rank()
     if dim < 0:
-        dim += base_rank + 1 #because a new axis will be added
+        dim += base_rank + 1  # because a new axis will be added
 
     if dim < 0 or dim > base_rank:
         raise ValueError(f"dim {dim} is out of range for tensors of rank {base_rank}!!")
@@ -498,7 +592,7 @@ def stack(simtensor_list, dim=0):
             break
     assert link_module is not None, f"link_module not specified for any input tensors!!"
 
-    op_num     = next(counter)
+    op_num = next(counter)
     op_sub_num = 0
     t_name = f"{link_module.name}.stack.unsqueeze.impl_{op_num}.{op_sub_num}.axesTensor"
     op_sub_num += 1
@@ -525,62 +619,74 @@ def stack(simtensor_list, dim=0):
     final_res = op(*outTensors)
     return final_res
 
+
 def interpolate(self, **kwargs):
     # TODO:
     # minimal interpolate implementation as used in BEVDepth
     # enables ResizeOp in the backend via scale_factor
     # need to generalize this to enable torch.nn.functional.interpolate
     # which further requires the complete implementation of ResizeOp according
-    # to ONNX Spec:https://onnx.ai/onnx/operators/onnx__Resize.html 
+    # to ONNX Spec:https://onnx.ai/onnx/operators/onnx__Resize.html
 
-    assert self.link_module is not None, f"link_module not specified for any input tensor!!"
+    assert (
+        self.link_module is not None
+    ), f"link_module not specified for any input tensor!!"
 
-    scale_factor = kwargs.get('scale_factor', None)
-    size         = kwargs.get('size', None)
+    scale_factor = kwargs.get("scale_factor", None)
+    size = kwargs.get("size", None)
     if scale_factor is not None:
         resize_scale_factor = scale_factor
     elif size is not None:
-        resize_scale_factor = size
+        # Convert target size to per-dim scale factors so resize_sinf can compute the correct shape
+        if isinstance(size, (list, tuple)) and len(size) == 2:
+            h_scale = float(size[0]) / float(self.shape[-2])
+            w_scale = float(size[1]) / float(self.shape[-1])
+            resize_scale_factor = [h_scale, w_scale]
+        else:
+            resize_scale_factor = float(size) / float(self.shape[-1])
     else:
-        raise ValueError(f"Need to specify either scale_factor={scale_factor} or size={size}")
+        raise ValueError(
+            f"Need to specify either scale_factor={scale_factor} or size={size}"
+        )
 
     op_name = f"{self.link_module.name}.interpolate.impl_{next(counter)}"
     op = F.Resize(op_name, scale_factor=resize_scale_factor)
     op.set_module(self.link_module)
     self.link_module._op_hndls[op.name] = op
-    #now Resize will create two tensors dynamically that are not registered in SimNN.Module._tensors
+    # now Resize will create two tensors dynamically that are not registered in SimNN.Module._tensors
     # need to fix this better:
-    for i,p in op.params:
+    for i, p in op.params:
         if p.name not in self.link_module._tensors:
             self.link_module._tensors[p.name] = p
     return op(self)
 
+
 # torch.matmul, triu, full, masked_fill_, zeros
-SimTensor.__add__     = tensor_add         #type: ignore
-SimTensor.__sub__     = tensor_sub         #type: ignore
-SimTensor.__mul__     = tensor_mul         #type: ignore
-SimTensor.__truediv__ = tensor_div         #type: ignore
-SimTensor.__pow__     = tensor_pow         #type: ignore
-SimTensor.__neg__     = tensor_neg         #type: ignore
-SimTensor.__getitem__ = tensor_getitem     #type: ignore
-SimTensor.__matmul__  = matmul             #type: ignore
+SimTensor.__add__ = tensor_add  # type: ignore
+SimTensor.__sub__ = tensor_sub  # type: ignore
+SimTensor.__mul__ = tensor_mul  # type: ignore
+SimTensor.__truediv__ = tensor_div  # type: ignore
+SimTensor.__pow__ = tensor_pow  # type: ignore
+SimTensor.__neg__ = tensor_neg  # type: ignore
+SimTensor.__getitem__ = tensor_getitem  # type: ignore
+SimTensor.__matmul__ = matmul  # type: ignore
 
-SimTensor.cos         = tensor_cos         #type: ignore
-SimTensor.sin         = tensor_sin         #type: ignore
+SimTensor.cos = tensor_cos  # type: ignore
+SimTensor.sin = tensor_sin  # type: ignore
 
-SimTensor.view        = tensor_view        #type: ignore
-SimTensor.reshape     = tensor_view        #type: ignore
-SimTensor.transpose   = tensor_transpose   #type: ignore
-SimTensor.unsqueeze   = tensor_unsqueeze   #type: ignore
-SimTensor.squeeze     = tensor_squeeze     #type: ignore
-SimTensor.contiguous  = tensor_contiguous  #type: ignore
-SimTensor.flatten     = tensor_flatten     #type: ignore
-SimTensor.repeat      = tensor_repeat      #type: ignore
-SimTensor.softmax     = tensor_softmax     #type: ignore
-SimTensor.permute     = tensor_permute     #type: ignore
-SimTensor.interpolate = interpolate        #type: ignore
+SimTensor.view = tensor_view  # type: ignore
+SimTensor.reshape = tensor_view  # type: ignore
+SimTensor.transpose = tensor_transpose  # type: ignore
+SimTensor.unsqueeze = tensor_unsqueeze  # type: ignore
+SimTensor.squeeze = tensor_squeeze  # type: ignore
+SimTensor.contiguous = tensor_contiguous  # type: ignore
+SimTensor.flatten = tensor_flatten  # type: ignore
+SimTensor.repeat = tensor_repeat  # type: ignore
+SimTensor.softmax = tensor_softmax  # type: ignore
+SimTensor.permute = tensor_permute  # type: ignore
+SimTensor.interpolate = interpolate  # type: ignore
 
-#TODO:
+# TODO:
 # 0. Cleanup op-naming/link-module/tensor etc... (refactor)
 # 2. Fix outshape in Slice (Onnx-like) implementation in ttsim/ops/op.py
 # 3. Add tensor op tests (pytest)

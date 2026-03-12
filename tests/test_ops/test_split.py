@@ -2,11 +2,27 @@
 # SPDX-FileCopyrightText: (C) 2025 Tenstorrent AI ULC
 # SPDX-License-Identifier: Apache-2.0
 import pytest
+import os
+import sys
+import logging
+
+# Silence the ttsim-related log messages
+try:
+    from loguru import logger as _loguru_logger
+
+    _loguru_logger.disable("ttsim")
+except ImportError:
+    pass
 
 import numpy as np
 from ttsim.ops.op import SimOp
-from ttsim.ops.tensor import make_tensor
+from ttsim.ops.tensor import make_tensor, SimTensor
 import ttsim.front.functional.op as F
+
+from ttsim.config import get_arspec_from_yaml
+from ttsim.back.device import Device
+
+polaris_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
 from ttsim.ops.desc.data_compute import compute_split
 
 
@@ -255,7 +271,7 @@ def test_split():
         for x in o_tensors:
             x.op_out = [op_name]
 
-        op_perf = op_obj.get_perf_counts(i_tensors, o_tensors)
+        op_obj.get_perf_counts(i_tensors, o_tensors)
 
         check = all([o_tensors[i].shape == list(trec["expected_outputs"][i].shape) for i in range(num_outputs)])  # type: ignore
 
@@ -681,3 +697,129 @@ def test_split_data_ordering():
     )
 
     print("  Data ordering preserved -- OK")
+
+
+def calculate_split_memory_stats(shape, axis=0, num_outputs=2, dtype="float32"):
+    """Calculate memory and compute statistics for a split operation"""
+    # Get device configuration
+    config_path = os.path.join(polaris_root, "config", "tt_wh.yaml")
+    ipgroups, packages = get_arspec_from_yaml(config_path)
+    device = Device(packages["n150"])
+
+    # Create input tensors (equal split, no split_sizes tensor)
+    np_dtype = getattr(np, dtype)
+    data_X = np.random.randn(*shape).astype(np_dtype)
+    i_tensors = [F._from_data("X", data_X)]
+    o_tensors = [make_tensor(f"Y{i}") for i in range(num_outputs)]
+
+    # Create operation
+    op_info = {
+        "optype": "Split",
+        "name": "split_mem_test",
+        "inList": ["X"],
+        "outList": [f"Y{i}" for i in range(num_outputs)],
+        "attrs": {"axis": axis, "num_outputs": num_outputs},
+    }
+    op_obj = SimOp(op_info)
+
+    # Set op references
+    for x in i_tensors:
+        x.op_in = [op_info["name"]]
+    for x in o_tensors:
+        x.op_out = [op_info["name"]]
+
+    # Get performance counts
+    op_obj.get_perf_counts(i_tensors, o_tensors)
+
+    # Calculate statistics
+    perf_stats = op_obj.perf_stats
+    actual_instructions = perf_stats.get("instrs", {})
+    ops = (
+        sum(actual_instructions.values())
+        if isinstance(actual_instructions, dict)
+        else np.prod(shape)
+    )
+    input_bytes = perf_stats["inBytes"]
+    output_bytes = perf_stats["outBytes"]
+    total_memory = input_bytes + output_bytes
+
+    # Calculate intensities
+    arithmetic_intensity = ops / total_memory if total_memory > 0 else 0
+    mem_bw_bytes_per_cycle = (
+        device.simconfig_obj.peak_bandwidth(freq_units="GHz")
+        * 1e9
+        / device.freq_MHz
+        / 1e6
+    )
+    compute_throughput = 1  # 1 op per cycle for split
+    compute_cycles = ops / compute_throughput
+    memory_cycles = total_memory / mem_bw_bytes_per_cycle
+
+    bottleneck = "compute-bound" if compute_cycles > memory_cycles else "memory-bound"
+
+    return {
+        "shape": shape,
+        "axis": axis,
+        "num_outputs": num_outputs,
+        "input_bytes": input_bytes,
+        "output_bytes": output_bytes,
+        "total_memory": total_memory,
+        "ops": ops,
+        "arithmetic_intensity": arithmetic_intensity,
+        "bottleneck": bottleneck,
+        "device": device,
+    }
+
+
+def test_split_memory_validation():
+    """Memory validation test for split operation"""
+    print("\n" + "=" * 80)
+    print("SPLIT MEMORY VALIDATION TEST")
+    print("=" * 80)
+
+    # Test configurations (shape, axis, num_outputs)
+    test_configs = [
+        ([32], 0, 2),
+        ([64, 64], 0, 2),
+        ([32, 32, 32], 0, 2),
+        ([16, 16, 16, 16], 0, 2),
+        ([1, 224, 224, 3], 1, 2),
+        ([8, 128, 128, 64], 0, 2),
+        ([4, 56, 56, 256], 0, 2),
+    ]
+
+    results = []
+    for shape, axis, num_outputs in test_configs:
+        stats = calculate_split_memory_stats(shape, axis, num_outputs)
+        results.append(stats)
+
+    # Print device info once
+    device = results[0]["device"]
+    print(f"\nDevice: {device.devname}")
+    print(f"  Name: {device.name}")
+    print(f"  Frequency: {device.freq_MHz} MHz")
+    print(f"  Memory Frequency: {device.memfreq_MHz} MHz")
+    print()
+
+    # Print results for each configuration
+    for stats in results:
+        print(
+            f"Shape: {stats['shape']}, Axis: {stats['axis']}, Num Outputs: {stats['num_outputs']}"
+        )
+        print(f"  Memory: {stats['total_memory']/1e6:.4f} MB")
+        print(f"  Operations: {stats['ops']:.0f}")
+        print(f"  Arithmetic Intensity: {stats['arithmetic_intensity']:.6f} ops/byte")
+        print(f"  Bottleneck: {stats['bottleneck']}")
+        print()
+
+    # Summary statistics
+    memory_bound = sum(1 for r in results if r["bottleneck"] == "memory-bound")
+    compute_bound = sum(1 for r in results if r["bottleneck"] == "compute-bound")
+
+    print("=" * 80)
+    print("SUMMARY")
+    print("=" * 80)
+    print(f"Total configurations tested: {len(results)}")
+    print(f"Memory-bound: {memory_bound}")
+    print(f"Compute-bound: {compute_bound}")
+    print("=" * 80)

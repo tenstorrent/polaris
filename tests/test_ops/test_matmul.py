@@ -2,11 +2,27 @@
 # SPDX-FileCopyrightText: (C) 2025 Tenstorrent AI ULC
 # SPDX-License-Identifier: Apache-2.0
 import pytest
+import os
+import sys
+import logging
+
+# Silence the ttsim-related log messages
+try:
+    from loguru import logger as _loguru_logger
+
+    _loguru_logger.disable("ttsim")
+except ImportError:
+    pass
 
 import numpy as np
 from ttsim.ops.op import SimOp
-from ttsim.ops.tensor import make_tensor
+from ttsim.ops.tensor import make_tensor, SimTensor
 import ttsim.front.functional.op as F
+
+from ttsim.config import get_arspec_from_yaml
+from ttsim.back.device import Device
+
+polaris_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
 
 
 def ref_impl(shape0, shape1):
@@ -455,3 +471,120 @@ def test_matmul_properties():
     print(f"    Batched matmul = element-wise matmul per batch ✓")
 
     print("\nAll property tests passed!")
+
+
+def calculate_matmul_memory_stats(shape_a, shape_b):
+    """Calculate memory access and arithmetic operations for matmul operation"""
+
+    config_path = os.path.join(polaris_root, "config", "tt_wh.yaml")
+    ipgroups, packages = get_arspec_from_yaml(config_path)
+    device = Device(packages["n150"])
+
+    A = SimTensor({"name": "A", "shape": shape_a, "dtype": "float32"})
+    B = SimTensor({"name": "B", "shape": shape_b, "dtype": "float32"})
+    i_tensors = [A, B]
+    o_tensors = [make_tensor("Y")]
+
+    op_info = {
+        "name": "test_matmul",
+        "optype": "MatMul",
+        "inList": ["A", "B"],
+        "outList": ["Y"],
+        "attrs": {},
+    }
+
+    op = SimOp(op_info)
+    for x in i_tensors:
+        x.op_in = ["test_matmul"]
+    for x in o_tensors:
+        x.op_out = ["test_matmul"]
+
+    op.get_perf_counts(i_tensors, o_tensors)
+
+    perf_stats = op.perf_stats
+    actual_instructions = perf_stats.get("instrs", {})
+    instr_sum = (
+        sum(actual_instructions.values())
+        if isinstance(actual_instructions, dict)
+        else 0
+    )
+    ops = instr_sum if instr_sum > 0 else perf_stats.get("inElems", np.prod(shape_a))
+    input_bytes = perf_stats["inBytes"]
+    output_bytes = perf_stats["outBytes"]
+    total_memory = input_bytes + output_bytes
+
+    arithmetic_intensity = ops / total_memory if total_memory > 0 else 0
+
+    mem_bw_bytes_per_cycle = (
+        device.simconfig_obj.peak_bandwidth(freq_units="GHz")
+        * 1e9
+        / device.freq_MHz
+        / 1e6
+    )
+    compute_throughput = 1
+    compute_cycles = ops / compute_throughput
+    memory_cycles = total_memory / mem_bw_bytes_per_cycle
+
+    bottleneck = "compute-bound" if compute_cycles > memory_cycles else "memory-bound"
+
+    return {
+        "memory_mb": total_memory / (1024 * 1024),
+        "ops": ops,
+        "arithmetic_intensity": arithmetic_intensity,
+        "bottleneck": bottleneck,
+    }
+
+
+@pytest.mark.unit
+@pytest.mark.opunit
+def test_matmul_memory_validation():
+    """Test MatMul memory access patterns and arithmetic intensity"""
+
+    config_path = os.path.join(polaris_root, "config", "tt_wh.yaml")
+    ipgroups, packages = get_arspec_from_yaml(config_path)
+    device = Device(packages["n150"])
+
+    print("\n" + "=" * 80)
+    print("MATMUL MEMORY VALIDATION")
+    print("=" * 80)
+    print(f"Device: {device.devname}")
+    print(f"  Name: {device.name}")
+    print(f"  Frequency: {device.freq_MHz} MHz")
+    print(f"  Memory Frequency: {device.memfreq_MHz} MHz")
+    print("=" * 80)
+
+    # (shape_A, shape_B)
+    test_configs = [
+        ([64, 64], [64, 64]),
+        ([128, 128], [128, 128]),
+        ([256, 128], [128, 256]),
+        ([512, 512], [512, 512]),
+        ([1, 64, 128], [1, 128, 64]),
+        ([4, 128, 256], [4, 256, 128]),
+        ([8, 256, 512], [8, 512, 256]),
+    ]
+
+    memory_bound_count = 0
+    compute_bound_count = 0
+
+    for shape_a, shape_b in test_configs:
+        stats = calculate_matmul_memory_stats(shape_a, shape_b)
+
+        print(f"\nShape A: {shape_a}, Shape B: {shape_b}")
+        print(f"  Memory: {stats['memory_mb']:.4f} MB")
+        print(f"  Operations: {stats['ops']}")
+        print(f"  Arithmetic Intensity: {stats['arithmetic_intensity']:.6f} ops/byte")
+        print(f"  Bottleneck: {stats['bottleneck']}")
+
+        if stats["bottleneck"] == "memory-bound":
+            memory_bound_count += 1
+        else:
+            compute_bound_count += 1
+
+    print("\n" + "=" * 80)
+    print("SUMMARY")
+    print("=" * 80)
+    print(f"Total configurations tested: {len(test_configs)}")
+    print(f"Memory-bound: {memory_bound_count}")
+    print(f"Compute-bound: {compute_bound_count}")
+    print("=" * 80)
