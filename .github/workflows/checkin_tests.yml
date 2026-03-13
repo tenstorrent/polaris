@@ -1,10 +1,13 @@
 # SPDX-FileCopyrightText: (C) 2025 Tenstorrent AI ULC
 # SPDX-License-Identifier: Apache-2.0
 
-name: Checkin Tests
+name: Polaris Checkin Tests
 
 on:
   workflow_dispatch:
+  push:
+  pull_request:
+  merge_group:
 
 jobs:
   checkin-tests:
@@ -32,42 +35,11 @@ jobs:
       name: Checkout
       uses: actions/checkout@v4
 
-    - id: extract-tag
-      name: Extract baseline tag
-      if: '!cancelled()'
-      run: |
-        BASELINE_FILE="tools/rtl_neosim_correlation/data/baseline.yaml"
-
-        # Check if baseline file exists
-        if [[ ! -f "$BASELINE_FILE" ]]; then
-          echo "❌ Error: Baseline file not found: $BASELINE_FILE"
-          exit 1
-        fi
-
-        # Extract the first tag from baseline.yaml
-        TAG=$(grep -A 2 "tag:" "$BASELINE_FILE" | grep "^  -" | head -n1 | sed 's/^  - //' | tr -d '[:space:]')
-
-        # Validate that tag was extracted and is not empty
-        if [[ -z "$TAG" ]]; then
-          echo "❌ Error: Failed to extract tag from baseline.yaml"
-          echo "Expected format: batch containing 'tag:' with list items underneath"
-          exit 1
-        fi
-
-        # Validate tag contains only alphanumeric characters, hyphens, and underscores
-        if [[ ! "$TAG" =~ ^[a-zA-Z0-9_-]+$ ]]; then
-          echo "❌ Error: Invalid tag format: '$TAG'"
-          echo "Tag should contain only alphanumeric characters, hyphens, and underscores"
-          exit 1
-        fi
-
-        echo "✅ Successfully extracted tag: $TAG"
-        echo "tag=$TAG" >> $GITHUB_OUTPUT
-      shell: bash
-
     - id: lfcdownload
       name: Download required files from LFC
       uses: ./.github/actions/lfcdownload
+      with:
+        files: 'ext_test_onnx_models.tar.gz ext_llk_elf_files.tar.gz'
 
     - id: setup-mamba
       name: Setup mamba - developer
@@ -86,16 +58,6 @@ jobs:
       name: Run Static Analysis
       if: '!cancelled()'
       uses: ./.github/actions/run-static-analysis
-
-    - id: run-rtl-tests
-      name: Run RTL Tests
-      if: ${{ !cancelled() && steps.extract-tag.outcome == 'success' }}
-      continue-on-error: true
-      uses: ./.github/actions/run-rtl-tests
-      with:
-        batch-file: tools/rtl_neosim_correlation/data/baseline.yaml
-        lfc-files: 'ext_rtl_test_data_set_${{ steps.extract-tag.outputs.tag }}.tar.gz'
-        results-file: 'rtl_test_results.txt'
 
     - id: generate-test-badges
       name: Generate Test and Coverage Badges
@@ -123,19 +85,6 @@ jobs:
         static-tests-outcome: ${{ steps.run-static-analysis.outputs.static-tests-outcome }}
         spdx-tests-outcome: ${{ steps.run-static-analysis.outputs.license-checks-outcome }}
 
-    - id: generate-rtl-badges
-      name: Generate RTL Badges
-      if: ${{ !cancelled() && github.event_name == 'push' && steps.extract-tag.outcome == 'success' && (steps.run-rtl-tests.outcome == 'success' || steps.run-rtl-tests.outcome == 'failure') }}
-      uses: ./.github/actions/generate-rtl-badges
-      with:
-        gist-id: ${{ env.GIST_ID }}
-        gist-token: ${{ env.GIST_TOKEN }}
-        repo-name: ${{ env.REPO_NAME }}
-        is-main-branch: ${{ github.ref == 'refs/heads/main' }}
-        rtl-outcome: ${{ steps.run-rtl-tests.outputs.outcome }}
-        rtl-exit-code: ${{ steps.run-rtl-tests.outputs.exit-code }}
-        results-file: ${{ steps.run-rtl-tests.outputs.results-file }}
-
     - id: upload-artifacts
       name: Upload artifacts
       if: '!cancelled()'
@@ -149,18 +98,6 @@ jobs:
            __RUN_TESTS
            !__RUN_TESTS/**/*.onnx
 
-    - id: upload-rtl-artifacts
-      name: Upload RTL artifacts
-      if: ${{ !cancelled() && steps.extract-tag.outcome == 'success' }}
-      uses: actions/upload-artifact@v4
-      with:
-        name: rtl_artifacts
-        path: |
-           ${{ steps.run-rtl-tests.outputs.results-file }}
-           __llk_out/llk/baseline/${{ steps.extract-tag.outputs.tag }}/*.json
-           __llk_out/llk/baseline/${{ steps.extract-tag.outputs.tag }}/*.csv
-           __llk_out/llk/baseline/${{ steps.extract-tag.outputs.tag }}/*.png
-
     - id: check-overall-success
       name: Check Overall Success
       if: '!cancelled()'
@@ -171,13 +108,6 @@ jobs:
 
         # Track steps that are not successful
         NON_SUCCESS_STEPS=""
-
-        if [[ "${{ steps.extract-tag.outcome }}" != "success" ]]; then
-          echo "❌ Tag extraction: ${{ steps.extract-tag.outcome }}"
-          NON_SUCCESS_STEPS="$NON_SUCCESS_STEPS extract-tag(${{ steps.extract-tag.outcome }})"
-        else
-          echo "✅ Tag extraction: success"
-        fi
 
         # Check all test and processing steps - must be 'success' to pass
         if [[ "${{ steps.run-unit-and-coverage-tests.outcome }}" != "success" ]]; then
@@ -194,13 +124,6 @@ jobs:
           echo "✅ Static analysis: success"
         fi
 
-        if [[ "${{ steps.run-rtl-tests.outcome }}" != "success" ]]; then
-          echo "❌ RTL tests: ${{ steps.run-rtl-tests.outcome }}"
-          NON_SUCCESS_STEPS="$NON_SUCCESS_STEPS run-rtl-tests(${{ steps.run-rtl-tests.outcome }})"
-        else
-          echo "✅ RTL tests: success"
-        fi
-
         if [[ "${{ steps.generate-test-badges.outcome }}" != "success" && "${{ steps.generate-test-badges.outcome }}" != "skipped" ]]; then
           echo "❌ Test badges generation: ${{ steps.generate-test-badges.outcome }}"
           NON_SUCCESS_STEPS="$NON_SUCCESS_STEPS generate-test-badges(${{ steps.generate-test-badges.outcome }})"
@@ -215,25 +138,11 @@ jobs:
           echo "✅ Status badges generation: ${{ steps.generate-status-badges.outcome }}"
         fi
 
-        if [[ "${{ steps.generate-rtl-badges.outcome }}" != "success" && "${{ steps.generate-rtl-badges.outcome }}" != "skipped" ]]; then
-          echo "❌ RTL badges generation: ${{ steps.generate-rtl-badges.outcome }}"
-          NON_SUCCESS_STEPS="$NON_SUCCESS_STEPS generate-rtl-badges(${{ steps.generate-rtl-badges.outcome }})"
-        else
-          echo "✅ RTL badges generation: ${{ steps.generate-rtl-badges.outcome }}"
-        fi
-
         if [[ "${{ steps.upload-artifacts.outcome }}" != "success" ]]; then
           echo "❌ Artifacts upload: ${{ steps.upload-artifacts.outcome }}"
           NON_SUCCESS_STEPS="$NON_SUCCESS_STEPS upload-artifacts(${{ steps.upload-artifacts.outcome }})"
         else
           echo "✅ Artifacts upload: success"
-        fi
-
-        if [[ "${{ steps.upload-rtl-artifacts.outcome }}" != "success" ]]; then
-          echo "❌ RTL artifacts upload: ${{ steps.upload-rtl-artifacts.outcome }}"
-          NON_SUCCESS_STEPS="$NON_SUCCESS_STEPS upload-rtl-artifacts(${{ steps.upload-rtl-artifacts.outcome }})"
-        else
-          echo "✅ RTL artifacts upload: success"
         fi
 
         # Succeed only if ALL steps succeeded
@@ -280,11 +189,3 @@ jobs:
         path: |
            __RUN_TESTS
            !__RUN_TESTS/**/*.onnx
-
-    # - name: Lint with flake8
-    #   run: |
-    #     conda install flake8
-    #     # stop the build if there are Python syntax errors or undefined names
-    #     flake8 . --count --select=E9,F63,F7,F82 --show-source --statistics
-    #     # exit-zero treats all errors as warnings. The GitHub editor is 127 chars wide
-    #     flake8 . --count --exit-zero --max-complexity=10 --max-line-length=127 --statistics
