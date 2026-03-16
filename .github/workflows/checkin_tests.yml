@@ -1,7 +1,7 @@
 # SPDX-FileCopyrightText: (C) 2025 Tenstorrent AI ULC
 # SPDX-License-Identifier: Apache-2.0
 
-name: Polaris Checkin Tests
+name: Checkin Tests
 
 on:
   workflow_dispatch:
