@@ -710,8 +710,8 @@ class EfficientViT_Cls(SimNN.Module):
         x = self.input_tensors.get("cls_input", None)
         hw = self.input_tensors.get("cls.head.gap.hw", None)
 
-        x = x.out if hasattr(x, "out") else x
-        hw = hw.out if hasattr(hw, "out") else hw
+        x = x.out if hasattr(x, "out") else x   # type: ignore[union-attr]
+        hw = hw.out if hasattr(hw, "out") else hw   # type: ignore[union-attr]
 
         seeds: Dict[str, Any] = {}
         if hasattr(x, "shape") and hasattr(x, "nbytes"):

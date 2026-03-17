@@ -229,7 +229,7 @@ def compute_ap(recall, precision):
     method = "interp"
     if method == "interp":
         x = np.linspace(0, 1, 101)
-        ap = np.trapz(np.interp(x, mrec, mpre), x)
+        ap = np.trapezoid(np.interp(x, mrec, mpre), x)
     else:
         i = np.where(mrec[1:] != mrec[:-1])[0]
         ap = np.sum((mrec[i + 1] - mrec[i]) * mpre[i + 1])
