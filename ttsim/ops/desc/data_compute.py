@@ -111,6 +111,36 @@ def compute_mul(iTList, op) -> np.ndarray:
     return iTList[0].data * iTList[1].data
 
 
+def compute_sin(iTList, op) -> np.ndarray:
+    """Element-wise sine"""
+    data = iTList[0].data
+    result = np.sin(data)
+    # Preserve non-floating dtypes: only cast back when input is floating
+    if np.issubdtype(data.dtype, np.floating):
+        result = result.astype(data.dtype)
+    return result
+
+
+def compute_cos(iTList, op) -> np.ndarray:
+    """Element-wise cosine"""
+    data = iTList[0].data
+    result = np.cos(data)
+    # Preserve non-floating dtypes: only cast back when input is floating
+    if np.issubdtype(data.dtype, np.floating):
+        result = result.astype(data.dtype)
+    return result
+
+
+def compute_atan(iTList, op) -> np.ndarray:
+    """Element-wise arctangent"""
+    return np.arctan(iTList[0].data).astype(iTList[0].data.dtype)
+
+
+def compute_sign(iTList, op) -> np.ndarray:
+    """Element-wise sign: -1 if x<0, 0 if x==0, 1 if x>0"""
+    return np.sign(iTList[0].data).astype(iTList[0].data.dtype)
+
+
 def compute_mish(iTList, op) -> np.ndarray:
     """
     Mish activation: x * tanh(softplus(x)) = x * tanh(ln(1 + e^x))
@@ -161,6 +191,9 @@ def compute_batchnorm(iTList, op) -> np.ndarray:
     var = iTList[4].data  # [C]
 
     eps = op.attrs.get("epsilon", 1e-5)
+
+    # Ensure variance is non-negative (avoid numerical issues)
+    var = np.maximum(var, 0.0)
 
     # Normalize
     X_normalized = (X - mean.reshape(1, -1, 1, 1)) / np.sqrt(
@@ -522,6 +555,33 @@ def compute_reducemean(iTList, op) -> np.ndarray:
     return np.mean(X, axis=axes, keepdims=bool(keepdims))
 
 
+def compute_reducesum(iTList, op) -> np.ndarray:
+    """
+    Compute ReduceSum along specified axes.
+
+    Args:
+        iTList: [X] or [X, axes] where axes is int64 array
+        op: SimOp with attrs keepdims, noop_with_empty_axes
+
+    Returns:
+        Y: Reduced output
+    """
+    X = iTList[0].data
+    axes = iTList[1].data if len(iTList) > 1 else None
+    keepdims = op.attrs.get("keepdims", 1)
+    noop = op.attrs.get("noop_with_empty_axes", 0)
+
+    if axes is None:
+        if noop:
+            return X.copy()
+        else:
+            axes = None
+    else:
+        axes = tuple(int(a) for a in axes)
+
+    return np.sum(X, axis=axes, keepdims=bool(keepdims))
+
+
 def compute_relu6(iTList, op) -> np.ndarray:
     """ReLU6 activation: min(max(0, x), 6) = clip(x, 0, 6)"""
     return np.clip(iTList[0].data, 0, 6)
@@ -591,6 +651,60 @@ def compute_tile(iTList, op) -> np.ndarray:
     data = iTList[0].data
     repeats = iTList[1].data.astype(np.int64)
     return np.tile(data, repeats)
+
+
+def compute_unsqueeze(iTList, op) -> np.ndarray:
+    """
+    Add dimension(s) to array at specified axis.
+
+    Args:
+        iTList: [data, axes] where axes is int64 array
+        op: SimOp
+
+    Returns:
+        Y: Array with added dimensions
+    """
+    data = iTList[0].data
+    axes = iTList[1].data
+
+    if np.isscalar(axes) or axes.ndim == 0:
+        axes = [int(axes)]
+    else:
+        axes = [int(a) for a in axes]
+
+    axes = sorted(axes)
+
+    result = data
+    for axis in axes:
+        result = np.expand_dims(result, axis=axis)
+
+    return result
+
+
+def compute_squeeze(iTList, op) -> np.ndarray:
+    """
+    Remove dimension(s) from array at specified axes.
+
+    Args:
+        iTList: [data, axes] where axes is int64 array
+        op: SimOp
+
+    Returns:
+        Y: Array with removed dimensions
+    """
+    data = iTList[0].data
+    axes = iTList[1].data if len(iTList) > 1 else None
+
+    if axes is None:
+        return np.squeeze(data)
+
+    if np.isscalar(axes) or axes.ndim == 0:
+        axes = [int(axes)]
+    else:
+        axes = [int(a) for a in axes]
+
+    axes = tuple(axes)
+    return np.squeeze(data, axis=axes)
 
 
 def compute_meshgrid(iTList, op) -> np.ndarray:
@@ -678,3 +792,502 @@ def compute_bbox_size_decode(iTList, op) -> np.ndarray:
     wh_decoded = ((wh_sigmoid * 2.0) ** 2) * anchor_grid
 
     return wh_decoded
+
+
+def compute_gridsample(iTList, op) -> np.ndarray:
+    """
+    Compute GridSample output using bilinear interpolation.
+
+    This is a CPU-only implementation of torch.nn.functional.grid_sample
+    with bilinear interpolation mode and zeros padding mode.
+
+    Args:
+        iTList: [input, grid] where:
+            input: [N, C, H_in, W_in] - input feature map
+            grid: [N, H_out, W_out, 2] - sampling locations (x, y) in [-1, 1]
+        op: SimOp with attrs mode, padding_mode, align_corners
+
+    Returns:
+        output: [N, C, H_out, W_out] - sampled features
+    """
+    input_data = iTList[0].data  # [N, C, H_in, W_in]
+    grid_data = iTList[1].data  # [N, H_out, W_out, 2]
+
+    mode = op.attrs.get("mode", "bilinear")
+    padding_mode = op.attrs.get("padding_mode", "zeros")
+    align_corners = op.attrs.get("align_corners", 0)
+
+    N, C, H_in, W_in = input_data.shape
+    N_grid, H_out, W_out, _ = grid_data.shape
+
+    assert N == N_grid, f"Batch size mismatch"
+    assert grid_data.shape[3] == 2, f"Grid must have 2 coordinates (x, y)"
+
+    if align_corners:
+        grid_x = ((grid_data[..., 0] + 1) / 2) * (W_in - 1)
+        grid_y = ((grid_data[..., 1] + 1) / 2) * (H_in - 1)
+    else:
+        grid_x = ((grid_data[..., 0] + 1) * W_in - 1) / 2
+        grid_y = ((grid_data[..., 1] + 1) * H_in - 1) / 2
+
+    output = np.zeros((N, C, H_out, W_out), dtype=input_data.dtype)
+
+    if mode == "nearest":
+        for n in range(N):
+            for h_out in range(H_out):
+                for w_out in range(W_out):
+                    x = grid_x[n, h_out, w_out]
+                    y = grid_y[n, h_out, w_out]
+                    ix = int(np.round(x))
+                    iy = int(np.round(y))
+                    if padding_mode == "zeros":
+                        if 0 <= ix < W_in and 0 <= iy < H_in:
+                            output[n, :, h_out, w_out] = input_data[n, :, iy, ix]
+                    elif padding_mode == "border":
+                        ix = np.clip(ix, 0, W_in - 1)
+                        iy = np.clip(iy, 0, H_in - 1)
+                        output[n, :, h_out, w_out] = input_data[n, :, iy, ix]
+
+    elif mode == "bilinear":
+        for n in range(N):
+            for h_out in range(H_out):
+                for w_out in range(W_out):
+                    x = grid_x[n, h_out, w_out]
+                    y = grid_y[n, h_out, w_out]
+                    x0 = int(np.floor(x))
+                    x1 = x0 + 1
+                    y0 = int(np.floor(y))
+                    y1 = y0 + 1
+                    wx1 = x - x0
+                    wx0 = 1.0 - wx1
+                    wy1 = y - y0
+                    wy0 = 1.0 - wy1
+                    for c in range(C):
+                        val = 0.0
+                        if padding_mode == "zeros":
+                            if 0 <= x0 < W_in and 0 <= y0 < H_in:
+                                val += wx0 * wy0 * input_data[n, c, y0, x0]
+                            if 0 <= x1 < W_in and 0 <= y0 < H_in:
+                                val += wx1 * wy0 * input_data[n, c, y0, x1]
+                            if 0 <= x0 < W_in and 0 <= y1 < H_in:
+                                val += wx0 * wy1 * input_data[n, c, y1, x0]
+                            if 0 <= x1 < W_in and 0 <= y1 < H_in:
+                                val += wx1 * wy1 * input_data[n, c, y1, x1]
+                        elif padding_mode == "border":
+                            val += (
+                                wx0
+                                * wy0
+                                * input_data[
+                                    n,
+                                    c,
+                                    np.clip(y0, 0, H_in - 1),
+                                    np.clip(x0, 0, W_in - 1),
+                                ]
+                            )
+                            val += (
+                                wx1
+                                * wy0
+                                * input_data[
+                                    n,
+                                    c,
+                                    np.clip(y0, 0, H_in - 1),
+                                    np.clip(x1, 0, W_in - 1),
+                                ]
+                            )
+                            val += (
+                                wx0
+                                * wy1
+                                * input_data[
+                                    n,
+                                    c,
+                                    np.clip(y1, 0, H_in - 1),
+                                    np.clip(x0, 0, W_in - 1),
+                                ]
+                            )
+                            val += (
+                                wx1
+                                * wy1
+                                * input_data[
+                                    n,
+                                    c,
+                                    np.clip(y1, 0, H_in - 1),
+                                    np.clip(x1, 0, W_in - 1),
+                                ]
+                            )
+                        output[n, c, h_out, w_out] = val
+    else:
+        raise ValueError(f"Unsupported mode: {mode}")
+
+    return output
+
+
+def compute_gather(iTList, op) -> np.ndarray:
+    X = iTList[0].data
+    indices = iTList[1].data
+    axis = op.attrs.get("axis", 0)
+    return np.take(X, indices, axis=axis)
+
+
+def compute_atan2(iTList, op) -> np.ndarray:
+    """
+    Element-wise arctangent of y/x with correct quadrant handling.
+
+    Args:
+        iTList: [y, x] where y and x are tensors
+        op: SimOp
+
+    Returns:
+        Array of angles in radians, in range [-pi, pi]
+    """
+    y = iTList[0].data
+    x = iTList[1].data
+    return np.arctan2(y, x)
+
+
+def compute_cumsum(iTList, op) -> np.ndarray:
+    X = iTList[0].data
+    axis_data = iTList[1].data
+    axis = int(axis_data.item()) if axis_data.size == 1 else int(axis_data[0])
+    exclusive = op.attrs.get("exclusive", 0)
+    reverse = op.attrs.get("reverse", 0)
+    if reverse:
+        X_work = np.flip(X, axis=axis)
+    else:
+        X_work = X
+    if exclusive:
+        result = np.cumsum(X_work, axis=axis)
+        result = np.roll(result, 1, axis=axis)
+        slc: list = [slice(None)] * len(X.shape)
+        slc[axis] = 0  # type: ignore[list-item]
+        result[tuple(slc)] = 0
+    else:
+        result = np.cumsum(X_work, axis=axis)
+    if reverse:
+        result = np.flip(result, axis=axis)
+    return result
+
+
+def compute_floor(iTList, op) -> np.ndarray:
+    return np.floor(iTList[0].data)
+
+
+def compute_gelu(iTList, op) -> np.ndarray:
+    X = iTList[0].data
+    return (
+        0.5
+        * X
+        * (1.0 + np.tanh(np.sqrt(2.0 / np.pi) * (X + 0.044715 * np.power(X, 3))))
+    )
+
+
+def compute_mod(iTList, op) -> np.ndarray:
+    return np.fmod(iTList[0].data, iTList[1].data)
+
+
+def compute_reducemin(iTList, op) -> np.ndarray:
+    X = iTList[0].data
+    keepdims_bool = bool(op.attrs.get("keepdims", 1))
+    if len(iTList) > 1:
+        axes = tuple(iTList[1].data.flatten().astype(int))
+        return np.min(X, axis=axes, keepdims=keepdims_bool)
+    return np.min(X, keepdims=keepdims_bool)
+
+
+def compute_where(iTList, op) -> np.ndarray:
+    return np.where(iTList[0].data, iTList[1].data, iTList[2].data)
+
+
+def compute_cast(iTList, op) -> np.ndarray:
+    X = iTList[0].data
+    to_dtype_code = op.attrs.get("to")
+    ONNX_DTYPE_MAP = {
+        1: np.float32,
+        2: np.uint8,
+        3: np.int8,
+        5: np.int16,
+        6: np.int32,
+        7: np.int64,
+        10: np.float16,
+        11: np.float64,
+        12: np.uint32,
+        13: np.uint64,
+    }
+    return X.astype(ONNX_DTYPE_MAP.get(to_dtype_code, np.float32))
+
+
+def compute_nonzero(iTList, op) -> np.ndarray:
+    X = iTList[0].data
+    indices = np.nonzero(X)
+    if len(indices) > 0 and len(indices[0]) > 0:
+        return np.stack(indices, axis=0).astype(np.int64)
+    return np.zeros((len(X.shape), 0), dtype=np.int64)
+
+
+def compute_upsample(iTList, op) -> np.ndarray:
+    X = iTList[0].data
+    scales = iTList[1].data
+    mode = op.attrs.get("mode", "nearest")
+    if mode != "nearest":
+        raise NotImplementedError(f"Unsupported upsample mode: {mode}")
+    if len(X.shape) == 4:
+        output = np.repeat(X, int(scales[2]), axis=2)
+        return np.repeat(output, int(scales[3]), axis=3)
+    elif len(X.shape) == 2:
+        output = np.repeat(X, int(scales[0]), axis=0)
+        return np.repeat(output, int(scales[1]), axis=1)
+    raise NotImplementedError(f"Unsupported input shape for upsample: {X.shape}")
+
+
+def compute_shape(iTList, op) -> np.ndarray:
+    return np.array(iTList[0].data.shape, dtype=np.int64)
+
+
+def compute_abs(iTList, op) -> np.ndarray:
+    return np.abs(iTList[0].data)
+
+
+def compute_neg(iTList, op) -> np.ndarray:
+    return np.negative(iTList[0].data)
+
+
+def compute_less(iTList, op) -> np.ndarray:
+    return iTList[0].data < iTList[1].data
+
+
+def compute_reducemax(iTList, op) -> np.ndarray:
+    X = iTList[0].data
+    axes = iTList[1].data if len(iTList) > 1 else None
+    keepdims = op.attrs.get("keepdims", 1)
+    noop = op.attrs.get("noop_with_empty_axes", 0)
+
+    if axes is None:
+        if noop:
+            return X.copy()
+        else:
+            axes = None
+    else:
+        axes = tuple(int(a) for a in axes)
+
+    return np.max(X, axis=axes, keepdims=bool(keepdims))
+
+
+def compute_scatter_nd(iTList, op) -> np.ndarray:
+    data = iTList[0].data
+    indices = iTList[1].data
+    updates = iTList[2].data
+    reduction = op.attrs.get("reduction", "none")
+
+    output = data.copy()
+    K = indices.shape[-1]
+    flat_idx = indices.reshape(-1, K)
+    flat_upd = updates.reshape(-1, *data.shape[K:])
+    for i in range(flat_idx.shape[0]):
+        idx = tuple(flat_idx[i])
+        if reduction == "none":
+            output[idx] = flat_upd[i]
+        elif reduction == "add":
+            output[idx] += flat_upd[i]
+        elif reduction == "mul":
+            output[idx] *= flat_upd[i]
+    return output
+
+
+def compute_groupnorm(iTList, op) -> np.ndarray:
+    X = iTList[0].data
+    weight = iTList[1].data
+    bias = iTList[2].data if len(iTList) > 2 else None
+    num_groups = op.attrs.get("num_groups")
+    eps = op.attrs.get("eps", 1e-5)
+
+    N, C, H, W = X.shape
+    G = num_groups
+    x_g = X.reshape(N, G, C // G, H, W)
+    mean = np.mean(x_g, axis=(2, 3, 4), keepdims=True)
+    var = np.var(x_g, axis=(2, 3, 4), keepdims=True)
+    x_norm = (x_g - mean) / np.sqrt(var + eps)
+    x_norm = x_norm.reshape(N, C, H, W)
+
+    result = x_norm * weight.reshape(1, C, 1, 1)
+    if bias is not None:
+        result = result + bias.reshape(1, C, 1, 1)
+    return result
+
+
+def compute_layernorm(iTList, op) -> np.ndarray:
+    X = iTList[0].data
+    scale = iTList[1].data
+    bias = iTList[2].data if len(iTList) > 2 else None
+    axis = op.attrs.get("axis", -1)
+    eps = op.attrs.get("epsilon", 1e-5)
+
+    rank = len(X.shape)
+    if axis < 0:
+        axis += rank
+    norm_axes = tuple(range(axis, rank))
+    mean = np.mean(X, axis=norm_axes, keepdims=True)
+    var = np.var(X, axis=norm_axes, keepdims=True)
+    x_norm = (X - mean) / np.sqrt(var + eps)
+    result = x_norm * scale
+    if bias is not None:
+        result = result + bias
+    return result
+
+
+def compute_argmax(iTList, op) -> np.ndarray:
+    X = iTList[0].data
+    axis = op.attrs.get("axis", 0)
+    keepdims = op.attrs.get("keepdims", 1)
+    select_last = op.attrs.get("select_last_index", 0)
+
+    rank = len(X.shape)
+    if axis < 0:
+        axis += rank
+    if select_last:
+        X_rev = np.flip(X, axis=axis)
+        idx_rev = np.argmax(X_rev, axis=axis, keepdims=bool(keepdims))
+        return (X.shape[axis] - 1 - idx_rev).astype(np.int64)
+    return np.argmax(X, axis=axis, keepdims=bool(keepdims)).astype(np.int64)
+
+
+# ---------------------------------------------------------------------------
+# Pure-numpy helpers for numerical validation / inference
+# ---------------------------------------------------------------------------
+
+
+def _numpy_grid_sample_bilinear(input_t, grid):
+    """
+    Numpy equivalent of:
+        F.grid_sample(input_t, grid, mode='bilinear', padding_mode='zeros', align_corners=False)
+
+    Args:
+        input_t: np.ndarray [N, C, H_in, W_in]
+        grid:    np.ndarray [N, H_out, W_out, 2]  -- (x, y) coords in [-1, 1]
+
+    Returns:
+        np.ndarray [N, C, H_out, W_out]
+    """
+    N, C, H_in, W_in = input_t.shape
+    _, H_out, W_out, _ = grid.shape
+
+    gx = grid[..., 0].astype(np.float32)  # [N, H_out, W_out] -- x maps to W
+    gy = grid[..., 1].astype(np.float32)  # [N, H_out, W_out] -- y maps to H
+
+    # align_corners=False: pixel = (g + 1) / 2 * size - 0.5
+    px = (gx + 1.0) * 0.5 * W_in - 0.5
+    py = (gy + 1.0) * 0.5 * H_in - 0.5
+
+    x0 = np.floor(px).astype(np.int64)
+    y0 = np.floor(py).astype(np.int64)
+    x1 = x0 + 1
+    y1 = y0 + 1
+
+    # Fractional weights (kept in float32 to match PyTorch precision)
+    wx = (px - x0.astype(np.float32))[:, np.newaxis, :, :]  # [N,1,H_out,W_out]
+    wy = (py - y0.astype(np.float32))[:, np.newaxis, :, :]
+
+    def gather(xi, yi):
+        """Gather pixels; out-of-bounds positions produce zero (padding_mode='zeros')."""
+        valid = (xi >= 0) & (xi < W_in) & (yi >= 0) & (yi < H_in)  # [N,H_out,W_out]
+        xi_c = np.clip(xi, 0, W_in - 1)
+        yi_c = np.clip(yi, 0, H_in - 1)
+        # Advanced index: result[n, c, h, w] = input_t[n, c, yi_c[n,h,w], xi_c[n,h,w]]
+        n_idx = np.arange(N).reshape(N, 1, 1, 1)
+        c_idx = np.arange(C).reshape(1, C, 1, 1)
+        yi_bc = yi_c[:, np.newaxis, :, :]
+        xi_bc = xi_c[:, np.newaxis, :, :]
+        vals = input_t[n_idx, c_idx, yi_bc, xi_bc].astype(np.float32)  # [N,C,H_out,W_out]
+        return vals * valid[:, np.newaxis, :, :]
+
+    v00 = gather(x0, y0)
+    v10 = gather(x1, y0)
+    v01 = gather(x0, y1)
+    v11 = gather(x1, y1)
+
+    out = (
+        (1.0 - wx) * (1.0 - wy) * v00
+        + wx * (1.0 - wy) * v10
+        + (1.0 - wx) * wy * v01
+        + wx * wy * v11
+    )
+    return out.astype(input_t.dtype)
+
+
+def _numpy_multi_scale_deformable_attn(
+    value_data, spatial_shapes_list, sampling_locs_data, attn_weights_data
+):
+    """
+    Pure numpy computation of multi-scale deformable attention.
+
+    Numerically equivalent to the PyTorch reference
+    ``multi_scale_deformable_attn_pytorch`` used in the validation tests.
+
+    Args:
+        value_data:          np.ndarray [bs, num_keys, num_heads, embed_dims_per_head]
+        spatial_shapes_list: list of (H, W) tuples, len == num_levels
+        sampling_locs_data:  np.ndarray [bs, num_queries, num_heads, num_levels, num_points, 2]
+                             -- coordinates in [0, 1]
+        attn_weights_data:   np.ndarray [bs, num_queries, num_heads, num_levels, num_points]
+
+    Returns:
+        np.ndarray [bs, num_queries, num_heads * embed_dims_per_head]
+    """
+    bs, _, num_heads, embed_dims_per_head = value_data.shape
+    _, num_queries, _, num_levels, num_points, _ = sampling_locs_data.shape
+
+    # 1. Split value by level
+    value_list = []
+    start = 0
+    for H, W in spatial_shapes_list:
+        size = H * W
+        value_list.append(value_data[:, start : start + size, :, :])
+        start += size
+
+    # 2. Normalise sampling locations [0,1] -> [-1,1]
+    sampling_grids = 2.0 * sampling_locs_data.astype(np.float32) - 1.0
+
+    sampling_value_list = []
+    for level, (H, W) in enumerate(spatial_shapes_list):
+        # value_l: [bs, H*W, num_heads, embed_dims_per_head]
+        value_l = value_list[level]
+
+        # -> [bs, H*W, num_heads*embed_dims_per_head]
+        val_flat = value_l.reshape(bs, H * W, num_heads * embed_dims_per_head)
+        # -> [bs, num_heads*embed_dims_per_head, H*W]
+        val_trans = np.ascontiguousarray(val_flat.transpose(0, 2, 1))
+        # -> [bs*num_heads, embed_dims_per_head, H, W]
+        val_img = val_trans.reshape(bs * num_heads, embed_dims_per_head, H, W)
+
+        # grid for this level: [bs, num_queries, num_heads, num_points, 2]
+        grid_l = sampling_grids[:, :, :, level, :, :]
+        # -> [bs, num_heads, num_queries, num_points, 2]
+        grid_l = np.ascontiguousarray(grid_l.transpose(0, 2, 1, 3, 4))
+        # -> [bs*num_heads, num_queries, num_points, 2]
+        grid_l = grid_l.reshape(bs * num_heads, num_queries, num_points, 2)
+
+        # bilinear sample: [bs*num_heads, embed_dims_per_head, num_queries, num_points]
+        sampled = _numpy_grid_sample_bilinear(val_img, grid_l)
+        sampling_value_list.append(sampled)
+
+    # 3. Stack levels and aggregate
+    # [bs*num_heads, embed_dims_per_head, num_queries, num_levels, num_points]
+    stacked = np.stack(sampling_value_list, axis=-2)
+    # [bs*num_heads, embed_dims_per_head, num_queries, num_levels*num_points]
+    stacked_flat = stacked.reshape(
+        bs * num_heads, embed_dims_per_head, num_queries, num_levels * num_points
+    )
+
+    # attn: [bs, num_queries, num_heads, num_levels, num_points]
+    #    -> [bs, num_heads, num_queries, num_levels, num_points]
+    #    -> [bs*num_heads, 1, num_queries, num_levels*num_points]
+    attn = np.ascontiguousarray(attn_weights_data.transpose(0, 2, 1, 3, 4))
+    attn = attn.reshape(
+        bs * num_heads, 1, num_queries, num_levels * num_points
+    ).astype(np.float32)
+
+    # [bs*num_heads, embed_dims_per_head, num_queries]
+    output = (stacked_flat * attn).sum(axis=-1)
+    # [bs, num_heads*embed_dims_per_head, num_queries]
+    output = output.reshape(bs, num_heads * embed_dims_per_head, num_queries)
+    # [bs, num_queries, num_heads*embed_dims_per_head]
+    output = np.ascontiguousarray(output.transpose(0, 2, 1))
+    return output.astype(value_data.dtype)

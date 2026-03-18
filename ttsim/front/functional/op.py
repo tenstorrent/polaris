@@ -3,7 +3,8 @@
 # SPDX-License-Identifier: Apache-2.0
 import numpy as np
 from functools import lru_cache, partial
-from typing import Union, Iterator
+from itertools import count as _count
+from typing import Union, Iterator, Optional, Any
 
 from loguru import logger
 from ttsim.graph import WorkloadGraph
@@ -11,52 +12,82 @@ from ttsim.ops import SimOp, SimTensor
 import ttsim.utils.common as common
 from ttsim.config.wl2archmap import WL2ArchTypeSpec
 
-#creates a tensor from shape/dtype specification
-def _from_shape(name: str, shape: list[int], is_param: bool = False, is_const=False, np_dtype=np.float32) -> SimTensor:
-    return SimTensor({
-        'name' : name,
-        'shape': shape,
-        'dtype': np.dtype(np_dtype),
-        'is_param': is_param,
-        'is_const': is_const,
-        })
 
-#creates a tensor from data specification
-def _from_data(name: str, data: Union[np.ndarray, np.floating, np.bool_], is_param: bool = False, is_const=False):
-    return SimTensor({
-        'name' : name,
-        'shape': list(data.shape),
-        'dtype': data.dtype,
-        'data' : data,
-        'resolve': '_',
-        'is_param': is_param,
-        'is_const': is_const,
-        'op_in': [],
-        'op_out': [],
-        })
+# creates a tensor from shape/dtype specification
+def _from_shape(
+    name: str,
+    shape: list[int],
+    is_param: bool = False,
+    is_const=False,
+    np_dtype=np.float32,
+) -> SimTensor:
+    return SimTensor(
+        {
+            "name": name,
+            "shape": shape,
+            "dtype": np.dtype(np_dtype),
+            "is_param": is_param,
+            "is_const": is_const,
+        }
+    )
+
+
+# creates a tensor from data specification
+def _from_data(
+    name: str,
+    data: Union[np.ndarray, np.floating, np.bool_],
+    is_param: bool = False,
+    is_const=False,
+):
+    return SimTensor(
+        {
+            "name": name,
+            "shape": list(data.shape),
+            "dtype": data.dtype,
+            "data": data,
+            "resolve": "_",
+            "is_param": is_param,
+            "is_const": is_const,
+            "op_in": [],
+            "op_out": [],
+        }
+    )
+
 
 @lru_cache(maxsize=128)
 def required_attrs(optype: str) -> list[str]:
     _tbl = {
-        'Transpose': ['perm'],
-        'Cast'     : ['to'],
-        }
+        "Transpose": ["perm"],
+        "Cast": ["to"],
+    }
     return _tbl[optype] if optype in _tbl else []
+
 
 def check_required_attrs(name, optype, attr_names, **kwargs):
     chktbl = {aname: aname in kwargs for aname in attr_names}
-    chk = all([v for a,v in chktbl.items()])
-    assert chk, f"{optype} op {name} requires attributes {attr_names}.\nattrs_present: {chktbl}"
+    chk = all([v for a, v in chktbl.items()])
+    assert (
+        chk
+    ), f"{optype} op {name} requires attributes {attr_names}.\nattrs_present: {chktbl}"
     return
 
+
 def get_output(name):
-    return SimTensor({'name': name + '.out', 'op_out': [name]})
+    return SimTensor({"name": name + ".out", "op_out": [name]})
+
 
 def get_opinfo(name, optype, **kwargs):
-    return {'name': name, 'optype': optype, 'attrs': kwargs, 'domain': 'ttsim.common', 'inList': []}
+    return {
+        "name": name,
+        "optype": optype,
+        "attrs": kwargs,
+        "domain": "ttsim.common",
+        "inList": [],
+    }
+
 
 def get_sim_op(opinfo, default_dtype=None):
-    optype: str = opinfo['optype']
+    optype: str = opinfo["optype"]
     opobj = SimOp(opinfo)
     if WL2ArchTypeSpec.has_instance():
         opobj.set_precision(WL2ArchTypeSpec.layer_2_datatype(optype.upper()))
@@ -69,6 +100,7 @@ def get_sim_op(opinfo, default_dtype=None):
         opobj.set_precision(default_dtype)
     return opobj
 
+
 #####################################################################################################
 # SimOpHandle is a simple class to collect required information for a SimOp which includes input/output
 # SimTensors as well as parameter SimTensors. Makes the functional interface implementation easy
@@ -76,21 +108,21 @@ def get_sim_op(opinfo, default_dtype=None):
 # experimentation/tinkering
 #####################################################################################################
 class SimOpHandle:
-    #for each parameter, we store the position in the input tensor list with the tensor
+    # for each parameter, we store the position in the input tensor list with the tensor
     # via (pos, tensor)
     # e.g. params = [(0,param1_tensor0), (3, param_tensor1), (6, param_tensor_2)]
     # then when we get the inputs in the __call__, we can create the extended
     # input list with params at the correct positions
     def __init__(self, name, optype, /, params, ipos, **kwargs):
-        self.name       = name
-        self.optype     = optype
-        self.opinfo     = get_opinfo(name, optype, **kwargs)
-        self.params     = params
-        self.ipos       = ipos
-        self.sim_op     = None
-        self.otensor    = None
+        self.name = name
+        self.optype = optype
+        self.opinfo = get_opinfo(name, optype, **kwargs)
+        self.params = params
+        self.ipos = ipos
+        self.sim_op = None
+        self.otensor = None
         self.perf_stats = None
-        self.implicit_inputs = [] #needed for graph2onnx dump
+        self.implicit_inputs = []  # needed for graph2onnx dump
         self.link_module = None
         check_required_attrs(name, optype, required_attrs(optype), **kwargs)
 
@@ -99,15 +131,16 @@ class SimOpHandle:
             self.link_module = m
 
     def __call__(self, *xargs):
-        assert len(xargs) == len(self.ipos), \
-                f"Length for inputs {len(xargs)} & ipos {len(self.ipos)} don't match"
+        assert len(xargs) == len(
+            self.ipos
+        ), f"Length for inputs {len(xargs)} & ipos {len(self.ipos)} don't match"
 
         all_itensors = self.params + list(zip(self.ipos, xargs))
         sorted_all_itensors = sorted(all_itensors, key=lambda v: v[0])
-        xinput = [x for _,x in sorted_all_itensors]
+        xinput = [x for _, x in sorted_all_itensors]
 
-        #input tensor setup
-        #TODO: some ops are shared, i.e. they can be used multiple times for different
+        # input tensor setup
+        # TODO: some ops are shared, i.e. they can be used multiple times for different
         # input tensors, and as such, their op_in gets appended several times...
         # how do we deal with this? Maybe in shared cases, op_in/op_out could be a list of
         # lists, with the last entry being the latest use???
@@ -115,21 +148,21 @@ class SimOpHandle:
         #  number or inputs/outputs being in range inside SimOp is set and the program crashes!!!
         for x in xinput:
             x.op_in.append(self.name)
-            self.opinfo['inList'].append(x.name)
+            self.opinfo["inList"].append(x.name)
 
-        #output tensor setup
-        self.otensor           = get_output(self.name)
-        self.opinfo['outList'] = [self.otensor.name]
+        # output tensor setup
+        self.otensor = get_output(self.name)
+        self.opinfo["outList"] = [self.otensor.name]
 
-        #create relevant SimOp
+        # create relevant SimOp
         self.sim_op = get_sim_op(self.opinfo, default_dtype=x.dtype)
 
-        #get perf stats for the SimOp -- this also ensures that the output tensor shape/data
-        #is well formed
-        self.perf_stats = self.sim_op.get_perf_counts(xinput,[self.otensor])
-        self.sim_op.update_tensor_counts(xinput,[self.otensor])
+        # get perf stats for the SimOp -- this also ensures that the output tensor shape/data
+        # is well formed
+        self.perf_stats = self.sim_op.get_perf_counts(xinput, [self.otensor])
+        self.sim_op.update_tensor_counts(xinput, [self.otensor])
 
-        #return result
+        # return result
         if self.link_module is not None:
             self.otensor.link_module = self.link_module
             if self.otensor.name not in self.link_module._tensors:
@@ -137,19 +170,20 @@ class SimOpHandle:
 
         return self.otensor
 
+
 # MultiOutputSimOpHandle mirrors SimOpHandle but materializes a list of
 # output SimTensors, enabling ops like TopK that produce multiple values.
 class MultiOutputSimOpHandle:
     def __init__(self, name, optype, /, params, ipos, num_outputs, **kwargs):
-        self.name        = name
-        self.optype      = optype
-        self.opinfo      = get_opinfo(name, optype, **kwargs)
-        self.params      = params
-        self.ipos        = ipos
+        self.name = name
+        self.optype = optype
+        self.opinfo = get_opinfo(name, optype, **kwargs)
+        self.params = params
+        self.ipos = ipos
         self.num_outputs = num_outputs
-        self.sim_op      = None
-        self.otensors    = []
-        self.perf_stats  = None
+        self.sim_op = None
+        self.otensors = []
+        self.perf_stats = None
         self.implicit_inputs = []
         self.link_module = None
         check_required_attrs(name, optype, required_attrs(optype), **kwargs)
@@ -159,9 +193,9 @@ class MultiOutputSimOpHandle:
             self.link_module = m
 
     def __call__(self, *xargs):
-        assert len(xargs) == len(self.ipos), (
-            f"Length for inputs {len(xargs)} & ipos {len(self.ipos)} don't match"
-        )
+        assert len(xargs) == len(
+            self.ipos
+        ), f"Length for inputs {len(xargs)} & ipos {len(self.ipos)} don't match"
 
         all_itensors = self.params + list(zip(self.ipos, xargs))
         sorted_all_itensors = sorted(all_itensors, key=lambda v: v[0])
@@ -169,13 +203,13 @@ class MultiOutputSimOpHandle:
 
         for tensor in xinput:
             tensor.op_in.append(self.name)
-            self.opinfo['inList'].append(tensor.name)
+            self.opinfo["inList"].append(tensor.name)
 
         self.otensors = [
-            SimTensor({'name': f"{self.name}.out.{idx}", 'op_out': [self.name]})
+            SimTensor({"name": f"{self.name}.out.{idx}", "op_out": [self.name]})
             for idx in range(self.num_outputs)
         ]
-        self.opinfo['outList'] = [tensor.name for tensor in self.otensors]
+        self.opinfo["outList"] = [tensor.name for tensor in self.otensors]
 
         default_dtype = xinput[0].dtype if xinput else np.float32
         self.sim_op = get_sim_op(self.opinfo, default_dtype=default_dtype)
@@ -194,76 +228,87 @@ class MultiOutputSimOpHandle:
 
         return self.otensors
 
+
 # SimOpHandle assumes only N inputs/params & 1 output
 # Split has variadic outputs, need special handling
 class SplitOpHandle:
     def __init__(self, name, /, count, **kwargs):
-        self.name       = name
-        self.optype     = 'Split'
-        self.opinfo     = get_opinfo(name, 'Split', **kwargs)
-        self.count      = count
-        self.axis       = kwargs.get('axis', 0)
-        self.params     = []
-        self.implicit_inputs     = [] #needed for graph2onnx dump
-        self.sim_op     = None
-        self.otensors   = []
+        self.name = name
+        self.optype = "Split"
+        self.opinfo = get_opinfo(name, "Split", **kwargs)
+        self.count = count
+        self.axis = kwargs.get("axis", 0)
+        self.params = []
+        self.implicit_inputs = []  # needed for graph2onnx dump
+        self.sim_op = None
+        self.otensors = []
         self.perf_stats = None
         self.link_module = None
-        check_required_attrs(name, 'Split', required_attrs('Split'), **kwargs)
+        check_required_attrs(name, "Split", required_attrs("Split"), **kwargs)
 
     def set_module(self, m):
         self.link_module = m
 
     def __str__(self):
-        s  = "SplitOpHandle:\n"
+        s = "SplitOpHandle:\n"
         s += f"    name       : {self.name      }\n"
         s += f"    optype     : {self.optype    }\n"
         s += f"    opinfo     :\n"
-        for k,v in self.opinfo.items(): s += f"        {k:7s}: {v}\n"
+        for k, v in self.opinfo.items():
+            s += f"        {k:7s}: {v}\n"
         s += f"    count      : {self.count     }\n"
         s += f"    axis       : {self.axis      }\n"
         s += f"    sim_op     : {self.sim_op    }\n"
         s += f"    otensors   :\n"
-        for ox in self.otensors: s += f"        {ox}\n"
+        for ox in self.otensors:
+            s += f"        {ox}\n"
         s += f"    perf_stats : {self.perf_stats}\n"
         return s
 
     def __call__(self, x, y=None):
-        #ensure axis is within x.rank bounds
+        # ensure axis is within x.rank bounds
         if self.axis < 0:
             axis = x.rank() + self.axis
         elif self.axis >= x.rank():
             axis = x.rank() - 1
         else:
             axis = self.axis
-        assert self.axis >=0 and self.axis < x.rank(), f"SplitOpHandle: axis={axis} should be in [0,{x.rank()})"
+        assert (
+            self.axis >= 0 and self.axis < x.rank()
+        ), f"SplitOpHandle: axis={axis} should be in [0,{x.rank()})"
 
         out_dim = x.shape[axis] // self.count
         assert out_dim >= 1, f"SplitOpHandle: out_dim={out_dim} should be >=1"
 
         if y is None:
-            y = _from_data(self.name + '.in2', np.array([out_dim for _ in range(self.count)],
-                                                        dtype=np.int64), is_param=False, is_const=True)
+            y = _from_data(
+                self.name + ".in2",
+                np.array([out_dim for _ in range(self.count)], dtype=np.int64),
+                is_param=False,
+                is_const=True,
+            )
         self.implicit_inputs.append(y)
 
-        #input tensor setup
+        # input tensor setup
         x.op_in.append(self.name)
-        self.opinfo['inList'].append(x.name)
+        self.opinfo["inList"].append(x.name)
         y.op_in.append(self.name)
-        self.opinfo['inList'].append(y.name)
+        self.opinfo["inList"].append(y.name)
 
-        #output tensor setup
-        self.otensors = [SimTensor({'name': self.name + "_" + str(i),
-                                    'op_out': [self.name]}) for i in range(self.count)]
-        self.opinfo['outList'] = [ot.name for ot in self.otensors]
+        # output tensor setup
+        self.otensors = [
+            SimTensor({"name": self.name + "_" + str(i), "op_out": [self.name]})
+            for i in range(self.count)
+        ]
+        self.opinfo["outList"] = [ot.name for ot in self.otensors]
 
-        #create relevant SimOp
+        # create relevant SimOp
         self.sim_op = get_sim_op(self.opinfo, default_dtype=x.dtype)
 
-        #get perf stats for the SimOp -- this also ensures that the output tensor shape/data
-        #is well formed
+        # get perf stats for the SimOp -- this also ensures that the output tensor shape/data
+        # is well formed
         self.perf_stats = self.sim_op.get_perf_counts([x, y], self.otensors)
-        self.sim_op.update_tensor_counts([x,y],self.otensors)
+        self.sim_op.update_tensor_counts([x, y], self.otensors)
 
         if self.link_module is not None:
             for x in self.otensors:
@@ -272,21 +317,24 @@ class SplitOpHandle:
                     self.link_module._tensors[x.name] = x
         return tuple(self.otensors)
 
+
 # VariadicInputOpHandle assumes only any number of inputs
 # & 1 output; Also, there may be some constraints on the
 # number of inputs, e.g., should be within a range
 # Importantly, we don't allow any params to be specified!!
 class VariadicInputOpHandle:
     def __init__(self, name, /, optype, input_range, **kwargs):
-        assert len(input_range) == 2, f"input_range({input_range}) specification should be (min, max+1)!!"
-        self.name        = name
-        self.optype      = optype
-        self.opinfo      = get_opinfo(name, optype, **kwargs)
+        assert (
+            len(input_range) == 2
+        ), f"input_range({input_range}) specification should be (min, max+1)!!"
+        self.name = name
+        self.optype = optype
+        self.opinfo = get_opinfo(name, optype, **kwargs)
         self.input_range = input_range
-        self.sim_op      = None
-        self.otensor     = None
-        self.perf_stats  = None
-        self.implicit_inputs = [] #needed for graph2onnx dump
+        self.sim_op = None
+        self.otensor = None
+        self.perf_stats = None
+        self.implicit_inputs = []  # needed for graph2onnx dump
         self.link_module = None
         check_required_attrs(name, optype, required_attrs(optype), **kwargs)
 
@@ -296,30 +344,31 @@ class VariadicInputOpHandle:
     def __call__(self, *xargs):
         min_in_val, max_in_val = self.input_range
 
-        assert len(xargs) >= min_in_val and len(xargs) < max_in_val, \
-                f"Length for inputs {len(xargs)} should be in range: [{min_in_val}, {max_in_val})"
+        assert (
+            len(xargs) >= min_in_val and len(xargs) < max_in_val
+        ), f"Length for inputs {len(xargs)} should be in range: [{min_in_val}, {max_in_val})"
 
         xinput = [x for x in xargs]
-        #input tensor setup
+        # input tensor setup
         for x in xinput:
             x.op_in.append(self.name)
-            self.opinfo['inList'].append(x.name)
+            self.opinfo["inList"].append(x.name)
 
-        #output tensor setup
-        self.otensor           = get_output(self.name)
-        self.opinfo['outList'] = [self.otensor.name]
+        # output tensor setup
+        self.otensor = get_output(self.name)
+        self.opinfo["outList"] = [self.otensor.name]
 
-        #create relevant SimOp
+        # create relevant SimOp
         if xinput:
             default_dtype = xinput[0].dtype
         else:
             default_dtype = np.float32
         self.sim_op = get_sim_op(self.opinfo, default_dtype=default_dtype)
 
-        #get perf stats for the SimOp -- this also ensures that the output tensor shape/data
-        #is well formed
-        self.perf_stats = self.sim_op.get_perf_counts(xinput,[self.otensor])
-        self.sim_op.update_tensor_counts(xinput,[self.otensor])
+        # get perf stats for the SimOp -- this also ensures that the output tensor shape/data
+        # is well formed
+        self.perf_stats = self.sim_op.get_perf_counts(xinput, [self.otensor])
+        self.sim_op.update_tensor_counts(xinput, [self.otensor])
 
         if self.link_module is not None:
             self.otensor.link_module = self.link_module
@@ -327,7 +376,8 @@ class VariadicInputOpHandle:
                 self.link_module._tensors[self.otensor.name] = self.otensor
         return self.otensor
 
-#sequence a list of layers...
+
+# sequence a list of layers...
 # run as a pipeline:
 # inputs -> lyr0 -> lyr1 -> .... -> lyrN-1 -> output
 # implicitly name the intermediate tensors...
@@ -335,7 +385,7 @@ class VariadicInputOpHandle:
 # Basic Implementation is :
 #     lambda inList : functools.reduce(lambda x, f: f(x), lyr_list, inList)
 # Additional Book-keeping required for tracking intermediate tensors etc.
-#def SEQ(lyr_list):
+# def SEQ(lyr_list):
 #    def _run(inList):
 #        val = inList
 #        for lyr_num, lyr in enumerate(lyr_list):
@@ -347,6 +397,7 @@ class VariadicInputOpHandle:
 #        return val
 #    return _run
 
+
 class SimOpHandleList:
     # We don't allow SplitOpHandle or VariadicInputOpHandle in SimOpHandleList for now...
     # because how do we chain multiple inputs or outputs into the chain??
@@ -356,13 +407,14 @@ class SimOpHandleList:
 
         for i, _op in enumerate(_ops):
             assert _op is not None, f"'None' _op passed to OpList"
-            #assert isinstance(_op, (SimOpHandle, SplitOpHandle, VariadicInputOpHandle)), f"{_op} is not a SimOpHandle subclass"
+            # assert isinstance(_op, (SimOpHandle, SplitOpHandle, VariadicInputOpHandle)), f"{_op} is not a SimOpHandle subclass"
             assert isinstance(_op, SimOpHandle), f"{_op} is not a SimOpHandle subclass"
             self._ops_in_list[str(i)] = _op
 
-        #check all _op names in the list are unique...
-        assert len(self) == len(set(self._ops_in_list)), \
-                f"Op Names in OpList are not unique : {[o.name for o in self._ops_in_list.values()]}!!"
+        # check all _op names in the list are unique...
+        assert len(self) == len(
+            set(self._ops_in_list)
+        ), f"Op Names in OpList are not unique : {[o.name for o in self._ops_in_list.values()]}!!"
 
     def __len__(self):
         return len(self._ops_in_list)
@@ -373,23 +425,23 @@ class SimOpHandleList:
         elif isinstance(idx, int):
             idx = idx + len(self) if idx < 0 else idx
             if idx < 0 or idx >= len(self):
-                raise IndexError(f'out-of-bound-index: {idx}')
+                raise IndexError(f"out-of-bound-index: {idx}")
             return self._ops_in_list[str(idx)]
         else:
-            raise TypeError(f'Invalid index Type: {type(idx)}')
+            raise TypeError(f"Invalid index Type: {type(idx)}")
 
     def __iter__(self) -> Iterator[SimOpHandle]:
         for i in range(len(self)):
             yield self[i]
 
-    #we want to make OpList Callable...
+    # we want to make OpList Callable...
     def __call__(self, x):
         val = x
         for op_name, op_obj in self._ops_in_list.items():
             val = op_obj(val)
         return val
 
-    #we want to make this immutable after construction...
+    # we want to make this immutable after construction...
     # so restricting setitem / delitem / append / insert / extend
     def __setitem__(self, idx, module):
         raise RuntimeError("OpList is immutable after construction")
@@ -406,222 +458,411 @@ class SimOpHandleList:
     def insert(self, index, module):
         raise RuntimeError("OpList is immutable after construction")
 
+
 ######################################################################################################
 # Operators With Implicit Parameters/Inputs
 ######################################################################################################
 def Embedding(name, tbl_size, emb_dim, **kwargs):
-    emb_wt = _from_shape(name + '.param', [tbl_size, emb_dim], is_param=True)
+    emb_wt = _from_shape(name + ".param", [tbl_size, emb_dim], is_param=True)
     emb_wt.op_in.append(name)
-    op_hndl =  SimOpHandle(name, 'Gather', params=[(0,emb_wt)], ipos=[1], **kwargs)
+    op_hndl = SimOpHandle(name, "Gather", params=[(0, emb_wt)], ipos=[1], **kwargs)
     return op_hndl
+
 
 def Bias(name, shape0, **kwargs):
-    bias_term = _from_shape(name + '.bias', shape0, is_param=True)
+    bias_term = _from_shape(name + ".bias", shape0, is_param=True)
     bias_term.op_in.append(name)
-    op_hndl = SimOpHandle(name, 'Add', params=[(0,bias_term)], ipos=[1], **kwargs)
+    op_hndl = SimOpHandle(name, "Add", params=[(0, bias_term)], ipos=[1], **kwargs)
     return op_hndl
+
 
 def MulFixed(name, dname, data0, **kwargs):
-    mul_term = _from_data(name + '.' + dname, is_const=True, data=data0)
+    mul_term = _from_data(name + "." + dname, is_const=True, data=data0)
     mul_term.op_in.append(name)
-    op_hndl = SimOpHandle(name, 'Mul', params=[(0,mul_term)], ipos=[1], **kwargs)
+    op_hndl = SimOpHandle(name, "Mul", params=[(0, mul_term)], ipos=[1], **kwargs)
     return op_hndl
+
 
 def ReshapeFixed(name, shape1, **kwargs):
-    shape_term = _from_data(name + '.fixshape', is_const=True, data=np.array(shape1, dtype=np.int64))
+    shape_term = _from_data(
+        name + ".fixshape", is_const=True, data=np.array(shape1, dtype=np.int64)
+    )
     shape_term.op_in.append(name)
-    op_hndl = SimOpHandle(name, 'Reshape', params=[(1,shape_term)], ipos=[0], **kwargs)
+    op_hndl = SimOpHandle(name, "Reshape", params=[(1, shape_term)], ipos=[0], **kwargs)
     return op_hndl
 
+
 def Linear(name, nrow, ncol, module=None, **kwargs):
-    mm_param = _from_shape(name + '.param', [nrow, ncol], is_param=True)
+    mm_param = _from_shape(name + ".param", [nrow, ncol], is_param=True)
     mm_param.op_in.append(name)
-    op_hndl =  SimOpHandle(name, 'MatMul', params=[(1,mm_param)], ipos=[0], **kwargs)
+    op_hndl = SimOpHandle(name, "MatMul", params=[(1, mm_param)], ipos=[0], **kwargs)
     if module is not None:
         module._tensors[mm_param.name] = mm_param
     return op_hndl
 
+
 def Conv2d(name, in_channels, out_channels, kernel_size, **kwargs):
     kernel_dims = (kernel_size, kernel_size)
     arg_defaults = {
-            'stride': 1, 'padding': 0, 'dilation': 1, 'groups': 1,
-            'bias': True, 'padding_mode': 'zeros', 'device': None, 'dtype': None
-            }
-    eff_args   = common.get_kwargs_with_defaults('Conv', args=kwargs, default_args=arg_defaults)
-    stride     = common.make_tuple(eff_args['stride'], 2)
-    padding    = common.make_tuple(eff_args['padding'], 2*2)
-    dilation   = common.make_tuple(eff_args['dilation'], 2)
-    param_dims = [out_channels, in_channels // eff_args['groups'], *kernel_dims]
-    conv_param = _from_shape(name+'.param', param_dims, is_param=True)
+        "stride": 1,
+        "padding": 0,
+        "dilation": 1,
+        "groups": 1,
+        "bias": True,
+        "padding_mode": "zeros",
+        "device": None,
+        "dtype": None,
+    }
+    eff_args = common.get_kwargs_with_defaults(
+        "Conv", args=kwargs, default_args=arg_defaults
+    )
+    stride = common.make_tuple(eff_args["stride"], 2)
+    padding = common.make_tuple(eff_args["padding"], 2 * 2)
+    dilation = common.make_tuple(eff_args["dilation"], 2)
+    param_dims = [out_channels, in_channels // eff_args["groups"], *kernel_dims]
+    conv_param = _from_shape(name + ".param", param_dims, is_param=True)
     # NOTE: 'bias' is a fixed argument, not kwarg for ONNX
-    op_hndl = SimOpHandle(name, 'Conv', params=[(1, conv_param)], ipos=[0],
-                          group=eff_args['groups'],  # Torch names this attr 'groups', ONNX names it 'group'
-                          strides=stride,      # Torch / ONNX names differ
-                          pads=padding,        # Torch / ONNX names differ
-                          dilations=dilation,  # Torch / ONNX names differ
-                          )
+    op_hndl = SimOpHandle(
+        name,
+        "Conv",
+        params=[(1, conv_param)],
+        ipos=[0],
+        group=eff_args[
+            "groups"
+        ],  # Torch names this attr 'groups', ONNX names it 'group'
+        strides=stride,  # Torch / ONNX names differ
+        pads=padding,  # Torch / ONNX names differ
+        dilations=dilation,  # Torch / ONNX names differ
+    )
     return op_hndl
+
 
 def ConvTranspose2d(name, in_channels, out_channels, kernel_size=2, stride=2):
     kernel_dims = (kernel_size, kernel_size)
-    stride      = common.make_tuple(stride, 2)
-    param_dims  = [in_channels, out_channels, *kernel_dims]
-    convt_param = _from_shape(name+'.param', param_dims, is_param=True)
-    op_hndl = SimOpHandle(name, 'ConvTranspose', params=[(1, convt_param)], ipos=[0],
-                          strides=stride,
-                          )
+    stride = common.make_tuple(stride, 2)
+    param_dims = [in_channels, out_channels, *kernel_dims]
+    convt_param = _from_shape(name + ".param", param_dims, is_param=True)
+    op_hndl = SimOpHandle(
+        name,
+        "ConvTranspose",
+        params=[(1, convt_param)],
+        ipos=[0],
+        strides=stride,
+    )
     return op_hndl
 
-def Upsample(name, scale_factor, mode='nearest', align_corners=True):
-    op_hndl = SimOpHandle(name, 'Upsample',
-                          ipos=[0],
-                          params=[],
-                          scale_factor=scale_factor,
-                          mode=mode,
-                          align_corners=align_corners
-                          )
+
+def Upsample(name, scale_factor, mode="nearest", align_corners=True):
+    op_hndl = SimOpHandle(
+        name,
+        "Upsample",
+        ipos=[0],
+        params=[],
+        scale_factor=scale_factor,
+        mode=mode,
+        align_corners=align_corners,
+    )
     return op_hndl
+
 
 def MaxPool2d(name, kernel_size, **kwargs):
     arg_defaults = {
-        'stride': None,
-        'padding': 0,
-        'dilation': 1,
-        'return_indices': False,
-        'ceil_mode': False,
+        "stride": None,
+        "padding": 0,
+        "dilation": 1,
+        "return_indices": False,
+        "ceil_mode": False,
     }
-    eff_args   = common.get_kwargs_with_defaults('Maxpool', args=kwargs, default_args=arg_defaults)
+    eff_args = common.get_kwargs_with_defaults(
+        "Maxpool", args=kwargs, default_args=arg_defaults
+    )
     kernel_shape = common.make_tuple(kernel_size, 2)
-    stride = eff_args['stride']
+    stride = eff_args["stride"]
     if stride is None:
         # stride defaults to kernel_size and not 1!!
         stride = common.make_tuple(kernel_size, 2)
     else:
         stride = common.make_tuple(stride, 2)
-    padding = common.make_tuple(eff_args['padding'], 2*2)
-    dilation = common.make_tuple(eff_args['dilation'], 2)
-    ceil_mode = eff_args['ceil_mode']
-    op_hndl = SimOpHandle(name, 'MaxPool',
-                          params=[], ipos=[0],
-                          kernel_shape=kernel_shape,
-                          pads=padding,                       # Torch/ONNX names differ
-                          ceil_mode=1 if ceil_mode else 0,    # Torch/ONNX types differ
-                          dilations=dilation,                 # Torch/ONNX names differ
-                          strides=stride,                     # Torch/ONNX names differ
-                          )
+    padding = common.make_tuple(eff_args["padding"], 2 * 2)
+    dilation = common.make_tuple(eff_args["dilation"], 2)
+    ceil_mode = eff_args["ceil_mode"]
+    op_hndl = SimOpHandle(
+        name,
+        "MaxPool",
+        params=[],
+        ipos=[0],
+        kernel_shape=kernel_shape,
+        pads=padding,  # Torch/ONNX names differ
+        ceil_mode=1 if ceil_mode else 0,  # Torch/ONNX types differ
+        dilations=dilation,  # Torch/ONNX names differ
+        strides=stride,  # Torch/ONNX names differ
+    )
     return op_hndl
 
+
 def Dropout(name, prob=0.5, train_mode=True, /, *, module=None, **kwargs):
-    #SimTensor(/drop/Dropout_output_1) shape=[1, 7, 48], dtype=bool, op_in=[], op_out=['/drop/Dropout'], data=None
+    # SimTensor(/drop/Dropout_output_1) shape=[1, 7, 48], dtype=bool, op_in=[], op_out=['/drop/Dropout'], data=None
     # There are no trainable parameters for Dropout, 'prob' fixes the 'ratio' input1,
     # 'train_mode' fixes the 'training_mode' input2; So we fix in1, and in2 here...
     # We are abusing the name 'params' in the SimOpHandle constructor call below, eventually I will
     # rename it to something like params_or_inputs, but living with it for now.
-    #Note:
+    # Note:
     # Even if Dropout can potentially generate 2 outputs, the 2nd o/p being the mask,
     # I don't see the mask being used by any other operators downstream in real workloads,
     # so neglecting that for now
-    ratio = _from_data(name + '.ratio', np.float32(prob), is_param=False, is_const=True)
+    ratio = _from_data(name + ".ratio", np.float32(prob), is_param=False, is_const=True)
     ratio.op_in.append(name)
-    training_mode = _from_data(name + '.training_mode', np.bool_(train_mode), is_param=False, is_const=True)
+    training_mode = _from_data(
+        name + ".training_mode", np.bool_(train_mode), is_param=False, is_const=True
+    )
     training_mode.op_in.append(name)
     if module is not None:
         module._tensors[ratio.name] = ratio
         module._tensors[training_mode.name] = training_mode
-    op_hndl =  SimOpHandle(name, 'Dropout', params=[(1,ratio), (2,training_mode)], ipos=[0], **kwargs)
+    op_hndl = SimOpHandle(
+        name, "Dropout", params=[(1, ratio), (2, training_mode)], ipos=[0], **kwargs
+    )
     return op_hndl
 
 
 def LayerNorm(name, count, /, **kwargs):
-    #Note:
+    # Note:
     # ONNX LayerNorm can generate upto 3 outputs, but we are only generating 1
     # Ok for now, because simple LLMs behave the same way...
-    scale = _from_shape(name + '.scale', [count], is_param=True)
+    scale = _from_shape(name + ".scale", [count], is_param=True)
     scale.op_in.append(name)
-    bias = _from_shape(name + '.bias', [count], is_param=True)
+    bias = _from_shape(name + ".bias", [count], is_param=True)
     bias.op_in.append(name)
-    op_hndl =  SimOpHandle(name, 'LayerNormalization', params=[(1,scale), (2,bias)], ipos=[0], **kwargs)
+    op_hndl = SimOpHandle(
+        name, "LayerNormalization", params=[(1, scale), (2, bias)], ipos=[0], **kwargs
+    )
     return op_hndl
+
 
 def BatchNorm2d(name, channels, /, **kwargs):
     # TODO:
     # ONNX BatchNorm can generate upto 3 outputs, but we are currently only generating 1
     # This implementation might need to be revised if 3-output batch norm is used in some network
-    scale = _from_shape(name + '.scale', [channels], is_param=True)
+    scale = _from_shape(name + ".scale", [channels], is_param=True)
     scale.op_in.append(name)
-    bias = _from_shape(name + '.bias', [channels], is_param=True)
+    bias = _from_shape(name + ".bias", [channels], is_param=True)
     bias.op_in.append(name)
-    input_mean = _from_shape(name + '.input_mean', [channels], is_param=True)
+    input_mean = _from_shape(name + ".input_mean", [channels], is_param=True)
     input_mean.op_in.append(name)
-    input_var = _from_shape(name + '.input_var', [channels], is_param=True)
+    input_var = _from_shape(name + ".input_var", [channels], is_param=True)
     input_var.op_in.append(name)
-    op_hndl = SimOpHandle(name, 'BatchNormalization', params=[(1,scale), (2,bias),(3,input_mean), (4,input_var)], ipos=[0], **kwargs)
+    op_hndl = SimOpHandle(
+        name,
+        "BatchNormalization",
+        params=[(1, scale), (2, bias), (3, input_mean), (4, input_var)],
+        ipos=[0],
+        **kwargs,
+    )
     return op_hndl
 
+
 def Resize(name: str, /, scale_factor, **kwargs):
-    roi     = _from_data(name + '.roi',    np.array([], dtype=np.float32), is_param=False, is_const=True)
+    roi = _from_data(
+        name + ".roi", np.array([], dtype=np.float32), is_param=False, is_const=True
+    )
     if isinstance(scale_factor, (float, int)):
-        scales  = _from_data(name + '.scales', np.array([scale_factor, scale_factor],
-                                                        dtype=np.float32), is_param=False, is_const=True)
+        scales = _from_data(
+            name + ".scales",
+            np.array([scale_factor, scale_factor], dtype=np.float32),
+            is_param=False,
+            is_const=True,
+        )
     elif isinstance(scale_factor, (list, tuple)):
-        assert len(scale_factor) == 2, f"Need to pass scale_factor list with 2 elems: {scale_factor}"
-        assert isinstance(scale_factor[0], (float, int)) and isinstance(scale_factor[1], (float, int)), \
-                f"scale_factor list should be of type: int/float"
-        scales  = _from_data(name + '.scales', np.array(scale_factor, dtype=np.float32),
-                             is_param=False, is_const=True)
+        assert (
+            len(scale_factor) == 2
+        ), f"Need to pass scale_factor list with 2 elems: {scale_factor}"
+        assert isinstance(scale_factor[0], (float, int)) and isinstance(
+            scale_factor[1], (float, int)
+        ), f"scale_factor list should be of type: int/float"
+        scales = _from_data(
+            name + ".scales",
+            np.array(scale_factor, dtype=np.float32),
+            is_param=False,
+            is_const=True,
+        )
     else:
         assert False, f"Illegal scale_factor={scale_factor} input into F.Resize"
-    op_hndl = SimOpHandle(name, 'Resize', params=[(1, roi), (2, scales)], ipos=[0], **kwargs)
+    op_hndl = SimOpHandle(
+        name, "Resize", params=[(1, roi), (2, scales)], ipos=[0], **kwargs
+    )
     return op_hndl
+
 
 def Split(name, **kwargs):
     return SplitOpHandle(name, ipos=[0, 1], **kwargs)
 
+
+class TopKOpHandle:
+    """TopK operation - returns top K values and indices along an axis."""
+
+    def __init__(self, name, k, axis=-1, largest=True, sorted=True, **kwargs):
+        self.name = name
+        self.optype = "TopK"
+        self.opinfo = get_opinfo(name, "TopK", **kwargs)
+        self.k = k
+        self.axis = axis
+        self.largest = largest
+        self.sorted = sorted
+        self.params = []
+        self.implicit_inputs = []
+        self.sim_op = None
+        self.otensors = []
+        self.perf_stats = None
+        self.link_module = None
+        # Set attributes in opinfo
+        self.opinfo["axis"] = axis
+        self.opinfo["largest"] = 1 if largest else 0
+        self.opinfo["sorted"] = 1 if sorted else 0
+        check_required_attrs(name, "TopK", required_attrs("TopK"), **kwargs)
+
+    def set_module(self, m):
+        self.link_module = m
+
+    def __call__(self, x):
+        # Create k tensor as a constant input
+        k_tensor = _from_data(
+            self.name + ".k",
+            np.array([self.k], dtype=np.int64),
+            is_param=False,
+            is_const=True,
+        )
+        self.implicit_inputs.append(k_tensor)
+
+        # Input tensor setup
+        x.op_in.append(self.name)
+        self.opinfo["inList"].append(x.name)
+        k_tensor.op_in.append(self.name)
+        self.opinfo["inList"].append(k_tensor.name)
+
+        # Output tensor setup - TopK returns 2 outputs: values and indices
+        self.otensors = [
+            SimTensor({"name": self.name + "_values", "op_out": [self.name]}),
+            SimTensor({"name": self.name + "_indices", "op_out": [self.name]}),
+        ]
+        self.opinfo["outList"] = [ot.name for ot in self.otensors]
+
+        # Create relevant SimOp
+        self.sim_op = get_sim_op(self.opinfo, default_dtype=x.dtype)
+
+        # Get perf stats for the SimOp
+        self.perf_stats = self.sim_op.get_perf_counts([x, k_tensor], self.otensors)
+        self.sim_op.update_tensor_counts([x, k_tensor], self.otensors)
+
+        if self.link_module is not None:
+            for ot in self.otensors:
+                ot.link_module = self.link_module
+                if ot not in self.link_module._tensors:
+                    self.link_module._tensors[ot.name] = ot
+
+        return tuple(self.otensors)
+
+
+def TopK(name, k, axis=-1, largest=True, sorted=True, **kwargs):
+    """
+    TopK operation - returns top K values and indices along an axis.
+
+    Args:
+        name: Operation name
+        k: Number of top elements to return
+        axis: Axis along which to find top-k (default: -1)
+        largest: If True, return largest k elements; if False, return smallest
+        sorted: If True, return elements in sorted order
+
+    Returns two outputs:
+        values: Top K values [... , K]
+        indices: Indices of top K values [... , K]
+    """
+    return TopKOpHandle(name, k=k, axis=axis, largest=largest, sorted=sorted, **kwargs)
+
+
 def AdaptiveAvgPool1d(name, adaptive=True, output_size=1, **kwargs):
-    op_hndl = SimOpHandle(name, 'AveragePool', params=[], ipos=[0],
-                          adaptive=adaptive,
-                          output_size=output_size,
-                          **kwargs)
+    op_hndl = SimOpHandle(
+        name,
+        "AveragePool",
+        params=[],
+        ipos=[0],
+        adaptive=adaptive,
+        output_size=output_size,
+        **kwargs,
+    )
     return op_hndl
+
 
 def AdaptiveAvgPool2d(name, output_size=1, **kwargs):
     # Implement as ReduceMean over spatial dimensions [2, 3] for 4D tensors (B, C, H, W)
     # This achieves global average pooling: (b,c,h,w) → (b,c,1,1)
     if output_size == 1:
         # ReduceMean over axes [2, 3] (height and width) with keepdims=True
-        axes_tensor = _from_data(name + '.axes', np.array([2, 3], dtype=np.int64), is_param=False, is_const=True)
-        op_hndl = SimOpHandle(name, 'ReduceMean', params=[(1, axes_tensor)], ipos=[0], keepdims=1, **kwargs)
+        axes_tensor = _from_data(
+            name + ".axes",
+            np.array([2, 3], dtype=np.int64),
+            is_param=False,
+            is_const=True,
+        )
+        op_hndl = SimOpHandle(
+            name,
+            "ReduceMean",
+            params=[(1, axes_tensor)],
+            ipos=[0],
+            keepdims=1,
+            **kwargs,
+        )
         # Store axes_tensor as implicit input for ONNX export
         op_hndl.implicit_inputs.append(axes_tensor)
     else:
-        raise NotImplementedError(f"AdaptiveAvgPool2d with output_size={output_size} not yet supported. Only output_size=1 is implemented.")
+        raise NotImplementedError(
+            f"AdaptiveAvgPool2d with output_size={output_size} not yet supported. Only output_size=1 is implemented."
+        )
     return op_hndl
+
 
 def conv1d(name, **kwargs):
-    op_hndl = SimOpHandle(
-        name,
-        'Conv',
-        params=[],
-        ipos=[0, 1, 2],
-        **kwargs
-    )
+    op_hndl = SimOpHandle(name, "Conv", params=[], ipos=[0, 1, 2], **kwargs)
     return op_hndl
 
-def ReduceSum(name: str, axis: int, **kwargs):
-    axesT = _from_data(name + '.axes', np.array([axis], dtype=np.int32), is_param=False, is_const=True)
-    op_hndl = SimOpHandle(name, 'ReduceSum', params=[(1, axesT)], ipos=[0], **kwargs)
+
+def ReduceSum(name: str, axis: int = 0, **kwargs):
+    axesT = _from_data(
+        name + ".axes", np.array([axis], dtype=np.int32), is_param=False, is_const=True
+    )
+    op_hndl = SimOpHandle(name, "ReduceSum", params=[(1, axesT)], ipos=[0], **kwargs)
     return op_hndl
+
+
+def ReduceMin(name: str, axis: int, **kwargs):
+    axesT = _from_data(
+        name + ".axes", np.array([axis], dtype=np.int32), is_param=False, is_const=True
+    )
+    op_hndl = SimOpHandle(name, "ReduceMin", params=[(1, axesT)], ipos=[0], **kwargs)
+    return op_hndl
+
+
+def ReduceMax(name: str, axis: int, **kwargs):
+    axesT = _from_data(
+        name + ".axes", np.array([axis], dtype=np.int32), is_param=False, is_const=True
+    )
+    op_hndl = SimOpHandle(name, "ReduceMax", params=[(1, axesT)], ipos=[0], **kwargs)
+    return op_hndl
+
 
 def permute(name, dims, **kwargs):
-    kwargs['perm'] = dims
-    op_hndl = SimOpHandle(name, 'Transpose', params=[], ipos=[0], **kwargs)
+    kwargs["perm"] = dims
+    op_hndl = SimOpHandle(name, "Transpose", params=[], ipos=[0], **kwargs)
     return op_hndl
 
+
 def topk(name, *, k, **kwargs):
-    k_tensor = _from_data(name + '.k', data=np.array([k], dtype=np.int64), is_param=False, is_const=True)
+    k_tensor = _from_data(
+        name + ".k", data=np.array([k], dtype=np.int64), is_param=False, is_const=True
+    )
     op_hndl = MultiOutputSimOpHandle(
         name,
-        'TopK',
+        "TopK",
         params=[(1, k_tensor)],
         ipos=[0],
         num_outputs=2,
@@ -629,81 +870,190 @@ def topk(name, *, k, **kwargs):
     )
     return op_hndl
 
+
 ######################################################################################################
 # Simple Operator Mapping
 ######################################################################################################
 def UniversalOperator(name, /, optype, params, ipos, **kwargs):
     return SimOpHandle(name, optype, params=params, ipos=ipos, **kwargs)
 
-#Unary Operators
+
+# Unary Operators
 UnaryOperator = partial(UniversalOperator, params=[], ipos=[0])
-Identity      = partial(UnaryOperator, optype='Identity')
-Tanh          = partial(UnaryOperator, optype='Tanh')
-Neg           = partial(UnaryOperator, optype='Neg')
-exp           = partial(UnaryOperator, optype='Exp')
-Cos           = partial(UnaryOperator, optype='Cos')
-Sin           = partial(UnaryOperator, optype='Sin')
-Log           = partial(UnaryOperator, optype='Log')
-Sqrt          = partial(UnaryOperator, optype='Sqrt')
-Exp           = partial(UnaryOperator, optype='Exp')
-Softmax       = partial(UnaryOperator, optype='Softmax')
-softplus      = partial(UnaryOperator, optype='Softplus')
-Clip          = partial(UnaryOperator, optype='Clip')
-Cast          = partial(UnaryOperator, optype='Cast')
-Shape         = partial(UnaryOperator, optype='Shape')
-Transpose     = partial(UnaryOperator, optype='Transpose')
-Gelu          = partial(UnaryOperator, optype='Gelu')
-Relu          = partial(UnaryOperator, optype='Relu')
-LeakyReLU     = partial(UnaryOperator, optype='LeakyRelu')
-Sigmoid       = partial(UnaryOperator, optype='Sigmoid')
-Mish          = partial(UnaryOperator, optype='Mish')
-AveragePool2d = partial(UnaryOperator, optype='AveragePool')
-Sum           = partial(UnaryOperator, optype='Sum')
-Mean          = partial(UnaryOperator, optype='Mean')
-Reciprocal    = partial(UnaryOperator, optype='Reciprocal')
-Hardswish     = partial(UnaryOperator, optype='HardSwish')
+Identity = partial(UnaryOperator, optype="Identity")
+Tanh = partial(UnaryOperator, optype="Tanh")
+Neg = partial(UnaryOperator, optype="Neg")
+exp = partial(UnaryOperator, optype="Exp")
+Cos = partial(UnaryOperator, optype="Cos")
+Sin = partial(UnaryOperator, optype="Sin")
+Log = partial(UnaryOperator, optype="Log")
+Sqrt = partial(UnaryOperator, optype="Sqrt")
+Exp = partial(UnaryOperator, optype="Exp")
+Softmax = partial(UnaryOperator, optype="Softmax")
+softplus = partial(UnaryOperator, optype="Softplus")
+Clip = partial(UnaryOperator, optype="Clip")
+Cast = partial(UnaryOperator, optype="Cast")
+Shape = partial(UnaryOperator, optype="Shape")
+Transpose = partial(UnaryOperator, optype="Transpose")
+Gelu = partial(UnaryOperator, optype="Gelu")
+Relu = partial(UnaryOperator, optype="Relu")
+LeakyReLU = partial(UnaryOperator, optype="LeakyRelu")
+Sigmoid = partial(UnaryOperator, optype="Sigmoid")
+Mish = partial(UnaryOperator, optype="Mish")
+AveragePool2d = partial(UnaryOperator, optype="AveragePool")
+Sum = partial(UnaryOperator, optype="Sum")
+Mean = partial(UnaryOperator, optype="Mean")
+Reciprocal = partial(UnaryOperator, optype="Reciprocal")
+Hardswish = partial(UnaryOperator, optype="HardSwish")
+
 
 # Added ReLU6 using Clip with min=0 and max=6
 def Relu6(name, **kwargs):
     """ReLU6 = Clip(x, min=0, max=6)"""
-    min_tensor = _from_data(name + '.min', np.array([0.0], dtype=np.float32), is_const=True)
-    max_tensor = _from_data(name + '.max', np.array([6.0], dtype=np.float32), is_const=True)
-    op_hndl = SimOpHandle(name, 'Clip',
-                          params=[(1, min_tensor), (2, max_tensor)],
-                          ipos=[0],
-                          **kwargs)
+    min_tensor = _from_data(
+        name + ".min", np.array([0.0], dtype=np.float32), is_const=True
+    )
+    max_tensor = _from_data(
+        name + ".max", np.array([6.0], dtype=np.float32), is_const=True
+    )
+    op_hndl = SimOpHandle(
+        name, "Clip", params=[(1, min_tensor), (2, max_tensor)], ipos=[0], **kwargs
+    )
     return op_hndl
 
-#Binary Operators
-BinaryOperator = partial(UniversalOperator, params=[], ipos=[0,1])
-Add            = partial(BinaryOperator, optype='Add')
-Sub            = partial(BinaryOperator, optype='Sub')
-Mul            = partial(BinaryOperator, optype='Mul')
-Div            = partial(BinaryOperator, optype='Div')
-Gather         = partial(BinaryOperator, optype='Gather')
-MatMul         = partial(BinaryOperator, optype='MatMul')
-Reshape        = partial(BinaryOperator, optype='Reshape')
-Pow            = partial(BinaryOperator, optype='Pow')
-Unsqueeze      = partial(BinaryOperator, optype='Unsqueeze')
-Squeeze        = partial(BinaryOperator, optype='Squeeze')
-Tile           = partial(BinaryOperator, optype='Tile')
-Equal          = partial(BinaryOperator, optype='Equal')
-Assign         = partial(BinaryOperator, optype='Assign')
-Pad            = partial(BinaryOperator, optype='Pad')
 
-#Ternary Operators
-TernaryOperator = partial(UniversalOperator, params=[], ipos=[0,1,2])
-Where   = partial(TernaryOperator, optype='Where')
-Range   = partial(TernaryOperator, optype='Range')
-GroupNormalization = partial(TernaryOperator, optype='GroupNormalization')
+# Binary Operators
+BinaryOperator = partial(UniversalOperator, params=[], ipos=[0, 1])
+Add = partial(BinaryOperator, optype="Add")
+Sub = partial(BinaryOperator, optype="Sub")
+Mul = partial(BinaryOperator, optype="Mul")
+Div = partial(BinaryOperator, optype="Div")
+Gather = partial(BinaryOperator, optype="Gather")
+MatMul = partial(BinaryOperator, optype="MatMul")
+Reshape = partial(BinaryOperator, optype="Reshape")
+Pow = partial(BinaryOperator, optype="Pow")
+Atan2 = partial(BinaryOperator, optype="Atan2")
+Unsqueeze = partial(BinaryOperator, optype="Unsqueeze")
+Squeeze = partial(BinaryOperator, optype="Squeeze")
+Tile = partial(BinaryOperator, optype="Tile")
+Equal = partial(BinaryOperator, optype="Equal")
+Greater = partial(BinaryOperator, optype="Greater")
+GreaterOrEqual = partial(BinaryOperator, optype="GreaterOrEqual")
+Less = partial(BinaryOperator, optype="Less")
+LessOrEqual = partial(BinaryOperator, optype="LessOrEqual")
+And = partial(BinaryOperator, optype="And")
+Or = partial(BinaryOperator, optype="Or")
+Mod = partial(BinaryOperator, optype="Mod")
+Assign = partial(BinaryOperator, optype="Assign")
+Pad = partial(BinaryOperator, optype="Pad")
 
-#4-ary Operators
-FourAryOperator = partial(UniversalOperator, params=[], ipos=[0,1,2,3])
-VoxelPooling    = partial(FourAryOperator, optype='VoxelPooling')
+# Variadic operators that can also work as binary
+# Max and Min are in the variadic table but can be used with 2 inputs
+Maximum = partial(BinaryOperator, optype="Max")  # Element-wise maximum of two tensors
+Minimum = partial(BinaryOperator, optype="Min")  # Element-wise minimum of two tensors
 
-#Variadic Input Operator
-#class VariadicInputOpHandle:
+# Unary operations that return indices/masks
+Sign = partial(UnaryOperator, optype="Sign")
+Atan = partial(UnaryOperator, optype="Atan")
+NonZero = partial(UnaryOperator, optype="NonZero")
+Floor = partial(UnaryOperator, optype="Floor")
+
+# Ternary Operators
+TernaryOperator = partial(UniversalOperator, params=[], ipos=[0, 1, 2])
+Where = partial(TernaryOperator, optype="Where")
+Range = partial(TernaryOperator, optype="Range")
+GroupNormalization = partial(TernaryOperator, optype="GroupNormalization")
+
+# 4-ary Operators
+FourAryOperator = partial(UniversalOperator, params=[], ipos=[0, 1, 2, 3])
+VoxelPooling = partial(FourAryOperator, optype="VoxelPooling")
+
+# Variadic Input Operator
+# class VariadicInputOpHandle:
 #    def __init__(self, name, optype, input_range, /, **kwargs):
-ConcatX = partial(VariadicInputOpHandle, optype='Concat', input_range=(2,float('inf')))
-TriluX  = partial(VariadicInputOpHandle, optype='Trilu',  input_range=(1,2))
-SliceF  = partial(VariadicInputOpHandle, optype='Slice',  input_range=(3,6))
+ConcatX = partial(VariadicInputOpHandle, optype="Concat", input_range=(2, float("inf")))
+Concat = ConcatX  # alias for ConcatX
+TriluX = partial(VariadicInputOpHandle, optype="Trilu", input_range=(1, 2))
+SliceF = partial(VariadicInputOpHandle, optype="Slice", input_range=(3, 6))
+_stack_counter = _count(start=1, step=1)
+
+
+def Stack(inputs, /, axis=0, name=None, **kwargs):
+    """Stack a list of tensors along a new dimension. Functional form: Stack(list, axis=N)."""
+    n = name or f"_stack_{next(_stack_counter)}"
+    h = VariadicInputOpHandle(
+        n, optype="Stack", input_range=(1, float("inf")), axis=axis, **kwargs
+    )
+    return h(*inputs)
+
+
+Stack.__doc__ = "Stack a list of tensors along a new axis."
+
+_const_counter = _count(start=1, step=1)
+
+
+def Constant(value, shape=None, dtype=None):
+    """Create a constant (scalar or tensor) SimTensor from a Python/numpy value."""
+    name = f"_const_{next(_const_counter)}"
+    if isinstance(value, np.ndarray):
+        data = value
+    else:
+        np_dtype: Any = np.float32
+        if dtype is not None:
+            if hasattr(dtype, "numpy_dtype"):
+                np_dtype = dtype.numpy_dtype
+            elif isinstance(dtype, np.dtype):
+                np_dtype = dtype
+        if shape is not None:
+            data = np.full(shape, value, dtype=np_dtype)
+        else:
+            data = np.array([value], dtype=np_dtype)
+    return _from_data(name, data, is_param=False, is_const=True)
+
+
+_gs_counter = _count(start=1, step=1)
+
+
+def GridSample(
+    input,
+    grid,
+    /,
+    mode="bilinear",
+    padding_mode="zeros",
+    align_corners=True,
+    name=None,
+    **kwargs,
+):
+    """Grid sample operation: samples input using grid coordinates. Functional form returning output tensor."""
+    n = name or f"_gridsample_{next(_gs_counter)}"
+    h = SimOpHandle(
+        n,
+        "GridSample",
+        params=[],
+        ipos=[0, 1],
+        mode=mode,
+        padding_mode=padding_mode,
+        align_corners=align_corners,
+        **kwargs,
+    )
+    return h(input, grid)
+
+
+def Slice(name: str, /, starts, ends, axes=None, steps=None, **kwargs):
+    """Slice operation with starts/ends/axes/steps specified as lists."""
+    starts_t = _from_data(
+        name + ".starts", np.array(starts, dtype=np.int64), is_const=True
+    )
+    ends_t = _from_data(name + ".ends", np.array(ends, dtype=np.int64), is_const=True)
+    params: list = [(1, starts_t), (2, ends_t)]
+    if axes is not None:
+        axes_t = _from_data(
+            name + ".axes", np.array(axes, dtype=np.int64), is_const=True
+        )
+        params.append((3, axes_t))
+    if steps is not None:
+        steps_t = _from_data(
+            name + ".steps", np.array(steps, dtype=np.int64), is_const=True
+        )
+        params.append((4, steps_t))
+    return SimOpHandle(name, "Slice", params=params, ipos=[0], **kwargs)

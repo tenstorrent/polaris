@@ -9,51 +9,82 @@ import numpy as np
 import copy
 
 def variadic_sinf(iTList, oTList, op, **kwargs):
-    dim = op.attrs.get('dim', None)
-    num_tensors = len(iTList)
+    """
+    Shape inference for variadic input operations (Sum, Mean, Max, Min).
+
+    For reduction operations (with 'dim' or 'axis' attribute):
+        - Reduces along specified dimension
+        - Output has reduced dimensions
+
+    For element-wise operations (no 'dim'/'axis' attribute):
+        - For Max/Min with multiple inputs: element-wise maximum/minimum
+        - Broadcasts inputs and produces element-wise result
+        - Output shape is broadcast result of all inputs
+    """
+    dim = op.attrs.get("dim", None)
+    axis = op.attrs.get("axis", None)  # Some ops use 'axis' instead of 'dim'
+
+    if dim is None and axis is not None:
+        dim = axis
+
     input_tensor = iTList[0]
     assert input_tensor.check_shape(), f"Illegal Shape for {input_tensor}"
 
-    if num_tensors > 1:  # compare multiple input tensors and reduce to one output tensor
-        # ONNX variadic elementwise ops follow NumPy broadcasting across all inputs.
-        # Compute the broadcasted shape iteratively across all input tensor shapes.
-        shapes = [tuple(t.shape) for t in iTList]
-        try:
-            broadcast_shape = np.broadcast_shapes(*shapes)
-        except ValueError as e:
-            raise AssertionError(
-                f"Incompatible input shapes for variadic op {op.optype}: {shapes}"
-            ) from e
-        output_shape = list(broadcast_shape)
+    optype_lower = op.optype.lower()
+
+    # For Max/Min with multiple inputs and no reduction dimension, do element-wise operation
+    if optype_lower in ["max", "min"] and dim is None and len(iTList) > 1:
+        # Element-wise max/min with broadcasting
+        output_shape = iTList[0].shape
+        for i in range(1, len(iTList)):
+            assert iTList[i].check_shape(), f"Illegal Shape for input {i}"
+            output_shape = bidirectional_broadcast_shape_inference(
+                output_shape, iTList[i].shape
+            )
+
+        oTList[0].shape = output_shape
+        oTList[0].dtype = input_tensor.dtype
+
+        total_elems = sum(t.nelems() for t in iTList)
+        op.perf_stats = {
+            "inElems": total_elems,
+            "inBytes": sum(t.nbytes(op.precision) for t in iTList),
+            "outElems": oTList[0].nelems(),
+            "outBytes": oTList[0].nbytes(op.precision),
+            "instrs": {"cmp": oTList[0].nelems() * (len(iTList) - 1)},
+        }
+        return
+
+    # Reduction operation
+    rank = input_tensor.rank()
+    if dim is not None and dim < 0:
+        dim += rank
+
+    if dim is None:
+        # operate on all elements, output is scalar
+        output_shape = []
     else:
-        rank = input_tensor.rank()
-        if dim is not None and dim < 0:
-            dim += rank
-        if dim is None:
-            # operate on all elements, output is scalar
-            output_shape = []
-        else:
-            assert 0 <= dim < rank, f"dim {dim} out of bounds for rank {rank}"
-            # Output shape is input shape with dim removed
-            output_shape = [s for i, s in enumerate(input_tensor.shape) if i != dim]
+        assert 0 <= dim < rank, f"dim {dim} out of bounds for rank {rank}"
+        # Output shape is input shape with dim removed
+        output_shape = [s for i, s in enumerate(input_tensor.shape) if i != dim]
 
     oTList[0].shape = output_shape
     oTList[0].dtype = input_tensor.dtype
 
-    i_elems = input_tensor.nelems() * num_tensors
+    i_elems = input_tensor.nelems()
     o_elems = oTList[0].nelems()
     optype2instr = {
-            'mean': {'add': i_elems, 'div': o_elems},
-            'sum' : {'add': i_elems},
-            'max' : {'cmp': i_elems - o_elems},
-            'min' : {'cmp': i_elems - o_elems},
-            }
+        "mean": {"add": i_elems, "div": o_elems},
+        "sum": {"add": i_elems},
+        "max": {"cmp": i_elems},  # Element-wise comparison for max
+        "min": {"cmp": i_elems},  # Element-wise comparison for min
+    }
     op.perf_stats = {
-        'inElems': i_elems,
-        'inBytes': input_tensor.nbytes(op.precision) * num_tensors,
-        'outElems': o_elems,
-        'outBytes': oTList[0].nbytes(op.precision),
-        'instrs': optype2instr[op.optype.lower()],
+        "inElems": i_elems,
+        "inBytes": input_tensor.nbytes(op.precision),
+        "outElems": o_elems,
+        "outBytes": oTList[0].nbytes(op.precision),
+        "instrs": optype2instr[op.optype.lower()],
     }
     return
 
@@ -75,7 +106,7 @@ def matmul_shape_inf(iTList, oTList, op, **kwargs):
         # Vector-Vector: [n] × [n] -> [] (scalar result)
         if AShape[0] != BShape[0]:
             raise ValueError(f"Matmul incompatible: {AShape[0]} != {BShape[0]}")
-        CShape = [] # Scalar result
+        CShape = []  # Scalar result
         reduced_dim = AShape[0]  # The dimension being reduced
     elif len(AShape) == 1:
         # Vector-Matrix: [n] × [..., n, m] -> [..., m]
@@ -88,7 +119,9 @@ def matmul_shape_inf(iTList, oTList, op, **kwargs):
         if AShape[-1] != BShape[0]:
             raise ValueError(f"Matmul incompatible: {AShape[-1]} != {BShape[0]}")
         CShape = AShape[:-1]
-        reduced_dim = AShape[-1]  # The last dimension of the matrix (dimension being reduced)
+        reduced_dim = AShape[
+            -1
+        ]  # The last dimension of the matrix (dimension being reduced)
     else:
         # Handle 2D+ cases
         # For 2D and higher-dimensional tensors, split into batch and matrix dimensions
@@ -105,13 +138,20 @@ def matmul_shape_inf(iTList, oTList, op, **kwargs):
     oTList[0].shape = CShape
     oTList[0].dtype = A.dtype
     op.perf_stats = {
-            'inElems' : iTList[0].nelems() + iTList[1].nelems(),
-            'outElems': oTList[0].nelems(),
-            'inBytes' : iTList[0].nbytes(op.precision) + iTList[1].nbytes(op.precision),
-            'outBytes': oTList[0].nbytes(op.precision),
-            'instrs'  : {'mac': oTList[0].nelems() * reduced_dim}
-            }
+        "inElems": iTList[0].nelems() + iTList[1].nelems(),
+        "outElems": oTList[0].nelems(),
+        "inBytes": iTList[0].nbytes(op.precision) + iTList[1].nbytes(op.precision),
+        "outBytes": oTList[0].nbytes(op.precision),
+        "instrs": {"mac": oTList[0].nelems() * reduced_dim},
+    }
+
+    # Data computation for MatMul
+    from ttsim.ops.desc.data_compute import try_compute_data, compute_matmul
+
+    oTList[0].data = try_compute_data(compute_matmul, iTList, op)
+
     return
+
 
 def grid_sample_inf(iTList, oTList, op, **kwargs):
     A = iTList[0]
@@ -132,28 +172,29 @@ def grid_sample_inf(iTList, oTList, op, **kwargs):
     oTList[0].shape = [N, C_out, H_out, W_out]
     oTList[0].dtype = A.dtype
 
-    mode = op.attrs.get('mode', 'bilinear')
+    mode = op.attrs.get("mode", "bilinear")
     nElem_out = N * C_out * H_out * W_out
     instr_count = {}
-    if mode == 'nearest':
-        instr_count['mov'] = nElem_out
-    elif mode == 'bilinear':
-        instr_count['mul'] = nElem_out * 4
-        instr_count['add'] = nElem_out * 3
-    elif mode == 'bicubic':
-        instr_count['mul'] = nElem_out * 16
-        instr_count['add'] = nElem_out * 15
+    if mode == "nearest":
+        instr_count["mov"] = nElem_out
+    elif mode == "bilinear":
+        instr_count["mul"] = nElem_out * 4
+        instr_count["add"] = nElem_out * 3
+    elif mode == "bicubic":
+        instr_count["mul"] = nElem_out * 16
+        instr_count["add"] = nElem_out * 15
     else:
         raise ValueError(f"Unsupported GridSample mode: {mode}")
 
     op.perf_stats = {
-            'inElems' : iTList[0].nelems() + iTList[1].nelems(),
-            'outElems': oTList[0].nelems(),
-            'inBytes' : iTList[0].nbytes(op.precision) + iTList[1].nbytes(op.precision),
-            'outBytes': oTList[0].nbytes(op.precision),
-            'instrs'  : {'mov': oTList[0].nelems()} #TODO: refine this
-            }
+        "inElems": iTList[0].nelems() + iTList[1].nelems(),
+        "outElems": oTList[0].nelems(),
+        "inBytes": iTList[0].nbytes(op.precision) + iTList[1].nbytes(op.precision),
+        "outBytes": oTList[0].nbytes(op.precision),
+        "instrs": {"mov": oTList[0].nelems()},  # TODO: refine this
+    }
     return
+
 
 def expand_sinf(iTList, oTList, op, **kwargs):
     A = iTList[0]
@@ -162,29 +203,30 @@ def expand_sinf(iTList, oTList, op, **kwargs):
     if iTList[1].data is None:
         target_shape = AShape
     else:
-        B = iTList[1].clone_by_shape(data_maybe_missing=False) #B.data should exist
+        B = iTList[1].clone_by_shape(data_maybe_missing=False)  # B.data should exist
         assert A.check_shape(), f"Input tensor-A shape not defined: {A}"
         assert B.check_shape(), f"Input tensor-B shape not defined: {B}"
         assert B.dtype == np.int64, f"Input Data-Type should be np.int64 {B}"
         target_shape = [x.item() for x in B.data]
 
-    CShape       = bidirectional_broadcast_shape_inference(AShape, target_shape)
+    CShape = bidirectional_broadcast_shape_inference(AShape, target_shape)
     oTList[0].shape = CShape
     oTList[0].dtype = A.dtype
     op.perf_stats = {
-            'inElems' : iTList[0].nelems() + iTList[1].nelems(),
-            'outElems': oTList[0].nelems(),
-            'inBytes' : iTList[0].nbytes(op.precision) + iTList[1].nbytes(op.precision),
-            'outBytes': oTList[0].nbytes(op.precision),
-            'instrs'  : {'mov': oTList[0].nelems()}
-            }
+        "inElems": iTList[0].nelems() + iTList[1].nelems(),
+        "outElems": oTList[0].nelems(),
+        "inBytes": iTList[0].nbytes(op.precision) + iTList[1].nbytes(op.precision),
+        "outBytes": oTList[0].nbytes(op.precision),
+        "instrs": {"mov": oTList[0].nelems()},
+    }
     return
+
 
 def det_sinf(iTList, oTList, op, **kwargs):
     A = iTList[0]
     assert A.check_shape(), f"Input tensor-A shape not defined: {A}"
     AShape = iTList[0].shape
-    ARank  = iTList[0].rank()
+    ARank = iTList[0].rank()
     if ARank < 2:
         raise ValueError("Det expects at least 2D input of shape [*, M, M]")
 
@@ -313,103 +355,1175 @@ def gemm_sinf(iTList, oTList, op, **kwargs):
     broadcast_batch = bidirectional_broadcast_shape_inference(batch1, batch2)
     CShape = broadcast_batch + [mat1[-2], mat2[-1]]
 
-    reduced_dim     = mat1[-1]
+    reduced_dim = mat1[-1]
     oTList[0].shape = CShape
     oTList[0].dtype = A.dtype
     op.perf_stats = {
-            'inElems' : iTList[0].nelems() + iTList[1].nelems(),
-            'outElems': oTList[0].nelems(),
-            'inBytes' : iTList[0].nbytes(op.precision) + iTList[1].nbytes(op.precision),
-            'outBytes': oTList[0].nbytes(op.precision),
-            'instrs'  : {'mac': oTList[0].nelems() * reduced_dim}
-            }
+        "inElems": iTList[0].nelems() + iTList[1].nelems(),
+        "outElems": oTList[0].nelems(),
+        "inBytes": iTList[0].nbytes(op.precision) + iTList[1].nbytes(op.precision),
+        "outBytes": oTList[0].nbytes(op.precision),
+        "instrs": {"mac": oTList[0].nelems() * reduced_dim},
+    }
     return
+
 
 def register_math_ops():
     _xoptbl = [
-            ['Clip', 'ARITY_VARIADIC[1-3]->1', 'ai.onnx', 'COMMON',  13,  13,  3,  1,  1,  1,  unary_fwd,  True,  True,  True,  True,  True],
-            ['TopK',   'ARITY_2->2', 'ai.onnx', 'COMMON',  24,  11,  2,  2, 2,  2, topk_sinf, True,  True,  True,  True,  True],
-            #complex shape inference
-            #['NegativeLogLikelihoodLoss', 'ARITY_VARIADIC[2-3]->1',              'ai.onnx', 'COMMON',  22,  22,  3,  2,  1,  1,  'inline_lambda',  True,  True,  True,  True,  True],
-            #['SoftmaxCrossEntropyLoss',   'ARITY_VARIADIC[2-3]->VARIADIC[1-2]',  'ai.onnx', 'COMMON',  13,  13,  3,  2,  2,  1,  'inline_lambda',  True,  True,  True,  True,  True],
-            #['Einsum',           'ARITY_VARIADIC[1-*]->1', 'ai.onnx', 'COMMON',  12,  12,  2147483647,  1,  1,  1,  'inline_lambda',  True,  True,  True,  True,  True],
-            #['DFT',              'ARITY_VARIADIC[1-3]->1', 'ai.onnx', 'COMMON',  20,  20,  3,  1,  1,  1,  'inline_lambda',  True,  True,  True,  True,  True],
-            ['Gemm',             'ARITY_VARIADIC[2-3]->1', 'ai.onnx', 'COMMON',  13,  13,  3,  2,  1,  1,  gemm_sinf,  True,  True,  True,  True,  True],
-            #['MatMulInteger',    'ARITY_VARIADIC[2-4]->1', 'ai.onnx', 'COMMON',  10,  10,  4,  2,  1,  1,  'inline_lambda',  True,  True,  True,  True,  True],
-            #['STFT',             'ARITY_VARIADIC[2-4]->1', 'ai.onnx', 'COMMON',  17,  17,  4,  2,  1,  1,  'inline_lambda',  True,  True,  True,  True,  True],
-            #['QLinearMatMul',    'ARITY_8->1',             'ai.onnx', 'COMMON',  21,  21,  8,  8,  1,  1,  'QLinearMatMulShapeInference',  True,  True,  True,  True,  True],
-            #['MelWeightMatrix',  'ARITY_5->1',             'ai.onnx', 'COMMON',  17,  17,  5,  5,  1,  1,  'inline_lambda', True,  True,  True,  True,  True],
-            ]
+        [
+            "Clip",
+            "ARITY_VARIADIC[1-3]->1",
+            "ai.onnx",
+            "COMMON",
+            13,
+            13,
+            3,
+            1,
+            1,
+            1,
+            unary_fwd,
+            True,
+            True,
+            True,
+            True,
+            True,
+        ],
+        [
+            "TopK",
+            "ARITY_2->2",
+            "ai.onnx",
+            "COMMON",
+            24,
+            11,
+            2,
+            2,
+            2,
+            2,
+            topk_sinf,
+            True,
+            True,
+            True,
+            True,
+            True,
+        ],
+        # complex shape inference
+        # ['NegativeLogLikelihoodLoss', 'ARITY_VARIADIC[2-3]->1',              'ai.onnx', 'COMMON',  22,  22,  3,  2,  1,  1,  'inline_lambda',  True,  True,  True,  True,  True],
+        # ['SoftmaxCrossEntropyLoss',   'ARITY_VARIADIC[2-3]->VARIADIC[1-2]',  'ai.onnx', 'COMMON',  13,  13,  3,  2,  2,  1,  'inline_lambda',  True,  True,  True,  True,  True],
+        # ['Einsum',           'ARITY_VARIADIC[1-*]->1', 'ai.onnx', 'COMMON',  12,  12,  2147483647,  1,  1,  1,  'inline_lambda',  True,  True,  True,  True,  True],
+        # ['DFT',              'ARITY_VARIADIC[1-3]->1', 'ai.onnx', 'COMMON',  20,  20,  3,  1,  1,  1,  'inline_lambda',  True,  True,  True,  True,  True],
+        [
+            "Gemm",
+            "ARITY_VARIADIC[2-3]->1",
+            "ai.onnx",
+            "COMMON",
+            13,
+            13,
+            3,
+            2,
+            1,
+            1,
+            gemm_sinf,
+            True,
+            True,
+            True,
+            True,
+            True,
+        ],
+        # ['MatMulInteger',    'ARITY_VARIADIC[2-4]->1', 'ai.onnx', 'COMMON',  10,  10,  4,  2,  1,  1,  'inline_lambda',  True,  True,  True,  True,  True],
+        # ['STFT',             'ARITY_VARIADIC[2-4]->1', 'ai.onnx', 'COMMON',  17,  17,  4,  2,  1,  1,  'inline_lambda',  True,  True,  True,  True,  True],
+        # ['QLinearMatMul',    'ARITY_8->1',             'ai.onnx', 'COMMON',  21,  21,  8,  8,  1,  1,  'QLinearMatMulShapeInference',  True,  True,  True,  True,  True],
+        # ['MelWeightMatrix',  'ARITY_5->1',             'ai.onnx', 'COMMON',  17,  17,  5,  5,  1,  1,  'inline_lambda', True,  True,  True,  True,  True],
+    ]
 
     _binary_optbl = [
-            ['Add',    'ARITY_2->1', 'ai.onnx', 'COMMON',  14,  14,  2,  2, 1,  1,  bidir_bcast,      True,  True,  True,  True,  True],
-            ['Sub',    'ARITY_2->1', 'ai.onnx', 'COMMON',  14,  14,  2,  2, 1,  1,  bidir_bcast,      True,  True,  True,  True,  True],
-            ['Mul',    'ARITY_2->1', 'ai.onnx', 'COMMON',  14,  14,  2,  2, 1,  1,  bidir_bcast,      True,  True,  True,  True,  True],
-            ['Div',    'ARITY_2->1', 'ai.onnx', 'COMMON',  14,  14,  2,  2, 1,  1,  bidir_bcast,      True,  True,  True,  True,  True],
-            ['Pow',    'ARITY_2->1', 'ai.onnx', 'COMMON',  15,  15,  2,  2, 1,  1,  bidir_bcast,      True,  True,  True,  True,  True],
-            ['Mod',    'ARITY_2->1', 'ai.onnx', 'COMMON',  13,  13,  2,  2, 1,  1,  bidir_bcast ,     True,  True,  True,  True,  True],
-            ['Expand', 'ARITY_2->1', 'ai.onnx', 'COMMON',  13,  13,  2,  2, 1,  1,  expand_sinf,      True,  True,  True,  True,  True],
-            ['CumSum', 'ARITY_2->1', 'ai.onnx', 'COMMON',  14,  14,  2,  2, 1,  1,  unary_fwd,        True,  True,  True,  True,  True],
-            ['PRelu',  'ARITY_2->1', 'ai.onnx', 'COMMON',  16,  16,  2,  2, 1,  1,  unary_fwd,        True,  True,  True,  True,  True],
-            ['MatMul', 'ARITY_2->1', 'ai.onnx', 'COMMON',  13,  13,  2,  2, 1,  1,  matmul_shape_inf, True,  True,  True,  True,  True],
-            ['GridSample', 'ARITY_2->1', 'ai.onnx', 'COMMON',  22,  22,  2,  2, 1,  1,  grid_sample_inf,        True,  True,  True,  True,  True],
-            ]
+        [
+            "Add",
+            "ARITY_2->1",
+            "ai.onnx",
+            "COMMON",
+            14,
+            14,
+            2,
+            2,
+            1,
+            1,
+            bidir_bcast,
+            True,
+            True,
+            True,
+            True,
+            True,
+        ],
+        [
+            "Sub",
+            "ARITY_2->1",
+            "ai.onnx",
+            "COMMON",
+            14,
+            14,
+            2,
+            2,
+            1,
+            1,
+            bidir_bcast,
+            True,
+            True,
+            True,
+            True,
+            True,
+        ],
+        [
+            "Mul",
+            "ARITY_2->1",
+            "ai.onnx",
+            "COMMON",
+            14,
+            14,
+            2,
+            2,
+            1,
+            1,
+            bidir_bcast,
+            True,
+            True,
+            True,
+            True,
+            True,
+        ],
+        [
+            "Div",
+            "ARITY_2->1",
+            "ai.onnx",
+            "COMMON",
+            14,
+            14,
+            2,
+            2,
+            1,
+            1,
+            bidir_bcast,
+            True,
+            True,
+            True,
+            True,
+            True,
+        ],
+        [
+            "Pow",
+            "ARITY_2->1",
+            "ai.onnx",
+            "COMMON",
+            15,
+            15,
+            2,
+            2,
+            1,
+            1,
+            bidir_bcast,
+            True,
+            True,
+            True,
+            True,
+            True,
+        ],
+        [
+            "Mod",
+            "ARITY_2->1",
+            "ai.onnx",
+            "COMMON",
+            13,
+            13,
+            2,
+            2,
+            1,
+            1,
+            bidir_bcast,
+            True,
+            True,
+            True,
+            True,
+            True,
+        ],
+        [
+            "Atan2",
+            "ARITY_2->1",
+            "ai.onnx",
+            "COMMON",
+            13,
+            13,
+            2,
+            2,
+            1,
+            1,
+            bidir_bcast,
+            True,
+            True,
+            True,
+            True,
+            True,
+        ],
+        [
+            "Expand",
+            "ARITY_2->1",
+            "ai.onnx",
+            "COMMON",
+            13,
+            13,
+            2,
+            2,
+            1,
+            1,
+            expand_sinf,
+            True,
+            True,
+            True,
+            True,
+            True,
+        ],
+        [
+            "CumSum",
+            "ARITY_2->1",
+            "ai.onnx",
+            "COMMON",
+            14,
+            14,
+            2,
+            2,
+            1,
+            1,
+            unary_fwd,
+            True,
+            True,
+            True,
+            True,
+            True,
+        ],
+        [
+            "PRelu",
+            "ARITY_2->1",
+            "ai.onnx",
+            "COMMON",
+            16,
+            16,
+            2,
+            2,
+            1,
+            1,
+            unary_fwd,
+            True,
+            True,
+            True,
+            True,
+            True,
+        ],
+        [
+            "MatMul",
+            "ARITY_2->1",
+            "ai.onnx",
+            "COMMON",
+            13,
+            13,
+            2,
+            2,
+            1,
+            1,
+            matmul_shape_inf,
+            True,
+            True,
+            True,
+            True,
+            True,
+        ],
+        [
+            "GridSample",
+            "ARITY_2->1",
+            "ai.onnx",
+            "COMMON",
+            22,
+            22,
+            2,
+            2,
+            1,
+            1,
+            grid_sample_inf,
+            True,
+            True,
+            True,
+            True,
+            True,
+        ],
+    ]
 
     _variadic_input_unary_output_optbl = [
-            ['Max',  'ARITY_VARIADIC[1-*]->1', 'ai.onnx', 'COMMON',  13,  13, 2147483647,  1,  1, 1,  variadic_sinf,  True,  True,  True,  True,  True],
-            ['Min',  'ARITY_VARIADIC[1-*]->1', 'ai.onnx', 'COMMON',  13,  13, 2147483647,  1,  1, 1,  variadic_sinf,  True,  True,  True,  True,  True],
-            ['Sum',  'ARITY_VARIADIC[1-*]->1', 'ai.onnx', 'COMMON',  13,  13, 2147483647,  1,  1, 1,  variadic_sinf,  True,  True,  True,  True,  True],
-            ['Mean', 'ARITY_VARIADIC[1-*]->1', 'ai.onnx', 'COMMON',  13,  13, 2147483647,  1,  1, 1,  variadic_sinf,  True,  True,  True,  True,  True],
-            ]
+        [
+            "Max",
+            "ARITY_VARIADIC[1-*]->1",
+            "ai.onnx",
+            "COMMON",
+            13,
+            13,
+            2147483647,
+            1,
+            1,
+            1,
+            variadic_sinf,
+            True,
+            True,
+            True,
+            True,
+            True,
+        ],
+        [
+            "Min",
+            "ARITY_VARIADIC[1-*]->1",
+            "ai.onnx",
+            "COMMON",
+            13,
+            13,
+            2147483647,
+            1,
+            1,
+            1,
+            variadic_sinf,
+            True,
+            True,
+            True,
+            True,
+            True,
+        ],
+        [
+            "Sum",
+            "ARITY_VARIADIC[1-*]->1",
+            "ai.onnx",
+            "COMMON",
+            13,
+            13,
+            2147483647,
+            1,
+            1,
+            1,
+            variadic_sinf,
+            True,
+            True,
+            True,
+            True,
+            True,
+        ],
+        [
+            "Mean",
+            "ARITY_VARIADIC[1-*]->1",
+            "ai.onnx",
+            "COMMON",
+            13,
+            13,
+            2147483647,
+            1,
+            1,
+            1,
+            variadic_sinf,
+            True,
+            True,
+            True,
+            True,
+            True,
+        ],
+    ]
 
     _unary_optbl = [
-            ['Softmax',          'ARITY_1->1', 'ai.onnx', 'COMMON',  13,  13,  1,  1,  1,  1,  unary_fwd,  True,  True,  True,  True,  True],
-            ['LogSoftmax',       'ARITY_1->1', 'ai.onnx', 'COMMON',  13,  13,  1,  1,  1,  1,  unary_fwd,  True,  True,  True,  True,  True],
-            ['Hardmax',          'ARITY_1->1', 'ai.onnx', 'COMMON',  13,  13,  1,  1,  1,  1,  unary_fwd,  True,  True,  True,  True,  True],
-            ['Neg',              'ARITY_1->1', 'ai.onnx', 'COMMON',  13,  13,  1,  1,  1,  1,  unary_fwd,  True,  True,  True,  True,  True],
-            ['Abs',              'ARITY_1->1', 'ai.onnx', 'COMMON',  13,  13,  1,  1,  1,  1,  unary_fwd,  True,  True,  True,  True,  True],
-            ['Reciprocal',       'ARITY_1->1', 'ai.onnx', 'COMMON',  13,  13,  1,  1,  1,  1,  unary_fwd,  True,  True,  True,  True,  True],
-            ['Floor',            'ARITY_1->1', 'ai.onnx', 'COMMON',  13,  13,  1,  1,  1,  1,  unary_fwd,  True,  True,  True,  True,  True],
-            ['Ceil',             'ARITY_1->1', 'ai.onnx', 'COMMON',  13,  13,  1,  1,  1,  1,  unary_fwd,  True,  True,  True,  True,  True],
-            ['Sqrt',             'ARITY_1->1', 'ai.onnx', 'COMMON',  13,  13,  1,  1,  1,  1,  unary_fwd,  True,  True,  True,  True,  True],
-            ['Relu',             'ARITY_1->1', 'ai.onnx', 'COMMON',  14,  14,  1,  1,  1,  1,  unary_fwd,  True,  True,  True,  True,  True],
-            ['LeakyRelu',        'ARITY_1->1', 'ai.onnx', 'COMMON',  16,  16,  1,  1,  1,  1,  unary_fwd,  True,  True,  True,  True,  True],
-            ['ThresholdedRelu',  'ARITY_1->1', 'ai.onnx', 'COMMON',  22,  22,  1,  1,  1,  1,  unary_fwd,  True,  True,  True,  True,  True],
-            ['Selu',             'ARITY_1->1', 'ai.onnx', 'COMMON',  22,  22,  1,  1,  1,  1,  unary_fwd,  True,  True,  True,  True,  True],
-            ['Elu',              'ARITY_1->1', 'ai.onnx', 'COMMON',  22,  22,  1,  1,  1,  1,  unary_fwd,  True,  True,  True,  True,  True],
-            ['Mish',             'ARITY_1->1', 'ai.onnx', 'COMMON',  22,  22,  1,  1,  1,  1,  unary_fwd,  True,  True,  True,  True,  True],
-            ['Celu',             'ARITY_1->1', 'ai.onnx', 'COMMON',  12,  12,  1,  1,  1,  1,  unary_fwd,  True,  True,  True,  True,  True],
-            ['Gelu',             'ARITY_1->1', 'ai.onnx', 'COMMON',  20,  20,  1,  1,  1,  1,  unary_fwd,  True,  True,  True,  True,  True],
-            ['Exp',              'ARITY_1->1', 'ai.onnx', 'COMMON',  13,  13,  1,  1,  1,  1,  unary_fwd,  True,  True,  True,  True,  True],
-            ['Log',              'ARITY_1->1', 'ai.onnx', 'COMMON',  13,  13,  1,  1,  1,  1,  unary_fwd,  True,  True,  True,  True,  True],
-            ['Tanh',             'ARITY_1->1', 'ai.onnx', 'COMMON',  13,  13,  1,  1,  1,  1,  unary_fwd,  True,  True,  True,  True,  True],
-            ['Sigmoid',          'ARITY_1->1', 'ai.onnx', 'COMMON',  13,  13,  1,  1,  1,  1,  unary_fwd,  True,  True,  True,  True,  True],
-            ['HardSigmoid',      'ARITY_1->1', 'ai.onnx', 'COMMON',  22,  22,  1,  1,  1,  1,  unary_fwd,  True,  True,  True,  True,  True],
-            ['HardSwish',        'ARITY_1->1', 'ai.onnx', 'COMMON',  22,  22,  1,  1,  1,  1,  unary_fwd,  True,  True,  True,  True,  True],
-            ['Softsign',         'ARITY_1->1', 'ai.onnx', 'COMMON',  22,  22,  1,  1,  1,  1,  unary_fwd,  True,  True,  True,  True,  True],
-            ['Softplus',         'ARITY_1->1', 'ai.onnx', 'COMMON',  22,  22,  1,  1,  1,  1,  unary_fwd,  True,  True,  True,  True,  True],
-            ['Sin',              'ARITY_1->1', 'ai.onnx', 'COMMON',  22,  22,  1,  1,  1,  1,  unary_fwd,  True,  True,  True,  True,  True],
-            ['Cos',              'ARITY_1->1', 'ai.onnx', 'COMMON',  22,  22,  1,  1,  1,  1,  unary_fwd,  True,  True,  True,  True,  True],
-            ['Tan',              'ARITY_1->1', 'ai.onnx', 'COMMON',  22,  22,  1,  1,  1,  1,  unary_fwd,  True,  True,  True,  True,  True],
-            ['Asin',             'ARITY_1->1', 'ai.onnx', 'COMMON',  22,  22,  1,  1,  1,  1,  unary_fwd,  True,  True,  True,  True,  True],
-            ['Acos',             'ARITY_1->1', 'ai.onnx', 'COMMON',  22,  22,  1,  1,  1,  1,  unary_fwd,  True,  True,  True,  True,  True],
-            ['Atan',             'ARITY_1->1', 'ai.onnx', 'COMMON',  22,  22,  1,  1,  1,  1,  unary_fwd,  True,  True,  True,  True,  True],
-            ['Sinh',             'ARITY_1->1', 'ai.onnx', 'COMMON',  22,  22,  1,  1,  1,  1,  unary_fwd,  True,  True,  True,  True,  True],
-            ['Cosh',             'ARITY_1->1', 'ai.onnx', 'COMMON',  22,  22,  1,  1,  1,  1,  unary_fwd,  True,  True,  True,  True,  True],
-            ['Asinh',            'ARITY_1->1', 'ai.onnx', 'COMMON',  22,  22,  1,  1,  1,  1,  unary_fwd,  True,  True,  True,  True,  True],
-            ['Acosh',            'ARITY_1->1', 'ai.onnx', 'COMMON',  22,  22,  1,  1,  1,  1,  unary_fwd,  True,  True,  True,  True,  True],
-            ['Atanh',            'ARITY_1->1', 'ai.onnx', 'COMMON',  22,  22,  1,  1,  1,  1,  unary_fwd,  True,  True,  True,  True,  True],
-            ['Sign',             'ARITY_1->1', 'ai.onnx', 'COMMON',  13,  13,  1,  1,  1,  1,  unary_fwd,  True,  True,  True,  True,  True],
-            ['Erf',              'ARITY_1->1', 'ai.onnx', 'COMMON',  13,  13,  1,  1,  1,  1,  unary_fwd,  True,  True,  True,  True,  True],
-            ['Round',            'ARITY_1->1', 'ai.onnx', 'COMMON',  22,  22,  1,  1,  1,  1,  unary_fwd,  True,  True,  True,  True,  True],
-            ['Det',              'ARITY_1->1', 'ai.onnx', 'COMMON',  22,  22,  1,  1,  1,  1,  det_sinf,   True,  True,  True,  True,  True],
-            ['NonZero',          'ARITY_1->1', 'ai.onnx', 'COMMON',  13,  13,  1,  1,  1,  1,  nonzero_sinf,  True,  True,  True,  True,  True],
-
-            ['HannWindow',       'ARITY_1->1', 'ai.onnx', 'COMMON',  17,  17,  1,  1,  1,  1, data_window_sinf,  True,  True,  True,  True,  True],
-            ['HammingWindow',    'ARITY_1->1', 'ai.onnx', 'COMMON',  17,  17,  1,  1,  1,  1, data_window_sinf,  True,  True,  True,  True,  True],
-            ['BlackmanWindow',   'ARITY_1->1', 'ai.onnx', 'COMMON',  17,  17,  1,  1,  1,  1, data_window_sinf,  True,  True,  True,  True,  True],
-            ]
+        [
+            "Softmax",
+            "ARITY_1->1",
+            "ai.onnx",
+            "COMMON",
+            13,
+            13,
+            1,
+            1,
+            1,
+            1,
+            unary_fwd,
+            True,
+            True,
+            True,
+            True,
+            True,
+        ],
+        [
+            "LogSoftmax",
+            "ARITY_1->1",
+            "ai.onnx",
+            "COMMON",
+            13,
+            13,
+            1,
+            1,
+            1,
+            1,
+            unary_fwd,
+            True,
+            True,
+            True,
+            True,
+            True,
+        ],
+        [
+            "Hardmax",
+            "ARITY_1->1",
+            "ai.onnx",
+            "COMMON",
+            13,
+            13,
+            1,
+            1,
+            1,
+            1,
+            unary_fwd,
+            True,
+            True,
+            True,
+            True,
+            True,
+        ],
+        [
+            "Neg",
+            "ARITY_1->1",
+            "ai.onnx",
+            "COMMON",
+            13,
+            13,
+            1,
+            1,
+            1,
+            1,
+            unary_fwd,
+            True,
+            True,
+            True,
+            True,
+            True,
+        ],
+        [
+            "Abs",
+            "ARITY_1->1",
+            "ai.onnx",
+            "COMMON",
+            13,
+            13,
+            1,
+            1,
+            1,
+            1,
+            unary_fwd,
+            True,
+            True,
+            True,
+            True,
+            True,
+        ],
+        [
+            "Reciprocal",
+            "ARITY_1->1",
+            "ai.onnx",
+            "COMMON",
+            13,
+            13,
+            1,
+            1,
+            1,
+            1,
+            unary_fwd,
+            True,
+            True,
+            True,
+            True,
+            True,
+        ],
+        [
+            "Floor",
+            "ARITY_1->1",
+            "ai.onnx",
+            "COMMON",
+            13,
+            13,
+            1,
+            1,
+            1,
+            1,
+            unary_fwd,
+            True,
+            True,
+            True,
+            True,
+            True,
+        ],
+        [
+            "Ceil",
+            "ARITY_1->1",
+            "ai.onnx",
+            "COMMON",
+            13,
+            13,
+            1,
+            1,
+            1,
+            1,
+            unary_fwd,
+            True,
+            True,
+            True,
+            True,
+            True,
+        ],
+        [
+            "Sqrt",
+            "ARITY_1->1",
+            "ai.onnx",
+            "COMMON",
+            13,
+            13,
+            1,
+            1,
+            1,
+            1,
+            unary_fwd,
+            True,
+            True,
+            True,
+            True,
+            True,
+        ],
+        [
+            "Relu",
+            "ARITY_1->1",
+            "ai.onnx",
+            "COMMON",
+            14,
+            14,
+            1,
+            1,
+            1,
+            1,
+            unary_fwd,
+            True,
+            True,
+            True,
+            True,
+            True,
+        ],
+        [
+            "LeakyRelu",
+            "ARITY_1->1",
+            "ai.onnx",
+            "COMMON",
+            16,
+            16,
+            1,
+            1,
+            1,
+            1,
+            unary_fwd,
+            True,
+            True,
+            True,
+            True,
+            True,
+        ],
+        [
+            "ThresholdedRelu",
+            "ARITY_1->1",
+            "ai.onnx",
+            "COMMON",
+            22,
+            22,
+            1,
+            1,
+            1,
+            1,
+            unary_fwd,
+            True,
+            True,
+            True,
+            True,
+            True,
+        ],
+        [
+            "Selu",
+            "ARITY_1->1",
+            "ai.onnx",
+            "COMMON",
+            22,
+            22,
+            1,
+            1,
+            1,
+            1,
+            unary_fwd,
+            True,
+            True,
+            True,
+            True,
+            True,
+        ],
+        [
+            "Elu",
+            "ARITY_1->1",
+            "ai.onnx",
+            "COMMON",
+            22,
+            22,
+            1,
+            1,
+            1,
+            1,
+            unary_fwd,
+            True,
+            True,
+            True,
+            True,
+            True,
+        ],
+        [
+            "Mish",
+            "ARITY_1->1",
+            "ai.onnx",
+            "COMMON",
+            22,
+            22,
+            1,
+            1,
+            1,
+            1,
+            unary_fwd,
+            True,
+            True,
+            True,
+            True,
+            True,
+        ],
+        [
+            "Celu",
+            "ARITY_1->1",
+            "ai.onnx",
+            "COMMON",
+            12,
+            12,
+            1,
+            1,
+            1,
+            1,
+            unary_fwd,
+            True,
+            True,
+            True,
+            True,
+            True,
+        ],
+        [
+            "Gelu",
+            "ARITY_1->1",
+            "ai.onnx",
+            "COMMON",
+            20,
+            20,
+            1,
+            1,
+            1,
+            1,
+            unary_fwd,
+            True,
+            True,
+            True,
+            True,
+            True,
+        ],
+        [
+            "Exp",
+            "ARITY_1->1",
+            "ai.onnx",
+            "COMMON",
+            13,
+            13,
+            1,
+            1,
+            1,
+            1,
+            unary_fwd,
+            True,
+            True,
+            True,
+            True,
+            True,
+        ],
+        [
+            "Log",
+            "ARITY_1->1",
+            "ai.onnx",
+            "COMMON",
+            13,
+            13,
+            1,
+            1,
+            1,
+            1,
+            unary_fwd,
+            True,
+            True,
+            True,
+            True,
+            True,
+        ],
+        [
+            "Tanh",
+            "ARITY_1->1",
+            "ai.onnx",
+            "COMMON",
+            13,
+            13,
+            1,
+            1,
+            1,
+            1,
+            unary_fwd,
+            True,
+            True,
+            True,
+            True,
+            True,
+        ],
+        [
+            "Sigmoid",
+            "ARITY_1->1",
+            "ai.onnx",
+            "COMMON",
+            13,
+            13,
+            1,
+            1,
+            1,
+            1,
+            unary_fwd,
+            True,
+            True,
+            True,
+            True,
+            True,
+        ],
+        [
+            "HardSigmoid",
+            "ARITY_1->1",
+            "ai.onnx",
+            "COMMON",
+            22,
+            22,
+            1,
+            1,
+            1,
+            1,
+            unary_fwd,
+            True,
+            True,
+            True,
+            True,
+            True,
+        ],
+        [
+            "HardSwish",
+            "ARITY_1->1",
+            "ai.onnx",
+            "COMMON",
+            22,
+            22,
+            1,
+            1,
+            1,
+            1,
+            unary_fwd,
+            True,
+            True,
+            True,
+            True,
+            True,
+        ],
+        [
+            "Softsign",
+            "ARITY_1->1",
+            "ai.onnx",
+            "COMMON",
+            22,
+            22,
+            1,
+            1,
+            1,
+            1,
+            unary_fwd,
+            True,
+            True,
+            True,
+            True,
+            True,
+        ],
+        [
+            "Softplus",
+            "ARITY_1->1",
+            "ai.onnx",
+            "COMMON",
+            22,
+            22,
+            1,
+            1,
+            1,
+            1,
+            unary_fwd,
+            True,
+            True,
+            True,
+            True,
+            True,
+        ],
+        [
+            "Sin",
+            "ARITY_1->1",
+            "ai.onnx",
+            "COMMON",
+            22,
+            22,
+            1,
+            1,
+            1,
+            1,
+            unary_fwd,
+            True,
+            True,
+            True,
+            True,
+            True,
+        ],
+        [
+            "Cos",
+            "ARITY_1->1",
+            "ai.onnx",
+            "COMMON",
+            22,
+            22,
+            1,
+            1,
+            1,
+            1,
+            unary_fwd,
+            True,
+            True,
+            True,
+            True,
+            True,
+        ],
+        [
+            "Tan",
+            "ARITY_1->1",
+            "ai.onnx",
+            "COMMON",
+            22,
+            22,
+            1,
+            1,
+            1,
+            1,
+            unary_fwd,
+            True,
+            True,
+            True,
+            True,
+            True,
+        ],
+        [
+            "Asin",
+            "ARITY_1->1",
+            "ai.onnx",
+            "COMMON",
+            22,
+            22,
+            1,
+            1,
+            1,
+            1,
+            unary_fwd,
+            True,
+            True,
+            True,
+            True,
+            True,
+        ],
+        [
+            "Acos",
+            "ARITY_1->1",
+            "ai.onnx",
+            "COMMON",
+            22,
+            22,
+            1,
+            1,
+            1,
+            1,
+            unary_fwd,
+            True,
+            True,
+            True,
+            True,
+            True,
+        ],
+        [
+            "Atan",
+            "ARITY_1->1",
+            "ai.onnx",
+            "COMMON",
+            22,
+            22,
+            1,
+            1,
+            1,
+            1,
+            unary_fwd,
+            True,
+            True,
+            True,
+            True,
+            True,
+        ],
+        [
+            "Sinh",
+            "ARITY_1->1",
+            "ai.onnx",
+            "COMMON",
+            22,
+            22,
+            1,
+            1,
+            1,
+            1,
+            unary_fwd,
+            True,
+            True,
+            True,
+            True,
+            True,
+        ],
+        [
+            "Cosh",
+            "ARITY_1->1",
+            "ai.onnx",
+            "COMMON",
+            22,
+            22,
+            1,
+            1,
+            1,
+            1,
+            unary_fwd,
+            True,
+            True,
+            True,
+            True,
+            True,
+        ],
+        [
+            "Asinh",
+            "ARITY_1->1",
+            "ai.onnx",
+            "COMMON",
+            22,
+            22,
+            1,
+            1,
+            1,
+            1,
+            unary_fwd,
+            True,
+            True,
+            True,
+            True,
+            True,
+        ],
+        [
+            "Acosh",
+            "ARITY_1->1",
+            "ai.onnx",
+            "COMMON",
+            22,
+            22,
+            1,
+            1,
+            1,
+            1,
+            unary_fwd,
+            True,
+            True,
+            True,
+            True,
+            True,
+        ],
+        [
+            "Atanh",
+            "ARITY_1->1",
+            "ai.onnx",
+            "COMMON",
+            22,
+            22,
+            1,
+            1,
+            1,
+            1,
+            unary_fwd,
+            True,
+            True,
+            True,
+            True,
+            True,
+        ],
+        [
+            "Sign",
+            "ARITY_1->1",
+            "ai.onnx",
+            "COMMON",
+            13,
+            13,
+            1,
+            1,
+            1,
+            1,
+            unary_fwd,
+            True,
+            True,
+            True,
+            True,
+            True,
+        ],
+        [
+            "Erf",
+            "ARITY_1->1",
+            "ai.onnx",
+            "COMMON",
+            13,
+            13,
+            1,
+            1,
+            1,
+            1,
+            unary_fwd,
+            True,
+            True,
+            True,
+            True,
+            True,
+        ],
+        [
+            "Round",
+            "ARITY_1->1",
+            "ai.onnx",
+            "COMMON",
+            22,
+            22,
+            1,
+            1,
+            1,
+            1,
+            unary_fwd,
+            True,
+            True,
+            True,
+            True,
+            True,
+        ],
+        [
+            "Det",
+            "ARITY_1->1",
+            "ai.onnx",
+            "COMMON",
+            22,
+            22,
+            1,
+            1,
+            1,
+            1,
+            det_sinf,
+            True,
+            True,
+            True,
+            True,
+            True,
+        ],
+        [
+            "NonZero",
+            "ARITY_1->1",
+            "ai.onnx",
+            "COMMON",
+            13,
+            13,
+            1,
+            1,
+            1,
+            1,
+            nonzero_sinf,
+            True,
+            True,
+            True,
+            True,
+            True,
+        ],
+        [
+            "HannWindow",
+            "ARITY_1->1",
+            "ai.onnx",
+            "COMMON",
+            17,
+            17,
+            1,
+            1,
+            1,
+            1,
+            data_window_sinf,
+            True,
+            True,
+            True,
+            True,
+            True,
+        ],
+        [
+            "HammingWindow",
+            "ARITY_1->1",
+            "ai.onnx",
+            "COMMON",
+            17,
+            17,
+            1,
+            1,
+            1,
+            1,
+            data_window_sinf,
+            True,
+            True,
+            True,
+            True,
+            True,
+        ],
+        [
+            "BlackmanWindow",
+            "ARITY_1->1",
+            "ai.onnx",
+            "COMMON",
+            17,
+            17,
+            1,
+            1,
+            1,
+            1,
+            data_window_sinf,
+            True,
+            True,
+            True,
+            True,
+            True,
+        ],
+    ]
 
     _optbl = _xoptbl + _binary_optbl + _variadic_input_unary_output_optbl + _unary_optbl
-    register_ops('math', _optbl)
+    register_ops("math", _optbl)
     return

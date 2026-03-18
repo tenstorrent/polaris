@@ -27,8 +27,8 @@ def test_simnn():
     llm_out = basic_llm() #all intermediate tensor shape/data fixed after __call__ call
 
     llm_graph = basic_llm.get_forward_graph()
-    assert len(llm_graph._ops)            == 33
-    assert len(llm_graph._tensors)        == 65
+    assert len(llm_graph._ops)            == 37
+    assert len(llm_graph._tensors)        == 69
     assert len(llm_graph._input_tensors)  == 30
     assert len(llm_graph._input_nodes)    == 22
     assert len(llm_graph._output_nodes)   == 1

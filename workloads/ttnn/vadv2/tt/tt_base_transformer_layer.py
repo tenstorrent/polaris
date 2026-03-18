@@ -2,13 +2,16 @@
 # SPDX-FileCopyrightText: (C) 2025 Tenstorrent AI ULC
 # SPDX-License-Identifier: Apache-2.0
 import os, sys
-sys.path.append(os.path.join(os.path.dirname(__file__), '../../../../'))
+
+sys.path.append(os.path.join(os.path.dirname(__file__), "../../../../"))
 import ttsim.front.ttnn as ttnn
 import copy
 import warnings
 from workloads.ttnn.vadv2.tt.tt_ffn import TtFFN
 from workloads.ttnn.vadv2.tt.tt_mha import TtMultiheadAttention
-from workloads.ttnn.vadv2.tt.tt_deformable_attention import TtCustomMSDeformableAttention
+from workloads.ttnn.vadv2.tt.tt_deformable_attention import (
+    TtCustomMSDeformableAttention,
+)
 from workloads.ttnn.vadv2.tt.tt_utils import DictAsAttr
 
 
@@ -35,7 +38,9 @@ class TtBaseTransformerLayer:
         self.params = params
 
         deprecated_args = dict(
-            feedforward_channels="feedforward_channels", ffn_dropout="ffn_drop", ffn_num_fcs="num_fcs"
+            feedforward_channels="feedforward_channels",
+            ffn_dropout="ffn_drop",
+            ffn_num_fcs="num_fcs",
         )
         for ori_name, new_name in deprecated_args.items():
             if ori_name in kwargs:
@@ -50,14 +55,18 @@ class TtBaseTransformerLayer:
         self.batch_first = batch_first
         self.device = device
 
-        assert set(operation_order) & set(["self_attn", "norm", "ffn", "cross_attn"]) == set(operation_order), (
+        assert set(operation_order) & set(
+            ["self_attn", "norm", "ffn", "cross_attn"]
+        ) == set(operation_order), (
             f"The operation_order of"
             f" {self.__class__.__name__} should "
             f"contains all four operation type "
             f"{['self_attn', 'norm', 'ffn', 'cross_attn']}"
         )
 
-        num_attn = operation_order.count("self_attn") + operation_order.count("cross_attn")
+        num_attn = operation_order.count("self_attn") + operation_order.count(
+            "cross_attn"
+        )
         if isinstance(attn_cfgs, dict):
             attn_cfgs = [copy.deepcopy(attn_cfgs) for _ in range(num_attn)]
         else:
@@ -84,11 +93,13 @@ class TtBaseTransformerLayer:
                     attn_cfgs[index]["batch_first"] = self.batch_first
                 if attn_cfgs[index]["type"] == "MultiheadAttention":
                     _ = attn_cfgs[index].pop("type")
-                    attention = TtMultiheadAttention(params.attentions[f"attn0"], device, **attn_cfgs[index])
+                    attention = TtMultiheadAttention(
+                        params.attentions[f"attn0"], device, **attn_cfgs[index]
+                    )
                     attn_cfgs[index]["type"] = "MultiheadAttention"
                 elif attn_cfgs[index]["type"] == "CustomMSDeformableAttention":
                     _ = attn_cfgs[index].pop("type")
-                    attention = TtCustomMSDeformableAttention(params.attentions[f"attn1"], device, **attn_cfgs[index]) # type: ignore[assignment]
+                    attention = TtCustomMSDeformableAttention(params.attentions[f"attn1"], device, **attn_cfgs[index])  # type: ignore[assignment]
                     attn_cfgs[index]["type"] = "CustomMSDeformableAttention"
 
                 self.attentions.append(attention)
@@ -100,7 +111,9 @@ class TtBaseTransformerLayer:
 
         self.embed_dims = self.attentions[0].embed_dims
 
-        num_attn = operation_order.count("self_attn") + operation_order.count("cross_attn")
+        num_attn = operation_order.count("self_attn") + operation_order.count(
+            "cross_attn"
+        )
         if isinstance(attn_cfgs, dict):
             attn_cfgs = [copy.deepcopy(attn_cfgs) for _ in range(num_attn)]
         else:
@@ -138,7 +151,10 @@ class TtBaseTransformerLayer:
             attn_masks = [None for _ in range(self.num_attn)]
         elif isinstance(attn_masks, ttnn.Tensor):
             attn_masks = [copy.deepcopy(attn_masks) for _ in range(self.num_attn)]
-            warnings.warn(f"Use same attn_mask in all attentions in " f"{self.__class__.__name__} ")
+            warnings.warn(
+                f"Use same attn_mask in all attentions in "
+                f"{self.__class__.__name__} "
+            )
         else:
             assert len(attn_masks) == self.num_attn, (
                 f"The length of "
@@ -165,12 +181,12 @@ class TtBaseTransformerLayer:
                 identity = query
 
             elif layer == "norm":
-                params_norms = self.params['norms'][f"norm{norm_index}"]
+                params_norms = self.params["norms"][f"norm{norm_index}"]
                 params_norms = DictAsAttr(params_norms)
                 query = ttnn.layer_norm(
                     query,
-                    weight = params_norms.weight,
-                    bias = params_norms.bias,
+                    weight=params_norms.weight,  # type: ignore[attr-defined]
+                    bias=params_norms.bias,  # type: ignore[attr-defined]
                     # weight=self.params.norms[f"norm{norm_index}"].weight,
                     # bias=self.params.norms[f"norm{norm_index}"].bias,
                 )
