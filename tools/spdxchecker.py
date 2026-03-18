@@ -248,6 +248,11 @@ def analyze_file(filename: str, allowed_licenses: list[str], allowed_copyrights:
         # and does not need SPDX-License-Identifier line as it is the license text itself
         license_status = SPDXHeaderStatus.ST_OK
         copyright_status = SPDXHeaderStatus.ST_OK
+    elif ext == '.ipynb':
+        # Jupyter notebooks are documentation artifacts; skip SPDX checks
+        logger.info(f'Skipping notebook file {filename} from SPDX checks')
+        license_status = SPDXHeaderStatus.ST_OK
+        copyright_status = SPDXHeaderStatus.ST_OK
     elif lang == 'unknown':
         logger.error(f'File {filename} has unknown extension {ext}. Skipping.')
     else:
