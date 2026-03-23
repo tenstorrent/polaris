@@ -5,7 +5,6 @@ import functools, operator
 import numpy as np
 from ttsim.utils.types import get_bpe, get_sim_dtype
 
-
 class Shape:
     """
     Shape class
@@ -86,7 +85,7 @@ class SimTensor:
         self.is_const    = cfg.get('is_const', False) # Is it constant? Boolean
         self.has_grad    = cfg.get('has_grad', True)  # Has a gradient during bwd pass? Boolean
         self.link_module = None                       # Associated Module
-        self.set_shape(cfg.get('shape'))           # List
+        SimTensor.set_shape(self, cfg.get('shape'))   # Other classes that subclass might override set_shape
 
     def set_module(self, m): self.link_module = m
 

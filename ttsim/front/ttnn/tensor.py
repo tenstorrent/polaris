@@ -205,6 +205,7 @@ class Tensor(SimTensor):
             else:
                 raise TypeError(f"Invalid padded_shape type: {type(padded_shape)}")
 
+        logger.debug("Tensor constructor: {} logical_shape {} and padded_shape {}", self.name, self._logical_shape, self._padded_shape)
 
         self.fill_value = kwargs.get('fill_value', None)
         self._memory_config = None
@@ -307,6 +308,13 @@ class Tensor(SimTensor):
     def to(self, dt):
         self.dtype = dt.to_numpy
         return self
+
+    def set_shape(self, newshape):
+        super().set_shape(newshape) 
+        if newshape is not None:
+            self._padded_shape = self._calculate_padded_shape(Shape(newshape), self.layout)
+        logger.debug("set_shape: {} layout {} newshape {} and padded_shape {}", self.name, self.layout, newshape, self._padded_shape)
+
 
     def item(self):
         """ returns the Python scalar value of the tensor if the tensor has exactly one element

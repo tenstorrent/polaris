@@ -5,6 +5,7 @@
 import os, sys
 sys.path.append(os.path.join(os.path.dirname(__file__), '../../..'))
 import ttsim.front.ttnn as ttnn
+from loguru import logger
 
 def vit_patch_embeddings(config, pixel_values, *, parameters, unittest_check=False):
     # batch_size, img_c, img_h, img_w = pixel_values.shape # NCHW
@@ -122,8 +123,16 @@ def vit_attention(
     attention_probs = ttnn.softmax(attention_scores, dim=-1)
 
     context_layer = attention_probs @ value
-    context_layer = ttnn.permute(context_layer, (0, 2, 1, 3))
+    # TODO: Remove this hack after fixing the issue with permute and reshape.
     context_layer.layout = ttnn.TILE_LAYOUT
+    # TODO: end
+    logger.debug("context_layer: {} layout {} before permute", context_layer.name, context_layer.layout)
+    context_layer = ttnn.permute(context_layer, (0, 2, 1, 3))
+    # TODO: Remove this hack after fixing the issue with permute and reshape.
+    context_layer.layout = ttnn.TILE_LAYOUT
+    context_layer.set_shape(context_layer.shape)
+    # TODO: end
+    logger.debug("context_layer: {} layout {} after permute", context_layer.name, context_layer.layout)
     context_layer = ttnn.to_layout(context_layer, ttnn.ROW_MAJOR_LAYOUT)
     context_layer = ttnn.reshape(context_layer, (batch_size, sequence_size, hidden_size))
     context_layer = ttnn.to_layout(context_layer, ttnn.TILE_LAYOUT)

@@ -780,6 +780,12 @@ def requires_padding_change(tensor, layout):
     """Check if padding change is required for layout conversion."""
     if layout == Layout.ROW_MAJOR_LAYOUT:
         # For row major, there shouldn't be extra padding
+        logger.debug(
+            "requires_padding_change: row major, logical_shape {} and padded_shape {}, padding change is {}",
+            tensor.logical_shape()._shape,
+            tensor.padded_shape()._shape,
+            tensor.logical_shape()._shape != tensor.padded_shape()._shape,
+        )
         return tensor.logical_shape()._shape != tensor.padded_shape()._shape
     else:
         # For tile layout, check if current padding matches tile requirements
@@ -1673,6 +1679,12 @@ def to_layout(tensor, layout, dtype=None, memory_config=None, sub_core_grids=Non
     if is_device_tensor:
         needs_padding_change = requires_padding_change(tensor, layout)
 
+        logger.debug(
+            "to_layout: needs_padding_change {} for tensor {} to layout {}",
+            needs_padding_change,
+            tensor.name,
+            layout,
+        )
         if not needs_padding_change:
             # Simple conversion without padding change
             if layout == Layout.ROW_MAJOR_LAYOUT:
@@ -1681,6 +1693,11 @@ def to_layout(tensor, layout, dtype=None, memory_config=None, sub_core_grids=Non
                 if should_execute:
                     return untilize(tensor, output_memory_config, True, True, sub_core_grids)
                 elif should_track and tensor.device is not None and isinstance(tensor, Tensor):
+                    logger.debug(
+                        "to_layout: choosing untilize_op (device tensor, no padding change, TILE->ROW_MAJOR; logical_shape {} == padded_shape {})",
+                        tensor.logical_shape()._shape,
+                        tensor.padded_shape()._shape,
+                    )
                     return untilize_op(tensor, use_multicore=True, use_pack_untilize=True, element_size=2, memory_config=output_memory_config)
                 else:
                     # Not using untilize_op: input is not a ttsim Tensor (e.g. TensorProxy) or has no device; preserve API with tracker + manual tensor.
@@ -1698,6 +1715,9 @@ def to_layout(tensor, layout, dtype=None, memory_config=None, sub_core_grids=Non
                 if should_execute:
                     return tilize(tensor, output_memory_config, dtype, True, False, sub_core_grids)
                 elif should_track and tensor.device is not None and isinstance(tensor, Tensor):
+                    logger.debug(
+                        "to_layout: choosing tilize_op (device tensor, no padding change, ROW_MAJOR->TILE; logical_shape already tile-aligned)"
+                    )
                     return tilize_op(tensor, use_multicore=True, element_size=2, memory_config=output_memory_config)
                 else:
                     # Not using tilize_op: input is not a ttsim Tensor (e.g. TensorProxy) or has no device; preserve API with tracker + manual tensor.
@@ -1729,6 +1749,12 @@ def to_layout(tensor, layout, dtype=None, memory_config=None, sub_core_grids=Non
                     )
                     return reshape(result, output_shape, None, None, None, sub_core_grids)
                 elif should_track and tensor.device is not None and isinstance(tensor, Tensor):
+                    logger.debug(
+                        "to_layout: choosing untilize_with_unpadding_op (device tensor, padding change, TILE->ROW_MAJOR; padded_shape!=logical_shape, padded_shape={}, logical_shape={}, output_shape={})",
+                        tensor.padded_shape()._shape,
+                        tensor.logical_shape()._shape,
+                        output_shape._shape,
+                    )
                     return untilize_with_unpadding_op(
                         tensor, output_shape._shape, use_multicore=True, use_pack_untilize=True, element_size=2, memory_config=output_memory_config
                     )
@@ -1781,6 +1807,11 @@ def to_layout(tensor, layout, dtype=None, memory_config=None, sub_core_grids=Non
                             tensor, padded_output_shape, pad_value, output_memory_config, dtype, True, sub_core_grids
                         )
                     elif should_track and tensor.device is not None and isinstance(tensor, Tensor):
+                        logger.debug(
+                            "to_layout: choosing tilize_with_val_padding_op (device tensor, padding change, ROW_MAJOR->TILE; logical not tile-aligned, padded_output_shape={}, pad_value={})",
+                            padded_output_shape._shape,
+                            pad_value,
+                        )
                         return tilize_with_val_padding_op(
                             tensor, padded_output_shape._shape, pad_value, use_multicore=True, element_size=2, memory_config=output_memory_config
                         )
