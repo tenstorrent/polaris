@@ -48,7 +48,7 @@ op_rsrc_spec:
              DequantizeLinear, Div, Dropout,
              Equal, Erf, Exp, Expand,
              Flatten,
-             Gather, GatherND, Gelu, GlobalAveragePool, Greater, GroupNormalization,
+             Gather, GatherND, Gelu, GridSample, GlobalAveragePool, Greater, GroupNormalization,
              HardSigmoid, Hardswish,
              Identity, If, IsNaN,
              LayerNormalization, LeakyRelu, Log,

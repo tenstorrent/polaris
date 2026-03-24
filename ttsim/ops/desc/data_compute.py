@@ -4,7 +4,7 @@
 """Data computation helpers for shape inference functions"""
 
 import numpy as np
-from typing import List, Optional
+from typing import Any, List, Optional
 
 ##############################################################################
 # MS DEFORMABLE ATTENTION ADDITIONS for data_compute.py
@@ -14,7 +14,7 @@ from typing import List, Optional
 ##############################################################################
 
 import numpy as np
-from typing import List, Optional
+from typing import Any, List, Optional
 
 
 def try_compute_data(compute_func, iTList, op):
@@ -141,49 +141,120 @@ def compute_add(iTList, op) -> np.ndarray:
 
 def compute_resize(iTList, op) -> np.ndarray | None:
     """
-    Compute Resize output using nearest neighbor interpolation.
+    Compute Resize (Upsample/Downsample) using nearest or bilinear interpolation.
 
     Args:
-        iTList: [X, roi, scales] where:
-            X: input tensor [N, C, H, W] (4D) or any rank
-            roi: region of interest (empty for our use case)
-            scales: scale factors for spatial dimensions
-        op: SimOp with attrs mode (default 'nearest')
+        iTList: [X, roi, scales] where X is [N, C, H, W], scales holds per-axis factors
+        op: SimOp with attrs mode, nearest_mode, align_corners, coordinate_transformation_mode
 
     Returns:
-        Y: Resized output tensor
+        Y: Resized output [N, C, H_out, W_out]
     """
     X = iTList[0].data
-    scales = iTList[2].data  # [scale_h, scale_w] for spatial dims
+
     mode = op.attrs.get("mode", "nearest")
+    nearest_mode = op.attrs.get("nearest_mode", "floor")
 
-    if X.ndim == 4:
-        # [N, C, H, W] case - most common
-        N, C, H_in, W_in = X.shape
-        # scales contains [scale_h, scale_w] for spatial dimensions only
-        scale_h = float(scales[-2]) if len(scales) >= 2 else float(scales[-1])
-        scale_w = float(scales[-1])
-        H_out = int(H_in * scale_h)
-        W_out = int(W_in * scale_w)
+    # Normalize mode: ONNX uses 'linear' for bilinear interpolation
+    if mode == "linear":
+        mode = "bilinear"
 
-        if mode == "nearest":
-            # Nearest neighbor interpolation
-            Y = np.zeros((N, C, H_out, W_out), dtype=X.dtype)
-            for h in range(H_out):
-                for w in range(W_out):
-                    src_h = int(h / scale_h)
-                    src_w = int(w / scale_w)
-                    # Clamp to valid range
-                    src_h = min(src_h, H_in - 1)
-                    src_w = min(src_w, W_in - 1)
-                    Y[:, :, h, w] = X[:, :, src_h, src_w]
-            return Y
-        else:
-            # Other modes not implemented - return None to indicate
-            return None
+    # Read scale factors from the scales param tensor (iTList[2])
+    scale_factor: Any
+    if len(iTList) >= 3 and iTList[2].data is not None:
+        scales_data = iTList[2].data
+        scale_h = float(scales_data[-2])
+        scale_w = float(scales_data[-1])
+        scale_factor = [scale_h, scale_w]
     else:
-        # General case for other ranks - not implemented
-        return None
+        scale_factor = op.attrs.get("scale_factor", 2)
+
+    N, C, H_in, W_in = X.shape
+
+    if isinstance(scale_factor, (list, tuple)):
+        scale_h, scale_w = scale_factor[-2], scale_factor[-1]
+    elif isinstance(scale_factor, (int, float)):
+        scale_h = scale_w = scale_factor
+    else:
+        scale_h = scale_w = float(scale_factor)
+
+    H_out = int(H_in * scale_h)
+    W_out = int(W_in * scale_w)
+
+    Y = np.zeros((N, C, H_out, W_out), dtype=X.dtype)
+
+    if mode == "nearest":
+        for h in range(H_out):
+            for w in range(W_out):
+                if nearest_mode == "floor":
+                    src_h = int(np.floor(h / scale_h))
+                    src_w = int(np.floor(w / scale_w))
+                elif nearest_mode == "ceil":
+                    src_h = int(np.ceil(h / scale_h))
+                    src_w = int(np.ceil(w / scale_w))
+                else:
+                    src_h = int(np.round(h / scale_h))
+                    src_w = int(np.round(w / scale_w))
+
+                src_h = min(max(0, src_h), H_in - 1)
+                src_w = min(max(0, src_w), W_in - 1)
+
+                Y[:, :, h, w] = X[:, :, src_h, src_w]
+
+    elif mode == "bilinear":
+        # Read align_corners from ONNX-compatible coordinate_transformation_mode
+        ctm = op.attrs.get("coordinate_transformation_mode", None)
+        if ctm is not None:
+            align_corners = (ctm == "align_corners")
+        else:
+            align_corners = op.attrs.get("align_corners", False)
+
+        if align_corners:
+            if H_out > 1:
+                row_scale = (H_in - 1) / (H_out - 1)
+            else:
+                row_scale = 0.0
+            if W_out > 1:
+                col_scale = (W_in - 1) / (W_out - 1)
+            else:
+                col_scale = 0.0
+        else:
+            row_scale = 1.0 / scale_h
+            col_scale = 1.0 / scale_w
+
+        for h in range(H_out):
+            if align_corners:
+                src_h = h * row_scale
+            else:
+                src_h = (h + 0.5) * row_scale - 0.5
+
+            src_h = max(0.0, min(src_h, H_in - 1))
+            h0 = int(np.floor(src_h))
+            h1 = min(h0 + 1, H_in - 1)
+            fh = src_h - h0
+
+            for w in range(W_out):
+                if align_corners:
+                    src_w = w * col_scale
+                else:
+                    src_w = (w + 0.5) * col_scale - 0.5
+
+                src_w = max(0.0, min(src_w, W_in - 1))
+                w0 = int(np.floor(src_w))
+                w1 = min(w0 + 1, W_in - 1)
+                fw = src_w - w0
+
+                Y[:, :, h, w] = (
+                    X[:, :, h0, w0] * (1 - fh) * (1 - fw)
+                    + X[:, :, h0, w1] * (1 - fh) * fw
+                    + X[:, :, h1, w0] * fh * (1 - fw)
+                    + X[:, :, h1, w1] * fh * fw
+                )
+
+    else:
+        raise ValueError(f"compute_resize: unsupported mode '{mode}'")
+
+    return Y
 
 
 def compute_mul(iTList, op) -> np.ndarray:
@@ -891,52 +962,141 @@ def compute_reducemean(iTList, op) -> np.ndarray:
 #     return np.clip(iTList[0].data, 0, 6)
 
 
-def compute_upsample(iTList, op) -> np.ndarray:
-    """
-    Compute Upsample using nearest neighbor interpolation.
+def _numpy_bilinear_interpolate(X, H_out, W_out, align_corners):
+    """Pure numpy bilinear interpolation matching PyTorch F.interpolate.
 
     Args:
-        iTList: [X] where X is [N, C, H, W]
-        op: SimOp with attrs mode, scale_factor, nearest_mode
+        X: (N, C, H_in, W_in) float array
+        H_out, W_out: target spatial dimensions
+        align_corners: bool — coordinate mapping convention
 
     Returns:
-        Y: Resized output [N, C, H_out, W_out]
+        Y: (N, C, H_out, W_out) float array
     """
-    X = iTList[0].data
-
-    mode = op.attrs.get("mode", "nearest")
-    scale_factor = op.attrs.get("scale_factor", 2)
-    nearest_mode = op.attrs.get("nearest_mode", "floor")
-
     N, C, H_in, W_in = X.shape
 
-    if isinstance(scale_factor, (list, tuple)):
-        scale_h, scale_w = scale_factor[-2], scale_factor[-1]
+    # Build destination coordinate grids
+    dst_y = np.arange(H_out, dtype=np.float64)
+    dst_x = np.arange(W_out, dtype=np.float64)
+
+    # Map destination coords → source coords (PyTorch conventions)
+    if align_corners:
+        if H_out > 1:
+            src_y = dst_y * (H_in - 1) / (H_out - 1)
+        else:
+            src_y = np.zeros_like(dst_y)
+        if W_out > 1:
+            src_x = dst_x * (W_in - 1) / (W_out - 1)
+        else:
+            src_x = np.zeros_like(dst_x)
     else:
-        scale_h = scale_w = scale_factor
+        src_y = (dst_y + 0.5) * H_in / H_out - 0.5
+        src_x = (dst_x + 0.5) * W_in / W_out - 0.5
 
-    H_out = int(H_in * scale_h)
-    W_out = int(W_in * scale_w)
+    # Clamp to valid range
+    src_y = np.clip(src_y, 0, H_in - 1)
+    src_x = np.clip(src_x, 0, W_in - 1)
 
-    Y = np.zeros((N, C, H_out, W_out), dtype=X.dtype)
+    # Integer and fractional parts
+    y0 = np.floor(src_y).astype(np.int64)
+    x0 = np.floor(src_x).astype(np.int64)
+    y1 = np.minimum(y0 + 1, H_in - 1)
+    x1 = np.minimum(x0 + 1, W_in - 1)
 
-    if mode == "nearest":
-        for h in range(H_out):
-            for w in range(W_out):
-                if nearest_mode == "floor":
-                    src_h = int(np.floor(h / scale_h))
-                    src_w = int(np.floor(w / scale_w))
-                elif nearest_mode == "ceil":
-                    src_h = int(np.ceil(h / scale_h))
-                    src_w = int(np.ceil(w / scale_w))
-                else:
-                    src_h = int(np.round(h / scale_h))
-                    src_w = int(np.round(w / scale_w))
+    fy = (src_y - y0).astype(X.dtype)  # (H_out,)
+    fx = (src_x - x0).astype(X.dtype)  # (W_out,)
 
-                src_h = min(max(0, src_h), H_in - 1)
-                src_w = min(max(0, src_w), W_in - 1)
+    # Broadcast: fy → (1, 1, H_out, 1), fx → (1, 1, 1, W_out)
+    fy = fy[None, None, :, None]
+    fx = fx[None, None, None, :]
 
-                Y[:, :, h, w] = X[:, :, src_h, src_w]
+    # Gather the four corner values  (N, C, H_out, W_out)
+    Ia = X[:, :, y0, :][:, :, :, x0]
+    Ib = X[:, :, y1, :][:, :, :, x0]
+    Ic = X[:, :, y0, :][:, :, :, x1]
+    Id = X[:, :, y1, :][:, :, :, x1]
+
+    # Bilinear blend
+    Y = (Ia * (1 - fy) * (1 - fx) +
+         Ib * fy * (1 - fx) +
+         Ic * (1 - fy) * fx +
+         Id * fy * fx)
+
+    return Y
+
+
+def compute_upsample(iTList, op) -> np.ndarray:
+    """
+    Upsample/Downsample computation.
+
+    Supports 'nearest' and 'linear' (bilinear 2D) modes with
+    align_corners control.  Works for any scale factor (integer,
+    fractional, >1 or <1) and for 2D or 4D inputs.
+
+    Scale factor resolution order:
+        1. iTList[1].data  (scales tensor from graph wiring)
+        2. op.attrs['scales']
+        3. op.attrs['scale_factor']  (scalar, list, or tuple)
+        4. default 2.0
+
+    Args:
+        iTList: [X] or [X, scales] where X is input (N,C,H,W) or (H,W)
+        op: SimOp with attrs mode, align_corners, scale_factor / scales
+
+    Returns:
+        Y: Resampled output
+    """
+    X = iTList[0].data
+    mode = op.attrs.get('mode', 'nearest')
+    align_corners = op.attrs.get('align_corners', True)
+
+    # --- resolve scale factors -----------------------------------------
+    if len(iTList) > 1 and iTList[1].data is not None:
+        scales = iTList[1].data
+        sf_h, sf_w = float(scales[-2]), float(scales[-1])
+    else:
+        scales = op.attrs.get('scales', None)
+        if scales is not None:
+            sf_h, sf_w = float(scales[-2]), float(scales[-1])
+        else:
+            sf = op.attrs.get('scale_factor', 2.0)
+            if isinstance(sf, (list, tuple)):
+                sf_h, sf_w = float(sf[-2]), float(sf[-1])
+            else:
+                sf_h = sf_w = float(sf)
+
+    # --- compute output size -------------------------------------------
+    if len(X.shape) == 4:
+        N, C, H, W = X.shape
+    elif len(X.shape) == 2:
+        H, W = X.shape
+    else:
+        raise NotImplementedError(
+            f"Unsupported input shape for upsample: {X.shape}")
+
+    H_out = int(H * sf_h)
+    W_out = int(W * sf_w)
+
+    # --- interpolation -------------------------------------------------
+    if mode in ('linear', 'bilinear'):
+        if len(X.shape) != 4:
+            raise NotImplementedError(
+                "Bilinear upsample only supports 4D (N,C,H,W) input")
+        Y = _numpy_bilinear_interpolate(X, H_out, W_out, align_corners)
+
+    elif mode == 'nearest':
+        # Vectorised coordinate mapping (works for any scale)
+        src_y = np.floor(np.arange(H_out) * H / H_out).astype(np.int64)
+        src_x = np.floor(np.arange(W_out) * W / W_out).astype(np.int64)
+        src_y = np.clip(src_y, 0, H - 1)
+        src_x = np.clip(src_x, 0, W - 1)
+
+        if len(X.shape) == 4:
+            Y = X[:, :, src_y, :][:, :, :, src_x]
+        else:  # 2D
+            Y = X[src_y, :][:, src_x]
+    else:
+        raise ValueError(f"Unsupported upsample mode: {mode}")
 
     return Y
 
@@ -1288,6 +1448,7 @@ def compute_meshgrid(iTList, op) -> np.ndarray:
 
 
 # used in polaris\workloads\Deformable_DETR\models\ops\functions\ms_deform_attn_func_ttsim.py
+
 def compute_grid_sample(iTList, op) -> np.ndarray:
     """
     Compute grid_sample operation for bilinear interpolation.
@@ -1343,7 +1504,32 @@ def compute_grid_sample(iTList, op) -> np.ndarray:
         wy1 = y - y0.astype(np.float64)  # weight for y1
         wy0 = 1.0 - wy1  # weight for y0
 
-        # Create validity masks for each corner (padding_mode='zeros')
+        if padding_mode == "border":
+            # Border mode: clamp coordinates and use all values (no zeroing)
+            x0_safe = np.clip(x0, 0, W_in - 1)
+            x1_safe = np.clip(x1, 0, W_in - 1)
+            y0_safe = np.clip(y0, 0, H_in - 1)
+            y1_safe = np.clip(y1, 0, H_in - 1)
+
+            batch_idx = np.arange(N)[:, None, None]
+            batch_idx = np.broadcast_to(batch_idx, (N, H_out, W_out))
+
+            output = np.zeros((N, C, H_out, W_out), dtype=input_tensor.dtype)
+
+            for c in range(C):
+                v00 = input_tensor[batch_idx, c, y0_safe, x0_safe]
+                v01 = input_tensor[batch_idx, c, y0_safe, x1_safe]
+                v10 = input_tensor[batch_idx, c, y1_safe, x0_safe]
+                v11 = input_tensor[batch_idx, c, y1_safe, x1_safe]
+
+                output[:, c, :, :] = wy0 * (wx0 * v00 + wx1 * v01) + wy1 * (
+                    wx0 * v10 + wx1 * v11
+                )
+
+            return output
+
+        # Default: padding_mode='zeros'
+        # Create validity masks for each corner
         # Points outside [0, size-1] should contribute 0
         valid_x0 = (x0 >= 0) & (x0 < W_in)  # [N, H_out, W_out]
         valid_x1 = (x1 >= 0) & (x1 < W_in)
@@ -1540,3 +1726,672 @@ def compute_bbox_size_decode(iTList, op) -> np.ndarray:
     wh_decoded = ((wh_sigmoid * 2.0) ** 2) * anchor_grid
 
     return wh_decoded
+
+
+def compute_unsqueeze(iTList, op) -> np.ndarray:
+    """
+    Compute Unsqueeze operation (add dimensions of size 1).
+
+    Args:
+        iTList: [data, axes] where axes specifies dimensions to add
+        op: SimOp
+
+    Returns:
+        Y: Output with added dimensions
+    """
+    data = iTList[0].data
+    axes = iTList[1].data  # Array of axes to unsqueeze
+
+    # Build new shape by inserting 1s at specified axes
+    new_shape = list(data.shape)
+    for axis in sorted(axes):
+        # Handle negative indices
+        if axis < 0:
+            axis = len(new_shape) + axis + 1
+        new_shape.insert(axis, 1)
+
+    return np.reshape(data, new_shape)
+
+
+def compute_sin(iTList, op) -> np.ndarray:
+    """Element-wise sine"""
+    return np.sin(iTList[0].data)
+
+
+def compute_cos(iTList, op) -> np.ndarray:
+    """Element-wise cosine"""
+    return np.cos(iTList[0].data)
+
+
+def compute_abs(iTList, op) -> np.ndarray:
+    """Element-wise absolute value"""
+    return np.abs(iTList[0].data)
+
+
+def compute_neg(iTList, op) -> np.ndarray:
+    """Element-wise negation"""
+    return -iTList[0].data
+
+
+def compute_less(iTList, op) -> np.ndarray:
+    """Element-wise less than comparison"""
+    return iTList[0].data < iTList[1].data
+
+
+def compute_where(iTList, op) -> np.ndarray:
+    """
+    Select elements from X or Y based on condition.
+
+    Args:
+        iTList: [condition, X, Y]
+        op: SimOp
+
+    Returns:
+        output: X where condition is True, Y otherwise
+    """
+    condition = iTList[0].data
+    X = iTList[1].data
+    Y = iTList[2].data
+    return np.where(condition, X, Y)
+
+
+def compute_scatter_nd(iTList, op) -> np.ndarray:
+    """
+    Scatter updates into a copy of data at positions specified by indices.
+
+    Follows ONNX ScatterND semantics (reduction='none'):
+      output = copy(data)
+      output[indices] = updates
+
+    Args:
+        iTList: [data, indices, updates]
+            data:    (any shape) base tensor
+            indices: (*idx_shape, K) last dim indexes into first K dims of data
+            updates: (*idx_shape, *data.shape[K:])  values to write
+        op: SimOp (attrs 'reduction' optional, default 'none')
+
+    Returns:
+        output: same shape as data, with scattered updates
+    """
+    data    = iTList[0].data.copy()
+    indices = iTList[1].data.astype(np.int64)
+    updates = iTList[2].data
+    reduction = op.attrs.get('reduction', 'none')
+
+    # indices shape: (*idx_shape, K)
+    K = indices.shape[-1]
+    idx_shape = indices.shape[:-1]
+
+    # Flatten the index batch dimensions so we can iterate
+    flat_indices = indices.reshape(-1, K)
+    flat_updates = updates.reshape(-1, *data.shape[K:])
+
+    for i in range(flat_indices.shape[0]):
+        idx = tuple(flat_indices[i])
+        if reduction == 'none':
+            data[idx] = flat_updates[i]
+        elif reduction == 'add':
+            data[idx] += flat_updates[i]
+        elif reduction == 'mul':
+            data[idx] *= flat_updates[i]
+        elif reduction == 'max':
+            data[idx] = np.maximum(data[idx], flat_updates[i])
+        elif reduction == 'min':
+            data[idx] = np.minimum(data[idx], flat_updates[i])
+        else:
+            data[idx] = flat_updates[i]
+
+    return data
+
+
+def compute_gather(iTList, op) -> np.ndarray:
+    """
+    Gather elements along an axis based on indices.
+
+    Args:
+        iTList: [data, indices]
+        op: SimOp with attrs axis
+
+    Returns:
+        output: Gathered elements
+    """
+    data = iTList[0].data
+    indices = iTList[1].data.astype(np.int64)
+    axis = op.attrs.get('axis', 0)
+
+    # Expand indices to match data's number of dimensions for np.take_along_axis
+    # ONNX Gather: output_shape = data.shape[:axis] + indices.shape + data.shape[axis+1:]
+    # We need to expand indices shape to match this
+    data_rank = len(data.shape)
+    indices_rank = len(indices.shape)
+
+    if indices_rank < data_rank:
+        # Need to expand indices to have same rank as data
+        # Insert new axes before and after the indices dimensions
+        new_shape = [1] * axis + list(indices.shape) + [1] * (data_rank - axis - indices_rank)
+        indices = indices.reshape(new_shape)
+
+    return np.take_along_axis(data, indices, axis=axis)
+
+
+def compute_squeeze(iTList, op) -> np.ndarray:
+    """
+    Remove dimensions of size 1.
+
+    Args:
+        iTList: [data] or [data, axes]
+        op: SimOp
+
+    Returns:
+        output: Squeezed array
+    """
+    data = iTList[0].data
+    axes = iTList[1].data if len(iTList) > 1 else None
+    if axes is not None:
+        axes = tuple(int(a) for a in axes)
+        return np.squeeze(data, axis=axes)
+    return np.squeeze(data)
+
+
+def compute_reducesum(iTList, op) -> np.ndarray:
+    """
+    Compute ReduceSum along specified axes.
+
+    Args:
+        iTList: [X] or [X, axes] where axes is int64 array
+        op: SimOp with attrs keepdims, noop_with_empty_axes
+
+    Returns:
+        Y: Reduced output
+    """
+    X = iTList[0].data
+    axes = iTList[1].data if len(iTList) > 1 else None
+    keepdims = op.attrs.get('keepdims', 1)
+    noop = op.attrs.get('noop_with_empty_axes', 0)
+
+    if axes is None:
+        if noop:
+            return X.copy()
+        else:
+            # Reduce over all axes
+            axes = None
+    else:
+        # Convert to tuple for np.sum
+        axes = tuple(int(a) for a in axes)
+
+    return np.sum(X, axis=axes, keepdims=bool(keepdims))
+
+
+def compute_reducemax(iTList, op) -> np.ndarray:
+    """
+    Compute ReduceMax along specified axes.
+
+    Args:
+        iTList: [X] or [X, axes] where axes is int64 array
+        op: SimOp with attrs keepdims, noop_with_empty_axes
+
+    Returns:
+        Y: Reduced output with max values
+    """
+    X = iTList[0].data
+    axes = iTList[1].data if len(iTList) > 1 else None
+    keepdims = op.attrs.get('keepdims', 1)
+    noop = op.attrs.get('noop_with_empty_axes', 0)
+
+    if axes is None:
+        if noop:
+            return X.copy()
+        else:
+            # Reduce over all axes
+            axes = None
+    else:
+        # Convert to tuple for np.max
+        axes = tuple(int(a) for a in axes)
+
+    return np.max(X, axis=axes, keepdims=bool(keepdims))
+
+
+def compute_argmax(iTList, op) -> np.ndarray:
+    """
+    Compute ArgMax - indices of maximum values along an axis.
+
+    Args:
+        iTList: [X] where X is input tensor
+        op: SimOp with attrs axis, keepdims, select_last_index
+
+    Returns:
+        Y: Indices of maximum values (int64)
+    """
+    X = iTList[0].data
+    axis = op.attrs.get('axis', -1)
+    keepdims = op.attrs.get('keepdims', 1)
+    select_last_index = op.attrs.get('select_last_index', 0)
+
+    if select_last_index:
+        # Find last occurrence of max value
+        # Reverse along axis, find first max, then reverse index
+        X_reversed = np.flip(X, axis=axis)
+        indices_reversed = np.argmax(X_reversed, axis=axis, keepdims=bool(keepdims))
+        # Convert back to original indices
+        indices = X.shape[axis] - 1 - indices_reversed
+    else:
+        # Find first occurrence (default numpy behavior)
+        indices = np.argmax(X, axis=axis, keepdims=bool(keepdims))
+
+    # Ensure result is always an ndarray (even for 0-d scalars)
+    result = indices.astype(np.int64)
+    return np.asarray(result)
+
+def compute_argmin(iTList, op) -> np.ndarray:
+    """
+    Compute ArgMin - indices of minimum values along an axis.
+
+    Args:
+        iTList: [X] where X is input tensor
+        op: SimOp with attrs axis, keepdims, select_last_index
+
+    Returns:
+        Y: Indices of minimum values (int64)
+    """
+    X = iTList[0].data
+    axis = op.attrs.get('axis', -1)
+    keepdims = op.attrs.get('keepdims', 1)
+    select_last_index = op.attrs.get('select_last_index', 0)
+
+    if select_last_index:
+        X_reversed = np.flip(X, axis=axis)
+        indices_reversed = np.argmin(X_reversed, axis=axis, keepdims=bool(keepdims))
+        indices = X.shape[axis] - 1 - indices_reversed
+    else:
+        indices = np.argmin(X, axis=axis, keepdims=bool(keepdims))
+
+    result = indices.astype(np.int64)
+    return np.asarray(result)
+
+def compute_conv_transpose2d(iTList, op) -> np.ndarray:
+    """
+    Compute ConvTranspose2d output using pure NumPy.
+
+    Args:
+        iTList: [X, W] or [X, W, B] where:
+            X: input  [N, C_in, H_in, W_in]
+            W: weights [C_in, C_out/groups, kH, kW]   (PyTorch ConvTranspose2d layout)
+            B: optional bias [C_out]
+        op: SimOp with attrs strides, padding, output_padding, dilation, groups
+
+    Returns:
+        Y: ConvTranspose output [N, C_out, H_out, W_out]
+    """
+    X = iTList[0].data
+    W = iTList[1].data
+    B = iTList[2].data if len(iTList) > 2 else None
+
+    stride = tuple(op.attrs.get("strides", (1, 1)))
+    padding = tuple(op.attrs.get("padding", (0, 0)))
+    output_padding = tuple(op.attrs.get("output_padding", (0, 0)))
+    dilation = tuple(op.attrs.get("dilation", (1, 1)))
+    groups = op.attrs.get("groups", 1)
+
+    N, C_in, H_in, W_in = X.shape
+    C_in_w, C_out_per_group, kH, kW = W.shape
+    C_out = C_out_per_group * groups
+
+    # Full output size (before padding crop)
+    full_H = (H_in - 1) * stride[0] + dilation[0] * (kH - 1) + 1
+    full_W = (W_in - 1) * stride[1] + dilation[1] * (kW - 1) + 1
+
+    full_output = np.zeros((N, C_out, full_H, full_W), dtype=np.float64)
+
+    if groups == 1:
+        for n in range(N):
+            for c_in in range(C_in):
+                for h_in in range(H_in):
+                    for w_in in range(W_in):
+                        val = X[n, c_in, h_in, w_in]
+                        for c_out in range(C_out):
+                            for ki in range(kH):
+                                for kj in range(kW):
+                                    fh = h_in * stride[0] + ki * dilation[0]
+                                    fw = w_in * stride[1] + kj * dilation[1]
+                                    full_output[n, c_out, fh, fw] += (
+                                        val * W[c_in, c_out, ki, kj]
+                                    )
+    else:
+        C_in_per_group = C_in // groups
+        for g in range(groups):
+            c_in_start = g * C_in_per_group
+            c_out_start = g * C_out_per_group
+            for n in range(N):
+                for c_in_local in range(C_in_per_group):
+                    c_in = c_in_start + c_in_local
+                    for h_in in range(H_in):
+                        for w_in in range(W_in):
+                            val = X[n, c_in, h_in, w_in]
+                            for c_out_local in range(C_out_per_group):
+                                c_out = c_out_start + c_out_local
+                                for ki in range(kH):
+                                    for kj in range(kW):
+                                        fh = h_in * stride[0] + ki * dilation[0]
+                                        fw = w_in * stride[1] + kj * dilation[1]
+                                        full_output[n, c_out, fh, fw] += (
+                                            val * W[c_in_local, c_out_local, ki, kj]
+                                        )
+
+    # Crop: top/left by padding, bottom/right by (padding - output_padding)
+    crop_top = padding[0]
+    crop_left = padding[1]
+    h_end = full_H - (padding[0] - output_padding[0])
+    w_end = full_W - (padding[1] - output_padding[1])
+
+    Y = full_output[:, :, crop_top:h_end, crop_left:w_end].copy()
+
+    if B is not None:
+        Y += B.reshape(1, -1, 1, 1)
+
+    return Y.astype(X.dtype)
+
+
+def compute_elementwise_max(iTList, op) -> np.ndarray:
+    """Element-wise maximum with broadcasting"""
+    result = iTList[0].data
+    for t in iTList[1:]:
+        result = np.maximum(result, t.data)
+    return result
+
+
+def compute_elementwise_min(iTList, op) -> np.ndarray:
+    """Element-wise minimum with broadcasting"""
+    result = iTList[0].data
+    for t in iTList[1:]:
+        result = np.minimum(result, t.data)
+    return result
+
+def compute_elementwise_sum(iTList, op) -> np.ndarray:
+    """Element-wise sum with broadcasting"""
+    result = iTList[0].data.copy()
+    for t in iTList[1:]:
+        result = result + t.data
+    return result
+
+def compute_elementwise_mean(iTList, op) -> np.ndarray:
+    """Element-wise mean with broadcasting"""
+    result = iTList[0].data.copy()
+    for t in iTList[1:]:
+        result = result + t.data
+    return result / len(iTList)
+
+def compute_atan(iTList, op) -> np.ndarray:
+    """Element-wise arctangent"""
+    return np.arctan(iTList[0].data)
+
+
+def compute_pad(iTList, op) -> np.ndarray:
+    """Pad last 2 dims of input tensor.
+
+    iTList[0] = data (N, C, H, W)
+    iTList[1] = pads (4,)  [H_begin, W_begin, H_end, W_end]
+    """
+    X = iTList[0].data
+    pads = [int(x) for x in iTList[1].data.tolist()]
+    mode = op.attrs.get('mode', 'constant')
+    value = op.attrs.get('value', 0)
+
+    rank = X.ndim
+    pad_before = [0] * (rank - 2) + pads[:2]
+    pad_after = [0] * (rank - 2) + pads[2:]
+    pad_widths = [(pb, pa) for pb, pa in zip(pad_before, pad_after)]
+
+    if mode == 'constant':
+        return np.pad(X, pad_widths, mode='constant', constant_values=value)
+    elif mode == 'reflect':
+        return np.pad(X, pad_widths, mode='reflect')
+    elif mode == 'edge':
+        return np.pad(X, pad_widths, mode='edge')
+    else:
+        return np.pad(X, pad_widths, mode='constant', constant_values=value)
+
+
+def compute_gelu(iTList, op) -> np.ndarray:
+    """GELU activation: 0.5 * x * (1 + erf(x / sqrt(2)))"""
+    x = iTList[0].data
+    try:
+        from scipy.special import erf  # type: ignore[import-untyped]
+    except ImportError:
+        from math import erf as _erf
+        erf = np.vectorize(_erf)  # type: ignore[assignment]
+    return (0.5 * x * (1.0 + erf(x / np.sqrt(2.0)))).astype(x.dtype)
+
+
+def compute_atan2(iTList, op) -> np.ndarray:
+    """
+    Element-wise arctangent of y/x with correct quadrant handling.
+
+    Args:
+        iTList: [y, x] where y and x are tensors
+        op: SimOp
+
+    Returns:
+        Array of angles in radians, in range [-pi, pi]
+    """
+    y = iTList[0].data
+    x = iTList[1].data
+    return np.arctan2(y, x)
+
+
+def compute_cumsum(iTList, op) -> np.ndarray:
+    X = iTList[0].data
+    axis_data = iTList[1].data
+    axis = int(axis_data.item()) if axis_data.size == 1 else int(axis_data[0])
+    exclusive = op.attrs.get("exclusive", 0)
+    reverse = op.attrs.get("reverse", 0)
+    if reverse:
+        X_work = np.flip(X, axis=axis)
+    else:
+        X_work = X
+    if exclusive:
+        result = np.cumsum(X_work, axis=axis)
+        result = np.roll(result, 1, axis=axis)
+        slc: list = [slice(None)] * len(X.shape)
+        slc[axis] = 0  # type: ignore[list-item]
+        result[tuple(slc)] = 0
+    else:
+        result = np.cumsum(X_work, axis=axis)
+    if reverse:
+        result = np.flip(result, axis=axis)
+    return result
+
+
+def compute_floor(iTList, op) -> np.ndarray:
+    return np.floor(iTList[0].data)
+
+
+def compute_mod(iTList, op) -> np.ndarray:
+    return np.fmod(iTList[0].data, iTList[1].data)
+
+
+def compute_reducemin(iTList, op) -> np.ndarray:
+    X = iTList[0].data
+    keepdims_bool = bool(op.attrs.get("keepdims", 1))
+    if len(iTList) > 1:
+        axes = tuple(iTList[1].data.flatten().astype(int))
+        return np.min(X, axis=axes, keepdims=keepdims_bool)
+    return np.min(X, keepdims=keepdims_bool)
+
+
+def compute_cast(iTList, op) -> np.ndarray:
+    X = iTList[0].data
+    to_dtype_code = op.attrs.get("to")
+    ONNX_DTYPE_MAP = {
+        1: np.float32,
+        2: np.uint8,
+        3: np.int8,
+        5: np.int16,
+        6: np.int32,
+        7: np.int64,
+        10: np.float16,
+        11: np.float64,
+        12: np.uint32,
+        13: np.uint64,
+    }
+    return X.astype(ONNX_DTYPE_MAP.get(to_dtype_code, np.float32))
+
+
+def compute_nonzero(iTList, op) -> np.ndarray:
+    X = iTList[0].data
+    indices = np.nonzero(X)
+    if len(indices) > 0 and len(indices[0]) > 0:
+        return np.stack(indices, axis=0).astype(np.int64)
+    return np.zeros((len(X.shape), 0), dtype=np.int64)
+
+
+def compute_shape(iTList, op) -> np.ndarray:
+    return np.array(iTList[0].data.shape, dtype=np.int64)
+
+
+def compute_sign(iTList, op) -> np.ndarray:
+    """Element-wise sign: -1 if x<0, 0 if x==0, 1 if x>0"""
+    return np.sign(iTList[0].data).astype(iTList[0].data.dtype)
+
+
+# ---------------------------------------------------------------------------
+# Pure-numpy helpers for numerical validation / inference
+# ---------------------------------------------------------------------------
+
+
+def _numpy_grid_sample_bilinear(input_t, grid):
+    """
+    Numpy equivalent of:
+        F.grid_sample(input_t, grid, mode='bilinear', padding_mode='zeros', align_corners=False)
+
+    Args:
+        input_t: np.ndarray [N, C, H_in, W_in]
+        grid:    np.ndarray [N, H_out, W_out, 2]  -- (x, y) coords in [-1, 1]
+
+    Returns:
+        np.ndarray [N, C, H_out, W_out]
+    """
+    N, C, H_in, W_in = input_t.shape
+    _, H_out, W_out, _ = grid.shape
+
+    gx = grid[..., 0].astype(np.float32)  # [N, H_out, W_out] -- x maps to W
+    gy = grid[..., 1].astype(np.float32)  # [N, H_out, W_out] -- y maps to H
+
+    # align_corners=False: pixel = (g + 1) / 2 * size - 0.5
+    px = (gx + 1.0) * 0.5 * W_in - 0.5
+    py = (gy + 1.0) * 0.5 * H_in - 0.5
+
+    x0 = np.floor(px).astype(np.int64)
+    y0 = np.floor(py).astype(np.int64)
+    x1 = x0 + 1
+    y1 = y0 + 1
+
+    # Fractional weights (kept in float32 to match PyTorch precision)
+    wx = (px - x0.astype(np.float32))[:, np.newaxis, :, :]  # [N,1,H_out,W_out]
+    wy = (py - y0.astype(np.float32))[:, np.newaxis, :, :]
+
+    def gather(xi, yi):
+        """Gather pixels; out-of-bounds positions produce zero (padding_mode='zeros')."""
+        valid = (xi >= 0) & (xi < W_in) & (yi >= 0) & (yi < H_in)  # [N,H_out,W_out]
+        xi_c = np.clip(xi, 0, W_in - 1)
+        yi_c = np.clip(yi, 0, H_in - 1)
+        # Advanced index: result[n, c, h, w] = input_t[n, c, yi_c[n,h,w], xi_c[n,h,w]]
+        n_idx = np.arange(N).reshape(N, 1, 1, 1)
+        c_idx = np.arange(C).reshape(1, C, 1, 1)
+        yi_bc = yi_c[:, np.newaxis, :, :]
+        xi_bc = xi_c[:, np.newaxis, :, :]
+        vals = input_t[n_idx, c_idx, yi_bc, xi_bc].astype(np.float32)  # [N,C,H_out,W_out]
+        return vals * valid[:, np.newaxis, :, :]
+
+    v00 = gather(x0, y0)
+    v10 = gather(x1, y0)
+    v01 = gather(x0, y1)
+    v11 = gather(x1, y1)
+
+    out = (
+        (1.0 - wx) * (1.0 - wy) * v00
+        + wx * (1.0 - wy) * v10
+        + (1.0 - wx) * wy * v01
+        + wx * wy * v11
+    )
+    return out.astype(input_t.dtype)
+
+
+def _numpy_multi_scale_deformable_attn(
+    value_data, spatial_shapes_list, sampling_locs_data, attn_weights_data
+):
+    """
+    Pure numpy computation of multi-scale deformable attention.
+
+    Numerically equivalent to the PyTorch reference
+    ``multi_scale_deformable_attn_pytorch`` used in the validation tests.
+
+    Args:
+        value_data:          np.ndarray [bs, num_keys, num_heads, embed_dims_per_head]
+        spatial_shapes_list: list of (H, W) tuples, len == num_levels
+        sampling_locs_data:  np.ndarray [bs, num_queries, num_heads, num_levels, num_points, 2]
+                             -- coordinates in [0, 1]
+        attn_weights_data:   np.ndarray [bs, num_queries, num_heads, num_levels, num_points]
+
+    Returns:
+        np.ndarray [bs, num_queries, num_heads * embed_dims_per_head]
+    """
+    bs, _, num_heads, embed_dims_per_head = value_data.shape
+    _, num_queries, _, num_levels, num_points, _ = sampling_locs_data.shape
+
+    # 1. Split value by level
+    value_list = []
+    start = 0
+    for H, W in spatial_shapes_list:
+        size = H * W
+        value_list.append(value_data[:, start : start + size, :, :])
+        start += size
+
+    # 2. Normalise sampling locations [0,1] -> [-1,1]
+    sampling_grids = 2.0 * sampling_locs_data.astype(np.float32) - 1.0
+
+    sampling_value_list = []
+    for level, (H, W) in enumerate(spatial_shapes_list):
+        # value_l: [bs, H*W, num_heads, embed_dims_per_head]
+        value_l = value_list[level]
+
+        # -> [bs, H*W, num_heads*embed_dims_per_head]
+        val_flat = value_l.reshape(bs, H * W, num_heads * embed_dims_per_head)
+        # -> [bs, num_heads*embed_dims_per_head, H*W]
+        val_trans = np.ascontiguousarray(val_flat.transpose(0, 2, 1))
+        # -> [bs*num_heads, embed_dims_per_head, H, W]
+        val_img = val_trans.reshape(bs * num_heads, embed_dims_per_head, H, W)
+
+        # grid for this level: [bs, num_queries, num_heads, num_points, 2]
+        grid_l = sampling_grids[:, :, :, level, :, :]
+        # -> [bs, num_heads, num_queries, num_points, 2]
+        grid_l = np.ascontiguousarray(grid_l.transpose(0, 2, 1, 3, 4))
+        # -> [bs*num_heads, num_queries, num_points, 2]
+        grid_l = grid_l.reshape(bs * num_heads, num_queries, num_points, 2)
+
+        # bilinear sample: [bs*num_heads, embed_dims_per_head, num_queries, num_points]
+        sampled = _numpy_grid_sample_bilinear(val_img, grid_l)
+        sampling_value_list.append(sampled)
+
+    # 3. Stack levels and aggregate
+    # [bs*num_heads, embed_dims_per_head, num_queries, num_levels, num_points]
+    stacked = np.stack(sampling_value_list, axis=-2)
+    # [bs*num_heads, embed_dims_per_head, num_queries, num_levels*num_points]
+    stacked_flat = stacked.reshape(
+        bs * num_heads, embed_dims_per_head, num_queries, num_levels * num_points
+    )
+
+    # attn: [bs, num_queries, num_heads, num_levels, num_points]
+    #    -> [bs, num_heads, num_queries, num_levels, num_points]
+    #    -> [bs*num_heads, 1, num_queries, num_levels*num_points]
+    attn = np.ascontiguousarray(attn_weights_data.transpose(0, 2, 1, 3, 4))
+    attn = attn.reshape(
+        bs * num_heads, 1, num_queries, num_levels * num_points
+    ).astype(np.float32)
+
+    # [bs*num_heads, embed_dims_per_head, num_queries]
+    output = (stacked_flat * attn).sum(axis=-1)
+    # [bs, num_heads*embed_dims_per_head, num_queries]
+    output = output.reshape(bs, num_heads * embed_dims_per_head, num_queries)
+    # [bs, num_queries, num_heads*embed_dims_per_head]
+    output = np.ascontiguousarray(output.transpose(0, 2, 1))
+    return output.astype(value_data.dtype)

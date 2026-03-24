@@ -555,19 +555,12 @@ def Conv2d(name, in_channels, out_channels, kernel_size, **kwargs):
     padding = common.make_tuple(eff_args["padding"], 2 * 2)
     dilation = common.make_tuple(eff_args["dilation"], 2)
     param_dims = [out_channels, in_channels // eff_args["groups"], *kernel_dims]
-
-    # Initialize weights with Kaiming uniform (like PyTorch Conv2d)
-    # https://pytorch.org/docs/stable/nn.init.html#torch.nn.init.kaiming_uniform_
-    fan_in = (in_channels // eff_args["groups"]) * kernel_size * kernel_size
-    bound = np.sqrt(1.0 / fan_in)
-    weight_data = np.random.uniform(-bound, bound, param_dims).astype(np.float32)
-    conv_param = _from_data(name + ".param", weight_data, is_param=True)
+    conv_param = _from_shape(name + ".param", param_dims, is_param=True)
 
     # Create bias tensor if enabled
     params_list = [(1, conv_param)]
     if eff_args["bias"]:
-        bias_data = np.random.uniform(-bound, bound, [out_channels]).astype(np.float32)
-        bias_param = _from_data(name + ".bias", bias_data, is_param=True)
+        bias_param = _from_shape(name + ".bias", [out_channels], is_param=True)
         params_list.append((2, bias_param))
 
     # NOTE: 'bias' is a fixed argument, not kwarg for ONNX
@@ -719,6 +712,13 @@ def BatchNorm2d(name, channels, /, **kwargs):
     )
     return op_hndl
 
+def GroupNorm(name, num_groups, num_channels, /, **kwargs):
+    weight = _from_shape(name + '.weight', [num_channels], is_param=True)
+    weight.op_in.append(name)
+    bias = _from_shape(name + '.bias', [num_channels], is_param=True)
+    bias.op_in.append(name)
+    op_hndl = SimOpHandle(name, 'GroupNormalization', params=[(1,weight), (2,bias)], ipos=[0], num_groups=num_groups, num_channels=num_channels, **kwargs)
+    return op_hndl
 
 def Resize(name: str, /, scale_factor, **kwargs):
     roi = _from_data(
@@ -746,6 +746,16 @@ def Resize(name: str, /, scale_factor, **kwargs):
         )
     else:
         assert False, f"Illegal scale_factor={scale_factor} input into F.Resize"
+
+    # Translate PyTorch-style kwargs to ONNX-compatible Resize attributes
+    if 'align_corners' in kwargs:
+        ac = kwargs.pop('align_corners')
+        kwargs['coordinate_transformation_mode'] = 'align_corners' if ac else 'half_pixel'
+    if 'mode' in kwargs:
+        m = kwargs['mode']
+        if m == 'bilinear':
+            kwargs['mode'] = 'linear'
+        # 'nearest' and 'cubic' are already ONNX-compatible
     op_hndl = SimOpHandle(
         name, "Resize", params=[(1, roi), (2, scales)], ipos=[0], **kwargs
     )
@@ -787,25 +797,87 @@ def conv1d(name, **kwargs):
     return op_hndl
 
 
-def ReduceSum(name: str, axis: int | None = None, **kwargs):
-    if axis is not None:
-        axesT = _from_data(
-            name + ".axes", np.array([axis], dtype=np.int32), is_param=False, is_const=True
-        )
-        op_hndl = SimOpHandle(name, "ReduceSum", params=[(1, axesT)], ipos=[0], **kwargs)
+def ReduceSum(name: str, axis=None, axes=None, **kwargs):
+    """
+    ReduceSum operator
+    Args:
+        name: Operation name
+        axis: Single axis to reduce (int) - deprecated, use axes instead
+        axes: Axis or axes to reduce (int, list of ints, or None for all axes)
+        **kwargs: Additional kwargs (e.g., keepdims)
+    """
+    if axes is None and axis is not None:
+        axes = axis
+
+    # Convert to list if single int
+    if axes is not None:
+        axes_list = [axes] if isinstance(axes, int) else axes
+        axesT = _from_data(name + '.axes', np.array(axes_list, dtype=np.int64), is_param=False, is_const=True)
+        op_hndl = SimOpHandle(name, 'ReduceSum', params=[(1, axesT)], ipos=[0], **kwargs)
+        op_hndl.implicit_inputs.append(axesT)
     else:
-        op_hndl = SimOpHandle(name, "ReduceSum", params=[], ipos=[0], **kwargs)
+        # For axes=None, don't pass axes tensor - reduce over all dimensions
+        # Set noop_with_empty_axes=0 to ensure reduction happens
+        if 'noop_with_empty_axes' not in kwargs:
+            kwargs['noop_with_empty_axes'] = 0
+        op_hndl = SimOpHandle(name, 'ReduceSum', params=[], ipos=[0], **kwargs)
+    return op_hndl
+
+def ReduceMean(name: str, axes=None, **kwargs):
+    """
+    ReduceMean operator
+    Args:
+        name: Operation name
+        axes: Axis or axes to reduce (int, list of ints, or None for all axes)
+        **kwargs: Additional kwargs (e.g., keepdims)
+    """
+    # Convert to list if single int
+    if axes is not None:
+        axes_list = [axes] if isinstance(axes, int) else axes
+        axesT = _from_data(name + '.axes', np.array(axes_list, dtype=np.int64), is_param=False, is_const=True)
+        op_hndl = SimOpHandle(name, 'ReduceMean', params=[(1, axesT)], ipos=[0], **kwargs)
+        op_hndl.implicit_inputs.append(axesT)
+    else:
+        # For axes=None, don't pass axes tensor - reduce over all dimensions
+        # Set noop_with_empty_axes=0 to ensure reduction happens
+        if 'noop_with_empty_axes' not in kwargs:
+            kwargs['noop_with_empty_axes'] = 0
+        op_hndl = SimOpHandle(name, 'ReduceMean', params=[], ipos=[0], **kwargs)
+    return op_hndl
+
+def ReduceMax(name: str, axes=None, **kwargs):
+    """
+    ReduceMax operator
+    Args:
+        name: Operation name
+        axes: Axis or axes to reduce (int, list of ints, or None for all axes)
+        **kwargs: Additional kwargs (e.g., keepdims)
+    """
+    # Convert to list if single int
+    if axes is not None:
+        axes_list = [axes] if isinstance(axes, int) else axes
+        axesT = _from_data(name + '.axes', np.array(axes_list, dtype=np.int64), is_param=False, is_const=True)
+        op_hndl = SimOpHandle(name, 'ReduceMax', params=[(1, axesT)], ipos=[0], **kwargs)
+        op_hndl.implicit_inputs.append(axesT)
+    else:
+        # For axes=None, don't pass axes tensor - reduce over all dimensions
+        # Set noop_with_empty_axes=0 to ensure reduction happens
+        if 'noop_with_empty_axes' not in kwargs:
+            kwargs['noop_with_empty_axes'] = 0
+        op_hndl = SimOpHandle(name, 'ReduceMax', params=[], ipos=[0], **kwargs)
     return op_hndl
 
 
-def ReduceMean(name: str, axis: int | None = None, **kwargs):
-    if axis is not None:
-        axesT = _from_data(
-            name + ".axes", np.array([axis], dtype=np.int32), is_param=False, is_const=True
-        )
-        op_hndl = SimOpHandle(name, "ReduceMean", params=[(1, axesT)], ipos=[0], **kwargs)
-    else:
-        op_hndl = SimOpHandle(name, "ReduceMean", params=[], ipos=[0], **kwargs)
+def ArgMax(name: str, axis=-1, **kwargs):
+    """
+    ArgMax operator - returns indices of maximum values along an axis
+    Args:
+        name: Operation name
+        axis: Axis along which to find argmax (default: -1)
+        **kwargs: Additional kwargs (e.g., keepdims, select_last_index)
+    """
+    kwargs['axis'] = axis
+    op_hndl = SimOpHandle(name, 'ArgMax', params=[], ipos=[0], **kwargs)
     return op_hndl
 
 
@@ -869,6 +941,7 @@ Sum = partial(UnaryOperator, optype="Sum")
 Mean = partial(UnaryOperator, optype="Mean")
 Reciprocal = partial(UnaryOperator, optype="Reciprocal")
 Hardswish = partial(UnaryOperator, optype="HardSwish")
+Atan = partial(UnaryOperator, optype='Atan')
 
 # Binary Operators
 BinaryOperator = partial(UniversalOperator, params=[], ipos=[0, 1])
@@ -891,7 +964,10 @@ BinaryCrossEntropyWithLogits = partial(
     BinaryOperator, optype="BinaryCrossEntropyWithLogits"
 )  # added
 Greater = partial(BinaryOperator, optype="Greater")  # added
-GridSample     = partial(BinaryOperator, optype='GridSample')
+GridSample = partial(BinaryOperator, optype='GridSample')
+Less = partial(BinaryOperator, optype='Less')
+Maximum = partial(BinaryOperator, optype='Max')  # Element-wise maximum of two tensors
+Minimum = partial(BinaryOperator, optype='Min')  # Element-wise minimum of two tensors
 
 
 def Cdist(name, x1, x2, p=2.0):
@@ -982,6 +1058,7 @@ def Einsum(name, subscripts, *operands):
 TernaryOperator = partial(UniversalOperator, params=[], ipos=[0, 1, 2])
 Where = partial(TernaryOperator, optype="Where")
 Range = partial(TernaryOperator, optype="Range")
+ScatterND = partial(TernaryOperator, optype='ScatterND')
 GroupNormalization = partial(TernaryOperator, optype="GroupNormalization")
 
 # 4-ary Operators
@@ -994,3 +1071,44 @@ VoxelPooling = partial(FourAryOperator, optype="VoxelPooling")
 ConcatX = partial(VariadicInputOpHandle, optype="Concat", input_range=(2, float("inf")))
 TriluX = partial(VariadicInputOpHandle, optype="Trilu", input_range=(1, 2))
 SliceF = partial(VariadicInputOpHandle, optype="Slice", input_range=(3, 6))
+
+#Generator Operators (zero inputs)
+def Constant(name_or_value, value=None, shape=None, dtype=None, **kwargs):
+    """Create a constant tensor with the given value(s)
+
+    Can be called as:
+        Constant(name, value) - standard form
+        Constant(value, shape=..., dtype=...) - compatibility form
+    """
+    # Determine if first arg is name or value
+    if value is None:
+        # Called as Constant(value, shape=..., dtype=...)
+        value = name_or_value
+        name = 'const_' + str(id(value))
+    else:
+        # Called as Constant(name, value)
+        name = name_or_value
+
+    # Handle shape parameter if provided
+    if shape is not None:
+        if isinstance(value, (int, float)):
+            final_dtype = dtype if dtype is not None else np.float32
+            data = np.full(shape, value, dtype=final_dtype)
+        else:
+            data = np.array(value, dtype=dtype if dtype is not None else np.float32)
+            if list(data.shape) != list(shape):
+                data = np.broadcast_to(data, shape)
+    else:
+        if isinstance(value, (int, float)):
+            final_dtype = dtype if dtype is not None else np.float32
+            data = np.array([value], dtype=final_dtype)
+        elif isinstance(value, np.ndarray):
+            data = value if dtype is None else value.astype(dtype)
+        else:
+            final_dtype = dtype if dtype is not None else np.float32
+            data = np.array(value, dtype=final_dtype)
+
+    # For constants, we can just return a SimTensor with the data
+    # Since Constant is a generator op with no inputs
+    const_tensor = _from_data(name + '.const', data, is_const=True)
+    return const_tensor

@@ -254,3 +254,13 @@ workloads:
       num_query_stuff : 100
     instances:
       uniad_full : { img_height: 256, img_width: 256, bs: 1 }
+
+  - api: TTSIM
+    name: MapTracker
+    basedir: workloads/MapTracker/plugin/models/maper
+    module : MapTracker@MapTracker.py
+    params : {bs: 1, seg_in_channels: 256, seg_embed_dims: 256, vector_embed_dims: 256, seg_num_classes: 3, vector_num_points: 20}
+    instances:
+      maptracker_tiny   : { bev_h: 25, bev_w: 50, vector_num_queries: 50, canvas_size: [50, 100], img_height: 256, img_width: 256 }
+      maptracker_small  : { bev_h: 50, bev_w: 100, vector_num_queries: 100, canvas_size: [100, 200], img_height: 480, img_width: 800 }
+      maptracker_base   : { bev_h: 100, bev_w: 200, vector_num_queries: 100, canvas_size: [200, 400], img_height: 480, img_width: 800 }

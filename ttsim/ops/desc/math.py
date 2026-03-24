@@ -411,54 +411,107 @@ def glu_sinf(iTList, oTList, op, **kwargs):
 
 
 def variadic_sinf(iTList, oTList, op, **kwargs):
+    """
+    Shape inference for variadic input operations (Sum, Mean, Max, Min).
+
+    For reduction operations (with 'dim' or 'axis' attribute):
+        - Reduces along specified dimension
+        - Output has reduced dimensions
+
+    For element-wise operations (no 'dim'/'axis' attribute):
+        - For Max/Min with multiple inputs: element-wise maximum/minimum
+        - Broadcasts inputs and produces element-wise result
+        - Output shape is broadcast result of all inputs
+    """
     dim = op.attrs.get('dim', None)
-    num_tensors = len(iTList)
+    axis = op.attrs.get('axis', None)  # Some ops use 'axis' instead of 'dim'
+
+    if dim is None and axis is not None:
+        dim = axis
+
     input_tensor = iTList[0]
     assert input_tensor.check_shape(), f"Illegal Shape for {input_tensor}"
 
-    if num_tensors > 1:  # compare multiple input tensors and reduce to one output tensor
-        # ONNX variadic elementwise ops follow NumPy broadcasting across all inputs.
-        # Compute the broadcasted shape iteratively across all input tensor shapes.
-        shapes = [tuple(t.shape) for t in iTList]
-        try:
-            broadcast_shape = np.broadcast_shapes(*shapes)
-        except ValueError as e:
-            raise AssertionError(
-                f"Incompatible input shapes for variadic op {op.optype}: {shapes}"
-            ) from e
-        output_shape = list(broadcast_shape)
-    else:
-        rank = input_tensor.rank()
-        if dim is not None and dim < 0:
-            dim += rank
-        if dim is None:
-            # operate on all elements, output is scalar
-            output_shape = []
+    optype_lower = op.optype.lower()
+
+    # Element-wise operation: multiple inputs, no reduction dimension
+    if dim is None and len(iTList) > 1:
+        output_shape = iTList[0].shape
+        for i in range(1, len(iTList)):
+            assert iTList[i].check_shape(), f"Illegal Shape for input {i}"
+            output_shape = bidirectional_broadcast_shape_inference(output_shape, iTList[i].shape)
+
+        oTList[0].shape = output_shape
+        oTList[0].dtype = input_tensor.dtype
+
+        total_elems = sum(t.nelems() for t in iTList)
+        out_elems = oTList[0].nelems()
+        n_inputs = len(iTList)
+
+        if optype_lower in ['max', 'min']:
+            instrs = {'cmp': out_elems * (n_inputs - 1)}
+        elif optype_lower == 'sum':
+            instrs = {'add': out_elems * (n_inputs - 1)}
+        elif optype_lower == 'mean':
+            instrs = {'add': out_elems * (n_inputs - 1), 'div': out_elems}
+        elif optype_lower == 'sum':
+            instrs = {'add': out_elems * (n_inputs - 1)}
         else:
-            assert 0 <= dim < rank, f"dim {dim} out of bounds for rank {rank}"
-            # Output shape is input shape with dim removed
-            output_shape = [s for i, s in enumerate(input_tensor.shape) if i != dim]
+            raise ValueError(f"Unsupported variadic operation type: {op.optype}")
+
+        op.perf_stats = {
+            'inElems': total_elems,
+            'inBytes': sum(t.nbytes(op.precision) for t in iTList),
+            'outElems': out_elems,
+            'outBytes': oTList[0].nbytes(op.precision),
+            'instrs': instrs,
+        }
+
+        from ttsim.ops.desc.data_compute import (
+            try_compute_data, compute_elementwise_max, compute_elementwise_min,
+            compute_elementwise_sum, compute_elementwise_mean,
+        )
+        compute_map = {
+            'max': compute_elementwise_max,
+            'min': compute_elementwise_min,
+            'sum': compute_elementwise_sum,
+            'mean': compute_elementwise_mean,
+        }
+        oTList[0].data = try_compute_data(compute_map[optype_lower], iTList, op)
+
+        return
+
+    rank = input_tensor.rank()
+    if dim is not None and dim < 0:
+        dim += rank
+
+    if dim is None:
+        # operate on all elements, output is scalar
+        output_shape = []
+    else:
+        assert 0 <= dim < rank, f"dim {dim} out of bounds for rank {rank}"
+        # Output shape is input shape with dim removed
+        output_shape = [s for i, s in enumerate(input_tensor.shape) if i != dim]
 
     oTList[0].shape = output_shape
     oTList[0].dtype = input_tensor.dtype
 
-    i_elems = input_tensor.nelems() * num_tensors
+    i_elems = input_tensor.nelems()
     o_elems = oTList[0].nelems()
     optype2instr = {
-        "mean": {"add": i_elems, "div": o_elems},
-        "sum": {"add": i_elems},
-        "max": {"cmp": i_elems - o_elems},
-        "min": {"cmp": i_elems - o_elems},
-    }
+            'mean': {'add': i_elems, 'div': o_elems},
+            'sum' : {'add': i_elems},
+            'max' : {'cmp': i_elems},  # Element-wise comparison for max
+            'min' : {'cmp': i_elems},  # Element-wise comparison for min
+            }
     op.perf_stats = {
         'inElems': i_elems,
-        'inBytes': input_tensor.nbytes(op.precision) * num_tensors,
+        'inBytes': input_tensor.nbytes(op.precision),
         'outElems': o_elems,
         'outBytes': oTList[0].nbytes(op.precision),
         'instrs': optype2instr[op.optype.lower()],
     }
     return
-
 
 def matmul_shape_inf(iTList, oTList, op, **kwargs):
     from ttsim.ops.desc.helpers import bidirectional_broadcast_shape_inference
@@ -1064,6 +1117,24 @@ def register_math_ops():
             1,
             1,
             grid_sample_inf,
+            True,
+            True,
+            True,
+            True,
+            True,
+        ],
+        [
+            "Atan2",
+            "ARITY_2->1",
+            "ai.onnx",
+            "COMMON",
+            22,
+            22,
+            2,
+            2,
+            1,
+            1,
+            bidir_bcast,
             True,
             True,
             True,

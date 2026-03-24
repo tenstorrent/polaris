@@ -22,9 +22,21 @@ def r0_func(iTList, oTList, op, **kwargs):
 
     oTList[0].shape = outShape
     #oTList[0].dtype = np.dtype(np.int64)
-    #create dummy index data so that it can work downstream...
-    oTList[0].data  = np.array([0 for i in range(oTList[0].nelems())], dtype=np.int64)
-    oTList[0].dtype = oTList[0].data.dtype
+    # Compute actual data for ArgMax/ArgMin if input has data
+    if op.optype in ['ArgMax', 'ArgMin']:
+        from ttsim.ops.desc.data_compute import try_compute_data, compute_argmax, compute_argmin
+        compute_fn = compute_argmax if op.optype == 'ArgMax' else compute_argmin
+        computed = try_compute_data(compute_fn, iTList, op)
+        if computed is not None:
+            oTList[0].data = computed
+            oTList[0].dtype = computed.dtype
+        else:
+            oTList[0].data = np.array([0 for i in range(oTList[0].nelems())], dtype=np.int64)
+            oTList[0].dtype = oTList[0].data.dtype
+    else:
+        #create dummy index data so that it can work downstream...
+        oTList[0].data = np.array([0 for i in range(oTList[0].nelems())], dtype=np.int64)
+        oTList[0].dtype = oTList[0].data.dtype
     op.perf_stats = {
             'inElems' : dataT.nelems(),
             'inBytes' : dataT.nbytes(op.precision),
@@ -84,6 +96,12 @@ def r1_func(iTList, oTList, op, **kwargs):
     if op.optype == 'ReduceMean':
         from ttsim.ops.desc.data_compute import try_compute_data, compute_reducemean
         oTList[0].data = try_compute_data(compute_reducemean, iTList, op)
+    elif op.optype == 'ReduceSum':
+        from ttsim.ops.desc.data_compute import try_compute_data, compute_reducesum
+        oTList[0].data = try_compute_data(compute_reducesum, iTList, op)
+    elif op.optype == 'ReduceMax':
+        from ttsim.ops.desc.data_compute import try_compute_data, compute_reducemax
+        oTList[0].data = try_compute_data(compute_reducemax, iTList, op)
 
     op.perf_stats = {
             'inElems' : sum([x.nelems() for x in iTList]),

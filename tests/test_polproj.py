@@ -216,7 +216,8 @@ def test_choose_file_finds_file_in_current_directory(tmp_path, monkeypatch):
     file_path = tmp_path / fname
     file_path.write_text("dummy")
     result = polproj.choose_file(fname)
-    assert result == './' + str(fname)
+    # Normalize path separators for cross-platform compatibility
+    assert result.replace('\\', '/') == './' + str(fname)
 
 
 

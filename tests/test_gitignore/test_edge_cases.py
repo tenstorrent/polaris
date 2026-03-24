@@ -54,7 +54,9 @@ class TestDeeplyNestedStructures:
         staged = git_ls_files(git_test_repo, "--cached")
 
         for init_file in init_files:
-            assert str(init_file) in staged, f"{init_file} should be staged"
+            # Normalize path to use forward slashes (git always uses forward slashes)
+            git_path = str(init_file).replace('\\', '/')
+            assert git_path in staged, f"{git_path} should be staged"
 
     def test_main_py_at_various_depths(self, git_test_repo):
         """Test __main__.py at root and various nesting levels."""

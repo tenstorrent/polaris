@@ -4,7 +4,7 @@
 
 import numpy as np
 
-from ttsim.ops.desc.helpers import build_tmp_data_tensor, bidir_bcast, unary_fwd, update_output_tensor, multidirectional_broadcast_shape_inference
+from ttsim.ops.desc.helpers import build_tmp_data_tensor, bidir_bcast, unary_fwd, update_output_tensor, multidirectional_broadcast_shape_inference, gridsample_sinf
 from ttsim.ops.desc.registry import register_ops
 from ttsim.utils.common import prod_ints
 
@@ -63,6 +63,10 @@ def where_sinf(iTList, oTList, op, **kwargs):
     outT.shape = out_shape
     outT.dtype = XT.dtype
 
+    # Compute data if inputs have data
+    from ttsim.ops.desc.data_compute import try_compute_data, compute_where
+    outT.data = try_compute_data(compute_where, iTList, op)
+
     op.perf_stats = {
         'inElems' : condT.nelems() + XT.nelems() + YT.nelems(),
         'outElems': outT.nelems(),
@@ -75,18 +79,35 @@ def where_sinf(iTList, oTList, op, **kwargs):
     return
 
 def cast_sinf(iTList, oTList, op, **kwargs):
-    '''
-    ASSUME ONNX SHAPE INFERENCE
-    saturate =  op.attrs.get('saturate', 1)
-    to_type  =  op.attrs['to']
-    A = clone_tensor_by_shape(iTList[0], data_maybe_missing=False) #A.data must be present
-    tensor_type = TENSOR_TYPE_MAP[to_type]
-    np_out = A.data.astype(tensor_type.np_dtype)
-    tmp_outT = build_tmp_data_tensor(np_out, op.name + '__tmp_out__')
-    update_output_tensor(op, tmp_outT, oTList[0])
-    '''
+    '''Cast operation: converts tensor to specified dtype'''
     assert iTList[0].check_shape()
     assert oTList[0].check_shape()
+
+    # ONNX dtype code mapping to numpy dtypes
+    ONNX_DTYPE_MAP = {
+        1: np.dtype(np.float32),
+        2: np.dtype(np.uint8),
+        3: np.dtype(np.int8),
+        5: np.dtype(np.int16),
+        6: np.dtype(np.int32),
+        7: np.dtype(np.int64),
+        10: np.dtype(np.float16),
+        11: np.dtype(np.float64),
+        12: np.dtype(np.uint32),
+        13: np.dtype(np.uint64),
+    }
+
+    # Set output dtype based on 'to' attribute
+    to_dtype_code = op.attrs.get('to')
+    if to_dtype_code is not None:
+        try:
+            oTList[0].dtype = ONNX_DTYPE_MAP[to_dtype_code]
+        except KeyError:
+            raise ValueError(f"Unsupported 'to' dtype code: {to_dtype_code}")
+    else:
+        # Fallback: preserve input dtype if 'to' not specified
+        oTList[0].dtype = iTList[0].dtype
+
     op.perf_stats = {
             'inBytes' : iTList[0].nbytes(op.precision),
             'outBytes': oTList[0].nbytes(op.precision),
@@ -157,6 +178,9 @@ def pad_sinf(iTList, oTList, op, **kwargs):
     oTList[0].shape = output_shape
     oTList[0].dtype = X.dtype
 
+    # Compute data if available
+    from ttsim.ops.desc.data_compute import try_compute_data, compute_pad
+    oTList[0].data = try_compute_data(compute_pad, iTList, op)
 
     nElem_in = X.nelems()
     nElem_out = int(np.prod(output_shape))
@@ -216,6 +240,10 @@ def squeeze_sinf(iTList, oTList, op, **kwargs):
     oTList[0].shape = outshape
     oTList[0].dtype = dataT.dtype
 
+    # Compute data if inputs have data
+    from ttsim.ops.desc.data_compute import try_compute_data, compute_squeeze
+    oTList[0].data = try_compute_data(compute_squeeze, iTList, op)
+
     op.perf_stats = {
             'inBytes' : int(iTList[0].nbytes(op.precision) + iTList[1].nbytes(op.precision)),
             'outBytes': int(oTList[0].nbytes(op.precision)),
@@ -240,6 +268,10 @@ def unsqueeze_sinf(iTList, oTList, op, **kwargs):
     #update_output_tensor(op, tmp_outT, oTList[0])
     oTList[0].shape = [int(i) for i in newshape]
     oTList[0].dtype = iTList[0].dtype
+
+    # Compute actual data if inputs have data
+    from ttsim.ops.desc.data_compute import try_compute_data, compute_unsqueeze
+    oTList[0].data = try_compute_data(compute_unsqueeze, iTList, op)
 
     op.perf_stats = {
             'inBytes' : iTList[0].nbytes(op.precision) + iTList[1].nbytes(op.precision),
@@ -396,6 +428,10 @@ def upsample_sinf(iTList, oTList, op, **kwargs):
 
     oTList[0].shape = output_shape
     oTList[0].dtype = X.dtype
+
+    # Compute data if inputs have data
+    from ttsim.ops.desc.data_compute import try_compute_data, compute_upsample
+    oTList[0].data = try_compute_data(compute_upsample, iTList, op)
 
     # Estimate instruction count: each output element is a copy or interpolation
     nElem_in = X.nelems()
@@ -617,6 +653,10 @@ def gather_sinf(iTList, oTList, op, **kwargs):
     oTList[0].shape = data_shape[:axis] + indicesT.shape + data_shape[axis + 1:]
     oTList[0].dtype = dataT.dtype
 
+    # Compute data if inputs have data
+    from ttsim.ops.desc.data_compute import try_compute_data, compute_gather
+    oTList[0].data = try_compute_data(compute_gather, iTList, op)
+
     op.perf_stats = {
             'inElems' : int(oTList[0].nelems()), #read just what we need, not the whole embed. tbl
             'outElems': int(oTList[0].nelems()),
@@ -668,8 +708,9 @@ def shape_op_inf_func(iTList, oTList, op, **kwargs):
     end   = A.rank() if end is None or end > A.rank() else end
     end   = A.rank() + end if end < 0 else end
     tdata = np.array(A.shape[start:end], dtype=np.int64)
-    tmp_tensor = build_tmp_data_tensor(tdata, op.name + '_tmp_out_tensor_')
-    update_output_tensor(op, tmp_tensor, oTList[0])
+    oTList[0].shape = list(tdata.shape)
+    oTList[0].dtype = np.int64
+    oTList[0].data = tdata
     op.perf_stats = {
             'inElems' : A.rank(),
             'outElems': A.rank(),
@@ -698,6 +739,38 @@ def transpose_op_inf_func(iTList, oTList, op, **kwargs):
             }
     return
 
+def scatter_nd_sinf(iTList, oTList, op, **kwargs):
+    """Shape inference for ScatterND (ONNX).
+
+    Input:
+        iTList[0] = data    — the base tensor
+        iTList[1] = indices — int64 tensor, last dim indexes into data
+        iTList[2] = updates — values to scatter
+    Output shape = data.shape  (always same as input data).
+    """
+    dataT    = iTList[0]
+    indicesT = iTList[1]
+    updatesT = iTList[2]
+    assert dataT.check_shape(),    f"ScatterND: bad data shape: {dataT}!!"
+    assert indicesT.check_shape(), f"ScatterND: bad indices shape: {indicesT}!!"
+    assert updatesT.check_shape(), f"ScatterND: bad updates shape: {updatesT}!!"
+
+    oTList[0].shape = list(dataT.shape)
+    oTList[0].dtype = dataT.dtype
+
+    from ttsim.ops.desc.data_compute import try_compute_data, compute_scatter_nd
+    oTList[0].data = try_compute_data(compute_scatter_nd, iTList, op)
+
+    outElems = int(oTList[0].nelems())
+    op.perf_stats = {
+        'inElems' : outElems,
+        'outElems': outElems,
+        'inBytes' : int(oTList[0].nbytes(op.precision)),
+        'outBytes': int(oTList[0].nbytes(op.precision)),
+        'instrs'  : {'mov': outElems}
+    }
+    return
+
 def register_tensor_ops():
     _optbl = [
             ##['Size',           'ARITY_1->1', 'ai.onnx',  'COMMON',  24,  21,  1,  1,  1,  1,  'inline_lambda',  True,  True,  True,  True,  True],
@@ -708,14 +781,14 @@ def register_tensor_ops():
             ##['NonZero',        'ARITY_1->1', 'ai.onnx',  'COMMON',  13,  13,  1,  1,  1,  1,  'inline_lambda',  True,  True,  True,  True,  True],
             ##['CastLike',       'ARITY_2->1', 'ai.onnx',  'COMMON',  24,  21,  2,  2,  1,  1,  'inline_lambda',  True,  True,  True,  True,  True],
             ##['GatherElements', 'ARITY_2->1', 'ai.onnx',  'COMMON',  13,  13,  2,  2,  1,  1,  'inline_lambda',  True,  True,  True,  True,  True],
-            ##['GridSample',     'ARITY_2->1', 'ai.onnx',  'COMMON',  22,  22,  2,  2,  1,  1,  'inline_lambda',  True,  True,  True,  True,  True],
+            ['GridSample',     'ARITY_2->1', 'ai.onnx',  'COMMON',  22,  22,  2,  2,  1,  1,  gridsample_sinf,  True,  True,  True,  True,  True],
             ##['AffineGrid',     'ARITY_2->1', 'ai.onnx',  'COMMON',  20,  20,  2,  2,  1,  1,  'inline_lambda',  True,  True,  True,  True,  True],
             ##['Compress',       'ARITY_2->1', 'ai.onnx',  'COMMON',  11,  11,  2,  2,  1,  1,  'inline_lambda',  True,  True,  True,  True,  True],
             ##['ReverseSequence','ARITY_2->1', 'ai.onnx',  'COMMON',  10,  10,  2,  2,  1,  1,  'inline_lambda',  True,  True,  True,  True,  True],
             ##['GatherND',       'ARITY_2->1', 'ai.onnx',  'COMMON',  13,  13,  2,  2,  1,  1,  'inline_lambda',  True,  True,  True,  True,  True],
             ##['CenterCropPad',  'ARITY_2->1', 'ai.onnx',  'COMMON',  18,  18,  2,  2,  1,  1,  'inline_lambda',  True,  True,  True,  True,  True],
             ##['Scatter',        'ARITY_3->1', 'ai.onnx',  'COMMON',  11,  11,  3,  3,  1,  1,  'inline_lambda',  True,  True,  True,  True,  True],
-            ##['ScatterND',      'ARITY_3->1', 'ai.onnx',  'COMMON',  18,  18,  3,  3,  1,  1,  'inline_lambda',  True,  True,  True,  True,  True],
+            ['ScatterND',      'ARITY_3->1', 'ai.onnx',  'COMMON',  18,  18,  3,  3,  1,  1,  scatter_nd_sinf,  True,  True,  True,  True,  True],
             ##['ScatterElements','ARITY_3->1', 'ai.onnx',  'COMMON',  18,  18,  3,  3,  1,  1,  'inline_lambda',  True,  True,  True,  True,  True],
             ##['OneHot',         'ARITY_3->1', 'ai.onnx',  'COMMON',  11,  11,  3,  3,  1,  1,  'inline_lambda',  True,  True,  True,  True,  True],
             ##['Unique',  'ARITY_1->VARIADIC[1-4]', 'ai.onnx',  'COMMON',  11,  11,  1,  1,  4,  1,  'inline_lmbda', True, True, True, True, True],

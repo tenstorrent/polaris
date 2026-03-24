@@ -216,12 +216,19 @@ def collect_all_files(dirname: str) -> list[str]:
     root: str
     _dirs: list[str]
     filenames: list[str]
+    # Normalize dirname to use forward slashes
+    dirname_normalized = dirname.replace('\\', '/')
     for root, _dirs, filenames in os.walk(dirname):
+        # Normalize root path
+        root_normalized = root.replace('\\', '/')
         # Skip .git directory; Only the startswith condition will wrongly match .gitHub directory
-        if root == dirname + '/.git' or root.startswith(dirname + '/.git/'):
+        if root_normalized == dirname_normalized + '/.git' or root_normalized.startswith(dirname_normalized + '/.git/'):
             continue
         for filename in filenames:
-            files.append(os.path.join(root, filename).replace(dirname + '/', ''))
+            # Build relative path with forward slashes
+            full_path = os.path.join(root, filename).replace('\\', '/')
+            rel_path = os.path.relpath(full_path, dirname).replace(os.sep, '/')
+            files.append(rel_path)
     return sorted(files)
 
 

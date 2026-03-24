@@ -11,21 +11,47 @@ LOG = logger
 INFO = LOG.info
 DEBUG = LOG.debug
 
+# Import compute functions for data propagation
+from ttsim.ops.desc.data_compute import (
+    compute_mish,
+    compute_sigmoid,
+    compute_gelu,
+    compute_relu,
+    compute_relu6,
+    compute_identity,
+    compute_tanh,
+    compute_exp,
+    compute_log,
+    compute_sqrt,
+    compute_softmax,
+    compute_clip,
+    compute_add,
+    compute_mul,
+    compute_sub,
+    compute_div,
+    compute_pow,
+    compute_sin,
+    compute_cos,
+    compute_atan,
+    compute_abs,
+    compute_neg,
+    compute_less,
+    compute_argmax,
+    compute_reducemax,
+    try_compute_data,
+)
 
 def update_output_tensor(op, in_tensor, out_tensor):
     assert in_tensor.check_shape(), f"ERROR: {op} Invalid Input SHAPE in {in_tensor}"
-    if out_tensor.check_shape():
+
+    # Allow updating if out_tensor has default empty shape (uninitialized) or invalid shape
+    if out_tensor.check_shape() and out_tensor.shape != []:
+        # Output tensor has a valid, non-default shape - verify it matches
         DEBUG("Validated SimTensor({}) SHAPE: {}", out_tensor.name, out_tensor.shape)
-        assert (
-            in_tensor.shape == out_tensor.shape
-        ), f"IO shape Mismatch {in_tensor.shape} != {out_tensor.shape} for {out_tensor.name}"
+        assert in_tensor.shape == out_tensor.shape, f"IO shape Mismatch {in_tensor.shape} != {out_tensor.shape} for {out_tensor.name}"
     else:
-        DEBUG(
-            "Updating SimTensor({}) SHAPE: {} <- {}",
-            out_tensor.name,
-            out_tensor.shape,
-            in_tensor.shape,
-        )
+        # Update the shape (either invalid or default empty)
+        DEBUG("Updating SimTensor({}) SHAPE: {} <- {}", out_tensor.name, out_tensor.shape, in_tensor.shape)
         out_tensor.shape = in_tensor.shape
 
     if in_tensor.data is not None:
@@ -224,41 +250,34 @@ def pooling_shape_inference(input_shape, kernel_shape, attrs):
 
 # shape inference functions
 def unary_fwd(iTList, oTList, op, **kwargs):
-    from .data_compute import (
-        compute_softmax,
-        compute_sigmoid,
-        compute_relu,
-        compute_tanh,
-        compute_exp,
-        compute_log,
-        compute_sqrt,
-        compute_identity,
-    )
-
     X, Y = iTList[0], oTList[0]
     assert X.check_shape(), f"Input tensor shape not defined: {X}"
     Y.shape = X.shape
     Y.dtype = X.dtype
 
-    # NUMERICAL COMPUTATION (if data available)
-    if X.data is not None:
-        optype_to_compute = {
-            "Softmax": compute_softmax,
-            "Sigmoid": compute_sigmoid,
-            "Relu": compute_relu,
-            "Tanh": compute_tanh,
-            "Exp": compute_exp,
-            "Log": compute_log,
-            "Sqrt": compute_sqrt,
-            "Identity": compute_identity,
-        }
-
-        if op.optype in optype_to_compute:
-            Y.data = optype_to_compute[op.optype](iTList, op)
-        else:
-            Y.data = None  # Other ops not implemented yet
-    else:
-        Y.data = None
+    # Compute actual data if inputs have data
+    _unary_compute_funcs = {
+        'Mish': compute_mish,
+        'Sigmoid': compute_sigmoid,
+        'Gelu': compute_gelu,
+        'Relu': compute_relu,
+        'Relu6': compute_relu6,
+        'Identity': compute_identity,
+        'Tanh': compute_tanh,
+        'Exp': compute_exp,
+        'Log': compute_log,
+        'Sqrt': compute_sqrt,
+        'Softmax': compute_softmax,
+        'Clip': compute_clip,
+        'Sin': compute_sin,
+        'Cos': compute_cos,
+        'Atan': compute_atan,
+        'Abs': compute_abs,
+        'Neg': compute_neg,
+        'ArgMax': compute_argmax,
+    }
+    if op.optype in _unary_compute_funcs:
+        Y.data = try_compute_data(_unary_compute_funcs[op.optype], iTList, op)
 
     optype2instr = {
         "Identity": {"mov": 0},
@@ -361,98 +380,132 @@ def unary_fwd(iTList, oTList, op, **kwargs):
         },
     }
 
-    for xopname in ["Sign", "Relu", "LeakyRelu", "ThresholdedRelu", "Hardmax"]:
-        # Sign            : x <=> 0
-        # Relu            : max(0,x)
-        # LeakyRelu       : alpha * x if x < 0 else x; additional 'add' accounted outside this loop
-        # ThresholdedRelu : x for x > alpha else 0
-        # Hardmax         : Hardmax(x, axis) = 1 if x == first_max_val_along_xis else 0; TODO: account for axis
-        optype2instr[xopname] = {"cmp": X.nelems(), "mov": X.nelems()}
-    optype2instr["LeakyRelu"]["add"] = X.nelems()
+    for xopname in ['Sign', 'Relu', 'LeakyRelu', 'ThresholdedRelu', 'Hardmax']:
+        #Sign            : x <=> 0
+        #Relu            : max(0,x)
+        #LeakyRelu       : alpha * x if x < 0 else x; additional 'add' accounted outside this loop
+        #ThresholdedRelu : x for x > alpha else 0
+        #Hardmax         : Hardmax(x, axis) = 1 if x == first_max_val_along_xis else 0; TODO: account for axis
+        optype2instr[xopname] = {'cmp': X.nelems(), 'mov': X.nelems()}
+    optype2instr['LeakyRelu']['add'] = X.nelems()
 
-    for xopname in [
-        "Reciprocal",
-        "Floor",
-        "Ceil",
-        "Sqrt",
-        "Exp",
-        "Log",
-        "Neg",
-        "Abs",
-        "Sin",
-        "Cos",
-        "Tan",
-        "Asin",
-        "Acos",
-        "Atan",
-        "Sinh",
-        "Cosh",
-        "Tanh",
-        "Asinh",
-        "Acosh",
-        "Atanh",
-        "Erf",
-        "Round",
-    ]:
+    # Neg uses subtraction: -x = 0 - x
+    optype2instr['Neg'] = {'sub': X.nelems()}
+
+    for xopname in ['Reciprocal', 'Floor', 'Ceil', 'Sqrt', 'Exp', 'Log',
+                    'Abs', 'Sin', 'Cos', 'Tan', 'Asin', 'Acos', 'Atan',
+                    'Sinh', 'Cosh', 'Tanh', 'Asinh', 'Acosh', 'Atanh', 'Erf',
+                    'Round', ]:
         optype2instr[xopname] = {xopname.lower(): X.nelems()}
-
-    # Use default precision if not set
-    precision = getattr(op, "precision", "fp32")
-    if precision is None or not isinstance(precision, str):
-        precision = "fp32"
 
     op.perf_stats = {
         "inElems": X.nelems(),
         "outElems": Y.nelems(),
-        "inBytes": X.nbytes(precision),
-        "outBytes": Y.nbytes(precision),
+        "inBytes": X.nbytes(op.precision),
+        "outBytes": Y.nbytes(op.precision),
         "instrs": optype2instr[op.optype],
     }
     return
 
 
 def bidir_bcast(iTList, oTList, op, **kwargs):
-    from .data_compute import (
-        compute_add,
-        compute_mul,
-        compute_sub,
-        compute_div,
-        compute_pow,
-    )
-
-    X0, X1, Y = iTList[0], iTList[1], oTList[0]
+    X0,X1, Y = iTList[0], iTList[1], oTList[0]
     assert X0.check_shape(), f"Input tensor-0 shape not defined: {X0}"
     assert X1.check_shape(), f"Input tensor-1 shape not defined: {X1}"
     Y.shape = bidirectional_broadcast_shape_inference(X0.shape, X1.shape)
-    Y.dtype = X0.dtype
 
-    # NUMERICAL COMPUTATION (if data available)
-    if X0.data is not None and X1.data is not None:
-        optype_to_compute = {
-            "Add": compute_add,
-            "Mul": compute_mul,
-            "Sub": compute_sub,
-            "Div": compute_div,
-            "Pow": compute_pow,
-        }
+    # Compute actual data if inputs have data
+    _binary_compute_funcs = {
+        'Add': compute_add,
+        'Mul': compute_mul,
+        'Sub': compute_sub,
+        'Div': compute_div,
+        'Pow': compute_pow,
+        'Less': compute_less,
+    }
+    if op.optype in _binary_compute_funcs:
+        Y.data = try_compute_data(_binary_compute_funcs[op.optype], iTList, op)
 
-        if op.optype in optype_to_compute:
-            Y.data = optype_to_compute[op.optype](iTList, op)
-        else:
-            Y.data = None  # Other ops not implemented yet
+    # Map operation to hardware instruction
+    # Comparison operations (Less, Greater, etc.) use 'cmp' instruction
+    optype_to_instr = {
+        'Less': 'cmp',
+        'And': 'cmp',
+        'Or': 'cmp',
+        'Xor': 'cmp',
+        'Greater': 'cmp',
+        'Equal': 'cmp',
+        'LessOrEqual': 'cmp',
+        'GreaterOrEqual': 'cmp',
+        'BitwiseAnd': 'and',
+        'BitwiseOr': 'or',
+        'BitwiseXor': 'xor',
+    }
+    instr_name = optype_to_instr.get(op.optype, op.optype.lower())
+
+    if instr_name == 'cmp':
+        Y.dtype = 'bool'  # output dtype is bool for comparison ops
     else:
-        Y.data = None
+        Y.dtype = X0.dtype  # output dtype same as input for these ops
 
-    # Use default precision if not set
-    precision = getattr(op, "precision", "fp32")
-    if precision is None or not isinstance(precision, str):
-        precision = "fp32"
+    op.perf_stats =  {
+            'inElems' : X0.nelems() + X1.nelems(),
+            'outElems': Y.nelems(),
+            'inBytes' : X0.nbytes(op.precision) + X1.nbytes(op.precision),
+            'outBytes': Y.nbytes(op.precision),
+            'instrs'  : {instr_name: Y.nelems()}
+            }
+    return
+
+def gridsample_sinf(iTList, oTList, op, **kwargs):
+    """
+    GridSample shape inference.
+    Input shapes:
+        iTList[0] (input): [N, C, H_in, W_in]
+        iTList[1] (grid):  [N, H_out, W_out, 2]
+    Output shape:
+        oTList[0]: [N, C, H_out, W_out]
+    """
+    input_tensor = iTList[0]
+    grid_tensor = iTList[1]
+
+    assert input_tensor.check_shape(), f"Input tensor shape not defined: {input_tensor}"
+    assert grid_tensor.check_shape(), f"Grid tensor shape not defined: {grid_tensor}"
+    assert input_tensor.rank() == 4, f"Input must be 4D [N,C,H,W], got shape {input_tensor.shape}"
+    assert grid_tensor.rank() == 4, f"Grid must be 4D [N,H_out,W_out,2], got shape {grid_tensor.shape}"
+    assert grid_tensor.shape[3] == 2, f"Grid last dim must be 2 (x,y), got {grid_tensor.shape[3]}"
+
+    N, C, H_in, W_in = input_tensor.shape
+    N_grid, H_out, W_out, _ = grid_tensor.shape
+
+    assert N == N_grid, f"Batch size mismatch: input={N}, grid={N_grid}"
+
+    # Output shape: [N, C, H_out, W_out]
+    oTList[0].shape = [N, C, H_out, W_out]
+    oTList[0].dtype = input_tensor.dtype
+
+    # Compute data if inputs have data
+    from ttsim.ops.desc.data_compute import try_compute_data, compute_grid_sample
+    oTList[0].data = try_compute_data(compute_grid_sample, iTList, op)
+
+    # Performance stats: differentiate between nearest and bilinear modes
+    mode = op.attrs.get('mode', 'bilinear')
+    instr_count = {}
+
+    if mode == 'nearest':
+        instr_count['mov'] = oTList[0].nelems()
+    elif mode == 'bilinear':
+        instr_count['mul'] = oTList[0].nelems() * 4
+        instr_count['add'] = oTList[0].nelems() * 3
+    else:
+        instr_count['mul'] = oTList[0].nelems() * 4
+        instr_count['add'] = oTList[0].nelems() * 3
 
     op.perf_stats = {
-        "inElems": X0.nelems() + X1.nelems(),
-        "outElems": Y.nelems(),
-        "inBytes": X0.nbytes(precision) + X1.nbytes(precision),
-        "outBytes": Y.nbytes(precision),
-        "instrs": {op.optype.lower(): Y.nelems()},
+        'inElems': input_tensor.nelems() + grid_tensor.nelems(),
+        'outElems': oTList[0].nelems(),
+        'inBytes': input_tensor.nbytes(op.precision) + grid_tensor.nbytes(op.precision),
+        'outBytes': oTList[0].nbytes(op.precision),
+        'instrs': instr_count
     }
     return

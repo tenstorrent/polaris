@@ -236,6 +236,10 @@ def avgpool_sinf(iTList, oTList, op, **kwargs):
         oTList[0].shape = output_shape
         oTList[0].dtype = iTList[0].dtype
 
+    # Compute actual data if inputs have data
+    from ttsim.ops.desc.data_compute import try_compute_data, compute_avgpool2d
+    oTList[0].data = try_compute_data(compute_avgpool2d, iTList, op)
+
     instr_count = {
         "add": iTList[0].nelems(),
         "div": oTList[0].nelems(),
@@ -264,6 +268,10 @@ def maxpool_sinf(iTList, oTList, op, **kwargs):
     if len(oTList) == 2:
         oTList[1].shape = output_shape
         oTList[1].dtype = np.dtype(np.int64)
+
+    # Compute actual data if inputs have data
+    from ttsim.ops.desc.data_compute import try_compute_data, compute_maxpool2d
+    oTList[0].data = try_compute_data(compute_maxpool2d, iTList, op)
 
     instr_count = {"cmp": iTList[0].nelems(), "mov": oTList[0].nelems()}
     op.perf_stats = {
@@ -343,6 +351,10 @@ def bn_sinf(iTList, oTList, op, **kwargs):
         oTList[2].shape = scale.shape
         oTList[2].dtype = scale.dtype
 
+    # Compute data if inputs have data
+    from ttsim.ops.desc.data_compute import try_compute_data, compute_batchnorm
+    oTList[0].data = try_compute_data(compute_batchnorm, iTList, op)
+
     instr_count = {
         "add": x.nelems() + 1,
         "mac": x.nelems(),
@@ -403,6 +415,10 @@ def conv_transpose_sinf(iTList, oTList, op, **kwargs):
     output_shape = [N, C_out, H_out, W_out]
     oTList[0].shape = output_shape
     oTList[0].dtype = X.dtype
+
+    # Compute actual data if inputs have data
+    from ttsim.ops.desc.data_compute import try_compute_data, compute_conv_transpose2d
+    oTList[0].data = try_compute_data(compute_conv_transpose2d, iTList, op)
 
     # MACs: each output element is a sum over (C_in/groups * kH * kW)
     macs_per_output = (C_in // groups) * kH * kW

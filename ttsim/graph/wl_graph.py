@@ -348,6 +348,16 @@ class WorkloadGraph():
                 onnx_attrs = filter_op_attrs(op.attrs)
             else:
                 onnx_attrs = op.attrs
+
+            # Remove attributes that are internal to ttsim but not valid in ONNX
+            _ttsim_only_attrs = {
+                'Slice':   {'out_shape'},
+                'Split':   {'ipos'},
+            }
+            if op.optype in _ttsim_only_attrs:
+                drop_keys = _ttsim_only_attrs[op.optype]
+                onnx_attrs = {k: v for k, v in onnx_attrs.items() if k not in drop_keys}
+
             # Convert torch-style attributes to ONNX-compatible attributes
             onnx_attrs = convert_torch_attrs_to_onnx(op.optype, onnx_attrs)
             onnx_nodes[oname] = make_node(op.optype, op.inList, op.outList, name=oname, **onnx_attrs)

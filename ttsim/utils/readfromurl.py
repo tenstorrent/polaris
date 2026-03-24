@@ -35,8 +35,8 @@ class FileLocator:
             self._filename = filename
             return
         res = urlparse(filename)
-        if res.scheme == '':
-            # If the scheme is empty, treat it as a local file path
+        if res.scheme == '' or (len(res.scheme) == 1 and res.scheme.isalpha()):
+            # Empty scheme or single-letter scheme (Windows drive letter, e.g. C:)
             self._filename = Path(filename)
             return
         if res.scheme not in FileLocator.SUPPORTED_SCHEMES:
