@@ -5,7 +5,7 @@
 ###############################################################
 # Poor Man's Module/ModuleList inspired by PyTorch Signature
 ###############################################################
-from typing import Iterator
+from typing import Iterator, Optional
 import ttsim.front.functional.op as F
 import ttsim.ops.op as Ops
 from ttsim.ops import SimTensor
@@ -228,7 +228,7 @@ class ModuleList:
     def insert(self, index, module):
         raise RuntimeError("ModuleList is immutable after construction")
 
-    def __call__(self, *x):  # type: ignore[override]
+    def __call__(self, *x):
         raise RuntimeError("ModuleList is not Callable")
 
 
@@ -308,7 +308,7 @@ class Linear(Module):
             Y += self.bias
         return Y
 
-    def analytical_param_count(self, lvl):
+    def analytical_param_count(self, lvl=0):
         param_count = self.in_features * self.out_features
         if self.bias:
             param_count += self.out_features
@@ -316,21 +316,7 @@ class Linear(Module):
 
 
 class Dropout(Module):
-    """
-    Dropout module that wraps F.Dropout SimOpHandle.
-
-    Acts as identity when prob=0 or train_mode=False.
-    Uses compute_dropout from data_compute for numerical computation.
-
-    Args:
-        name: Module name for tracking
-        prob: Dropout probability (default: 0.0)
-        train_mode: Whether in training mode (default: False)
-
-    Example:
-        >>> dropout = Dropout('my_dropout', prob=0.1, train_mode=False)
-        >>> output = dropout(x)
-    """
+    """Dropout module wrapping F.Dropout SimOpHandle."""
 
     def __init__(self, name, prob=0.0, train_mode=False):
         super().__init__()
@@ -343,7 +329,7 @@ class Dropout(Module):
     def __call__(self, x):
         return self.dropout_op(x)
 
-    def analytical_param_count(self, lvl):
+    def analytical_param_count(self, lvl=0):
         return 0
 
 
@@ -357,7 +343,7 @@ class Silu(Module):
     def __call__(self, x):
         return x * self.sigmoidop(x)
 
-    def analytical_param_count(self, lvl):
+    def analytical_param_count(self, lvl=0):
         return 0
 
 
@@ -391,7 +377,7 @@ class bmm(Module):
         self._tensors[out.name] = out
         return out
 
-    def analytical_param_count(self, lvl):
+    def analytical_param_count(self, lvl=0):
         return 0
 
 
@@ -415,7 +401,7 @@ class GroupNorm(Module):
     def __call__(self, x, latent_embeds=None):
         return self.gn_op(x, self.weight, self.bias)
 
-    def analytical_param_count(self, lvl):
+    def analytical_param_count(self, lvl=0):
         return 2 * self.num_channels
 
 
@@ -423,20 +409,12 @@ class MultiheadAttention(Module):
     """
     Multi-head attention mechanism.
 
-    Implements scaled dot-product attention with multiple attention heads.
-    Compatible with PyTorch's nn.MultiheadAttention interface.
-
     Args:
         name: Module name for tracking
         embed_dim: Total dimension of the model
         num_heads: Number of parallel attention heads
         dropout: Dropout probability (default: 0.0)
         bias: If True, add bias to input/output projection layers (default: True)
-        add_bias_kv: If True, add bias to key and value sequences (default: False)
-        add_zero_attn: If True, add a new batch of zeros to key and value (default: False)
-        kdim: Total number of features in key (default: None, uses embed_dim)
-        vdim: Total number of features in value (default: None, uses embed_dim)
-        batch_first: If True, input/output shape is (batch, seq, feature) (default: False)
     """
 
     def __init__(self, name, embed_dim, num_heads, dropout=0.0, bias=True):
@@ -452,20 +430,18 @@ class MultiheadAttention(Module):
         ), f"embed_dim {embed_dim} not divisible by num_heads {num_heads}"
         self.head_dim = embed_dim // num_heads
 
-        # Q, K, V projection weights (combined for efficiency)
         self.in_proj_weight = F._from_shape(
-            name + ".in_proj_weight", [3 * embed_dim, embed_dim], is_param=True
+            name + ".in_proj_weight", [embed_dim, 3 * embed_dim], is_param=True
         )
         self.in_proj_weight.set_module(self)
 
-        self.in_proj_bias: SimTensor | None = None
+        self.in_proj_bias: Optional[SimTensor] = None
         if bias:
             self.in_proj_bias = F._from_shape(
                 name + ".in_proj_bias", [3 * embed_dim], is_param=True
             )
             self.in_proj_bias.set_module(self)
 
-        # Output projection
         self.out_proj = Linear(name + ".out_proj", embed_dim, embed_dim, bias=bias)
         self._submodules[self.out_proj.name] = self.out_proj
 
@@ -480,37 +456,15 @@ class MultiheadAttention(Module):
         attn_mask=None,
         need_weights=True,
     ):
-        """
-        Forward pass for multi-head attention.
-
-        Args:
-            query: Query tensor [*, tgt_len, embed_dim]
-            key: Key tensor [*, src_len, embed_dim]
-            value: Value tensor [*, src_len, embed_dim]
-            key_padding_mask: Mask for padded keys [batch, src_len] (optional)
-            attn_mask: Attention mask [tgt_len, src_len] (optional)
-            need_weights: Whether to return attention weights (default: True)
-
-        Returns:
-            output: [*, tgt_len, embed_dim]
-            or
-            (output, attn_weights): if need_weights=True
-                attn_weights: [*, num_heads, tgt_len, src_len]
-        """
-        # Build input list for the operation
         input_list = [query, key, value]
         if key_padding_mask is not None:
             input_list.append(key_padding_mask)
         if attn_mask is not None:
             input_list.append(attn_mask)
 
-        # Create ipos based on number of inputs (all are tensors)
         ipos = list(range(len(input_list)))
-
-        # Create the multi-head attention operation
         mha_op_name = self.name + ".mha_op"
 
-        # Pass projection weight data so compute_multihead_attention can apply them
         extra_attrs = {}
         if self.in_proj_weight is not None and self.in_proj_weight.data is not None:
             extra_attrs["in_proj_weight_data"] = self.in_proj_weight.data
@@ -543,67 +497,36 @@ class MultiheadAttention(Module):
         mha_op.set_module(self)
         self._op_hndls[mha_op_name] = mha_op
 
-        # Call the operation
-        # Note: The operation may return a tuple (output, attn_weights) or just output
         result = mha_op(*input_list)
 
-        # If need_weights is False but the op still returns a tuple, extract first element
         if need_weights:
             if isinstance(result, tuple):
-                return result  # (output, attn_weights)
+                return result
             else:
-                # If only output is returned, create a placeholder for attn_weights
                 return result, None
         else:
             if isinstance(result, tuple):
-                return result[0]  # Extract just the output
+                return result[0]
             else:
                 return result
 
-    def analytical_param_count(self, lvl):
-        """Calculate number of parameters in this module."""
-        # in_proj: embed_dim * 3 * embed_dim
-        # out_proj: embed_dim * embed_dim
-        param_count = self.embed_dim * 3 * self.embed_dim  # Q, K, V projections
-        param_count += self.embed_dim * self.embed_dim  # Output projection
-
+    def analytical_param_count(self, lvl=0):
+        param_count = self.embed_dim * 3 * self.embed_dim
+        param_count += self.embed_dim * self.embed_dim
         if self.use_bias:
-            param_count += 3 * self.embed_dim  # Q, K, V biases
-            param_count += self.embed_dim  # Output bias
-
+            param_count += 3 * self.embed_dim
+            param_count += self.embed_dim
         return param_count
 
 
-class L1Loss(Module):
-    """L1Loss (Mean Absolute Error) — not an ONNX op, defined as a SimNN module.
+# Convenience functional wrappers (for sim_nn module imports like `import sim_nn as F`)
+def Relu(x, name: str = "", **kwargs):
+    """Apply Relu activation directly. Auto-generates name if not provided."""
+    handle = F.Relu(name or "_relu", **kwargs)
+    return handle(x)
 
-    Computes: loss = mean(|prediction - target|)  (when reduction='mean')
 
-    Args:
-        name: Module name for tracking
-        reduction: 'none' | 'mean' | 'sum'  (default: 'mean')
-    """
-
-    def __init__(self, name, reduction="mean"):
-        super().__init__()
-        self.name = name
-        self.reduction = reduction
-        self.sub_op = F.Sub(name + ".sub")
-        self.abs_op = F.Abs(name + ".abs")
-        if reduction == "mean":
-            self.reduce_op = F.ReduceMean(name + ".reduce_mean")
-        elif reduction == "sum":
-            self.reduce_op = F.ReduceSum(name + ".reduce_sum")
-        else:
-            self.reduce_op = None
-        super().link_op2module()
-
-    def __call__(self, prediction, target):
-        diff = self.sub_op(prediction, target)
-        abs_diff = self.abs_op(diff)
-        if self.reduce_op is not None:
-            return self.reduce_op(abs_diff)
-        return abs_diff
-
-    def analytical_param_count(self, lvl):
-        return 0
+def Sigmoid(x, name: str = "", **kwargs):
+    """Apply Sigmoid activation directly. Auto-generates name if not provided."""
+    handle = F.Sigmoid(name or "_sigmoid", **kwargs)
+    return handle(x)

@@ -5,6 +5,7 @@
 import os, sys
 sys.path.append(os.path.join(os.path.dirname(__file__), '../../..'))
 import ttsim.front.ttnn as ttnn
+import numpy as np
 
 class TtMoeLayer():
     def __init__(self, mesh_device, state_dict, experts, args, layer_num: int, dtype, tt_ccl):
@@ -47,6 +48,7 @@ class TtMoeLayer():
 
         k_val = 32
         k_tensor = ttnn.full(shape=[1], fill_value=k_val, device=self.mesh_device, dtype=ttnn.int64, layout=ttnn.TILE_LAYOUT)
+        k_tensor.data = np.array([k_val], dtype=np.int64)
 
         if mode == "decode":
             weights_1SB1 = ttnn.moe(gate_logits_1SB8, self.top8_mask_11B_64, self.top2_mask_11BB, k_val, k_tensor)

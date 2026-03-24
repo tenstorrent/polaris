@@ -19,8 +19,11 @@ class WL2ArchDatatypes(BaseModel):
     """
     Represents the data types used in workload to architecture mapping.
     """
+
     global_type: TypeName = Field(..., description="Global type for the data")
-    override: Dict[LayerName, TypeName] = Field(..., description="Overrides for specific data types")
+    override: Dict[LayerName, TypeName] = Field(
+        ..., description="Overrides for specific data types"
+    )
 
     def __str__(self):
         return f"Global Type: {self.global_type}, Overrides: {self.override}"
@@ -30,7 +33,11 @@ class WL2ArchDatatypes(BaseModel):
         Get the data type for a specific layer.
         If no override is found, return the global type.
         """
-        return self.override.get(layer_name, self.global_type) if self.override else self.global_type
+        return (
+            self.override.get(layer_name, self.global_type)
+            if self.override
+            else self.global_type
+        )
 
     def update_global_type(self, new_global_type: TypeName) -> None:
         """
@@ -43,15 +50,15 @@ class WL2ArchDatatypes(BaseModel):
         self.global_type = new_global_type
 
     @staticmethod
-    def from_dict(spec: dict[str, Any]) -> 'WL2ArchDatatypes':
+    def from_dict(spec: dict[str, Any]) -> "WL2ArchDatatypes":
         """
         Create a WL2ArchDatatypes instance from a dictionary.
         """
         override: Dict[LayerName, TypeName] = {}
-        global_type: TypeName = spec.get('global_type', None)  # type: ignore[assignment]
-        override_spec = spec.get('override', dict())
+        global_type: TypeName = spec.get("global_type", None)  # type: ignore[assignment]
+        override_spec = spec.get("override", dict())
         if global_type is None:
-            raise AssertionError(f'global_type must be set in {spec}')
+            raise AssertionError(f"global_type must be set in {spec}")
         # Validate global_type before converting to lowercase
         validate_datatype(global_type)
         global_type = global_type.lower()
@@ -59,7 +66,9 @@ class WL2ArchDatatypes(BaseModel):
             key_upper = kk.upper()
             value_lower = vv.lower()
             if key_upper in override and override[key_upper] != value_lower:
-                raise AssertionError(f'override {kk} already set to {override[key_upper]}, trying to set to {value_lower}')
+                raise AssertionError(
+                    f"override {kk} already set to {override[key_upper]}, trying to set to {value_lower}"
+                )
             # Validate each override datatype before converting to lowercase
             validate_datatype(vv)
             override[key_upper] = value_lower
@@ -71,6 +80,7 @@ class WL2ArchRemovalLayers(BaseModel):
     """
     Represents the null layers in workload to architecture mapping.
     """
+
     layer_names: set[LayerName] = Field(..., description="Name of the null layer")
 
     def __str__(self):
@@ -80,7 +90,7 @@ class WL2ArchRemovalLayers(BaseModel):
         return layer_name in self.layer_names
 
     @staticmethod
-    def from_list(layer_names: List[LayerName]) -> 'WL2ArchRemovalLayers':
+    def from_list(layer_names: List[LayerName]) -> "WL2ArchRemovalLayers":
         """
         Create a WL2ArchRemovalLayers instance from a list of layer names.
         """
@@ -93,7 +103,10 @@ class WL2ArchFusedLayers(BaseModel):
     """
     Represents the fused layers in workload to architecture mapping.
     """
-    layer_sequences: List[List[LayerName]] = Field(..., description="Sequences of fused layers")
+
+    layer_sequences: List[List[LayerName]] = Field(
+        ..., description="Sequences of fused layers"
+    )
 
     def __str__(self):
         return f"Fused Layers: {self.layer_sequences}"
@@ -106,7 +119,7 @@ class WL2ArchFusedLayers(BaseModel):
             yield seq
 
     @staticmethod
-    def from_list(spec: List[List[LayerName]]) -> 'WL2ArchFusedLayers':
+    def from_list(spec: List[List[LayerName]]) -> "WL2ArchFusedLayers":
         """
         Create a WL2ArchFusedLayers instance from a list of layer sequences.
         """
@@ -121,25 +134,30 @@ class WL2ArchLayer2ComputePipe(BaseModel):
     """
     Represents the mapping from layers to compute pipelines in workload to architecture mapping.
     """
-    wl_map: Dict[LayerName, PipeName] = Field(..., description="Mapping of workload to architecture details")
+
+    wl_map: Dict[LayerName, PipeName] = Field(
+        ..., description="Mapping of workload to architecture details"
+    )
 
     def __str__(self):
         return f"Layer 2 compute pipe map {self.wl_map}"
 
     def layer_2_pipe(self, layer_name: LayerName) -> PipeName:
-        pipe: Optional[str]  = self.wl_map.get(layer_name, None)
+        pipe: Optional[str] = self.wl_map.get(layer_name, None)
         if pipe is None:
-            raise AssertionError(f'Layer {layer_name} not found in workload to architecture mapping')
+            raise AssertionError(
+                f"Layer {layer_name} not found in workload to architecture mapping"
+            )
         return pipe
 
     @staticmethod
-    def from_dict(spec: dict[str, Any]) -> 'WL2ArchLayer2ComputePipe':
+    def from_dict(spec: dict[str, Any]) -> "WL2ArchLayer2ComputePipe":
         """
         Create a WL2ArchLayer2ComputePipe instance from a dictionary.
         """
         op2rsrc = {}
-        assert 'compute' in spec, "Attribute(compute) missing in op_rsrc_spec"
-        for op_pipe, op_list in spec['compute'].items():
+        assert "compute" in spec, "Attribute(compute) missing in op_rsrc_spec"
+        for op_pipe, op_list in spec["compute"].items():
             op2rsrc.update({o.upper(): op_pipe.lower() for o in op_list})
         return WL2ArchLayer2ComputePipe(wl_map=op2rsrc)
 
@@ -148,10 +166,19 @@ class WL2ArchMap(BaseModel):
     """
     Represents the workload to architecture mapping.
     """
-    data_type_spec: WL2ArchDatatypes = Field(..., description="Data type specifications for operations")
-    removal_spec: WL2ArchRemovalLayers = Field(..., description="Null layers specifications")
-    fusion_spec: WL2ArchFusedLayers = Field(..., description="Fused layers specifications")
-    rsrc_spec: WL2ArchLayer2ComputePipe = Field(..., description="Resource specifications for operations")
+
+    data_type_spec: WL2ArchDatatypes = Field(
+        ..., description="Data type specifications for operations"
+    )
+    removal_spec: WL2ArchRemovalLayers = Field(
+        ..., description="Null layers specifications"
+    )
+    fusion_spec: WL2ArchFusedLayers = Field(
+        ..., description="Fused layers specifications"
+    )
+    rsrc_spec: WL2ArchLayer2ComputePipe = Field(
+        ..., description="Resource specifications for operations"
+    )
 
     def layer_2_datatype(self, layer_name: LayerName) -> TypeName:
         """
@@ -161,32 +188,41 @@ class WL2ArchMap(BaseModel):
         return self.data_type_spec.layer_2_datatype(layer_name)
 
     def __str__(self):
-        return (f"Workload to Architecture Map:\n"
-                f"Data Types: {self.data_type_spec}\n"
-                f"Null Layers: {self.removal_spec}\n"
-                f"Fused Layers: {self.fusion_spec}\n"
-                f"Resource Specs: {self.rsrc_spec}")
+        return (
+            f"Workload to Architecture Map:\n"
+            f"Data Types: {self.data_type_spec}\n"
+            f"Null Layers: {self.removal_spec}\n"
+            f"Fused Layers: {self.fusion_spec}\n"
+            f"Resource Specs: {self.rsrc_spec}"
+        )
 
     @staticmethod
-    def from_yaml(cfg_yaml_file: str) -> 'WL2ArchMap':
+    def from_yaml(cfg_yaml_file: str) -> "WL2ArchMap":
         """
         Create a WL2ArchMap instance from a YAML configuration file.
         """
         cfg_dict = parse_yaml(cfg_yaml_file)
-        required_fields = ['op_data_type_spec', 'op_removal_spec', 'op_fusion_spec', 'op_rsrc_spec']
+        required_fields = [
+            "op_data_type_spec",
+            "op_removal_spec",
+            "op_fusion_spec",
+            "op_rsrc_spec",
+        ]
         for ff in required_fields:
-            assert ff in cfg_dict, f'required attribute: {ff} missing in workload map file: {cfg_yaml_file}'
+            assert (
+                ff in cfg_dict
+            ), f"required attribute: {ff} missing in workload map file: {cfg_yaml_file}"
 
-        data_type_spec = WL2ArchDatatypes.from_dict(cfg_dict['op_data_type_spec'])
-        removal_spec = WL2ArchRemovalLayers.from_list(cfg_dict['op_removal_spec'])
-        fusion_spec = WL2ArchFusedLayers.from_list(cfg_dict['op_fusion_spec'])
-        rsrc_spec = WL2ArchLayer2ComputePipe.from_dict(cfg_dict['op_rsrc_spec'])
+        data_type_spec = WL2ArchDatatypes.from_dict(cfg_dict["op_data_type_spec"])
+        removal_spec = WL2ArchRemovalLayers.from_list(cfg_dict["op_removal_spec"])
+        fusion_spec = WL2ArchFusedLayers.from_list(cfg_dict["op_fusion_spec"])
+        rsrc_spec = WL2ArchLayer2ComputePipe.from_dict(cfg_dict["op_rsrc_spec"])
 
         return WL2ArchMap(
             data_type_spec=data_type_spec,
             removal_spec=removal_spec,
             fusion_spec=fusion_spec,
-            rsrc_spec=rsrc_spec
+            rsrc_spec=rsrc_spec,
         )
 
 
@@ -200,7 +236,9 @@ class WL2ArchTypeSpec:
         Get the instance of WL2ArchDatatypes.
         """
         if cls.instance is None:
-            raise AssertionError("WL2ArchTypeSpec instance not set. Call set_instance() before accessing the singleton.")
+            raise AssertionError(
+                "WL2ArchTypeSpec instance not set. Call set_instance() before accessing the singleton."
+            )
         return cls.instance
 
     @classmethod

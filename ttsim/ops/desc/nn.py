@@ -6,7 +6,7 @@ from ttsim.ops.desc.registry import register_ops
 from ttsim.ops.desc.helpers import unary_fwd, pooling_shape_inference
 from ttsim.utils.common import prod_ints
 import numpy as np
-from .data_compute import compute_grid_sample, compute_dropout
+from .data_compute import compute_gridsample as compute_grid_sample, compute_dropout
 
 
 def grid_sample_fwd(iTList, oTList, op, **kwargs):

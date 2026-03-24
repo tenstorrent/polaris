@@ -335,7 +335,7 @@ def cat(tensors, dim=0):
 
     # Calculate new shape
     new_shape = list(first_tensor.shape)
-    new_shape[dim] = int(np.sum([tensor.shape[dim] for tensor in tensors]))
+    new_shape[dim] = int(np.sum([tensor.shape[dim] for tensor in tensors]))  # type: ignore[call-overload]
 
     # Create the concatenated tensor
     return Tensor(

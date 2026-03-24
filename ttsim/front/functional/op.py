@@ -3,7 +3,8 @@
 # SPDX-License-Identifier: Apache-2.0
 import numpy as np
 from functools import lru_cache, partial
-from typing import Union, Iterator
+from itertools import count as _count
+from typing import Union, Iterator, Optional, Any
 
 from loguru import logger
 from ttsim.graph import WorkloadGraph
@@ -51,42 +52,6 @@ def _from_data(
             "op_out": [],
         }
     )
-
-
-# Helper functions for creating tensors (similar to PyTorch)
-def ones(name: str, shape: list[int], dtype=np.float32) -> SimTensor:
-    """Create a tensor filled with ones"""
-    data = np.ones(shape, dtype=dtype)
-    return _from_data(name, data, is_const=True)
-
-
-def zeros(name: str, shape: list[int], dtype=np.float32) -> SimTensor:
-    """Create a tensor filled with zeros"""
-    data = np.zeros(shape, dtype=dtype)
-    return _from_data(name, data, is_const=True)
-
-
-def full(name: str, shape: list[int], fill_value: float, dtype=np.float32) -> SimTensor:
-    """Create a tensor filled with a specific value"""
-    data = np.full(shape, fill_value, dtype=dtype)
-    return _from_data(name, data, is_const=True)
-
-
-def full_like(name: str, tensor: SimTensor, fill_value: float) -> SimTensor:
-    """Create a tensor filled with a specific value, with shape and dtype matching another tensor"""
-    data = np.full(tensor.shape, fill_value, dtype=tensor.dtype.type)
-    return _from_data(name, data, is_const=True)
-
-
-def as_tensor(
-    name: str, data: Union[np.ndarray, list, tuple, float, int], dtype=None
-) -> SimTensor:
-    """Convert data to a SimTensor"""
-    if not isinstance(data, np.ndarray):
-        data = np.array(data, dtype=dtype if dtype is not None else np.float32)
-    elif dtype is not None:
-        data = data.astype(dtype)
-    return _from_data(name, data, is_const=True)
 
 
 @lru_cache(maxsize=128)
@@ -555,26 +520,12 @@ def Conv2d(name, in_channels, out_channels, kernel_size, **kwargs):
     padding = common.make_tuple(eff_args["padding"], 2 * 2)
     dilation = common.make_tuple(eff_args["dilation"], 2)
     param_dims = [out_channels, in_channels // eff_args["groups"], *kernel_dims]
-
-    # Initialize weights with Kaiming uniform (like PyTorch Conv2d)
-    # https://pytorch.org/docs/stable/nn.init.html#torch.nn.init.kaiming_uniform_
-    fan_in = (in_channels // eff_args["groups"]) * kernel_size * kernel_size
-    bound = np.sqrt(1.0 / fan_in)
-    weight_data = np.random.uniform(-bound, bound, param_dims).astype(np.float32)
-    conv_param = _from_data(name + ".param", weight_data, is_param=True)
-
-    # Create bias tensor if enabled
-    params_list = [(1, conv_param)]
-    if eff_args["bias"]:
-        bias_data = np.random.uniform(-bound, bound, [out_channels]).astype(np.float32)
-        bias_param = _from_data(name + ".bias", bias_data, is_param=True)
-        params_list.append((2, bias_param))
-
+    conv_param = _from_shape(name + ".param", param_dims, is_param=True)
     # NOTE: 'bias' is a fixed argument, not kwarg for ONNX
     op_hndl = SimOpHandle(
         name,
         "Conv",
-        params=params_list,
+        params=[(1, conv_param)],
         ipos=[0],
         group=eff_args[
             "groups"
@@ -649,7 +600,7 @@ def MaxPool2d(name, kernel_size, **kwargs):
     return op_hndl
 
 
-def Dropout(name, /, prob=0.5, train_mode=True, *, module=None, **kwargs):
+def Dropout(name, prob=0.5, train_mode=True, /, *, module=None, **kwargs):
     # SimTensor(/drop/Dropout_output_1) shape=[1, 7, 48], dtype=bool, op_in=[], op_out=['/drop/Dropout'], data=None
     # There are no trainable parameters for Dropout, 'prob' fixes the 'ratio' input1,
     # 'train_mode' fixes the 'training_mode' input2; So we fix in1, and in2 here...
@@ -668,18 +619,8 @@ def Dropout(name, /, prob=0.5, train_mode=True, *, module=None, **kwargs):
     if module is not None:
         module._tensors[ratio.name] = ratio
         module._tensors[training_mode.name] = training_mode
-    # Store prob and train_mode in attrs so dropout_sinf can access them directly
-    # Remove any existing prob/train_mode from kwargs to avoid conflicts
-    kwargs.pop("prob", None)
-    kwargs.pop("train_mode", None)
     op_hndl = SimOpHandle(
-        name,
-        "Dropout",
-        params=[(1, ratio), (2, training_mode)],
-        ipos=[0],
-        prob=prob,
-        train_mode=train_mode,
-        **kwargs,
+        name, "Dropout", params=[(1, ratio), (2, training_mode)], ipos=[0], **kwargs
     )
     return op_hndl
 
@@ -756,6 +697,89 @@ def Split(name, **kwargs):
     return SplitOpHandle(name, ipos=[0, 1], **kwargs)
 
 
+class TopKOpHandle:
+    """TopK operation - returns top K values and indices along an axis."""
+
+    def __init__(self, name, k, axis=-1, largest=True, sorted=True, **kwargs):
+        self.name = name
+        self.optype = "TopK"
+        self.opinfo = get_opinfo(name, "TopK", **kwargs)
+        self.k = k
+        self.axis = axis
+        self.largest = largest
+        self.sorted = sorted
+        self.params = []
+        self.implicit_inputs = []
+        self.sim_op = None
+        self.otensors = []
+        self.perf_stats = None
+        self.link_module = None
+        # Set attributes in opinfo
+        self.opinfo["axis"] = axis
+        self.opinfo["largest"] = 1 if largest else 0
+        self.opinfo["sorted"] = 1 if sorted else 0
+        check_required_attrs(name, "TopK", required_attrs("TopK"), **kwargs)
+
+    def set_module(self, m):
+        self.link_module = m
+
+    def __call__(self, x):
+        # Create k tensor as a constant input
+        k_tensor = _from_data(
+            self.name + ".k",
+            np.array([self.k], dtype=np.int64),
+            is_param=False,
+            is_const=True,
+        )
+        self.implicit_inputs.append(k_tensor)
+
+        # Input tensor setup
+        x.op_in.append(self.name)
+        self.opinfo["inList"].append(x.name)
+        k_tensor.op_in.append(self.name)
+        self.opinfo["inList"].append(k_tensor.name)
+
+        # Output tensor setup - TopK returns 2 outputs: values and indices
+        self.otensors = [
+            SimTensor({"name": self.name + "_values", "op_out": [self.name]}),
+            SimTensor({"name": self.name + "_indices", "op_out": [self.name]}),
+        ]
+        self.opinfo["outList"] = [ot.name for ot in self.otensors]
+
+        # Create relevant SimOp
+        self.sim_op = get_sim_op(self.opinfo, default_dtype=x.dtype)
+
+        # Get perf stats for the SimOp
+        self.perf_stats = self.sim_op.get_perf_counts([x, k_tensor], self.otensors)
+        self.sim_op.update_tensor_counts([x, k_tensor], self.otensors)
+
+        if self.link_module is not None:
+            for ot in self.otensors:
+                ot.link_module = self.link_module
+                if ot not in self.link_module._tensors:
+                    self.link_module._tensors[ot.name] = ot
+
+        return tuple(self.otensors)
+
+
+def TopK(name, k, axis=-1, largest=True, sorted=True, **kwargs):
+    """
+    TopK operation - returns top K values and indices along an axis.
+
+    Args:
+        name: Operation name
+        k: Number of top elements to return
+        axis: Axis along which to find top-k (default: -1)
+        largest: If True, return largest k elements; if False, return smallest
+        sorted: If True, return elements in sorted order
+
+    Returns two outputs:
+        values: Top K values [... , K]
+        indices: Indices of top K values [... , K]
+    """
+    return TopKOpHandle(name, k=k, axis=axis, largest=largest, sorted=sorted, **kwargs)
+
+
 def AdaptiveAvgPool1d(name, adaptive=True, output_size=1, **kwargs):
     op_hndl = SimOpHandle(
         name,
@@ -769,16 +793,31 @@ def AdaptiveAvgPool1d(name, adaptive=True, output_size=1, **kwargs):
     return op_hndl
 
 
-def AdaptiveAvgPool2d(name, adaptive=True, output_size=1, **kwargs):
-    op_hndl = SimOpHandle(
-        name,
-        "AveragePool",
-        params=[],
-        ipos=[0],
-        adaptive=adaptive,
-        output_size=output_size,
-        **kwargs,
-    )
+def AdaptiveAvgPool2d(name, output_size=1, **kwargs):
+    # Implement as ReduceMean over spatial dimensions [2, 3] for 4D tensors (B, C, H, W)
+    # This achieves global average pooling: (b,c,h,w) → (b,c,1,1)
+    if output_size == 1:
+        # ReduceMean over axes [2, 3] (height and width) with keepdims=True
+        axes_tensor = _from_data(
+            name + ".axes",
+            np.array([2, 3], dtype=np.int64),
+            is_param=False,
+            is_const=True,
+        )
+        op_hndl = SimOpHandle(
+            name,
+            "ReduceMean",
+            params=[(1, axes_tensor)],
+            ipos=[0],
+            keepdims=1,
+            **kwargs,
+        )
+        # Store axes_tensor as implicit input for ONNX export
+        op_hndl.implicit_inputs.append(axes_tensor)
+    else:
+        raise NotImplementedError(
+            f"AdaptiveAvgPool2d with output_size={output_size} not yet supported. Only output_size=1 is implemented."
+        )
     return op_hndl
 
 
@@ -787,25 +826,27 @@ def conv1d(name, **kwargs):
     return op_hndl
 
 
-def ReduceSum(name: str, axis: int | None = None, **kwargs):
-    if axis is not None:
-        axesT = _from_data(
-            name + ".axes", np.array([axis], dtype=np.int32), is_param=False, is_const=True
-        )
-        op_hndl = SimOpHandle(name, "ReduceSum", params=[(1, axesT)], ipos=[0], **kwargs)
-    else:
-        op_hndl = SimOpHandle(name, "ReduceSum", params=[], ipos=[0], **kwargs)
+def ReduceSum(name: str, axis: int = 0, **kwargs):
+    axesT = _from_data(
+        name + ".axes", np.array([axis], dtype=np.int32), is_param=False, is_const=True
+    )
+    op_hndl = SimOpHandle(name, "ReduceSum", params=[(1, axesT)], ipos=[0], **kwargs)
     return op_hndl
 
 
-def ReduceMean(name: str, axis: int | None = None, **kwargs):
-    if axis is not None:
-        axesT = _from_data(
-            name + ".axes", np.array([axis], dtype=np.int32), is_param=False, is_const=True
-        )
-        op_hndl = SimOpHandle(name, "ReduceMean", params=[(1, axesT)], ipos=[0], **kwargs)
-    else:
-        op_hndl = SimOpHandle(name, "ReduceMean", params=[], ipos=[0], **kwargs)
+def ReduceMin(name: str, axis: int, **kwargs):
+    axesT = _from_data(
+        name + ".axes", np.array([axis], dtype=np.int32), is_param=False, is_const=True
+    )
+    op_hndl = SimOpHandle(name, "ReduceMin", params=[(1, axesT)], ipos=[0], **kwargs)
+    return op_hndl
+
+
+def ReduceMax(name: str, axis: int, **kwargs):
+    axesT = _from_data(
+        name + ".axes", np.array([axis], dtype=np.int32), is_param=False, is_const=True
+    )
+    op_hndl = SimOpHandle(name, "ReduceMax", params=[(1, axesT)], ipos=[0], **kwargs)
     return op_hndl
 
 
@@ -842,7 +883,6 @@ UnaryOperator = partial(UniversalOperator, params=[], ipos=[0])
 Identity = partial(UnaryOperator, optype="Identity")
 Tanh = partial(UnaryOperator, optype="Tanh")
 Neg = partial(UnaryOperator, optype="Neg")
-Abs = partial(UnaryOperator, optype="Abs")
 exp = partial(UnaryOperator, optype="Exp")
 Cos = partial(UnaryOperator, optype="Cos")
 Sin = partial(UnaryOperator, optype="Sin")
@@ -857,18 +897,30 @@ Shape = partial(UnaryOperator, optype="Shape")
 Transpose = partial(UnaryOperator, optype="Transpose")
 Gelu = partial(UnaryOperator, optype="Gelu")
 Relu = partial(UnaryOperator, optype="Relu")
-Relu6 = partial(UnaryOperator, optype="Relu6")
-Mish = partial(UnaryOperator, optype="Mish")
 LeakyReLU = partial(UnaryOperator, optype="LeakyRelu")
 Sigmoid = partial(UnaryOperator, optype="Sigmoid")
-InverseSigmoid = partial(UnaryOperator, optype="InverseSigmoid")
-Glu = partial(UnaryOperator, optype="Glu")
-Diag = partial(UnaryOperator, optype="Diag")
+Mish = partial(UnaryOperator, optype="Mish")
 AveragePool2d = partial(UnaryOperator, optype="AveragePool")
 Sum = partial(UnaryOperator, optype="Sum")
 Mean = partial(UnaryOperator, optype="Mean")
 Reciprocal = partial(UnaryOperator, optype="Reciprocal")
 Hardswish = partial(UnaryOperator, optype="HardSwish")
+
+
+# Added ReLU6 using Clip with min=0 and max=6
+def Relu6(name, **kwargs):
+    """ReLU6 = Clip(x, min=0, max=6)"""
+    min_tensor = _from_data(
+        name + ".min", np.array([0.0], dtype=np.float32), is_const=True
+    )
+    max_tensor = _from_data(
+        name + ".max", np.array([6.0], dtype=np.float32), is_const=True
+    )
+    op_hndl = SimOpHandle(
+        name, "Clip", params=[(1, min_tensor), (2, max_tensor)], ipos=[0], **kwargs
+    )
+    return op_hndl
+
 
 # Binary Operators
 BinaryOperator = partial(UniversalOperator, params=[], ipos=[0, 1])
@@ -880,102 +932,31 @@ Gather = partial(BinaryOperator, optype="Gather")
 MatMul = partial(BinaryOperator, optype="MatMul")
 Reshape = partial(BinaryOperator, optype="Reshape")
 Pow = partial(BinaryOperator, optype="Pow")
+Atan2 = partial(BinaryOperator, optype="Atan2")
 Unsqueeze = partial(BinaryOperator, optype="Unsqueeze")
 Squeeze = partial(BinaryOperator, optype="Squeeze")
 Tile = partial(BinaryOperator, optype="Tile")
 Equal = partial(BinaryOperator, optype="Equal")
+Greater = partial(BinaryOperator, optype="Greater")
+GreaterOrEqual = partial(BinaryOperator, optype="GreaterOrEqual")
+Less = partial(BinaryOperator, optype="Less")
+LessOrEqual = partial(BinaryOperator, optype="LessOrEqual")
+And = partial(BinaryOperator, optype="And")
+Or = partial(BinaryOperator, optype="Or")
+Mod = partial(BinaryOperator, optype="Mod")
 Assign = partial(BinaryOperator, optype="Assign")
 Pad = partial(BinaryOperator, optype="Pad")
-L1Loss = partial(BinaryOperator, optype="L1Loss")  # legacy; prefer SimNN.L1Loss
-BinaryCrossEntropyWithLogits = partial(
-    BinaryOperator, optype="BinaryCrossEntropyWithLogits"
-)  # added
-Greater = partial(BinaryOperator, optype="Greater")  # added
 
+# Variadic operators that can also work as binary
+# Max and Min are in the variadic table but can be used with 2 inputs
+Maximum = partial(BinaryOperator, optype="Max")  # Element-wise maximum of two tensors
+Minimum = partial(BinaryOperator, optype="Min")  # Element-wise minimum of two tensors
 
-def Cdist(name, x1, x2, p=2.0):
-    """
-    Pairwise distance computation between two collections of row vectors.
-
-    Args:
-        name: Operation name
-        x1: SimTensor [..., P, M] - First collection of row vectors
-        x2: SimTensor [..., R, M] - Second collection of row vectors
-        p: Norm order (default 2.0)
-            p=1: Manhattan distance (L1)
-            p=2: Euclidean distance (L2)
-
-    Returns:
-        SimTensor [..., P, R] - Pairwise distances
-        output[..., i, j] = ||x1[..., i, :] - x2[..., j, :]||_p
-
-    Example:
-        # Compute L1 distance between predictions and targets
-        distances = F.Cdist('bbox_dist', pred_boxes, target_boxes, p=1.0)
-    """
-    # Create opinfo with p as attribute
-    opinfo = get_opinfo(name, "Cdist", p=p)
-
-    # Setup input tensors
-    x1.op_in.append(name)
-    opinfo["inList"].append(x1.name)
-    x2.op_in.append(name)
-    opinfo["inList"].append(x2.name)
-
-    # Create output tensor
-    otensor = get_output(name)
-    opinfo["outList"] = [otensor.name]
-
-    # Create SimOp
-    sim_op = get_sim_op(opinfo, default_dtype=x1.dtype)
-
-    # Get perf stats
-    sim_op.get_perf_counts([x1, x2], [otensor])
-    sim_op.update_tensor_counts([x1, x2], [otensor])
-
-    return otensor
-
-
-# Variadic Operators
-def Einsum(name, subscripts, *operands):
-    """
-    Einstein summation operation.
-
-    Args:
-        name: Operation name
-        subscripts: Einsum notation string (e.g., "bqnc,bnchw->bqnhw")
-        *operands: Variable number of input tensors
-
-    Returns:
-        Output tensor from einsum operation
-
-    Example:
-        # Batched matrix multiplication with specific dimensions
-        result = F.Einsum('attn_weights', 'bqnc,bnchw->bqnhw', queries, keys)
-    """
-    # Create opinfo with subscripts as attribute
-    opinfo = get_opinfo(name, "Einsum", subscripts=subscripts)
-
-    # Setup input tensors
-    for x in operands:
-        x.op_in.append(name)
-        opinfo["inList"].append(x.name)
-
-    # Create output tensor
-    otensor = get_output(name)
-    opinfo["outList"] = [otensor.name]
-
-    # Create SimOp
-    sim_op = get_sim_op(
-        opinfo, default_dtype=operands[0].dtype if operands else np.float32
-    )
-
-    # Get perf stats
-    sim_op.get_perf_counts(list(operands), [otensor])
-    sim_op.update_tensor_counts(list(operands), [otensor])
-
-    return otensor
-
+# Unary operations that return indices/masks
+Sign = partial(UnaryOperator, optype="Sign")
+Atan = partial(UnaryOperator, optype="Atan")
+NonZero = partial(UnaryOperator, optype="NonZero")
+Floor = partial(UnaryOperator, optype="Floor")
 
 # Ternary Operators
 TernaryOperator = partial(UniversalOperator, params=[], ipos=[0, 1, 2])
@@ -991,5 +972,121 @@ VoxelPooling = partial(FourAryOperator, optype="VoxelPooling")
 # class VariadicInputOpHandle:
 #    def __init__(self, name, optype, input_range, /, **kwargs):
 ConcatX = partial(VariadicInputOpHandle, optype="Concat", input_range=(2, float("inf")))
+Concat = ConcatX  # alias for ConcatX
 TriluX = partial(VariadicInputOpHandle, optype="Trilu", input_range=(1, 2))
 SliceF = partial(VariadicInputOpHandle, optype="Slice", input_range=(3, 6))
+_stack_counter = _count(start=1, step=1)
+
+
+def Stack(inputs, /, axis=0, name=None, **kwargs):
+    """Stack a list of tensors along a new dimension. Functional form: Stack(list, axis=N)."""
+    n = name or f"_stack_{next(_stack_counter)}"
+    h = VariadicInputOpHandle(
+        n, optype="Stack", input_range=(1, float("inf")), axis=axis, **kwargs
+    )
+    return h(*inputs)
+
+
+Stack.__doc__ = "Stack a list of tensors along a new axis."
+
+_const_counter = _count(start=1, step=1)
+
+
+def Constant(value, shape=None, dtype=None):
+    """Create a constant (scalar or tensor) SimTensor from a Python/numpy value."""
+    name = f"_const_{next(_const_counter)}"
+    if isinstance(value, np.ndarray):
+        data = value
+    else:
+        np_dtype: Any = np.float32
+        if dtype is not None:
+            if hasattr(dtype, "numpy_dtype"):
+                np_dtype = dtype.numpy_dtype
+            elif isinstance(dtype, np.dtype):
+                np_dtype = dtype
+        if shape is not None:
+            data = np.full(shape, value, dtype=np_dtype)
+        else:
+            data = np.array([value], dtype=np_dtype)
+    return _from_data(name, data, is_param=False, is_const=True)
+
+
+_gs_counter = _count(start=1, step=1)
+
+
+def GridSample(
+    input,
+    grid,
+    /,
+    mode="bilinear",
+    padding_mode="zeros",
+    align_corners=True,
+    name=None,
+    **kwargs,
+):
+    """Grid sample operation: samples input using grid coordinates. Functional form returning output tensor."""
+    n = name or f"_gridsample_{next(_gs_counter)}"
+    h = SimOpHandle(
+        n,
+        "GridSample",
+        params=[],
+        ipos=[0, 1],
+        mode=mode,
+        padding_mode=padding_mode,
+        align_corners=align_corners,
+        **kwargs,
+    )
+    return h(input, grid)
+
+
+def zeros(
+    name: str,
+    shape: list,
+    dtype=None,
+    **kwargs,
+) -> "SimTensor":
+    """Create a zero-filled constant SimTensor."""
+    import numpy as _np
+    np_dtype: Any = np.float32
+    if dtype is not None:
+        if hasattr(dtype, "numpy_dtype"):
+            np_dtype = dtype.numpy_dtype
+        elif isinstance(dtype, _np.dtype):
+            np_dtype = dtype
+    data = _np.zeros(shape, dtype=np_dtype)
+    return _from_data(name, data, is_param=False, is_const=True)
+
+
+Glu = partial(UnaryOperator, optype="Glu")
+InverseSigmoid = partial(UnaryOperator, optype="InverseSigmoid")
+
+_einsum_counter = _count(start=1, step=1)
+
+
+def Einsum(name: str, equation: str, /, *inputs, **kwargs) -> "SimTensor":
+    """Einsum operation: applies an Einstein summation to the inputs."""
+    n = name or f"_einsum_{next(_einsum_counter)}"
+    h = VariadicInputOpHandle(
+        n, optype="Einsum", input_range=(1, float("inf")), equation=equation, **kwargs
+    )
+    return h(*inputs)
+
+
+def Slice(name: str, /, starts, ends, axes=None, steps=None, **kwargs):
+    """Slice operation with starts/ends/axes/steps specified as lists."""
+    starts_t = _from_data(
+        name + ".starts", np.array(starts, dtype=np.int64), is_const=True
+    )
+    ends_t = _from_data(name + ".ends", np.array(ends, dtype=np.int64), is_const=True)
+    params: list = [(1, starts_t), (2, ends_t)]
+    if axes is not None:
+        axes_t = _from_data(
+            name + ".axes", np.array(axes, dtype=np.int64), is_const=True
+        )
+        params.append((3, axes_t))
+    if steps is not None:
+        steps_t = _from_data(
+            name + ".steps", np.array(steps, dtype=np.int64), is_const=True
+        )
+        params.append((4, steps_t))
+    return SimOpHandle(name, "Slice", params=params, ipos=[0], **kwargs)
