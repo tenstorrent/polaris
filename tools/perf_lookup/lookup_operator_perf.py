@@ -11,6 +11,11 @@ logical **8-tuple** (one input) or **15-tuple** (two inputs) key. Resolves ``sin
 is controlled by :class:`OperatorPerfMap` ``use_hybrid_curve`` (default ``False``: ``single`` only).
 See ``doc/tools/perf_lookup/LOOKUP_TABLE_MASTER.md``.
 
+On a **hit** (``msecs`` resolves), **``matrix_pipe_util``** and **``vector_pipe_util``** must resolve
+(finite percentages in **[0, 100]** inclusive; **0** allowed). Optional util keys
+``mem_util``, ``noc_util``, ``noc_multicast_util``, ``npe_cong_impact_pct`` are validated the same way
+when present. Failures raise :class:`OperatorPerfLUTValidationError` (``Device`` re-raises and terminates).
+
 TTNN stores logical BF16 as ``numpy.float16`` (see ``ttsim/front/ttnn/tensor.py``); for LUT keys we
 treat that storage as ``BFLOAT16`` unless ``op_precision`` is IEEE FP16 (``fp16`` / ``FLOAT16``).
 
@@ -20,6 +25,7 @@ from the tensor's rank-4 logical ``(w, z, y, x)`` (see :func:`_reshape_input0_lu
 
 from __future__ import annotations
 
+import math
 import sys
 from dataclasses import dataclass
 from pathlib import Path
@@ -55,16 +61,99 @@ _DEFAULT_CORE_COUNT_FALLBACK = 64
 # ``reshape``: second input is often a small shape/constant tensor, not profiled as input_1.
 _BINARY_LUT_FALLBACK_TO_INPUT0_KEY_OPCODES = frozenset({"mul", "reshape"})
 
+# Percentages 0–100 inclusive in master YAML / curve-evaluated stats (not 0–1 fractions).
+LUT_OPTIONAL_UTIL_PERCENT_KEYS = frozenset(
+    {"mem_util", "noc_util", "noc_multicast_util", "npe_cong_impact_pct"}
+)
+
+
+class OperatorPerfLUTValidationError(ValueError):
+    """Raised when a matched LUT row is missing required stats or has invalid utilization percentages."""
+
+
+def _raise_lut_validation(lut_path: Path, key_t: tuple, detail: str) -> None:
+    raise OperatorPerfLUTValidationError(
+        f"Operator perf LUT validation failed (file={lut_path}, key={key_t}): {detail}"
+    )
+
+
+def _validate_required_util_percent(
+    name: str, raw: Any, lut_path: Path, key_t: tuple
+) -> float:
+    """Require a finite percentage in [0, 100]. ``raw`` is the resolved scalar from the LUT row."""
+    if raw is None:
+        _raise_lut_validation(
+            lut_path,
+            key_t,
+            f"required field {name!r} is missing or null; when a LUT row matches, "
+            "matrix_pipe_util and vector_pipe_util must both be provided "
+            "(percentages 0–100 inclusive; 0 is allowed).",
+        )
+    if isinstance(raw, bool):
+        _raise_lut_validation(
+            lut_path, key_t, f"field {name!r} has invalid type bool, value={raw!r}"
+        )
+    if not isinstance(raw, (int, float)):
+        _raise_lut_validation(
+            lut_path,
+            key_t,
+            f"field {name!r} must be a number, got {type(raw).__name__}, value={raw!r}",
+        )
+    v = float(raw)
+    if not math.isfinite(v):
+        _raise_lut_validation(lut_path, key_t, f"field {name!r} must be finite, got {raw!r}")
+    if v < 0.0 or v > 100.0:
+        _raise_lut_validation(
+            lut_path,
+            key_t,
+            f"field {name!r} must be a percentage in [0, 100] inclusive, got {v!r}",
+        )
+    return v
+
+
+def _validate_optional_util_percent(
+    name: str, raw: Any, lut_path: Path, key_t: tuple
+) -> Optional[float]:
+    """If ``raw`` is None, return None; else same rules as required util percent."""
+    if raw is None:
+        return None
+    if isinstance(raw, bool):
+        _raise_lut_validation(
+            lut_path, key_t, f"field {name!r} has invalid type bool, value={raw!r}"
+        )
+    if not isinstance(raw, (int, float)):
+        _raise_lut_validation(
+            lut_path,
+            key_t,
+            f"field {name!r} must be a number or null, got {type(raw).__name__}, value={raw!r}",
+        )
+    v = float(raw)
+    if not math.isfinite(v):
+        _raise_lut_validation(
+            lut_path, key_t, f"field {name!r} must be finite when present, got {raw!r}"
+        )
+    if v < 0.0 or v > 100.0:
+        _raise_lut_validation(
+            lut_path,
+            key_t,
+            f"field {name!r} must be a percentage in [0, 100] inclusive when present, got {v!r}",
+        )
+    return v
+
 
 @dataclass(frozen=True)
 class MasterPerfStats:
-    """Resolved profiler row for one op (after single/curve/hybrid evaluation)."""
+    """Resolved profiler row for one op (after single/curve/hybrid evaluation).
+
+    ``matrix_pipe_util`` and ``vector_pipe_util`` are percentages in **[0, 100]** (not fractions).
+    ``Device.get_exec_stats`` divides by 100 for exec_stats / CSV. Optional ``mem_util`` is the same.
+    """
 
     msecs: float
+    matrix_pipe_util: float
+    vector_pipe_util: float
     memory_traffic: Optional[float] = None
     mem_util: Optional[float] = None
-    vector_pipe_util: Optional[float] = None
-    matrix_pipe_util: Optional[float] = None
 
 
 def _eval_curve_value(family: str, a: float, b: float, core_count: int) -> float:
@@ -417,12 +506,30 @@ class OperatorPerfMap:
             )
             return None
 
+        lut_path = self._source_path
+        matrix_pipe_util = _validate_required_util_percent(
+            "matrix_pipe_util", resolve("matrix_pipe_util"), lut_path, key_t
+        )
+        vector_pipe_util = _validate_required_util_percent(
+            "vector_pipe_util", resolve("vector_pipe_util"), lut_path, key_t
+        )
+
+        mem_util = _validate_optional_util_percent(
+            "mem_util", resolve("mem_util"), lut_path, key_t
+        )
+        for opt in LUT_OPTIONAL_UTIL_PERCENT_KEYS:
+            if opt == "mem_util":
+                continue
+            v = resolve(opt)
+            if v is not None:
+                _validate_optional_util_percent(opt, v, lut_path, key_t)
+
         return MasterPerfStats(
             msecs=float(msecs),
+            matrix_pipe_util=matrix_pipe_util,
+            vector_pipe_util=vector_pipe_util,
             memory_traffic=resolve("memory_traffic"),
-            mem_util=resolve("mem_util"),
-            vector_pipe_util=resolve("vector_pipe_util"),
-            matrix_pipe_util=resolve("matrix_pipe_util"),
+            mem_util=mem_util,
         )
 
     def lookup(

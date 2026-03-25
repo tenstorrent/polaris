@@ -207,6 +207,150 @@ def test_unary_single_lookup_hit(tmp_path: Path):
 
 
 @pytest.mark.unit
+def test_lut_yaml_missing_matrix_pipe_util_rejected_at_load(tmp_path: Path):
+    """Loader requires full single payload including matrix/vector util keys."""
+    from tools.perf_lookup.lookup_operator_perf import OperatorPerfMap
+
+    bad_value = {k: v for k, v in _flat_single_value(8).items() if k != "matrix_pipe_util"}
+    doc = {
+        "schema_name": "correqn.tt-perf-master",
+        "schema_version": 1,
+        "entries": [
+            {
+                "key": {
+                    "op_code": "softmax",
+                    "input_0_w_pad_logical": 1,
+                    "input_0_z_pad_logical": 1,
+                    "input_0_y_pad_logical": 2,
+                    "input_0_x_pad_logical": 3,
+                    "input_0_layout": "TILE",
+                    "input_0_datatype": "BFLOAT16",
+                    "input_0_memory": "DEV_1_DRAM_INTERLEAVED",
+                },
+                "value": bad_value,
+            }
+        ],
+    }
+    p = tmp_path / "bad_matrix.yaml"
+    p.write_text(yaml.dump(doc, sort_keys=False), encoding="utf-8")
+    with pytest.raises(ValueError, match="matrix_pipe_util"):
+        OperatorPerfMap(p)
+
+
+@pytest.mark.unit
+def test_curve_hit_missing_vector_pipe_util_raises_at_lookup(tmp_path: Path):
+    """Curve rows may omit stats in YAML; resolver returns null → OperatorPerfLUTValidationError."""
+    from tools.perf_lookup.lookup_operator_perf import OperatorPerfLUTValidationError, OperatorPerfMap
+
+    doc = {
+        "schema_name": "correqn.tt-perf-master",
+        "schema_version": 1,
+        "entries": [
+            {
+                "key": {
+                    "op_code": "add",
+                    "input_0_w_pad_logical": 1,
+                    "input_0_z_pad_logical": 1,
+                    "input_0_y_pad_logical": 1,
+                    "input_0_x_pad_logical": 1,
+                    "input_0_layout": "TILE",
+                    "input_0_datatype": "BFLOAT16",
+                    "input_0_memory": "DEV_1_DRAM_INTERLEAVED",
+                    "input_1_w_pad_logical": 1,
+                    "input_1_z_pad_logical": 1,
+                    "input_1_y_pad_logical": 1,
+                    "input_1_x_pad_logical": 1,
+                    "input_1_layout": "TILE",
+                    "input_1_datatype": "BFLOAT16",
+                    "input_1_memory": "DEV_1_DRAM_INTERLEAVED",
+                },
+                "value": {
+                    "entry_type": "curve",
+                    "curve_family": "linear",
+                    "msecs": _curve_stat(0.01, 0.2),
+                    "matrix_pipe_util": _curve_stat(0.5, 10.0),
+                },
+            }
+        ],
+    }
+    p = tmp_path / "curve_no_vector.yaml"
+    p.write_text(yaml.dump(doc, sort_keys=False), encoding="utf-8")
+    m = OperatorPerfMap(p)
+    t0 = SimTensor({"name": "a", "shape": [1, 1, 1, 1], "op_in": [], "op_out": []})
+    t1 = SimTensor({"name": "b", "shape": [1, 1, 1, 1], "op_in": [], "op_out": []})
+    op = SimpleNamespace(optype="add", precision="BF16", inList=["a", "b"])
+    g = SimpleNamespace(_tensors={"a": t0, "b": t1})
+    with pytest.raises(OperatorPerfLUTValidationError, match="vector_pipe_util"):
+        m.lookup(op, g, core_count=10)
+
+
+@pytest.mark.unit
+def test_lut_util_percent_out_of_range_raises(tmp_path: Path):
+    from tools.perf_lookup.lookup_operator_perf import OperatorPerfLUTValidationError, OperatorPerfMap
+
+    doc = {
+        "schema_name": "correqn.tt-perf-master",
+        "schema_version": 1,
+        "entries": [
+            {
+                "key": {
+                    "op_code": "softmax",
+                    "input_0_w_pad_logical": 1,
+                    "input_0_z_pad_logical": 1,
+                    "input_0_y_pad_logical": 2,
+                    "input_0_x_pad_logical": 3,
+                    "input_0_layout": "TILE",
+                    "input_0_datatype": "BFLOAT16",
+                    "input_0_memory": "DEV_1_DRAM_INTERLEAVED",
+                },
+                "value": _flat_single_value(8, msecs=0.03, matrix_pipe_util=100.01),
+            }
+        ],
+    }
+    p = tmp_path / "bad_pct.yaml"
+    p.write_text(yaml.dump(doc, sort_keys=False), encoding="utf-8")
+    m = OperatorPerfMap(p)
+    t0 = SimTensor({"name": "a", "shape": [1, 2, 3], "op_in": [], "op_out": []})
+    op = SimpleNamespace(optype="Softmax", precision="BF16", inList=["a"])
+    g = SimpleNamespace(_tensors={"a": t0})
+    with pytest.raises(OperatorPerfLUTValidationError, match="matrix_pipe_util"):
+        m.lookup(op, g, core_count=8)
+
+
+@pytest.mark.unit
+def test_lut_optional_noc_util_out_of_range_raises(tmp_path: Path):
+    from tools.perf_lookup.lookup_operator_perf import OperatorPerfLUTValidationError, OperatorPerfMap
+
+    doc = {
+        "schema_name": "correqn.tt-perf-master",
+        "schema_version": 1,
+        "entries": [
+            {
+                "key": {
+                    "op_code": "softmax",
+                    "input_0_w_pad_logical": 1,
+                    "input_0_z_pad_logical": 1,
+                    "input_0_y_pad_logical": 2,
+                    "input_0_x_pad_logical": 3,
+                    "input_0_layout": "TILE",
+                    "input_0_datatype": "BFLOAT16",
+                    "input_0_memory": "DEV_1_DRAM_INTERLEAVED",
+                },
+                "value": _flat_single_value(8, msecs=0.03, noc_util=-0.1),
+            }
+        ],
+    }
+    p = tmp_path / "bad_noc.yaml"
+    p.write_text(yaml.dump(doc, sort_keys=False), encoding="utf-8")
+    m = OperatorPerfMap(p)
+    t0 = SimTensor({"name": "a", "shape": [1, 2, 3], "op_in": [], "op_out": []})
+    op = SimpleNamespace(optype="Softmax", precision="BF16", inList=["a"])
+    g = SimpleNamespace(_tensors={"a": t0})
+    with pytest.raises(OperatorPerfLUTValidationError, match="noc_util"):
+        m.lookup(op, g, core_count=8)
+
+
+@pytest.mark.unit
 def test_binary_mul_falls_back_to_unary_lut_key(tmp_path: Path):
     """Master YAML may only have 8-tuple ``mul`` (input_0); graph has two operands (15-tuple)."""
     from tools.perf_lookup.lookup_operator_perf import OperatorPerfMap
@@ -480,6 +624,11 @@ def test_curve_linear_multi_stat(tmp_path: Path):
                 b: 10.0
                 r2: 0.95
                 equation: "matrix linear"
+              vector_pipe_util:
+                a: 0.1
+                b: 3.0
+                r2: 1.0
+                equation: "vector linear"
         """
     )
     p = tmp_path / "c.yaml"
@@ -495,6 +644,7 @@ def test_curve_linear_multi_stat(tmp_path: Path):
     assert st is not None
     assert st.msecs == pytest.approx(0.01 * 10 + 0.2)
     assert st.matrix_pipe_util == pytest.approx(0.5 * 10 + 10.0)
+    assert st.vector_pipe_util == pytest.approx(0.1 * 10 + 3.0)
     assert st.memory_traffic is None
 
 
@@ -528,6 +678,8 @@ def test_curve_power_msecs(tmp_path: Path):
                     "entry_type": "curve",
                     "curve_family": "power",
                     "msecs": _curve_stat(2.0, 0.5),
+                    "matrix_pipe_util": _curve_stat(2.5, 0.5),
+                    "vector_pipe_util": _curve_stat(3.0, 0.5),
                 },
             }
         ],
@@ -544,6 +696,8 @@ def test_curve_power_msecs(tmp_path: Path):
     st = m.lookup(op, g, core_count=4)
     assert st is not None
     assert st.msecs == pytest.approx(2.0 * (4**0.5))
+    assert st.matrix_pipe_util == pytest.approx(2.5 * (4**0.5))
+    assert st.vector_pipe_util == pytest.approx(3.0 * (4**0.5))
 
 
 @pytest.mark.unit
@@ -642,6 +796,7 @@ def test_hybrid_matmul_uses_curve_when_use_hybrid_curve_true(tmp_path: Path):
                         "curve_family": "linear",
                         "msecs": _curve_stat(0.02, 0.1, equation="msecs"),
                         "matrix_pipe_util": _curve_stat(0.1, 5.0, equation="matrix"),
+                        "vector_pipe_util": _curve_stat(0.05, 2.0, equation="vector"),
                     },
                 },
             }
@@ -663,4 +818,6 @@ def test_hybrid_matmul_uses_curve_when_use_hybrid_curve_true(tmp_path: Path):
     assert st.msecs == pytest.approx(expected_m)
     expected_matrix = _eval_curve_value(MASTER_CURVE_FAMILY_LINEAR, 0.1, 5.0, core)
     assert st.matrix_pipe_util == pytest.approx(expected_matrix)
+    expected_vector = _eval_curve_value(MASTER_CURVE_FAMILY_LINEAR, 0.05, 2.0, core)
+    assert st.vector_pipe_util == pytest.approx(expected_vector)
     assert st.msecs != pytest.approx(9.99)

@@ -47,6 +47,8 @@ MASTER_ENTRY_TYPE_CURVE = "curve"
 MASTER_ENTRY_TYPE_HYBRID = "hybrid"
 
 # Flat ``entry_type: single`` payload: ``num_cores`` plus the stat keys below (same under ``hybrid.single``).
+# Util keys (*_util, *impact_pct, *pipe_util) are profiler-style **percentages**; Polaris lookup requires
+# ``matrix_pipe_util`` and ``vector_pipe_util`` to resolve on every hit and validates [0, 100] when present.
 MASTER_SINGLE_NUM_CORES_KEY = "num_cores"
 MASTER_SINGLE_STAT_KEYS = (
     MASTER_DURATION_MS_KEY,
