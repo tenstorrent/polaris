@@ -270,6 +270,12 @@ class TTSimHLWlDevRunOpCSVPerfStats(BaseModel, extra='forbid'):
     mem_wr_util: float = Field(
         description = 'Memory Wr Utilization'
     )
+    memory_traffic: float = Field(
+        description = 'Bytes of memory traffic from tt-perf master lookup when uses_perf_lookup; else 0'
+    )
+    mem_util: float = Field(
+        description = 'Profiler DRAM utilization (0–1) from tt-perf master lookup when present; else 0'
+    )
     uses_perf_lookup: bool = Field(
         description = 'Whether msecs were obtained from operator performance lookup'
     )
@@ -320,6 +326,8 @@ class TTSimHLWlDevRunOperatorPerfStats(BaseModel, extra='forbid'):
     vector_pipe_util: float
     mem_rd_util: float
     mem_wr_util: float
+    memory_traffic: float
+    mem_util: float
     uses_perf_lookup: bool
 
 class TTSimHLWlDevRunPerfStats(BaseModel, extra='forbid'):
