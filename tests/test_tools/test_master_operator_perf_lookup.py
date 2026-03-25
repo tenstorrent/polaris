@@ -1,0 +1,666 @@
+# SPDX-FileCopyrightText: (C) 2025 Tenstorrent AI ULC
+# SPDX-License-Identifier: Apache-2.0
+
+"""Tests for tt-perf master operator perf lookup."""
+
+from __future__ import annotations
+
+import textwrap
+from pathlib import Path
+from types import SimpleNamespace
+
+import numpy as np
+import pytest
+import yaml
+
+from tools.perf_lookup.tt_perf_master_schema import MASTER_SINGLE_STAT_KEYS
+from ttsim.ops.tensor import SimTensor
+
+
+def _flat_single_value(num_cores: int, **stat_overrides):
+    """Valid ``entry_type: single`` payload (all ``MASTER_SINGLE_STAT_KEYS`` + ``num_cores``)."""
+    out = {
+        "entry_type": "single",
+        "num_cores": num_cores,
+        "msecs": 0.0,
+        "memory_traffic": 0.0,
+        "mem_util": 0.0,
+        "noc_util": 0.0,
+        "noc_multicast_util": 0.0,
+        "npe_cong_impact_pct": 0.0,
+        "vector_pipe_util": 0.0,
+        "matrix_pipe_util": 0.0,
+    }
+    for k in MASTER_SINGLE_STAT_KEYS:
+        assert k in out
+    out.update(stat_overrides)
+    return out
+
+
+def _hybrid_single_branch(num_cores: int, **stat_overrides) -> dict:
+    """Inner ``hybrid.single`` mapping (no ``entry_type``)."""
+    inner = _flat_single_value(num_cores, **stat_overrides)
+    del inner["entry_type"]
+    return inner
+
+
+def _curve_stat(a: float, b: float, r2: float = 1.0, equation: str = "x") -> dict:
+    return {"a": a, "b": b, "r2": r2, "equation": equation}
+
+
+@pytest.mark.unit
+def test_build_master_key_tuple_rank3_and_rank2():
+    from tools.perf_lookup.lookup_operator_perf import build_master_key_tuple_15
+
+    t0 = SimTensor(
+        {
+            "name": "a",
+            "shape": [8, 224, 768],
+            "op_in": [],
+            "op_out": [],
+        }
+    )
+    t1 = SimTensor(
+        {
+            "name": "b",
+            "shape": [768, 768],
+            "op_in": [],
+            "op_out": [],
+        }
+    )
+    op = SimpleNamespace(optype="Matmul", precision="BF16", inList=["a", "b"])
+    key = build_master_key_tuple_15(op, t0, t1)
+    assert key[0] == "matmul"
+    assert key[1:5] == (1, 8, 224, 768)
+    assert key[5:8] == ("TILE", "BFLOAT16", "DEV_1_DRAM_INTERLEAVED")
+    assert key[8:12] == (1, 1, 768, 768)
+    assert key[12:15] == ("TILE", "BFLOAT16", "DEV_1_DRAM_INTERLEAVED")
+
+
+@pytest.mark.unit
+def test_build_master_key_tuple_8():
+    from tools.perf_lookup.lookup_operator_perf import build_master_key_tuple_8
+
+    t0 = SimTensor(
+        {
+            "name": "x",
+            "shape": [1, 197, 768],
+            "op_in": [],
+            "op_out": [],
+        }
+    )
+    op = SimpleNamespace(optype="Softmax", precision="BF16", inList=["x"])
+    key = build_master_key_tuple_8(op, t0)
+    assert len(key) == 8
+    assert key[0] == "softmax"
+    assert key[1:5] == (1, 1, 197, 768)
+    assert key[5:8] == ("TILE", "BFLOAT16", "DEV_1_DRAM_INTERLEAVED")
+
+
+@pytest.mark.unit
+def test_reshape_master_key_packs_input0_wzyx():
+    """LUT uses (1, 1, w*z*y, x) for reshape input_0 vs raw rank-4 logical shape."""
+    from tools.perf_lookup.lookup_operator_perf import build_master_key_tuple_8, build_master_key_tuple_15
+
+    t0 = SimTensor(
+        {
+            "name": "a",
+            "shape": [1, 8, 224, 768],
+            "dtype": np.dtype(np.float16),
+            "op_in": [],
+            "op_out": [],
+        }
+    )
+    t0.layout = SimpleNamespace(name="ROW_MAJOR_LAYOUT")
+    t1 = SimTensor(
+        {
+            "name": "b",
+            "shape": [1, 1, 1, 4],
+            "dtype": np.dtype(np.int8),
+            "op_in": [],
+            "op_out": [],
+        }
+    )
+    op8 = SimpleNamespace(optype="Reshape", precision="BF16", inList=["a"])
+    k8 = build_master_key_tuple_8(op8, t0)
+    assert k8[0] == "reshape"
+    assert k8[1:5] == (1, 1, 1 * 8 * 224, 768)
+    op15 = SimpleNamespace(optype="Reshape", precision="BF16", inList=["a", "b"])
+    k15 = build_master_key_tuple_15(op15, t0, t1)
+    assert k15[0] == "reshape"
+    assert k15[1:5] == (1, 1, 1792, 768)
+    assert k15[8:12] == (1, 1, 1, 4)
+
+
+@pytest.mark.unit
+def test_numpy_float16_storage_maps_to_bfloat16_lut_with_bf16_precision():
+    """TTNN stores logical BF16 as ``np.float16``; LUT keys use ``BFLOAT16``."""
+    from tools.perf_lookup.lookup_operator_perf import build_master_key_tuple_8
+
+    t0 = SimTensor(
+        {
+            "name": "x",
+            "shape": [1, 1, 197, 768],
+            "dtype": np.dtype(np.float16),
+            "op_in": [],
+            "op_out": [],
+        }
+    )
+    op = SimpleNamespace(optype="Softmax", precision="bf16", inList=["x"])
+    key = build_master_key_tuple_8(op, t0)
+    assert key[6] == "BFLOAT16"
+
+
+@pytest.mark.unit
+def test_numpy_float16_storage_maps_to_float16_lut_with_fp16_precision():
+    from tools.perf_lookup.lookup_operator_perf import build_master_key_tuple_8
+
+    t0 = SimTensor(
+        {
+            "name": "x",
+            "shape": [1, 1, 197, 768],
+            "dtype": np.dtype(np.float16),
+            "op_in": [],
+            "op_out": [],
+        }
+    )
+    op = SimpleNamespace(optype="Softmax", precision="fp16", inList=["x"])
+    key = build_master_key_tuple_8(op, t0)
+    assert key[6] == "FLOAT16"
+
+
+@pytest.mark.unit
+def test_unary_single_lookup_hit(tmp_path: Path):
+    from tools.perf_lookup.lookup_operator_perf import OperatorPerfMap
+
+    doc = {
+        "schema_name": "correqn.tt-perf-master",
+        "schema_version": 1,
+        "entries": [
+            {
+                "key": {
+                    "op_code": "softmax",
+                    "input_0_w_pad_logical": 1,
+                    "input_0_z_pad_logical": 1,
+                    "input_0_y_pad_logical": 2,
+                    "input_0_x_pad_logical": 3,
+                    "input_0_layout": "TILE",
+                    "input_0_datatype": "BFLOAT16",
+                    "input_0_memory": "DEV_1_DRAM_INTERLEAVED",
+                },
+                "value": _flat_single_value(8, msecs=0.03, mem_util=20.0),
+            }
+        ],
+    }
+    p = tmp_path / "unary.yaml"
+    p.write_text(yaml.dump(doc, sort_keys=False), encoding="utf-8")
+    m = OperatorPerfMap(p)
+
+    t0 = SimTensor({"name": "a", "shape": [1, 2, 3], "op_in": [], "op_out": []})
+    op = SimpleNamespace(optype="Softmax", precision="BF16", inList=["a"])
+    g = SimpleNamespace(_tensors={"a": t0})
+
+    st = m.lookup(op, g, core_count=8)
+    assert st is not None
+    assert st.msecs == pytest.approx(0.03)
+    assert st.mem_util == pytest.approx(20.0)
+
+
+@pytest.mark.unit
+def test_binary_mul_falls_back_to_unary_lut_key(tmp_path: Path):
+    """Master YAML may only have 8-tuple ``mul`` (input_0); graph has two operands (15-tuple)."""
+    from tools.perf_lookup.lookup_operator_perf import OperatorPerfMap
+
+    doc = {
+        "schema_name": "correqn.tt-perf-master",
+        "schema_version": 1,
+        "entries": [
+            {
+                "key": {
+                    "op_code": "mul",
+                    "input_0_w_pad_logical": 8,
+                    "input_0_z_pad_logical": 12,
+                    "input_0_y_pad_logical": 224,
+                    "input_0_x_pad_logical": 224,
+                    "input_0_layout": "TILE",
+                    "input_0_datatype": "BFLOAT16",
+                    "input_0_memory": "DEV_1_DRAM_INTERLEAVED",
+                },
+                "value": _flat_single_value(64, msecs=0.095, vector_pipe_util=51.0),
+            }
+        ],
+    }
+    p = tmp_path / "mul_unary_only.yaml"
+    p.write_text(yaml.dump(doc, sort_keys=False), encoding="utf-8")
+    m = OperatorPerfMap(p)
+
+    t0 = SimTensor({"name": "a", "shape": [8, 12, 224, 224], "op_in": [], "op_out": []})
+    t1 = SimTensor({"name": "b", "shape": [1, 1, 1, 1], "op_in": [], "op_out": []})
+    op = SimpleNamespace(optype="Mul", precision="BF16", inList=["a", "b"])
+    g = SimpleNamespace(_tensors={"a": t0, "b": t1})
+
+    st = m.lookup(op, g, core_count=64)
+    assert st is not None
+    assert st.msecs == pytest.approx(0.095)
+    assert st.vector_pipe_util == pytest.approx(51.0)
+
+
+@pytest.mark.unit
+def test_binary_reshape_falls_back_to_unary_lut_key(tmp_path: Path):
+    """LUT has unary ``reshape``; graph pairs data tensor with a small shape constant (15-tuple miss)."""
+    from tools.perf_lookup.lookup_operator_perf import OperatorPerfMap
+
+    doc = {
+        "schema_name": "correqn.tt-perf-master",
+        "schema_version": 1,
+        "entries": [
+            {
+                "key": {
+                    "op_code": "reshape",
+                    "input_0_w_pad_logical": 1,
+                    "input_0_z_pad_logical": 1,
+                    "input_0_y_pad_logical": 1792,
+                    "input_0_x_pad_logical": 768,
+                    "input_0_layout": "ROW_MAJOR",
+                    "input_0_datatype": "BFLOAT16",
+                    "input_0_memory": "DEV_1_DRAM_INTERLEAVED",
+                },
+                "value": _flat_single_value(64, msecs=0.012, vector_pipe_util=10.0),
+            }
+        ],
+    }
+    p = tmp_path / "reshape_unary_only.yaml"
+    p.write_text(yaml.dump(doc, sort_keys=False), encoding="utf-8")
+    m = OperatorPerfMap(p)
+
+    t0 = SimTensor(
+        {
+            "name": "a",
+            "shape": [1, 8, 224, 768],
+            "dtype": np.dtype(np.float16),
+            "op_in": [],
+            "op_out": [],
+        }
+    )
+    t0.layout = SimpleNamespace(name="ROW_MAJOR_LAYOUT")
+    t1 = SimTensor(
+        {
+            "name": "shape_const",
+            "shape": [1, 1, 1, 4],
+            "dtype": np.dtype(np.int8),
+            "op_in": [],
+            "op_out": [],
+        }
+    )
+    t1.layout = SimpleNamespace(name="ROW_MAJOR_LAYOUT")
+    op = SimpleNamespace(optype="Reshape", precision="BF16", inList=["a", "shape_const"])
+    g = SimpleNamespace(_tensors={"a": t0, "shape_const": t1})
+
+    st = m.lookup(op, g, core_count=64)
+    assert st is not None
+    assert st.msecs == pytest.approx(0.012)
+    assert st.vector_pipe_util == pytest.approx(10.0)
+
+
+@pytest.mark.unit
+def test_unary_lookup_miss_returns_none(tmp_path: Path):
+    """No table row: lookup returns None without requiring binary-only path."""
+    from tools.perf_lookup.lookup_operator_perf import OperatorPerfMap
+
+    doc = {
+        "schema_name": "correqn.tt-perf-master",
+        "schema_version": 1,
+        "entries": [],
+    }
+    p = tmp_path / "empty.yaml"
+    p.write_text(yaml.dump(doc, sort_keys=False), encoding="utf-8")
+    m = OperatorPerfMap(p)
+
+    t0 = SimTensor({"name": "a", "shape": [1, 1, 1, 1], "op_in": [], "op_out": []})
+    op = SimpleNamespace(optype="Relu", precision="BF16", inList=["a"])
+    g = SimpleNamespace(_tensors={"a": t0})
+
+    assert m.lookup(op, g, core_count=8) is None
+
+
+@pytest.mark.unit
+def test_arity_zero_skips_lookup(tmp_path: Path):
+    from tools.perf_lookup.lookup_operator_perf import OperatorPerfMap
+
+    doc = {
+        "schema_name": "correqn.tt-perf-master",
+        "schema_version": 1,
+        "entries": [],
+    }
+    p = tmp_path / "e2.yaml"
+    p.write_text(yaml.dump(doc, sort_keys=False), encoding="utf-8")
+    m = OperatorPerfMap(p)
+
+    op = SimpleNamespace(optype="Const", precision="BF16", inList=[])
+    g = SimpleNamespace(_tensors={})
+    assert m.lookup(op, g, core_count=8) is None
+
+
+@pytest.mark.unit
+def test_operator_perf_map_loads_repo_sample():
+    from tools.perf_lookup.lookup_operator_perf import OperatorPerfMap
+
+    root = Path(__file__).resolve().parents[2]
+    yml = root / "__ext" / "perf_lookup" / "whb0_n150_master.yaml"
+    if not yml.is_file():
+        pytest.skip(f"repo LUT not present: {yml}")
+    m = OperatorPerfMap(yml)
+    assert len(m) > 0
+
+
+@pytest.mark.unit
+def test_smoke_hybrid_matmul_lookup_repo_master():
+    """Resolve timing from first matmul row in ``whb0_n150_master.yaml`` (hybrid ``single`` when curve disabled)."""
+    from tools.perf_lookup.lookup_operator_perf import OperatorPerfMap
+
+    root = Path(__file__).resolve().parents[2]
+    yml = root / "__ext" / "perf_lookup" / "whb0_n150_master.yaml"
+    if not yml.is_file():
+        pytest.skip(f"repo LUT not present: {yml}")
+    m = OperatorPerfMap(yml)
+    t0 = SimTensor(
+        {
+            "name": "a",
+            "shape": [8, 224, 768],
+            "op_in": [],
+            "op_out": [],
+        }
+    )
+    t1 = SimTensor(
+        {
+            "name": "b",
+            "shape": [768, 768],
+            "op_in": [],
+            "op_out": [],
+        }
+    )
+    op = SimpleNamespace(optype="matmul", precision="BF16", inList=["a", "b"])
+    g = SimpleNamespace(_tensors={"a": t0, "b": t1})
+    st = m.lookup(op, g, core_count=24)
+    assert st is not None
+    assert st.msecs > 0.0
+
+
+@pytest.mark.unit
+def test_single_entry_multi_stat_lookup(tmp_path: Path):
+    """Binary non-matmul: ``matmul`` rows must be ``hybrid`` in the master loader."""
+    from tools.perf_lookup.lookup_operator_perf import OperatorPerfMap
+
+    doc = {
+        "schema_name": "correqn.tt-perf-master",
+        "schema_version": 1,
+        "entries": [
+            {
+                "key": {
+                    "op_code": "add",
+                    "input_0_w_pad_logical": 1,
+                    "input_0_z_pad_logical": 1,
+                    "input_0_y_pad_logical": 2,
+                    "input_0_x_pad_logical": 3,
+                    "input_0_layout": "TILE",
+                    "input_0_datatype": "BFLOAT16",
+                    "input_0_memory": "DEV_1_DRAM_INTERLEAVED",
+                    "input_1_w_pad_logical": 1,
+                    "input_1_z_pad_logical": 1,
+                    "input_1_y_pad_logical": 3,
+                    "input_1_x_pad_logical": 4,
+                    "input_1_layout": "TILE",
+                    "input_1_datatype": "BFLOAT16",
+                    "input_1_memory": "DEV_1_DRAM_INTERLEAVED",
+                },
+                "value": _flat_single_value(
+                    8,
+                    msecs=0.5,
+                    memory_traffic=1024.0,
+                    mem_util=40.0,
+                    vector_pipe_util=10.0,
+                    matrix_pipe_util=70.0,
+                ),
+            }
+        ],
+    }
+    p = tmp_path / "m.yaml"
+    p.write_text(yaml.dump(doc, sort_keys=False), encoding="utf-8")
+    m = OperatorPerfMap(p)
+
+    t0 = SimTensor({"name": "a", "shape": [1, 2, 3], "op_in": [], "op_out": []})
+    t1 = SimTensor({"name": "b", "shape": [1, 3, 4], "op_in": [], "op_out": []})
+    op = SimpleNamespace(optype="add", precision="BF16", inList=["a", "b"])
+    g = SimpleNamespace(_tensors={"a": t0, "b": t1})
+
+    st = m.lookup(op, g, core_count=8)
+    assert st is not None
+    assert st.msecs == pytest.approx(0.5)
+    assert st.memory_traffic == pytest.approx(1024.0)
+    assert st.mem_util == pytest.approx(40.0)
+    assert st.vector_pipe_util == pytest.approx(10.0)
+    assert st.matrix_pipe_util == pytest.approx(70.0)
+
+
+@pytest.mark.unit
+def test_curve_linear_multi_stat(tmp_path: Path):
+    from tools.perf_lookup.lookup_operator_perf import OperatorPerfMap
+
+    doc = textwrap.dedent(
+        """
+        schema_name: correqn.tt-perf-master
+        schema_version: 1
+        entries:
+          - key:
+              op_code: add
+              input_0_w_pad_logical: 1
+              input_0_z_pad_logical: 1
+              input_0_y_pad_logical: 2
+              input_0_x_pad_logical: 3
+              input_0_layout: TILE
+              input_0_datatype: BFLOAT16
+              input_0_memory: DEV_1_DRAM_INTERLEAVED
+              input_1_w_pad_logical: 1
+              input_1_z_pad_logical: 1
+              input_1_y_pad_logical: 3
+              input_1_x_pad_logical: 4
+              input_1_layout: TILE
+              input_1_datatype: BFLOAT16
+              input_1_memory: DEV_1_DRAM_INTERLEAVED
+            value:
+              entry_type: curve
+              curve_family: linear
+              msecs:
+                a: 0.01
+                b: 0.2
+                r2: 0.99
+                equation: "msecs linear"
+              matrix_pipe_util:
+                a: 0.5
+                b: 10.0
+                r2: 0.95
+                equation: "matrix linear"
+        """
+    )
+    p = tmp_path / "c.yaml"
+    p.write_text(doc, encoding="utf-8")
+    m = OperatorPerfMap(p)
+
+    t0 = SimTensor({"name": "a", "shape": [1, 2, 3], "op_in": [], "op_out": []})
+    t1 = SimTensor({"name": "b", "shape": [1, 3, 4], "op_in": [], "op_out": []})
+    op = SimpleNamespace(optype="add", precision="BF16", inList=["a", "b"])
+    g = SimpleNamespace(_tensors={"a": t0, "b": t1})
+
+    st = m.lookup(op, g, core_count=10)
+    assert st is not None
+    assert st.msecs == pytest.approx(0.01 * 10 + 0.2)
+    assert st.matrix_pipe_util == pytest.approx(0.5 * 10 + 10.0)
+    assert st.memory_traffic is None
+
+
+@pytest.mark.unit
+def test_curve_power_msecs(tmp_path: Path):
+    from tools.perf_lookup.lookup_operator_perf import OperatorPerfMap
+
+    doc = {
+        "schema_name": "correqn.tt-perf-master",
+        "schema_version": 1,
+        "entries": [
+            {
+                "key": {
+                    "op_code": "add",
+                    "input_0_w_pad_logical": 1,
+                    "input_0_z_pad_logical": 1,
+                    "input_0_y_pad_logical": 1,
+                    "input_0_x_pad_logical": 1,
+                    "input_0_layout": "TILE",
+                    "input_0_datatype": "BFLOAT16",
+                    "input_0_memory": "DEV_1_DRAM_INTERLEAVED",
+                    "input_1_w_pad_logical": 1,
+                    "input_1_z_pad_logical": 1,
+                    "input_1_y_pad_logical": 1,
+                    "input_1_x_pad_logical": 1,
+                    "input_1_layout": "TILE",
+                    "input_1_datatype": "BFLOAT16",
+                    "input_1_memory": "DEV_1_DRAM_INTERLEAVED",
+                },
+                "value": {
+                    "entry_type": "curve",
+                    "curve_family": "power",
+                    "msecs": _curve_stat(2.0, 0.5),
+                },
+            }
+        ],
+    }
+    p = tmp_path / "pow.yaml"
+    p.write_text(yaml.dump(doc, sort_keys=False), encoding="utf-8")
+    m = OperatorPerfMap(p)
+
+    t0 = SimTensor({"name": "a", "shape": [1, 1, 1, 1], "op_in": [], "op_out": []})
+    t1 = SimTensor({"name": "b", "shape": [1, 1, 1, 1], "op_in": [], "op_out": []})
+    op = SimpleNamespace(optype="add", precision="BF16", inList=["a", "b"])
+    g = SimpleNamespace(_tensors={"a": t0, "b": t1})
+
+    st = m.lookup(op, g, core_count=4)
+    assert st is not None
+    assert st.msecs == pytest.approx(2.0 * (4**0.5))
+
+
+@pytest.mark.unit
+def test_hybrid_matmul_uses_single_when_use_hybrid_curve_false(tmp_path: Path):
+    from tools.perf_lookup.lookup_operator_perf import OperatorPerfMap
+
+    doc = {
+        "schema_name": "correqn.tt-perf-master",
+        "schema_version": 1,
+        "entries": [
+            {
+                "key": {
+                    "op_code": "matmul",
+                    "input_0_w_pad_logical": 1,
+                    "input_0_z_pad_logical": 1,
+                    "input_0_y_pad_logical": 2,
+                    "input_0_x_pad_logical": 3,
+                    "input_0_layout": "TILE",
+                    "input_0_datatype": "BFLOAT16",
+                    "input_0_memory": "DEV_1_DRAM_INTERLEAVED",
+                    "input_1_w_pad_logical": 1,
+                    "input_1_z_pad_logical": 1,
+                    "input_1_y_pad_logical": 3,
+                    "input_1_x_pad_logical": 4,
+                    "input_1_layout": "TILE",
+                    "input_1_datatype": "BFLOAT16",
+                    "input_1_memory": "DEV_1_DRAM_INTERLEAVED",
+                },
+                "value": {
+                    "entry_type": "hybrid",
+                    "single": _hybrid_single_branch(
+                        8,
+                        msecs=9.99,
+                        matrix_pipe_util=99.0,
+                    ),
+                    "curve": {
+                        "curve_family": "linear",
+                        "msecs": _curve_stat(0.02, 0.1, equation="msecs"),
+                        "matrix_pipe_util": _curve_stat(0.1, 5.0, equation="matrix"),
+                    },
+                },
+            }
+        ],
+    }
+    p = tmp_path / "hyb.yaml"
+    p.write_text(yaml.dump(doc, sort_keys=False), encoding="utf-8")
+    m = OperatorPerfMap(p, use_hybrid_curve=False)
+
+    t0 = SimTensor({"name": "a", "shape": [1, 2, 3], "op_in": [], "op_out": []})
+    t1 = SimTensor({"name": "b", "shape": [1, 3, 4], "op_in": [], "op_out": []})
+    op = SimpleNamespace(optype="matmul", precision="BF16", inList=["a", "b"])
+    g = SimpleNamespace(_tensors={"a": t0, "b": t1})
+
+    core = 10
+    st = m.lookup(op, g, core_count=core)
+    assert st is not None
+    assert st.msecs == pytest.approx(9.99)
+    assert st.matrix_pipe_util == pytest.approx(99.0)
+
+
+@pytest.mark.unit
+def test_hybrid_matmul_uses_curve_when_use_hybrid_curve_true(tmp_path: Path):
+    from tools.perf_lookup.lookup_operator_perf import OperatorPerfMap, _eval_curve_value
+    from tools.perf_lookup.tt_perf_master_schema import MASTER_CURVE_FAMILY_LINEAR
+
+    doc = {
+        "schema_name": "correqn.tt-perf-master",
+        "schema_version": 1,
+        "entries": [
+            {
+                "key": {
+                    "op_code": "matmul",
+                    "input_0_w_pad_logical": 1,
+                    "input_0_z_pad_logical": 1,
+                    "input_0_y_pad_logical": 2,
+                    "input_0_x_pad_logical": 3,
+                    "input_0_layout": "TILE",
+                    "input_0_datatype": "BFLOAT16",
+                    "input_0_memory": "DEV_1_DRAM_INTERLEAVED",
+                    "input_1_w_pad_logical": 1,
+                    "input_1_z_pad_logical": 1,
+                    "input_1_y_pad_logical": 3,
+                    "input_1_x_pad_logical": 4,
+                    "input_1_layout": "TILE",
+                    "input_1_datatype": "BFLOAT16",
+                    "input_1_memory": "DEV_1_DRAM_INTERLEAVED",
+                },
+                "value": {
+                    "entry_type": "hybrid",
+                    "single": _hybrid_single_branch(
+                        8,
+                        msecs=9.99,
+                        matrix_pipe_util=99.0,
+                    ),
+                    "curve": {
+                        "curve_family": "linear",
+                        "msecs": _curve_stat(0.02, 0.1, equation="msecs"),
+                        "matrix_pipe_util": _curve_stat(0.1, 5.0, equation="matrix"),
+                    },
+                },
+            }
+        ],
+    }
+    p = tmp_path / "hyb_curve.yaml"
+    p.write_text(yaml.dump(doc, sort_keys=False), encoding="utf-8")
+    m = OperatorPerfMap(p, use_hybrid_curve=True)
+
+    t0 = SimTensor({"name": "a", "shape": [1, 2, 3], "op_in": [], "op_out": []})
+    t1 = SimTensor({"name": "b", "shape": [1, 3, 4], "op_in": [], "op_out": []})
+    op = SimpleNamespace(optype="matmul", precision="BF16", inList=["a", "b"])
+    g = SimpleNamespace(_tensors={"a": t0, "b": t1})
+
+    core = 10
+    st = m.lookup(op, g, core_count=core)
+    assert st is not None
+    expected_m = _eval_curve_value(MASTER_CURVE_FAMILY_LINEAR, 0.02, 0.1, core)
+    assert st.msecs == pytest.approx(expected_m)
+    expected_matrix = _eval_curve_value(MASTER_CURVE_FAMILY_LINEAR, 0.1, 5.0, core)
+    assert st.matrix_pipe_util == pytest.approx(expected_matrix)
+    assert st.msecs != pytest.approx(9.99)
