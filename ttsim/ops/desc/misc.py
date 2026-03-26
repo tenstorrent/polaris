@@ -19,7 +19,6 @@ def scatternd_sinf(iTList, oTList, op, **kwargs):
 
     assert data.check_shape(), f"ScatterND: data tensor shape not defined: {data}"
 
-    # Output has same shape/dtype as data
     Y.shape = list(data.shape)
     Y.dtype = data.dtype
 
@@ -31,9 +30,13 @@ def scatternd_sinf(iTList, oTList, op, **kwargs):
         "outElems": out_elems,
         "inBytes": data.nbytes(op.precision),
         "outBytes": Y.nbytes(op.precision),
-        # Treat as memory-dominated: one mov per output element
         "instrs": {"mov": out_elems},
     }
+    logger.warning(
+        "ScatterElements perf_stats only account for the main data tensor; "
+        "indices/updates are not included in inElems/inBytes accounting.",
+        once=True,
+    )
     return
 
 def scatterelements_sinf(iTList, oTList, op, **kwargs):
@@ -59,9 +62,14 @@ def scatterelements_sinf(iTList, oTList, op, **kwargs):
         "inElems": in_elems,
         "outElems": out_elems,
         "inBytes": data.nbytes(op.precision),
-        "outBytes": out_elems * data.dtype.itemsize,
+        "outBytes": Y.nbytes(op.precision),
         "instrs": {"mov": out_elems},  # memory-dominated
     }
+    logger.warning(
+        "ScatterND perf_stats only account for the main data tensor; "
+        "indices/updates are ignored in inElems/inBytes.",
+        once=True,
+    )
     return
 
 def if_sinf(iTList, oTList, op, **kwargs):
@@ -212,9 +220,9 @@ def register_text_ops():
 def register_misc_ops():
     _optbl = [
         ['ScatterND', 'ARITY_3->1', 'ai.onnx', 'COMMON',
-         11, 18, 3, 3, 1, 1, scatternd_sinf, True, True, True, True, True],
+         18, 11, 3, 3, 1, 1, scatternd_sinf, True, True, True, True, True],
         ['ScatterElements', 'ARITY_3->1', 'ai.onnx', 'COMMON',
-         11, 18, 3, 3, 1, 1, scatterelements_sinf, True, True, True, True, True],
+         18, 11, 3, 3, 1, 1, scatterelements_sinf, True, True, True, True, True],
     ]
     register_ops('misc', _optbl)
     return
