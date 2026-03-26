@@ -10,6 +10,7 @@ from typing import TYPE_CHECKING, Any, Optional
 from loguru import logger
 
 from ttsim.utils.types import get_bpe, get_sim_dtype
+from tools.perf_lookup.lookup_operator_perf import resolve_operator_lookup_core_count
 
 LOG     = logger
 INFO    = LOG.info
@@ -120,7 +121,9 @@ class Device:
 
         # Load tt-perf master operator lookup if specified (see doc/tools/perf_lookup/LOOKUP_TABLE_MASTER.md)
         self.operator_perf_map: Optional[Any] = None
-        self._operator_lookup_core_count: int = 64  # TODO: Placeholder, substitute after implementing core count resolution
+        self._operator_lookup_core_count = resolve_operator_lookup_core_count(
+            simcfg_obj, simcfg_obj
+        )
         if operator_lookup_hybrid_curve is None:
             _hybrid_curve = bool(getattr(simcfg_obj, "operator_lookup_hybrid_curve", False))
         else:
@@ -129,17 +132,11 @@ class Device:
             lookup_file_path = Path(os.getcwd()) / simcfg_obj.operator_lookup_file
             if lookup_file_path.exists():
                 try:
-                    from tools.perf_lookup.lookup_operator_perf import (
-                        OperatorPerfMap,
-                        resolve_operator_lookup_core_count,
-                    )
+                    from tools.perf_lookup.lookup_operator_perf import OperatorPerfMap
 
                     self.operator_perf_map = OperatorPerfMap(
                         lookup_file_path,
                         use_hybrid_curve=_hybrid_curve,
-                    )
-                    self._operator_lookup_core_count = resolve_operator_lookup_core_count(
-                        simcfg_obj, simcfg_obj
                     )
                     logger.info(
                         "Loaded operator performance master lookup from {} (core_count={}, hybrid_curve={})",
