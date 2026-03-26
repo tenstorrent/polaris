@@ -20,7 +20,20 @@ Given simulator `core_count` (from `resolve_operator_lookup_core_count`):
 |----------------|----------|
 | **single** | Use the flat scalars as-is. If `core_count != num_cores`, a **debug** log notes the mismatch; values are still taken from the row. |
 | **curve** | Evaluate each requested stat via `curve_family` and that stat’s `a` / `b` at `core_count`. |
-| **hybrid** | If **`curve`** is present, evaluate **all** resolved stats from `hybrid.curve` at `core_count`. Otherwise use **`hybrid.single`** like **single** above. |
+| **hybrid** | If **`hybrid.curve`** is present **and** curve mode is enabled (`OperatorPerfMap(..., use_hybrid_curve=True)`, or package / CLI `operator_lookup_hybrid_curve`), evaluate resolved stats from `hybrid.curve` at `core_count`. Otherwise use **`hybrid.single`** like **single** above. |
+
+### LUT validation (Polaris `OperatorPerfMap`)
+
+On a **lookup hit** (key match and `msecs` resolves), the simulator **requires** finite **`matrix_pipe_util`** and **`vector_pipe_util`** (after single read or curve/hybrid evaluation). **0 is allowed.**
+
+Utilization fields stored as **percentages on the wire** must be in **[0, 100] inclusive** when used by lookup:
+
+- **Required (resolved):** `matrix_pipe_util`, `vector_pipe_util`
+- **Optional (if present in YAML / curve):** `mem_util`, `noc_util`, `noc_multicast_util`, `npe_cong_impact_pct`
+
+Violations raise **`OperatorPerfLUTValidationError`** with **`file=`** and **`key=`** in the message; **`Device`** logs and **re-raises**, terminating the run.
+
+**Curve / `hybrid.curve`:** Include regression blocks for **both** `matrix_pipe_util` and `vector_pipe_util` so both resolve at runtime `core_count` (omit either → validation error on hit).
 
 ## Polaris key bridge
 
@@ -54,12 +67,12 @@ A **miss** for unary/binary (key built but no matching row) logs a **WARNING** w
 | Column | Source |
 |--------|--------|
 | `msecs`, `cycles`, `ideal_*` | Master `msecs` (after guardband handling in `Device.get_exec_stats`) |
-| `matrix_pipe_util`, `vector_pipe_util` | Master values when present; normalized to **0–1** if YAML uses 0–100 |
-| `memory_traffic`, `mem_util` | Master when present; `mem_util` normalized like pipe utils |
-| `mem_rd_util`, `mem_wr_util` | Still **cycle-derived** (not replaced by master `mem_util`) |
+| `matrix_pipe_util`, `vector_pipe_util` | **Required** from master; YAML/curve values are **percentages [0, 100]**; stored in exec stats / CSV as **fractions [0, 1]** (`value / 100`) |
+| `memory_traffic`, `mem_util` | Master when present; `mem_util` same **% → fraction** rule when present |
+| `mem_rd_util`, `mem_wr_util` | Set to **0** on LUT hit (cycle-derived ratios are inconsistent with LUT-rescaled `ideal_cycles`; use `mem_util` from master when present) |
 | `uses_perf_lookup` | `True` on hit |
 
-Pipe utilization **> 1.0** checks are skipped when lookup supplied timing (master utils may exceed cycle-model scale).
+Analytical pipe/mem utilization **> 1.0** checks are skipped when `uses_perf_lookup` (matrix/vector come from validated master percentages converted to fractions).
 
 ## Example file
 

@@ -175,6 +175,17 @@ Keys are **exact strings** (always present in producer output):
 
 Values must be **finite** real scalars: **`load_existing_yaml`** rejects **`inf`**, **`nan`**, and non-numeric types for stat fields (see **`is_real_stat_scalar`** in **`tools/perf_lookup/tt_perf_master_schema.py`**). PyYAML may still parse **`inf`** / **`nan`** from source text; such files fail strict load until edited.
 
+### Utilization percentages and Polaris operator lookup
+
+For the fields above that are **profiler/util percentages** — **`matrix_pipe_util`**, **`vector_pipe_util`**, **`mem_util`**, **`noc_util`**, **`noc_multicast_util`**, **`npe_cong_impact_pct`** — the Excel-driven producer stores them as **percent values**. The **Polaris** path in **`tools.perf_lookup.lookup_operator_perf.OperatorPerfMap`** enforces:
+
+- **`matrix_pipe_util`** and **`vector_pipe_util`** must **resolve** on every LUT hit (single scalars or curve/hybrid evaluation at runtime **`core_count`**). **0 is valid.**
+- When any of the six util keys **resolves** to a scalar, it must lie in **[0, 100] inclusive** (finite). Out-of-range or missing required pipe utils → **`OperatorPerfLUTValidationError`** (see **`doc/tools/perf_lookup/LOOKUP_TABLE_MASTER.md`**).
+
+**Curve** and **`hybrid.curve`** entries must include regression sub-mappings for **both** **`matrix_pipe_util`** and **`vector_pipe_util`** if that row is to be used for lookup; otherwise a hit can fail validation after **`msecs`** resolves.
+
+Serialized **`memory_traffic`** is **bytes**, not a percentage; it is not subject to the **[0, 100]** util rule.
+
 ---
 
 ## Hybrid entry (`value` with `entry_type: hybrid`)
@@ -192,6 +203,7 @@ Values must be **finite** real scalars: **`load_existing_yaml`** rejects **`inf`
 - **Required:** `entry_type: curve` and **`curve_family`**: **`linear`** or **`power`**. This is the family used for **every** stat’s fit for that key tuple (selected from duration **`msecs`** vs core count; see spec). The loader rejects curve entries with a missing or invalid **`curve_family`**.
 - **Note:** The current **`tt_perf_mapper`** pipeline canonicalizes **matmul** to **`hybrid`** before write, so production files use **`hybrid.curve`** for matmul sweeps. A top-level **`curve`** entry remains valid for the format and for non-matmul keys if a future producer emits them.
 - **Additional keys:** One per **stat** (string keys matching the same stat names as in the single-mode stats dict, including **`msecs`**, `memory_traffic`, etc.).
+- **Polaris lookup:** For rows that will match workloads, include curve fits for **`matrix_pipe_util`** and **`vector_pipe_util`** (both must evaluate to **[0, 100]** at runtime core count). Omitting either can cause **`OperatorPerfLUTValidationError`** on hit (see **Utilization percentages and Polaris operator lookup**).
 - **Each stat value** is a mapping with:
 
 | Key | Type | Notes |
@@ -224,6 +236,7 @@ Special cases (same strings as in spec): all-NaN/zero stats use **`_curve_zero_l
 8. If **`curve`**: read **`curve_family`** (`linear` \| `power`). For each `k, v` in `entry.items()` with `k` not in `entry_type` / `curve_family` and `v` a dict, require **`MASTER_CURVE_STAT_ENTRY_KEYS`**: `a`, `b`, `r2`, `equation` (extras → warn).
 9. If **`hybrid`**: parse optional **`single`** (flat **`num_cores`** + stats) and optional **`curve`** (`curve_family` + stat fits); require at least one branch.
 10. Optionally normalize **`num_cores`** whole-number floats to `int` (including under **`hybrid.single`**).
+11. If integrating **Polaris `OperatorPerfMap`**, apply the **utilization percentage** and **required pipe util** rules in **Utilization percentages and Polaris operator lookup** above.
 
 **Canonical stat keys** in YAML: **`msecs`**, **`memory_traffic`**, **`mem_util`**, **`noc_util`**, **`noc_multicast_util`**, **`npe_cong_impact_pct`**, **`vector_pipe_util`**, **`matrix_pipe_util`**. See **`MASTER_DURATION_MS_KEY`** in `tools/perf_lookup/tt_perf_master_schema.py` and **`OUTPUT_KEY_*`** in `tt_perf_mapper.py`.
 

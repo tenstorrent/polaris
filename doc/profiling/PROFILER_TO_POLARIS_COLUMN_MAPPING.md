@@ -211,6 +211,8 @@ These columns require combining multiple source columns or calculations.
 | 49 | `mem_rd_util` | `DRAM BW UTIL (%)` | ⚠️ Potential | Memory read utilization |
 | 50 | `mem_wr_util` | `DRAM BW UTIL (%)` | ⚠️ Potential | Memory write utilization |
 
+**Simulator + tt-perf master lookup (`uses_perf_lookup`):** Master YAML stores pipe/DRAM/NOC util columns as **percentages [0, 100]**; Polaris requires **`matrix_pipe_util`** and **`vector_pipe_util`** to resolve on every LUT hit. Exported **`matrix_pipe_util`** / **`vector_pipe_util`** / **`mem_util`** in study JSON/CSV are **fractions (0–1)** (`percent / 100`). **`mem_rd_util`** and **`mem_wr_util`** are forced to **0** on a LUT hit (see **`doc/tools/perf_lookup/LOOKUP_TABLE_MASTER.md`**); use **`mem_util`** from the master row for DRAM utilization when present.
+
 ---
 
 ## 5. Operation Type Mapping Table
