@@ -118,7 +118,7 @@ class Device:
         self.peak_bw_bytes_per_cycle  = simcfg_obj.peak_bandwidth_per_cycle()
         self.eff_bw_bytes_per_cycle   = self.peak_bw_bytes_per_cycle * self.DG_MEMORY_UTIL_CONSTANT
 
-        # Load operator performance lookup map if specified
+        self._operator_lookup_core_count: int = 64  # TODO: Placeholder, substitute after implementing core count resolution
         self.operator_perf_map: Optional[OperatorPerfMap] = None
         if hasattr(simcfg_obj, 'operator_lookup_file') and simcfg_obj.operator_lookup_file:
             lookup_file_path = Path(os.getcwd()) / simcfg_obj.operator_lookup_file
@@ -243,65 +243,52 @@ class Device:
 
         return
 
+    @staticmethod
+    def _profiler_pct_to_exec_fraction(v: float) -> float:
+        """Convert validated LUT utilization from percentage (0–100) to exec_stats fraction (0–1)."""
+        return float(v) / 100.0
+
     def _try_operator_perf_lookup(
         self,
         op: Any,
         opname: str,
         wlgraph: Any,
         msecs: float
-    ) -> tuple[float, bool]:
+    ) -> tuple[float, bool, Optional[Any]]:
         """
-        Try to get msecs from operator performance lookup map.
+        Resolve timing and optional profiler stats from tt-perf master lookup.
 
-        Args:
-            op: The operator object
-            opname: The operator name (for logging)
-            wlgraph: The workload graph containing tensors
-            msecs: The calculated msecs value (used as fallback)
+        Raises:
+            OperatorPerfLUTValidationError: Invalid or incomplete LUT row (re-raised after log);
+                see doc/tools/perf_lookup/LOOKUP_TABLE_MASTER.md.
 
         Returns:
-            Tuple of (msecs, uses_perf_lookup) where:
-            - msecs: The msecs value (from lookup if found, otherwise the input value)
-            - uses_perf_lookup: True if lookup was used, False otherwise
+            (msecs, uses_perf_lookup, master_stats_or_none)
         """
         uses_perf_lookup = False
+        master_stats: Optional[Any] = None
 
-        # Try to use operator performance lookup if available
         if self.operator_perf_map is not None:
-            if len(op.inList) == 2:
-                try:
-                    # Extract input tensor shapes
-                    tensor_0_name = op.inList[0]
-                    tensor_1_name = op.inList[1]
-
-                    if tensor_0_name in wlgraph._tensors and tensor_1_name in wlgraph._tensors:
-                        tensor_0 = wlgraph._tensors[tensor_0_name]
-                        tensor_1 = wlgraph._tensors[tensor_1_name]
-
-                        if tensor_0.shape is not None and tensor_1.shape is not None:
-                            shape_0 = tuple(tensor_0.shape)
-                            shape_1 = tuple(tensor_1.shape)
-
-                            # Get msecs from lookup (case-insensitive matching handled in OperatorPerfMap)
-                            lookup_msecs = self.operator_perf_map.get_msecs(
-                                op.optype,
-                                op.precision,
-                                shape_0,
-                                shape_1
-                            )
-
-                            if lookup_msecs is not None:
-                                msecs = lookup_msecs
-                                uses_perf_lookup = True
-                except Exception as e:
-                    logger.warning(f"Error during operator perf lookup for {opname}: {e}", once=True)
-            else:
-                logger.warning(
-                    f"Operator {op.optype} has {len(op.inList)} inputs, expected 2 for perf lookup",
-                    once=True
+            try:
+                master_stats = self.operator_perf_map.lookup(
+                    op, wlgraph, self._operator_lookup_core_count
                 )
+                if master_stats is not None:
+                    msecs = master_stats.msecs
+                    uses_perf_lookup = True
+            except Exception as e:
+                from tools.perf_lookup.lookup_operator_perf import OperatorPerfLUTValidationError
 
-        return (msecs, uses_perf_lookup)
+                if isinstance(e, OperatorPerfLUTValidationError):
+                    logger.error(
+                        "Operator perf LUT validation failed for op {!r}; terminating run.\n{}",
+                        opname,
+                        e,
+                    )
+                    raise
+                logger.warning(f"Error during operator perf lookup for {opname}: {e}", once=True)
+
+        return (msecs, uses_perf_lookup, master_stats)
 
     def get_exec_stats(self, wlgraph, bs):
         graph_ordered_nodes = wlgraph.get_ordered_nodes()
@@ -331,7 +318,9 @@ class Device:
             msecs            = cycles / dev_freq_MHz / 1e3
 
             # Try to use operator performance lookup if available
-            msecs, uses_perf_lookup = self._try_operator_perf_lookup(op, opname, wlgraph, msecs)
+            msecs, uses_perf_lookup, master_stats = self._try_operator_perf_lookup(
+                op, opname, wlgraph, msecs
+            )
 
             # If msecs came from lookup, adjust cycles, ideal_cycles, and ideal_msecs accordingly
             if uses_perf_lookup:
@@ -349,16 +338,40 @@ class Device:
             vector_pipe_util = vector_cycles / ideal_cycles * self.DG_COMPUTE_UTIL_CONSTANT
             mem_rd_util      = mem_rd_cycles / ideal_cycles * self.DG_MEMORY_UTIL_CONSTANT
             mem_wr_util      = mem_wr_cycles / ideal_cycles * self.DG_MEMORY_UTIL_CONSTANT
+            if uses_perf_lookup:
+                # Analytical mem_*_cycles vs LUT-rescaled ideal_cycles are inconsistent; mem_util comes from master.
+                mem_rd_util = 0.0
+                mem_wr_util = 0.0
 
-            # Flag errors and raise exceptions if utilization > 1.0
-            if matrix_pipe_util > 1.0:
-                raise ValueError(f"Matrix pipe utilization exceeds 1.0 for op {opname}: {matrix_pipe_util}")
-            if vector_pipe_util > 1.0:
-                raise ValueError(f"Vector pipe utilization exceeds 1.0 for op {opname}: {vector_pipe_util}")
-            if mem_rd_util > 1.0:
-                raise ValueError(f"Memory read utilization exceeds 1.0 for op {opname}: {mem_rd_util}")
-            if mem_wr_util > 1.0:
-                raise ValueError(f"Memory write utilization exceeds 1.0 for op {opname}: {mem_wr_util}")
+            memory_traffic = 0.0
+            mem_util = 0.0
+            if uses_perf_lookup and master_stats is not None:
+                matrix_pipe_util = self._profiler_pct_to_exec_fraction(
+                    master_stats.matrix_pipe_util
+                )
+                vector_pipe_util = self._profiler_pct_to_exec_fraction(
+                    master_stats.vector_pipe_util
+                )
+                if master_stats.memory_traffic is not None:
+                    memory_traffic = float(master_stats.memory_traffic)
+                if master_stats.mem_util is not None:
+                    mem_util = self._profiler_pct_to_exec_fraction(master_stats.mem_util)
+
+            # Flag errors and raise exceptions if utilization > 1.0 (skip checks when using LUT timing:
+            # mem_rd_util/mem_wr_util are zeroed above; matrix/vector may come from master without a >1 guard.)
+            if not uses_perf_lookup:
+                if matrix_pipe_util > 1.0:
+                    raise ValueError(
+                        f"Matrix pipe utilization exceeds 1.0 for op {opname}: {matrix_pipe_util}"
+                    )
+                if vector_pipe_util > 1.0:
+                    raise ValueError(
+                        f"Vector pipe utilization exceeds 1.0 for op {opname}: {vector_pipe_util}"
+                    )
+                if mem_rd_util > 1.0:
+                    raise ValueError(f"Memory read utilization exceeds 1.0 for op {opname}: {mem_rd_util}")
+                if mem_wr_util > 1.0:
+                    raise ValueError(f"Memory write utilization exceeds 1.0 for op {opname}: {mem_wr_util}")
 
             if op.removed_in_optimization or op.fused_in_optimization:
                 rsrc_bnck        = 'NA'
@@ -372,6 +385,8 @@ class Device:
                 vector_pipe_util = 0.0
                 mem_rd_util      = 0.0
                 mem_wr_util      = 0.0
+                memory_traffic   = 0.0
+                mem_util         = 0.0
             elif compute_cycles >= mem_cycles:
                 rsrc_bnck = 'COMP'
             else:
@@ -390,6 +405,8 @@ class Device:
                     'vector_pipe_util' : vector_pipe_util,
                     'mem_rd_util'      : mem_rd_util,
                     'mem_wr_util'      : mem_wr_util,
+                    'memory_traffic'   : memory_traffic,
+                    'mem_util'         : mem_util,
                     'uses_perf_lookup' : uses_perf_lookup,
                     }
 
