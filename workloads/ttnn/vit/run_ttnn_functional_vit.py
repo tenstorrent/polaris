@@ -1,6 +1,7 @@
 # SPDX-FileCopyrightText: © 2025 Tenstorrent AI ULC
 
 # SPDX-License-Identifier: Apache-2.0
+import argparse
 import sys
 
 sys.path.append(".")
@@ -773,24 +774,60 @@ def test_vit(
 def run_vit(wlname: str, device: ttnn.device.Device, cfg: dict):
     return test_vit(device)
 
+
+# Short names omit the "vit-" workload prefix (full-model workload is just "vit" → short name "vit").
+_STANDALONE_RUN_SPECS: list[tuple[str, object, str]] = [
+    ("attention", run_vit_attention, "vit-attention"),
+    ("vit", run_vit, "vit"),
+    ("patch-embeddings", run_vit_patch_embeddings, "vit-patch-embeddings"),
+    ("intermediate", run_vit_intermediate, "vit-intermediate"),
+    ("output", run_vit_output, "vit-output"),
+    ("layer", run_vit_layer, "vit-layer"),
+    ("encoder", run_vit_encoder, "vit-encoder"),
+    ("embeddings", run_vit_embeddings, "vit-embeddings"),
+]
+
+_STANDALONE_VALID_SHORT_NAMES = frozenset(s[0] for s in _STANDALONE_RUN_SPECS)
+
+
 def run_one(callback, wlname: str, cfg: dict):
     from ttsim.front.ttnn.device import close_device, open_device
     device = open_device()
     callback(wlname, device, cfg)
     close_device(device)
 
-def standalone():
-    logger.warning('1')
-    run_one(run_vit_attention, "vit-attention", {})
-    run_one(run_vit, "vit", {})
-    run_one(run_vit_patch_embeddings, "vit-patch-embeddings", {})
-    run_one(run_vit_intermediate, "vit-intermediate", {})
-    run_one(run_vit_output, "vit-output",  {})
-    run_one(run_vit_layer, "vit-layer", {})
-    run_one(run_vit_encoder, "vit-encoder", {})
-    run_one(run_vit_embeddings, "vit-embeddings", {})
+def standalone(test_name: str | None = None) -> None:
+    """Run all standalone ViT tests, or a single test selected by short name (no ``vit-`` prefix)."""
+    if test_name is None:
+        for _short, fn, wlname in _STANDALONE_RUN_SPECS:
+            run_one(fn, wlname, {})
+        return
+    if test_name not in _STANDALONE_VALID_SHORT_NAMES:
+        valid = ", ".join(sorted(_STANDALONE_VALID_SHORT_NAMES))
+        logger.error(
+            "Unknown test %r. Valid names (without vit- prefix): %s",
+            test_name,
+            valid,
+        )
+        sys.exit(1)
+    for short, fn, wlname in _STANDALONE_RUN_SPECS:
+        if short == test_name:
+            run_one(fn, wlname, {})
+            return
+
 
 if __name__ == "__main__":
     logger.remove()
     logger.add(sys.stdout, level="INFO")
-    standalone()
+    parser = argparse.ArgumentParser(description="Run ViT functional standalone tests.")
+    parser.add_argument(
+        "test",
+        nargs="?",
+        metavar="TEST",
+        help=(
+            "Run only this test by short name (omit the vit- prefix), "
+            "e.g. attention, patch-embeddings, vit. If omitted, runs all tests."
+        ),
+    )
+    _args = parser.parse_args()
+    standalone(_args.test)
