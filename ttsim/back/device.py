@@ -99,7 +99,7 @@ class Device:
     G_FUSE_OP_OVERLAP_COST_CONSTANT = 0.10
     G_GUARDBAND                     = 0.25
 
-    def __init__(self, simcfg_obj):
+    def __init__(self, simcfg_obj, *, operator_lookup_hybrid_curve: Optional[bool] = None):
         compute_ips = [ipg for ipg in simcfg_obj.ipgroups if ipg.iptype == 'compute']
         memory_ips  = [ipg for ipg in simcfg_obj.ipgroups if ipg.iptype == 'memory']
         assert len(compute_ips) == 1, "ERR-1"
@@ -118,25 +118,48 @@ class Device:
         self.peak_bw_bytes_per_cycle  = simcfg_obj.peak_bandwidth_per_cycle()
         self.eff_bw_bytes_per_cycle   = self.peak_bw_bytes_per_cycle * self.DG_MEMORY_UTIL_CONSTANT
 
+        # Load tt-perf master operator lookup if specified (see doc/tools/perf_lookup/LOOKUP_TABLE_MASTER.md)
+        self.operator_perf_map: Optional[Any] = None
         self._operator_lookup_core_count: int = 64  # TODO: Placeholder, substitute after implementing core count resolution
-        self.operator_perf_map: Optional[OperatorPerfMap] = None
+        if operator_lookup_hybrid_curve is None:
+            _hybrid_curve = bool(getattr(simcfg_obj, "operator_lookup_hybrid_curve", False))
+        else:
+            _hybrid_curve = bool(operator_lookup_hybrid_curve)
         if hasattr(simcfg_obj, 'operator_lookup_file') and simcfg_obj.operator_lookup_file:
             lookup_file_path = Path(os.getcwd()) / simcfg_obj.operator_lookup_file
             if lookup_file_path.exists():
                 try:
-                    # Import here to avoid circular dependencies
-                    from tools.perf_lookup.lookup_operator_perf import OperatorPerfMap
-                    self.operator_perf_map = OperatorPerfMap(lookup_file_path)
-                    logger.info(f"Loaded operator performance lookup map from {lookup_file_path}")
+                    from tools.perf_lookup.lookup_operator_perf import (
+                        OperatorPerfMap,
+                        resolve_operator_lookup_core_count,
+                    )
+
+                    self.operator_perf_map = OperatorPerfMap(
+                        lookup_file_path,
+                        use_hybrid_curve=_hybrid_curve,
+                    )
+                    self._operator_lookup_core_count = resolve_operator_lookup_core_count(
+                        simcfg_obj, simcfg_obj
+                    )
+                    logger.info(
+                        "Loaded operator performance master lookup from {} (core_count={}, hybrid_curve={})",
+                        lookup_file_path,
+                        self._operator_lookup_core_count,
+                        _hybrid_curve,
+                    )
                 except Exception as e:
-                    logger.warning(f"Failed to load operator performance lookup map from {lookup_file_path}: {e}")
+                    logger.warning(
+                        "Failed to load operator performance lookup from {}: {}",
+                        lookup_file_path,
+                        e,
+                    )
                     self.operator_perf_map = None
             else:
                 logger.warning(f"Operator lookup file specified but not found: {lookup_file_path}")
 
         return
 
-    def execute_graph(self, wlgraph, wlmapspec):
+    def execute_graph(self, wlgraph, wlmapspec, *, disable_fusion: bool = False):
         graph_ordered_nodes = wlgraph.get_ordered_nodes()
 
         # 1) SET PRECISION FOR ALL OPS
@@ -154,53 +177,56 @@ class Device:
         wlgraph.remove_nodes(wlmapspec.removal_spec)
 
         # 5) GRAPH OPTIMIZATION: FUSE NODES IF POSSIBLE
-        fusion_candidates = wlgraph.fuse_nodes(wlmapspec.fusion_spec)
+        if disable_fusion:
+            DEBUG('Skipping graph op fusion (--disable-fusion)')
+        else:
+            fusion_candidates = wlgraph.fuse_nodes(wlmapspec.fusion_spec)
 
-        #Now all out fusion candidates have been found, and we can apply the
-        # op-fusion on the graph
-        for fusion_nodes in fusion_candidates:
-            """create a new fused node with combined operations"""
-            pattern_len   = len(fusion_nodes)
-            first_op_name = fusion_nodes[0]
-            last_op_name  = fusion_nodes[-1]
-            first_op      = wlgraph.get_op(first_op_name)
-            last_op       = wlgraph.get_op(last_op_name)
+            #Now all out fusion candidates have been found, and we can apply the
+            # op-fusion on the graph
+            for fusion_nodes in fusion_candidates:
+                """create a new fused node with combined operations"""
+                pattern_len   = len(fusion_nodes)
+                first_op_name = fusion_nodes[0]
+                last_op_name  = fusion_nodes[-1]
+                first_op      = wlgraph.get_op(first_op_name)
+                last_op       = wlgraph.get_op(last_op_name)
 
-            """
-            #update fusion op cycles
-            # TODO: add some checks to make sure that intermediate fused ops have
-            #   only one input - one output
+                """
+                #update fusion op cycles
+                # TODO: add some checks to make sure that intermediate fused ops have
+                #   only one input - one output
 
-            #compute cycles = sum of all fused op compute cycles + overhead per operator overlap
-            # TODO: should we add overlap cost only if COMPUTE PIPES CHANGE?
-            # intermediate mem rd/wr are suppressed by fusion
-            # mem rd cycles = first op mem rd cycles
-            # mem wr cycles = last op mem rd cycles
-            """
-            fused_matrix_cycles  = first_op.compute_cycles if first_op.uses_compute_pipe == 'matrix' else 0
-            fused_vector_cycles  = first_op.compute_cycles if first_op.uses_compute_pipe == 'vector' else 0
-            fused_compute_cycles = first_op.compute_cycles
-            fused_mem_rd_cycles  = first_op.mem_rd_cycles
-            fused_mem_wr_cycles  = last_op.mem_wr_cycles
-            for i in range(1, pattern_len):
-                matched_op_name  = fusion_nodes[i]
-                matched_op       = wlgraph.get_op(matched_op_name)
+                #compute cycles = sum of all fused op compute cycles + overhead per operator overlap
+                # TODO: should we add overlap cost only if COMPUTE PIPES CHANGE?
+                # intermediate mem rd/wr are suppressed by fusion
+                # mem rd cycles = first op mem rd cycles
+                # mem wr cycles = last op mem rd cycles
+                """
+                fused_matrix_cycles  = first_op.compute_cycles if first_op.uses_compute_pipe == 'matrix' else 0
+                fused_vector_cycles  = first_op.compute_cycles if first_op.uses_compute_pipe == 'vector' else 0
+                fused_compute_cycles = first_op.compute_cycles
+                fused_mem_rd_cycles  = first_op.mem_rd_cycles
+                fused_mem_wr_cycles  = last_op.mem_wr_cycles
+                for i in range(1, pattern_len):
+                    matched_op_name  = fusion_nodes[i]
+                    matched_op       = wlgraph.get_op(matched_op_name)
 
-                matrix_cycles = matched_op.compute_cycles if matched_op.uses_compute_pipe == 'matrix' else 0
-                vector_cycles = matched_op.compute_cycles if matched_op.uses_compute_pipe == 'vector' else 0
+                    matrix_cycles = matched_op.compute_cycles if matched_op.uses_compute_pipe == 'matrix' else 0
+                    vector_cycles = matched_op.compute_cycles if matched_op.uses_compute_pipe == 'vector' else 0
 
-                fused_matrix_cycles += math.ceil(matrix_cycles * (1.0 + self.G_FUSE_OP_OVERLAP_COST_CONSTANT))
-                fused_vector_cycles += math.ceil(vector_cycles * (1.0 + self.G_FUSE_OP_OVERLAP_COST_CONSTANT))
-                fused_compute_cycles += math.ceil(matched_op.compute_cycles * (1.0 + self.G_FUSE_OP_OVERLAP_COST_CONSTANT))
-                matched_op.fuse_op(first_op_name)
+                    fused_matrix_cycles += math.ceil(matrix_cycles * (1.0 + self.G_FUSE_OP_OVERLAP_COST_CONSTANT))
+                    fused_vector_cycles += math.ceil(vector_cycles * (1.0 + self.G_FUSE_OP_OVERLAP_COST_CONSTANT))
+                    fused_compute_cycles += math.ceil(matched_op.compute_cycles * (1.0 + self.G_FUSE_OP_OVERLAP_COST_CONSTANT))
+                    matched_op.fuse_op(first_op_name)
 
-            first_op.fused_op_cycles = {
-                    'compute_cycles': fused_compute_cycles,
-                    'matrix_cycles' : fused_matrix_cycles,
-                    'vector_cycles' : fused_vector_cycles,
-                    'mem_rd_cycles' : fused_mem_rd_cycles,
-                    'mem_wr_cycles' : fused_mem_wr_cycles,
-                    }
+                first_op.fused_op_cycles = {
+                        'compute_cycles': fused_compute_cycles,
+                        'matrix_cycles' : fused_matrix_cycles,
+                        'vector_cycles' : fused_vector_cycles,
+                        'mem_rd_cycles' : fused_mem_rd_cycles,
+                        'mem_wr_cycles' : fused_mem_wr_cycles,
+                        }
 
         return
 

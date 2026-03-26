@@ -9,3 +9,22 @@ def test_polaris(reset_typespec):
     assert polaris.main(['--odir', '__dummy', '--study', 'dummy', '--wlspec', 'config/mlperf_inference.yaml',
                          '--archspec', 'config/all_archs.yaml', '--wlmapspec',  'config/wl2archmapping.yaml',
                          '--dryrun']) == 0, "Polaris main function should return 0 on success"
+
+
+def test_polaris_disable_fusion_dryrun(reset_typespec):
+    assert polaris.main(
+        [
+            '--odir',
+            '__dummy',
+            '--study',
+            'dummy',
+            '--wlspec',
+            'config/mlperf_inference.yaml',
+            '--archspec',
+            'config/all_archs.yaml',
+            '--wlmapspec',
+            'config/wl2archmapping.yaml',
+            '--dryrun',
+            '--disable-fusion',
+        ]
+    ) == 0, "Polaris accepts --disable-fusion with --dryrun"

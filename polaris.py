@@ -203,6 +203,20 @@ def setup_cmdline_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument('--outputformat', choices=['none', 'yaml', 'json', 'pickle'], default='json', type=str.lower)
     parser.add_argument('--dump_stats_csv', dest='dump_stats_csv', action='store_true', 
                         default=False, help='Dump stats in CSV format')
+    parser.add_argument(
+        '--operator-lookup-hybrid-curve',
+        dest='operator_lookup_hybrid_curve',
+        action='store_true',
+        default=False,
+        help='Use linear/power curve branch for entry_type: hybrid LUT rows (else use single only)',
+    )
+    parser.add_argument(
+        '--disable-fusion',
+        dest='disable_fusion',
+        action='store_true',
+        default=False,
+        help='Skip graph op fusion (wlmap op_fusion_spec ignored for matching/applying fusions)',
+    )
 
     #cmdline args processing
     args = parser.parse_args(argv)
@@ -301,7 +315,9 @@ def do_dryrun(_wl, _dl):
     return
 
 def execute_wl_on_dev(_wl, _dl, _wspec, _dspec, wlmapspec, _WLG,
-                      _odir, study, _enable_memalloc, outputfmt, flag_dump_stats_csv):
+                      _odir, study, _enable_memalloc, outputfmt, flag_dump_stats_csv,
+                      operator_lookup_hybrid_curve: bool = False,
+                      disable_fusion: bool = False):
     # TODO: Reduce number of arguments to this function
     study_dir = _odir / study
     stat_dir    = study_dir / 'STATS'
@@ -346,8 +362,14 @@ def execute_wl_on_dev(_wl, _dl, _wspec, _dspec, wlmapspec, _WLG,
                     'config_dir'           : config_dir,
                     'odir'                 : _odir,
                     }
-            cur_device = Device(dev_obj)
-            cur_device.execute_graph(wlgraph, wlmapspec)
+            use_hybrid_lut_curve = operator_lookup_hybrid_curve or bool(
+                getattr(dev_obj, 'operator_lookup_hybrid_curve', False)
+            )
+            cur_device = Device(
+                dev_obj,
+                operator_lookup_hybrid_curve=use_hybrid_lut_curve,
+            )
+            cur_device.execute_graph(wlgraph, wlmapspec, disable_fusion=disable_fusion)
 
             hlm_stats = HLMStats(cur_device, wlgraph, wlinfo, stats_info)
             summary_dict = hlm_stats.dump_stats(devfreq)
@@ -398,9 +420,21 @@ def polaris(args: argparse.Namespace | runcfgmodel.PolarisRunConfig) -> int:
         workload_graphs = create_uniq_workloads_tbl(workload_list)
 
         INFO('simulation: workload+ --> device+')
-        num_failures, summary_stats = execute_wl_on_dev(workload_list, device_list, wlspec, devspec,
-                                                        wlmapspec,  workload_graphs, odir, args.study,
-                                                        args.enable_memalloc, outputformat, args.dump_stats_csv)
+        num_failures, summary_stats = execute_wl_on_dev(
+            workload_list,
+            device_list,
+            wlspec,
+            devspec,
+            wlmapspec,
+            workload_graphs,
+            odir,
+            args.study,
+            args.enable_memalloc,
+            outputformat,
+            args.dump_stats_csv,
+            operator_lookup_hybrid_curve=bool(args.operator_lookup_hybrid_curve),
+            disable_fusion=bool(getattr(args, 'disable_fusion', False)),
+        )
         summary_stats = sorted(summary_stats, key=lambda x: (x['wlname'], x['devname'], x['freq_Mhz'], x['wlinstance'], x['bs']))
 
         summary_stat_filename = summary_dir / f'study-summary.{outputformat.cname}'
