@@ -128,7 +128,7 @@ def test_vit_attention(device, model_name, batch_size, sequence_size):
     )
     output = ttnn.to_torch(output)
     if IS_POLARIS:
-        expected_output_shape = [8, 224, 768]
+        expected_output_shape = [batch_size, sequence_size, config.hidden_size]
         assert output.shape == expected_output_shape, f"Expected output shape {expected_output_shape}, but got {output.shape}"
         logger.info(f"Obtained expected output shape {expected_output_shape}")
     else:
@@ -173,7 +173,7 @@ def test_vit_intermediate(device, model_name, batch_size, sequence_size, torch_d
     )
     output = ttnn.to_torch(output)
     if IS_POLARIS:
-        expected_output_shape = [8, 224, 3072]
+        expected_output_shape = [batch_size, sequence_size, config.intermediate_size]
         assert output.shape == expected_output_shape, f"Expected output shape {expected_output_shape}, but got {output.shape}"
     else:
         assert_with_pcc(torch_output, output.to(torch_output.dtype), 0.9999)
@@ -225,7 +225,7 @@ def test_vit_output(device, model_name, batch_size, sequence_size):
     output = ttnn.to_torch(output)
 
     if IS_POLARIS:
-        expected_output_shape = [8, 224, 768]
+        expected_output_shape = [batch_size, sequence_size, config.hidden_size]
         assert output.shape == expected_output_shape, f"Expected output shape {expected_output_shape}, but got {output.shape}"
     else:
         assert_with_pcc(torch_output, output.to(torch_output.dtype), 0.9999)  # 9994

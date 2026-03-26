@@ -7,6 +7,24 @@ sys.path.append(os.path.join(os.path.dirname(__file__), '../../..'))
 import ttsim.front.ttnn as ttnn
 from loguru import logger
 
+_LAYOUT_OPERATOR_TODO_KEYS: set[str] = set()
+
+
+def _warn_layout_operator_todo_once(key: str, message: str) -> None:
+    if key in _LAYOUT_OPERATOR_TODO_KEYS:
+        return
+    _LAYOUT_OPERATOR_TODO_KEYS.add(key)
+    logger.warning("[ttnn/operators layout TODO] {}", message)
+
+
+# TODO(ttnn/operators): This file uses explicit to_layout / .layout assignments where operator outputs
+# do not yet carry correct layout metadata. Remove those workarounds once each relevant op sets layout.
+_warn_layout_operator_todo_once(
+    "ttnn_functional_vit_file",
+    "This file uses explicit to_layout / .layout where operator outputs lack correct layout metadata; set layout in operators and remove workarounds.",
+)
+
+
 def vit_patch_embeddings(config, pixel_values, *, parameters, unittest_check=False):
     # batch_size, img_c, img_h, img_w = pixel_values.shape # NCHW
     batch_size, img_h, img_w, img_c = pixel_values.shape  # permuted input NHWC
@@ -19,6 +37,11 @@ def vit_patch_embeddings(config, pixel_values, *, parameters, unittest_check=Fal
 
     pixel_values = ttnn.reshape(pixel_values, (batch_size, img_h, img_w // patch_size, 4 * patch_size))
     pixel_values = ttnn.fold(pixel_values, stride_h, stride_w)
+    # TODO(ttnn/operators): fold (and preceding ops) should set output layout; remove explicit to_layout.
+    _warn_layout_operator_todo_once(
+        "vit_patch_fold_tolayout",
+        "fold (and preceding ops) should set output layout; remove explicit to_layout.",
+    )
     pixel_values = ttnn.to_layout(pixel_values, layout=ttnn.TILE_LAYOUT)
 
     if unittest_check:
@@ -27,6 +50,11 @@ def vit_patch_embeddings(config, pixel_values, *, parameters, unittest_check=Fal
     patch_embedding_output = ttnn.matmul(pixel_values, parameters.projection.weight)
     patch_embedding_output = patch_embedding_output + parameters.projection.bias
 
+    # TODO(ttnn/operators): matmul/add should set output layout; remove explicit to_layout.
+    _warn_layout_operator_todo_once(
+        "vit_patch_matmul_add_tolayout",
+        "matmul/add should set output layout; remove explicit to_layout.",
+    )
     patch_embedding_output = ttnn.to_layout(patch_embedding_output, layout=ttnn.ROW_MAJOR_LAYOUT)
     patch_embedding_output = ttnn.reshape(patch_embedding_output, (batch_size, patch_count_all, patch_size_sq_trpl))
 
@@ -92,55 +120,186 @@ def vit_attention(
     head_size = hidden_size // num_heads
 
     query = hidden_states @ parameters.attention.query.weight
+    # TODO(ttnn/operators): matmul should stamp output layout; remove explicit assignment.
+    _warn_layout_operator_todo_once(
+        "vit_attn_query_matmul_layout",
+        "matmul should stamp output layout; remove explicit assignment (query projection).",
+    )
+    query.layout = hidden_states.layout
     query = query + parameters.attention.query.bias
-    query.layout = ttnn.TILE_LAYOUT
+    # query.layout = ttnn.TILE_LAYOUT
+    # TODO(ttnn/operators): add/bias should preserve or set layout; remove explicit to_layout.
+    _warn_layout_operator_todo_once(
+        "vit_attn_query_add_tolayout_rm",
+        "add/bias should preserve or set layout; remove explicit to_layout (query).",
+    )
     query = ttnn.to_layout(query, layout=ttnn.ROW_MAJOR_LAYOUT)
     query = ttnn.reshape(query, (batch_size, sequence_size, num_heads, head_size))
+    # TODO(ttnn/operators): reshape should set or require layout internally; remove explicit to_layout.
+    _warn_layout_operator_todo_once(
+        "vit_attn_query_reshape_tolayout_tile",
+        "reshape should set or require layout internally; remove explicit to_layout (query).",
+    )
     query = ttnn.to_layout(query, layout=ttnn.TILE_LAYOUT)
     query = ttnn.permute(query, (0, 2, 1, 3))
+    # TODO(ttnn/operators): permute should set output layout; remove explicit assignment.
+    _warn_layout_operator_todo_once(
+        "vit_attn_query_permute_layout",
+        "permute should set output layout; remove explicit assignment (query).",
+    )
+    query.layout = ttnn.TILE_LAYOUT
 
     key = hidden_states @ parameters.attention.key.weight
+    # TODO(ttnn/operators): matmul should stamp output layout; remove explicit assignment.
+    _warn_layout_operator_todo_once(
+        "vit_attn_key_matmul_layout",
+        "matmul should stamp output layout; remove explicit assignment (key projection).",
+    )
+    key.layout = hidden_states.layout
     key = key + parameters.attention.key.bias
+    # TODO(ttnn/operators): add should set output layout; remove explicit assignment.
+    _warn_layout_operator_todo_once(
+        "vit_attn_key_add_layout",
+        "add should set output layout; remove explicit assignment (key bias).",
+    )
     key.layout = ttnn.TILE_LAYOUT
+    # TODO(ttnn/operators): add/bias path should not require manual layout; remove explicit to_layout.
+    _warn_layout_operator_todo_once(
+        "vit_attn_key_add_tolayout_rm",
+        "add/bias path should not require manual layout; remove explicit to_layout (key).",
+    )
     key = ttnn.to_layout(key, layout=ttnn.ROW_MAJOR_LAYOUT)
     key = ttnn.reshape(key, (batch_size, sequence_size, num_heads, head_size))
+    # TODO(ttnn/operators): reshape should set layout metadata; remove explicit to_layout.
+    _warn_layout_operator_todo_once(
+        "vit_attn_key_reshape_tolayout_tile",
+        "reshape should set layout metadata; remove explicit to_layout (key).",
+    )
     key = ttnn.to_layout(key, layout=ttnn.TILE_LAYOUT)
     key = ttnn.permute(key, (0, 2, 3, 1))
+    # TODO(ttnn/operators): permute should set output layout; remove explicit assignment.
+    _warn_layout_operator_todo_once(
+        "vit_attn_key_permute_layout",
+        "permute should set output layout; remove explicit assignment (key).",
+    )
+    key.layout = ttnn.TILE_LAYOUT
 
     value = hidden_states @ parameters.attention.value.weight
+    # TODO(ttnn/operators): matmul should stamp output layout; remove explicit assignment.
+    _warn_layout_operator_todo_once(
+        "vit_attn_value_matmul_layout",
+        "matmul should stamp output layout; remove explicit assignment (value projection).",
+    )
+    value.layout = hidden_states.layout
     value = value + parameters.attention.value.bias
+    # TODO(ttnn/operators): add should set output layout; remove explicit assignment.
+    _warn_layout_operator_todo_once(
+        "vit_attn_value_add_layout",
+        "add should set output layout; remove explicit assignment (value bias).",
+    )
     value.layout = ttnn.TILE_LAYOUT
+    # TODO(ttnn/operators): add/bias path should not require manual layout; remove explicit to_layout.
+    _warn_layout_operator_todo_once(
+        "vit_attn_value_add_tolayout_rm",
+        "add/bias path should not require manual layout; remove explicit to_layout (value).",
+    )
     value = ttnn.to_layout(value, layout=ttnn.ROW_MAJOR_LAYOUT)
     value = ttnn.reshape(value, (batch_size, sequence_size, num_heads, head_size))
+    # TODO(ttnn/operators): reshape should set layout metadata; remove explicit to_layout.
+    _warn_layout_operator_todo_once(
+        "vit_attn_value_reshape_tolayout_tile",
+        "reshape should set layout metadata; remove explicit to_layout (value).",
+    )
     value = ttnn.to_layout(value, layout=ttnn.TILE_LAYOUT)
     value = ttnn.permute(value, (0, 2, 1, 3))
+    # TODO(ttnn/operators): permute should set output layout; remove explicit assignment.
+    _warn_layout_operator_todo_once(
+        "vit_attn_value_permute_layout",
+        "permute should set output layout; remove explicit assignment (value).",
+    )
+    value.layout = ttnn.TILE_LAYOUT
 
     attention_scores = query @ key
+    # TODO(ttnn/operators): matmul should set output layout; remove explicit assignment.
+    _warn_layout_operator_todo_once(
+        "vit_attn_scores_matmul_layout",
+        "matmul should set output layout; remove explicit assignment (attention scores).",
+    )
+    attention_scores.layout = ttnn.TILE_LAYOUT
+    logger.warning("query layout {} key layout {}", query.layout, key.layout)
+    logger.warning("attention_scores layout {}", attention_scores.layout)
     attention_scores = attention_scores * (1 / (head_size**0.5))
     if attention_mask is not None:
+        logger.warning("attention mark shape {} layout {}", attention_mask.shape, attention_mask.layout)
+        logger.warning("attention scores shape {} layout {}", attention_scores.shape, attention_scores.layout)
         attention_scores = attention_scores + attention_mask
+    logger.warning("attention scores shape {} layout {}", attention_scores.shape, attention_scores.layout)
+    # TODO(ttnn/operators): mul/add/mask broadcast should set output layout; remove explicit assignment.
+    _warn_layout_operator_todo_once(
+        "vit_attn_scores_post_scale_mask_layout",
+        "mul/add/mask broadcast should set output layout; remove explicit assignment (attention scores).",
+    )
+    attention_scores.layout = ttnn.TILE_LAYOUT
 
     attention_probs = ttnn.softmax(attention_scores, dim=-1)
+    # TODO(ttnn/operators): softmax should set output layout; remove explicit assignment.
+    _warn_layout_operator_todo_once(
+        "vit_attn_softmax_layout",
+        "softmax should set output layout; remove explicit assignment.",
+    )
+    attention_probs.layout = ttnn.TILE_LAYOUT
 
     context_layer = attention_probs @ value
     # TODO: Remove this hack after fixing the issue with permute and reshape.
+    # TODO(ttnn/operators): matmul should set output layout; remove explicit assignment when permute/reshape fixed.
+    _warn_layout_operator_todo_once(
+        "vit_attn_context_matmul_layout",
+        "matmul should set output layout; remove explicit assignment (context); fix permute/reshape hack.",
+    )
     context_layer.layout = ttnn.TILE_LAYOUT
     # TODO: end
     logger.debug("context_layer: {} layout {} before permute", context_layer.name, context_layer.layout)
     context_layer = ttnn.permute(context_layer, (0, 2, 1, 3))
     # TODO: Remove this hack after fixing the issue with permute and reshape.
+    # TODO(ttnn/operators): permute should set output layout; remove explicit assignment when op is fixed.
+    _warn_layout_operator_todo_once(
+        "vit_attn_context_permute_layout",
+        "permute should set output layout; remove explicit assignment (context); fix permute/reshape hack.",
+    )
     context_layer.layout = ttnn.TILE_LAYOUT
     context_layer.set_shape(context_layer.shape)
     # TODO: end
     logger.debug("context_layer: {} layout {} after permute", context_layer.name, context_layer.layout)
+    # TODO(ttnn/operators): permute should emit correct layout for downstream reshape; remove explicit to_layout.
+    _warn_layout_operator_todo_once(
+        "vit_attn_context_tolayout_rm",
+        "permute should emit correct layout for downstream reshape; remove explicit to_layout (ROW_MAJOR).",
+    )
     context_layer = ttnn.to_layout(context_layer, ttnn.ROW_MAJOR_LAYOUT)
     context_layer = ttnn.reshape(context_layer, (batch_size, sequence_size, hidden_size))
+    # TODO(ttnn/operators): reshape should set layout metadata; remove explicit to_layout.
+    _warn_layout_operator_todo_once(
+        "vit_attn_context_reshape_tolayout_tile",
+        "reshape should set layout metadata; remove explicit to_layout (context merge heads).",
+    )
     context_layer = ttnn.to_layout(context_layer, ttnn.TILE_LAYOUT)
 
     self_output = context_layer
+    logger.warning("self_output layout {}", self_output.layout)
     self_output = self_output @ parameters.attention.output.dense.weight
+    # TODO(ttnn/operators): matmul should set output layout; remove explicit assignment.
+    _warn_layout_operator_todo_once(
+        "vit_attn_output_dense_matmul_layout",
+        "matmul should set output layout; remove explicit assignment (attention output dense).",
+    )
+    self_output.layout = ttnn.TILE_LAYOUT
     self_output = self_output + parameters.attention.output.dense.bias
-
+    # TODO(ttnn/operators): add should set output layout; remove explicit assignment.
+    _warn_layout_operator_todo_once(
+        "vit_attn_output_dense_bias_layout",
+        "add should set output layout; remove explicit assignment (attention output bias).",
+    )
+    self_output.layout = ttnn.TILE_LAYOUT
     return self_output
 
 

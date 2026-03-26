@@ -64,9 +64,27 @@ if IS_POLARIS:
 
     def make_info(weight_shape, bias_shape):
         return types.SimpleNamespace({
-            "weight": ttnn.Tensor(shape=weight_shape, dtype=ttnn.DataType.BFLOAT16),
-            "bias": ttnn.Tensor(shape=bias_shape, dtype=ttnn.DataType.BFLOAT16)
+            "weight": ttnn.Tensor(shape=weight_shape, dtype=ttnn.DataType.BFLOAT16, layout=ttnn.TILE_LAYOUT),
+            "bias": ttnn.Tensor(shape=bias_shape, dtype=ttnn.DataType.BFLOAT16, layout=ttnn.TILE_LAYOUT)
         })
+
+    def _polaris_vit_embeddings_patch_parameters():
+        """Embeddings.patch_embeddings subtree (projection only) for vit_patch_embeddings unittest_check."""
+        hidden = config_dict["hidden_size"]
+        return types.SimpleNamespace(
+            patch_embeddings=types.SimpleNamespace(
+                projection=make_info(
+                    weight_shape=ttnn.Shape([1024, hidden]),
+                    bias_shape=ttnn.Shape([1, hidden]),
+                )
+            )
+        )
+
+    def polaris_parameters_vit_patch_embeddings():
+        """Full parameters root for vit_patch_embeddings(..., unittest_check=True)."""
+        return types.SimpleNamespace(
+            vit=types.SimpleNamespace(embeddings=_polaris_vit_embeddings_patch_parameters())
+        )
 
     class Parameters_qkv:
         def __init__(self):
@@ -86,6 +104,240 @@ if IS_POLARIS:
         def __init__(self):
             dense = make_info(weight_shape=ttnn.Shape([3072, 768]), bias_shape=ttnn.Shape([1, 768]))
             self.dense = dense
+
+    def _polaris_vit_encoder_layer_parameters():
+        """Single ViT encoder block parameters for vit_layer / vit_encoder.layer[i]."""
+        hidden = config_dict["hidden_size"]
+        qkv = Parameters_qkv()
+        return types.SimpleNamespace(
+            layernorm_before=make_info(
+                weight_shape=ttnn.Shape([1, hidden]),
+                bias_shape=ttnn.Shape([1, hidden]),
+            ),
+            layernorm_after=make_info(
+                weight_shape=ttnn.Shape([1, hidden]),
+                bias_shape=ttnn.Shape([1, hidden]),
+            ),
+            attention=qkv.attention,
+            intermediate=Parameters_dense_intermediate(),
+            output=Parameters_dense_output(),
+        )
+
+    def polaris_parameters_vit_encoder():
+        """Encoder-only parameters for vit_encoder (stack of transformer blocks)."""
+        num_layers = config_dict["num_hidden_layers"]
+        return types.SimpleNamespace(
+            layer=[_polaris_vit_encoder_layer_parameters() for _ in range(num_layers)]
+        )
+
+    def polaris_vit_parameters(*, num_labels: int = 1000):
+        """Full ViT parameter tree for POLARIS (no torch model). Shapes match ViT-Base / ttnn matmul paths."""
+        hidden = config_dict["hidden_size"]
+
+        embeddings = _polaris_vit_embeddings_patch_parameters()
+
+        encoder = polaris_parameters_vit_encoder()
+        layernorm = make_info(
+            weight_shape=ttnn.Shape([1, hidden]),
+            bias_shape=ttnn.Shape([1, hidden]),
+        )
+        vit_ns = types.SimpleNamespace(
+            embeddings=embeddings,
+            encoder=encoder,
+            layernorm=layernorm,
+        )
+        classifier = make_info(
+            weight_shape=ttnn.Shape([hidden, num_labels]),
+            bias_shape=ttnn.Shape([1, num_labels]),
+        )
+        return types.SimpleNamespace(vit=vit_ns, classifier=classifier)
+
+# @pytest.mark.skip(reason="#7527: Test and PCC threshold needs review")
+# @pytest.mark.skipif(is_wormhole_b0() or is_blackhole(), reason="Unsupported on WH and BH")
+# @pytest.mark.parametrize("model_name", ["google/vit-base-patch16-224"])
+# @pytest.mark.parametrize("batch_size", [8])
+# @pytest.mark.parametrize("image_size", [224])
+# @pytest.mark.parametrize("image_channels", [3])
+def test_vit_patch_embeddings(
+    device,
+    model_name="google/vit-base-patch16-224",
+    batch_size=8,
+    image_size=224,
+    image_channels=3,
+    *,
+    model_location_generator=None,
+):
+    if IS_POLARIS:
+        set_default_device(device)
+    torch.manual_seed(0)
+
+    if not IS_POLARIS:
+        if model_location_generator is None:
+            raise ValueError("model_location_generator is required when not running in POLARIS")
+
+        model = load_torch_model(model_location_generator, embedding=True)
+        config = model.config
+
+        torch_pixel_values = torch_random(
+            (batch_size, image_channels, image_size, image_size), -1, 1, dtype=torch.bfloat16
+        )
+        torch_output, *_ = model(torch_pixel_values)
+
+        parameters = preprocess_model_parameters(
+            initialize_model=lambda: model,
+            device=device,
+            custom_preprocessor=ttnn_functional_vit.custom_preprocessor,
+        )
+
+        pixel_values = torch.permute(torch_pixel_values, (0, 2, 3, 1))
+        pixel_values = torch.nn.functional.pad(pixel_values, (0, 1, 0, 0, 0, 0, 0, 0))
+        pixel_values = ttnn.from_torch(pixel_values, dtype=ttnn.bfloat16, layout=ttnn.ROW_MAJOR_LAYOUT, device=device)
+
+        output = ttnn_functional_vit.vit_patch_embeddings(
+            config, pixel_values, parameters=parameters, unittest_check=True
+        )
+        output = ttnn.to_torch(output)
+
+        torch_output, *_ = model.vit.embeddings.patch_embeddings(torch_pixel_values)
+        assert_with_pcc(torch_output, output[0], 0.9999)
+    else:
+        config = config_obj  # type: ignore[assignment]
+        patch_size = config_dict["patch_size"]
+        patch_count = image_size // patch_size
+        patch_count_all = patch_count * patch_count
+        hidden = config.hidden_size
+
+        torch_pixel_values = torch_random(
+            (batch_size, image_channels, image_size, image_size), -1, 1, dtype=torch.bfloat16
+        )
+        pixel_values = ttnn.permute(torch_pixel_values, [0, 2, 3, 1])
+        pixel_values = ttnn.pad(pixel_values, [0, 1, 0, 0, 0, 0, 0, 0], value=0)
+        pixel_values = ttnn.from_torch(pixel_values, dtype=ttnn.bfloat16, layout=ttnn.ROW_MAJOR_LAYOUT)
+
+        parameters = polaris_parameters_vit_patch_embeddings()
+        output = ttnn_functional_vit.vit_patch_embeddings(
+            config, pixel_values, parameters=parameters, unittest_check=True
+        )
+        output = ttnn.to_torch(output)
+        expected_output_shape = [batch_size, patch_count_all, hidden]
+        assert output.shape == expected_output_shape, (
+            f"Expected output shape {expected_output_shape}, but got {output.shape}"
+        )
+        logger.info(f"Obtained expected output shape {expected_output_shape}")
+
+
+def run_vit_patch_embeddings(wlname: str, device: ttnn.device.Device, cfg: dict):
+    return test_vit_patch_embeddings(device)
+
+# @pytest.mark.skip(reason="#7527: Test and PCC threshold needs review")
+# @pytest.mark.skipif(is_wormhole_b0() or is_blackhole(), reason="Unsupported on WH and BH")
+# @pytest.mark.parametrize("model_name", ["google/vit-base-patch16-224"])
+# @pytest.mark.parametrize("batch_size", [8])
+# @pytest.mark.parametrize("image_size", [224])
+# @pytest.mark.parametrize("image_channels", [3])
+def test_vit_embeddings(
+    device,
+    model_name="google/vit-base-patch16-224",
+    batch_size=8,
+    image_size=224,
+    image_channels=3,
+    *,
+    model_location_generator=None,
+):
+    if IS_POLARIS:
+        set_default_device(device)
+    torch.manual_seed(0)
+
+    if not IS_POLARIS:
+        if model_location_generator is None:
+            raise ValueError("model_location_generator is required when not running in POLARIS")
+
+        model = load_torch_model(model_location_generator, embedding=True)
+        config = model.config
+
+        dataset = load_dataset("huggingface/cats-image")
+        image = dataset["test"]["image"][0]
+        image_processor = AutoImageProcessor.from_pretrained("google/vit-base-patch16-224")
+        torch_pixel_values = image_processor(image, return_tensors="pt").pixel_values.to(torch.bfloat16)
+        torch_pixel_values = torch_pixel_values.repeat(batch_size, 1, 1, 1)
+
+        parameters = preprocess_model_parameters(
+            initialize_model=lambda: model,
+            device=device,
+            custom_preprocessor=ttnn_functional_vit.custom_preprocessor,
+        )
+
+        # cls_token & position embeddings expand to batch_size
+        # TODO: pass batch_size to preprocess_model_parameters
+        model_state_dict = model.state_dict()
+        torch_cls_token = model_state_dict["vit.embeddings.cls_token"]
+        torch_position_embeddings = model_state_dict["vit.embeddings.position_embeddings"]
+        if batch_size > 1:
+            torch_cls_token = torch.nn.Parameter(torch_cls_token.expand(batch_size, -1, -1))
+            torch_position_embeddings = torch.nn.Parameter(torch_position_embeddings.expand(batch_size, -1, -1))
+        else:
+            torch_cls_token = torch.nn.Parameter(torch_cls_token)
+            torch_position_embeddings = torch.nn.Parameter(torch_position_embeddings)
+        cls_token = ttnn.from_torch(torch_cls_token, dtype=ttnn.bfloat16, layout=ttnn.TILE_LAYOUT, device=device)
+        position_embeddings = ttnn.from_torch(
+            torch_position_embeddings, dtype=ttnn.bfloat16, layout=ttnn.TILE_LAYOUT, device=device
+        )
+
+        pixel_values = torch.permute(torch_pixel_values, (0, 2, 3, 1))
+        pixel_values = torch.nn.functional.pad(pixel_values, (0, 1, 0, 0, 0, 0, 0, 0))
+        pixel_values = ttnn.from_torch(pixel_values, dtype=ttnn.bfloat16, layout=ttnn.ROW_MAJOR_LAYOUT, device=device)
+
+        output = ttnn_functional_vit.vit_embeddings(
+            config,
+            pixel_values,
+            cls_token,
+            position_embeddings,
+            parameters=parameters,
+        )
+        output = ttnn.to_torch(output)
+
+        torch_output, *_ = model.vit.embeddings(torch_pixel_values)
+
+        assert_with_pcc(torch_output, output[0], 0.9999)
+    else:
+        config = config_obj  # type: ignore[assignment]
+        patch_size = config_dict["patch_size"]
+        sequence_len = 1 + (image_size // patch_size) ** 2
+        hidden = config.hidden_size
+
+        torch_pixel_values = torch_random(
+            (batch_size, image_channels, image_size, image_size), -1, 1, dtype=torch.bfloat16
+        )
+        pixel_values = ttnn.permute(torch_pixel_values, [0, 2, 3, 1])
+        pixel_values = ttnn.pad(pixel_values, [0, 1, 0, 0, 0, 0, 0, 0], value=0)
+        pixel_values = ttnn.from_torch(pixel_values, dtype=ttnn.bfloat16, layout=ttnn.ROW_MAJOR_LAYOUT)
+
+        torch_cls_token = torch_random((batch_size, 1, hidden), -0.1, 0.1, dtype=torch.bfloat16)
+        torch_position_embeddings = torch_random(
+            (batch_size, sequence_len, hidden), -0.1, 0.1, dtype=torch.bfloat16
+        )
+        cls_token = ttnn.from_torch(torch_cls_token, layout=ttnn.TILE_LAYOUT)
+        position_embeddings = ttnn.from_torch(torch_position_embeddings, layout=ttnn.TILE_LAYOUT)
+
+        parameters = polaris_parameters_vit_patch_embeddings()
+        output = ttnn_functional_vit.vit_embeddings(
+            config,
+            pixel_values,
+            cls_token,
+            position_embeddings,
+            parameters=parameters,
+        )
+        output = ttnn.to_torch(output)
+        expected_output_shape = [batch_size, sequence_len, hidden]
+        assert output.shape == expected_output_shape, (
+            f"Expected output shape {expected_output_shape}, but got {output.shape}"
+        )
+        logger.info(f"Obtained expected output shape {expected_output_shape}")
+
+
+def run_vit_embeddings(wlname: str, device: ttnn.device.Device, cfg: dict):
+    return test_vit_embeddings(device)
+
 
 # @pytest.mark.skip(reason="#7527: Test and PCC threshold needs review")
 # @pytest.mark.skipif(is_wormhole_b0() or is_blackhole(), reason="Unsupported on WH and BH")
@@ -134,7 +386,7 @@ def test_vit_attention(device, model_name="google/vit-base-patch16-224",
     )
     output = ttnn.to_torch(output)
     if IS_POLARIS:
-        expected_output_shape = [8, 224, 768]
+        expected_output_shape = [batch_size, sequence_size, config.hidden_size]
         assert output.shape == expected_output_shape, f"Expected output shape {expected_output_shape}, but got {output.shape}"
         logger.info(f"Obtained expected output shape {expected_output_shape}")
     else:
@@ -186,7 +438,7 @@ def test_vit_intermediate(device,
     )
     output = ttnn.to_torch(output)
     if IS_POLARIS:
-        expected_output_shape = [8, 224, 3072]
+        expected_output_shape = [batch_size, sequence_size, config.intermediate_size]
         assert output.shape == expected_output_shape, f"Expected output shape {expected_output_shape}, but got {output.shape}"
     else:
         assert_with_pcc(torch_output, output.to(torch_output.dtype), 0.9999)
@@ -245,13 +497,281 @@ def test_vit_output(device,
     output = ttnn.to_torch(output)
 
     if IS_POLARIS:
-        expected_output_shape = [8, 224, 768]
+        expected_output_shape = [batch_size, sequence_size, config.hidden_size]
         assert output.shape == expected_output_shape, f"Expected output shape {expected_output_shape}, but got {output.shape}"
     else:
         assert_with_pcc(torch_output, output.to(torch_output.dtype), 0.9999)  # 9994
 
 def run_vit_output(wlname: str, device: ttnn.device.Device, cfg: dict):
     return test_vit_output(device)
+
+
+# @pytest.mark.skip(reason="#7527: Test and PCC threshold needs review")
+# @pytest.mark.skipif(is_wormhole_b0() or is_blackhole(), reason="Unsupported on WH and BH")
+# @pytest.mark.parametrize("model_name", ["google/vit-base-patch16-224"])
+# @pytest.mark.parametrize("batch_size", [8])
+# @pytest.mark.parametrize("sequence_size", [224])
+def test_vit_layer(
+    device,
+    model_name="google/vit-base-patch16-224",
+    batch_size=8,
+    sequence_size=224,
+    *,
+    model_location_generator=None,
+):
+    if IS_POLARIS:
+        set_default_device(device)
+    torch.manual_seed(0)
+
+    if not IS_POLARIS:
+        if model_location_generator is None:
+            raise ValueError("model_location_generator is required when not running in POLARIS")
+
+        model = load_torch_model(model_location_generator, embedding=True)
+        config = model.config
+        model = model.vit.encoder.layer[0]
+
+        torch_hidden_states = torch_random(
+            (batch_size, sequence_size, config.hidden_size), -1, 1, dtype=torch.bfloat16
+        )
+        torch_attention_mask = torch.ones(1, sequence_size, dtype=torch.bfloat16)
+        torch_output, *_ = model(torch_hidden_states, torch_attention_mask)
+
+        parameters = preprocess_model_parameters(
+            initialize_model=lambda: model,
+            device=device,
+            custom_preprocessor=ttnn_functional_vit.custom_preprocessor,
+        )
+
+        hidden_states = ttnn.from_torch(torch_hidden_states, layout=ttnn.TILE_LAYOUT, device=device)
+        attention_mask = ttnn.from_torch(torch_attention_mask, layout=ttnn.TILE_LAYOUT, device=device)
+
+        output = ttnn_functional_vit.vit_layer(
+            config,
+            hidden_states,
+            attention_mask=attention_mask,
+            parameters=parameters,
+        )
+        output = ttnn.to_torch(output)
+
+        assert_with_pcc(torch_output, output, 0.9999)  # 0.9957
+    else:
+        config = config_obj  # type: ignore[assignment]
+        torch_hidden_states = torch_random(
+            (batch_size, sequence_size, config.hidden_size), -1, 1, dtype=torch.bfloat16
+        )
+        hidden_states = ttnn.from_torch(torch_hidden_states, layout=ttnn.TILE_LAYOUT)
+        attention_mask = ttnn.ones(1, sequence_size, dtype=torch.bfloat16, layout=ttnn.TILE_LAYOUT)
+        parameters = _polaris_vit_encoder_layer_parameters()
+        output = ttnn_functional_vit.vit_layer(
+            config,
+            hidden_states,
+            attention_mask=attention_mask,
+            parameters=parameters,
+        )
+        output = ttnn.to_torch(output)
+        expected_output_shape = [batch_size, sequence_size, config.hidden_size]
+        assert output.shape == expected_output_shape, (
+            f"Expected output shape {expected_output_shape}, but got {output.shape}"
+        )
+        logger.info(f"Obtained expected output shape {expected_output_shape}")
+
+
+def run_vit_layer(wlname: str, device: ttnn.device.Device, cfg: dict):
+    return test_vit_layer(device)
+
+# @pytest.mark.skip(reason="#7527: Test and PCC threshold needs review")
+# @pytest.mark.skipif(is_wormhole_b0() or is_blackhole(), reason="Unsupported on WH and BH")
+# @pytest.mark.parametrize("model_name", ["google/vit-base-patch16-224"])
+# @pytest.mark.parametrize("batch_size", [8])
+# @pytest.mark.parametrize("sequence_size", [224])
+def test_vit_encoder(
+    device,
+    model_name="google/vit-base-patch16-224",
+    batch_size=8,
+    sequence_size=224,
+    *,
+    model_location_generator=None,
+):
+    if IS_POLARIS:
+        set_default_device(device)
+    torch.manual_seed(0)
+
+    if not IS_POLARIS:
+        if model_location_generator is None:
+            raise ValueError("model_location_generator is required when not running in POLARIS")
+
+        model = load_torch_model(model_location_generator)
+        config = model.config
+        model = model.vit.encoder
+
+        torch_hidden_states = torch_random(
+            (batch_size, sequence_size, config.hidden_size), -0.1, 0.1, dtype=torch.bfloat16
+        )
+        torch_attention_mask = None
+        torch_output = model(torch_hidden_states, torch_attention_mask).last_hidden_state
+
+        parameters = preprocess_model_parameters(
+            initialize_model=lambda: model,
+            device=device,
+            custom_preprocessor=ttnn_functional_vit.custom_preprocessor,
+        )
+
+        hidden_states = ttnn.from_torch(
+            torch_hidden_states, dtype=ttnn.bfloat16, layout=ttnn.TILE_LAYOUT, device=device
+        )
+        if torch_attention_mask is not None:
+            attention_mask = ttnn.from_torch(
+                torch_attention_mask, dtype=ttnn.bfloat16, layout=ttnn.TILE_LAYOUT, device=device
+            )
+        else:
+            attention_mask = None
+
+        output = ttnn_functional_vit.vit_encoder(
+            config,
+            hidden_states,
+            attention_mask=attention_mask,
+            parameters=parameters,
+        )
+        output = ttnn.to_torch(output)
+
+        assert_with_pcc(torch_output, output, 0.9999)  # 0.9294
+    else:
+        config = config_obj  # type: ignore[assignment]
+        torch_hidden_states = torch_random(
+            (batch_size, sequence_size, config.hidden_size), -0.1, 0.1, dtype=torch.bfloat16
+        )
+        hidden_states = ttnn.from_torch(torch_hidden_states, dtype=ttnn.bfloat16, layout=ttnn.TILE_LAYOUT)
+        attention_mask = None
+        parameters = polaris_parameters_vit_encoder()
+        output = ttnn_functional_vit.vit_encoder(
+            config,
+            hidden_states,
+            attention_mask=attention_mask,
+            parameters=parameters,
+        )
+        output = ttnn.to_torch(output)
+        expected_output_shape = [batch_size, sequence_size, config.hidden_size]
+        assert output.shape == expected_output_shape, (
+            f"Expected output shape {expected_output_shape}, but got {output.shape}"
+        )
+        logger.info(f"Obtained expected output shape {expected_output_shape}")
+
+
+def run_vit_encoder(wlname: str, device: ttnn.device.Device, cfg: dict):
+    return test_vit_encoder(device)
+
+
+# @pytest.mark.skip(reason="#7527: Test and PCC threshold needs review")
+# @pytest.mark.skipif(is_wormhole_b0() or is_blackhole(), reason="Unsupported on WH and BH")
+# @pytest.mark.parametrize("model_name", ["google/vit-base-patch16-224"])
+# @pytest.mark.parametrize("batch_size", [8])
+# @pytest.mark.parametrize("image_size", [224])
+# @pytest.mark.parametrize("image_channels", [3])
+def test_vit(
+    device,
+    model_name="google/vit-base-patch16-224",
+    batch_size=8,
+    image_size=224,
+    image_channels=3,
+    *,
+    model_location_generator=None,
+):
+    if IS_POLARIS:
+        set_default_device(device)
+    torch.manual_seed(0)
+
+    if not IS_POLARIS:
+        if model_location_generator is None:
+            raise ValueError("model_location_generator is required when not running in POLARIS")
+
+        model = load_torch_model(model_location_generator)
+        config = model.config
+
+        dataset = load_dataset("huggingface/cats-image")
+        image = dataset["test"]["image"][0:batch_size]
+        image_processor = AutoImageProcessor.from_pretrained("google/vit-base-patch16-224")
+        torch_pixel_values = image_processor(image, return_tensors="pt").pixel_values.to(torch.bfloat16)
+        torch_pixel_values = torch_pixel_values.repeat(batch_size, 1, 1, 1)
+
+        torch_output, *_ = model(torch_pixel_values).logits
+
+        parameters = preprocess_model_parameters(
+            initialize_model=lambda: model,
+            device=device,
+            custom_preprocessor=ttnn_functional_vit.custom_preprocessor,
+        )
+
+        # cls_token & position embeddings expand to batch_size
+        # TODO: pass batch_size to preprocess_model_parameters
+        model_state_dict = model.state_dict()
+        torch_cls_token = model_state_dict["vit.embeddings.cls_token"]
+        torch_position_embeddings = model_state_dict["vit.embeddings.position_embeddings"]
+        if batch_size > 1:
+            torch_cls_token = torch.nn.Parameter(torch_cls_token.expand(batch_size, -1, -1))
+            torch_position_embeddings = torch.nn.Parameter(torch_position_embeddings.expand(batch_size, -1, -1))
+        else:
+            torch_cls_token = torch.nn.Parameter(torch_cls_token)
+            torch_position_embeddings = torch.nn.Parameter(torch_position_embeddings)
+        cls_token = ttnn.from_torch(torch_cls_token, dtype=ttnn.bfloat16, layout=ttnn.TILE_LAYOUT, device=device)
+        position_embeddings = ttnn.from_torch(
+            torch_position_embeddings, dtype=ttnn.bfloat16, layout=ttnn.TILE_LAYOUT, device=device
+        )
+
+        pixel_values = torch.permute(torch_pixel_values, (0, 2, 3, 1))
+        pixel_values = torch.nn.functional.pad(pixel_values, (0, 1, 0, 0, 0, 0, 0, 0))
+        pixel_values = ttnn.from_torch(pixel_values, dtype=ttnn.bfloat16, layout=ttnn.ROW_MAJOR_LAYOUT, device=device)
+
+        output = ttnn_functional_vit.vit(
+            config,
+            pixel_values,
+            None,
+            cls_token,
+            position_embeddings,
+            parameters=parameters,
+        )
+        output = ttnn.to_torch(output)
+
+        assert_with_pcc(torch_output, output[0][0], 0.9999)  # 0.9806
+    else:
+        config = config_obj  # type: ignore[assignment]
+        num_labels = 1000
+        sequence_len = 1 + (image_size // config_dict["patch_size"]) ** 2
+
+        torch_pixel_values = torch_random(
+            (batch_size, image_channels, image_size, image_size), -1, 1, dtype=torch.bfloat16
+        )
+        # minitorch_shim has no permute / F.pad; use ttnn ops on ttsim tensors (same as NCHW→NHWC + pad 3→4 ch).
+        pixel_values = ttnn.permute(torch_pixel_values, [0, 2, 3, 1])
+        pixel_values = ttnn.pad(pixel_values, [0, 1, 0, 0, 0, 0, 0, 0], value=0)
+        pixel_values = ttnn.from_torch(pixel_values, dtype=ttnn.bfloat16, layout=ttnn.ROW_MAJOR_LAYOUT)
+
+        torch_cls_token = torch_random((batch_size, 1, config.hidden_size), -0.1, 0.1, dtype=torch.bfloat16)
+        torch_position_embeddings = torch_random(
+            (batch_size, sequence_len, config.hidden_size), -0.1, 0.1, dtype=torch.bfloat16
+        )
+        cls_token = ttnn.from_torch(torch_cls_token, layout=ttnn.TILE_LAYOUT)
+        position_embeddings = ttnn.from_torch(torch_position_embeddings, layout=ttnn.TILE_LAYOUT)
+
+        parameters = polaris_vit_parameters(num_labels=num_labels)
+        output = ttnn_functional_vit.vit(
+            config,
+            pixel_values,
+            None,
+            cls_token,
+            position_embeddings,
+            parameters=parameters,
+        )
+        output = ttnn.to_torch(output)
+        expected_output_shape = [batch_size, sequence_len, num_labels]
+        assert output.shape == expected_output_shape, (
+            f"Expected output shape {expected_output_shape}, but got {output.shape}"
+        )
+        logger.info(f"Obtained expected output shape {expected_output_shape}")
+
+
+def run_vit(wlname: str, device: ttnn.device.Device, cfg: dict):
+    return test_vit(device)
 
 def run_one(callback, wlname: str, cfg: dict):
     from ttsim.front.ttnn.device import close_device, open_device
@@ -262,8 +782,13 @@ def run_one(callback, wlname: str, cfg: dict):
 def standalone():
     logger.warning('1')
     run_one(run_vit_attention, "vit-attention", {})
+    run_one(run_vit, "vit", {})
+    run_one(run_vit_patch_embeddings, "vit-patch-embeddings", {})
     run_one(run_vit_intermediate, "vit-intermediate", {})
     run_one(run_vit_output, "vit-output",  {})
+    run_one(run_vit_layer, "vit-layer", {})
+    run_one(run_vit_encoder, "vit-encoder", {})
+    run_one(run_vit_embeddings, "vit-embeddings", {})
 
 if __name__ == "__main__":
     logger.remove()
