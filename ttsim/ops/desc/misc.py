@@ -6,6 +6,64 @@ from .registry import register_ops
 import numpy as np
 from loguru import logger
 
+def scatternd_sinf(iTList, oTList, op, **kwargs):
+    """
+    Minimal ScatterND shape + perf inference for ONNX ScatterND:
+      inputs: data, indices, updates
+      output: same shape/dtype as data
+    """
+    assert len(iTList) >= 3, f"ScatterND expects (data, indices, updates), got {len(iTList)}"
+
+    data = iTList[0]
+    Y = oTList[0]
+
+    assert data.check_shape(), f"ScatterND: data tensor shape not defined: {data}"
+
+    # Output has same shape/dtype as data
+    Y.shape = list(data.shape)
+    Y.dtype = data.dtype
+
+    in_elems = data.nelems()
+    out_elems = Y.nelems()
+
+    op.perf_stats = {
+        "inElems": in_elems,
+        "outElems": out_elems,
+        "inBytes": data.nbytes(op.precision),
+        "outBytes": Y.nbytes(op.precision),
+        # Treat as memory-dominated: one mov per output element
+        "instrs": {"mov": out_elems},
+    }
+    return
+
+def scatterelements_sinf(iTList, oTList, op, **kwargs):
+    """
+    Minimal ScatterElements shape + perf inference for ONNX ScatterElements:
+      inputs: data, indices, updates
+      output: same shape/dtype as data
+    """
+    assert len(iTList) >= 3, f"ScatterElements expects (data, indices, updates), got {len(iTList)}"
+
+    data = iTList[0]
+    Y = oTList[0]
+
+    assert data.check_shape(), f"ScatterElements: data tensor shape not defined: {data}"
+
+    Y.shape = list(data.shape)
+    Y.dtype = data.dtype
+
+    in_elems = data.nelems()
+    out_elems = Y.nelems()
+
+    op.perf_stats = {
+        "inElems": in_elems,
+        "outElems": out_elems,
+        "inBytes": data.nbytes(op.precision),
+        "outBytes": out_elems * data.dtype.itemsize,
+        "instrs": {"mov": out_elems},  # memory-dominated
+    }
+    return
+
 def if_sinf(iTList, oTList, op, **kwargs):
     if len(iTList) < 1:
         raise ValueError("If operator expects at least one input (the condition tensor)")
@@ -149,5 +207,15 @@ def register_text_ops():
         ['StringConcat',      'ARITY_2->1',  'ai.onnx',  'COMMON',  20,  20,  2,  2,  1,  1,  'inline_lambda',  True,  True,  True,  True,  True],
         ]
     register_ops('text', _optbl)
+    return
+
+def register_misc_ops():
+    _optbl = [
+        ['ScatterND', 'ARITY_3->1', 'ai.onnx', 'COMMON',
+         11, 18, 3, 3, 1, 1, scatternd_sinf, True, True, True, True, True],
+        ['ScatterElements', 'ARITY_3->1', 'ai.onnx', 'COMMON',
+         11, 18, 3, 3, 1, 1, scatterelements_sinf, True, True, True, True, True],
+    ]
+    register_ops('misc', _optbl)
     return
 

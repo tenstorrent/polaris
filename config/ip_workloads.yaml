@@ -104,6 +104,16 @@ workloads:
                  bs: 1,
                  seq_len: 128 }
 
+  # Qwen3-VL-2B text decoder ONNX (fixed bs=1, seq_len=128)
+  - api: ONNX
+    name: QWEN3_VL_2B_TEXT
+    basedir: workloads/onnx
+    module: qwen3_vl_2b_text_fixed-128.onnx
+    instances:
+      default: { path: qwen3_vl_2b_text_fixed-128.onnx,
+                 bs: 1,
+                 seq_len: 128 }
+
   - api: ONNX
     name: MAMBA_2.8B
     basedir: workloads/onnx
