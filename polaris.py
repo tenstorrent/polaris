@@ -211,6 +211,13 @@ def setup_cmdline_args(argv: list[str] | None = None) -> argparse.Namespace:
         help='Use linear/power curve branch for entry_type: hybrid LUT rows (else use single only)',
     )
     parser.add_argument(
+        '--operator-lookup-use-padded-shapes',
+        dest='operator_lookup_use_padded_shapes',
+        action='store_true',
+        default=False,
+        help='Build operator perf LUT keys from tile-padded shapes when tensors expose padded_shape (else logical shape)',
+    )
+    parser.add_argument(
         '--disable-fusion',
         dest='disable_fusion',
         action='store_true',
@@ -317,6 +324,7 @@ def do_dryrun(_wl, _dl):
 def execute_wl_on_dev(_wl, _dl, _wspec, _dspec, wlmapspec, _WLG,
                       _odir, study, _enable_memalloc, outputfmt, flag_dump_stats_csv,
                       operator_lookup_hybrid_curve: bool = False,
+                      operator_lookup_use_padded_shapes: bool = False,
                       disable_fusion: bool = False):
     # TODO: Reduce number of arguments to this function
     study_dir = _odir / study
@@ -365,9 +373,13 @@ def execute_wl_on_dev(_wl, _dl, _wspec, _dspec, wlmapspec, _WLG,
             use_hybrid_lut_curve = operator_lookup_hybrid_curve or bool(
                 getattr(dev_obj, 'operator_lookup_hybrid_curve', False)
             )
+            use_padded_lut_shapes = operator_lookup_use_padded_shapes or bool(
+                getattr(dev_obj, 'operator_lookup_use_padded_shapes', False)
+            )
             cur_device = Device(
                 dev_obj,
                 operator_lookup_hybrid_curve=use_hybrid_lut_curve,
+                operator_lookup_use_padded_shapes=use_padded_lut_shapes,
             )
             cur_device.execute_graph(wlgraph, wlmapspec, disable_fusion=disable_fusion)
 
@@ -433,6 +445,9 @@ def polaris(args: argparse.Namespace | runcfgmodel.PolarisRunConfig) -> int:
             outputformat,
             args.dump_stats_csv,
             operator_lookup_hybrid_curve=bool(args.operator_lookup_hybrid_curve),
+            operator_lookup_use_padded_shapes=bool(
+                getattr(args, 'operator_lookup_use_padded_shapes', False)
+            ),
             disable_fusion=bool(getattr(args, 'disable_fusion', False)),
         )
         summary_stats = sorted(summary_stats, key=lambda x: (x['wlname'], x['devname'], x['freq_Mhz'], x['wlinstance'], x['bs']))

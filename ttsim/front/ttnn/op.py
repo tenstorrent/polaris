@@ -38,6 +38,9 @@ def single_output_immediate_op(optype, /, preprocess=None):
             args, kwargs = preprocess(args, kwargs)
 
         tensor_args = [x for x in args if isinstance(x, Tensor)]
+        if optype == 'MatMul':
+            for t in tensor_args:
+                assert t.layout == Layout.TILE_LAYOUT
         devchk_list = [x.device for x in tensor_args]
         device      = devchk_list[0]
         # assert device and all(x == device for x in devchk_list), f"device check: {devchk_list}"
@@ -574,8 +577,36 @@ def fold(ttnn_tensor_like,
         transposed = reshaped1.permute(0, 1, 3, 2, 4, 5)
         reshaped2  = transposed.reshape(N, Hs, Ws, C * stride_h * stride_w)
     else:
-        #fold implemented as device specific efficient kernel: for DRAM/L1 memory configs
-        #sharded tensor support: special handling for height sharded tensors
-        reshaped2  = ttnn_tensor_like.reshape([N, Hs, Ws, C * stride_h * stride_w])
+        # Fold as first-class SimOp (matches hardware Fold kernel naming vs reshape shortcut).
+        assert ttnn_tensor_like.device is not None, "fold requires input tensor on device"
+        op_name = generate_new_op_name()
+        tensor_type = type(ttnn_tensor_like)
+        fold_attrs = {
+            'stride_h': stride_h,
+            'stride_w': stride_w,
+            'pad_h': pad_h,
+            'pad_w': pad_w,
+            'pad_c': pad_c,
+        }
+        out_tensor = tensor_type(
+            name=op_name + '.out',
+            op_out=[op_name],
+            device=ttnn_tensor_like.device,
+            dtype=ttnn_tensor_like.dtype,
+            layout=ttnn_tensor_like.layout,
+        )
+        ttnn_tensor_like.op_in.append(op_name)
+        opinfo = {
+            'name': op_name,
+            'optype': 'Fold',
+            'inList': [ttnn_tensor_like.name],
+            'outList': [out_tensor.name],
+            'attrs': fold_attrs,
+        }
+        opobj = SimOp(opinfo)
+        opobj.get_perf_counts([ttnn_tensor_like], [out_tensor])
+        opobj.update_tensor_counts([ttnn_tensor_like], [out_tensor])
+        ttnn_tensor_like.device.add_op(opobj)
+        reshaped2 = out_tensor
 
     return reshaped2

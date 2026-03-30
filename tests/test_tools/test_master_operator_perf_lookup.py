@@ -78,6 +78,38 @@ def test_build_master_key_tuple_rank3_and_rank2():
 
 
 @pytest.mark.unit
+def test_build_master_key_tuple_use_padded_shapes():
+    """When ``use_padded_shapes=True``, keys use ``padded_shape()`` if present (TTNN Tensor)."""
+    from ttsim.ops.tensor import Shape
+    from tools.perf_lookup.lookup_operator_perf import build_master_key_tuple_15
+
+    class _TileTensor:
+        def __init__(self) -> None:
+            self.shape = Shape([8, 14, 14, 1024])
+            self.dtype = np.dtype(np.float16)
+            self.layout = SimpleNamespace(name="TILE_LAYOUT")
+
+        def padded_shape(self) -> Shape:
+            return Shape([8, 14, 32, 1024])
+
+    t0 = _TileTensor()
+    t1 = SimTensor(
+        {
+            "name": "b",
+            "shape": [1024, 768],
+            "op_in": [],
+            "op_out": [],
+        }
+    )
+    op = SimpleNamespace(optype="Matmul", precision="BF16", inList=["a", "b"])
+    key_log = build_master_key_tuple_15(op, t0, t1, use_padded_shapes=False)
+    key_pad = build_master_key_tuple_15(op, t0, t1, use_padded_shapes=True)
+    assert key_log[1:5] == (8, 14, 14, 1024)
+    assert key_pad[1:5] == (8, 14, 32, 1024)
+    assert key_log[8:12] == key_pad[8:12] == (1, 1, 1024, 768)
+
+
+@pytest.mark.unit
 def test_build_master_key_tuple_8():
     from tools.perf_lookup.lookup_operator_perf import build_master_key_tuple_8
 

@@ -61,6 +61,13 @@ These shims are designed for simulation, performance modeling, and logic testing
 - `pad(tensor, padding, pad_value, output_memory_config=None)`
   - Pads tensor with specified padding
 
+### Device-graph operator APIs (SimOp-only)
+
+These build `SimOp` nodes on the device graph (like `ttnn` front-end ops) but live only on `ttnn_shim` — not re-exported from `ttsim.front.ttnn`.
+
+- `tilize_op`, `untilize_op`, `tilize_with_val_padding_op`, `untilize_with_unpadding_op` — layout conversions as first-class ops (see `ttsim/ops/desc/ttsim_layout.py`).
+- `permute_op(input_tensor, dims, memory_config=None)` — axis reorder with SimOp type **Permute** and attrs `perm`. Same mathematical role as `ttnn.permute(tensor, dims)`, but the generic `ttnn.permute` in `op.py` still records **Transpose** for other call sites.
+
 ## Classes
 
 ### TensorProxy

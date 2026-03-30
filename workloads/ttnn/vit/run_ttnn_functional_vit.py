@@ -16,6 +16,8 @@ if not IS_POLARIS:
     import transformers  # type: ignore[import] # noqa E402
     from datasets import load_dataset  # type: ignore[import] # noqa F401, E402
     from transformers import AutoImageProcessor  # noqa E402
+    import ttnn
+    import torch
     from ttnn.model_preprocessing import preprocess_model_parameters  # type: ignore[import] # noqa F401,  E402
 else:
     import ttsim.front.ttnn as ttnn
@@ -25,13 +27,14 @@ else:
     import workloads.ttnn.vit.ttnn_functional_vit as ttnn_functional_vit
     from ttsim.front.ttnn.device import set_default_device
     from ttsim.front.ttnn.tensor import ttnn_random
+    from ttsim.front.ttnn.ttnn_shim import permute_op
     torch_random = ttnn_random  # type: ignore[no-redef]
     # torch_bfloat16 = ttnn.DataType.BFLOAT16
 
 if not IS_POLARIS:
     from models.common.utility_functions import is_blackhole, is_wormhole_b0, torch_random   # type: ignore[import, no-redef] # noqa F401, E402
-    from models.demos.vit.common import load_torch_model   # type: ignore[import] # noqa F401, E402
-    from models.demos.vit.tt import ttnn_functional_vit   # type: ignore[no-redef, import] # noqa F401, E402
+    from models.demos.vision.classification.vit.common.common import load_torch_model   # type: ignore[import] # noqa F401, E402
+    from models.demos.vision.classification.vit.common.tt import ttnn_functional_vit   # type: ignore[no-redef, import] # noqa F401, E402
 
     from tests.ttnn.utils_for_testing import assert_with_pcc   # type: ignore[import] # noqa F401, E402
 
@@ -173,10 +176,9 @@ def test_vit_patch_embeddings(
     torch.manual_seed(0)
 
     if not IS_POLARIS:
-        if model_location_generator is None:
-            raise ValueError("model_location_generator is required when not running in POLARIS")
 
         model = load_torch_model(model_location_generator, embedding=True)
+        model = model.to(torch.bfloat16)
         config = model.config
 
         torch_pixel_values = torch_random(
@@ -211,7 +213,7 @@ def test_vit_patch_embeddings(
         torch_pixel_values = torch_random(
             (batch_size, image_channels, image_size, image_size), -1, 1, dtype=torch.bfloat16
         )
-        pixel_values = ttnn.permute(torch_pixel_values, [0, 2, 3, 1])
+        pixel_values = permute_op(torch_pixel_values, [0, 2, 3, 1])
         pixel_values = ttnn.pad(pixel_values, [0, 1, 0, 0, 0, 0, 0, 0], value=0)
         pixel_values = ttnn.from_torch(pixel_values, dtype=ttnn.bfloat16, layout=ttnn.ROW_MAJOR_LAYOUT)
 
@@ -250,10 +252,9 @@ def test_vit_embeddings(
     torch.manual_seed(0)
 
     if not IS_POLARIS:
-        if model_location_generator is None:
-            raise ValueError("model_location_generator is required when not running in POLARIS")
 
         model = load_torch_model(model_location_generator, embedding=True)
+        model = model.to(torch.bfloat16)
         config = model.config
 
         dataset = load_dataset("huggingface/cats-image")
@@ -309,7 +310,7 @@ def test_vit_embeddings(
         torch_pixel_values = torch_random(
             (batch_size, image_channels, image_size, image_size), -1, 1, dtype=torch.bfloat16
         )
-        pixel_values = ttnn.permute(torch_pixel_values, [0, 2, 3, 1])
+        pixel_values = permute_op(torch_pixel_values, [0, 2, 3, 1])
         pixel_values = ttnn.pad(pixel_values, [0, 1, 0, 0, 0, 0, 0, 0], value=0)
         pixel_values = ttnn.from_torch(pixel_values, dtype=ttnn.bfloat16, layout=ttnn.ROW_MAJOR_LAYOUT)
 
@@ -429,7 +430,8 @@ def test_vit_intermediate(device,
 
     else:
         config = config_obj  # type: ignore[assignment]
-        hidden_states = torch_random((batch_size, sequence_size, config.hidden_size), -0.1, 0.1, dtype=torch.bfloat16)
+        torch_hidden_states = torch_random((batch_size, sequence_size, config.hidden_size), -0.1, 0.1, dtype=torch.bfloat16)
+        hidden_states = ttnn.from_torch(torch_hidden_states, layout=ttnn.TILE_LAYOUT)
         parameters = Parameters_dense_intermediate()
 
 
@@ -484,9 +486,10 @@ def test_vit_output(device,
 
     else:
         config = config_obj  # type: ignore[assignment]
-        intermediate = torch_random(
+        torch_intermediate = torch_random(
             (batch_size, sequence_size, config.intermediate_size), -0.1, 0.1, dtype=torch.bfloat16
         )
+        intermediate = ttnn.from_torch(torch_intermediate, layout=ttnn.TILE_LAYOUT)
         residual = torch_random((batch_size, sequence_size, config.hidden_size), -0.1, 0.1, dtype=torch.bfloat16)
         parameters = Parameters_dense_output()
     output = ttnn_functional_vit.vit_output(
@@ -525,10 +528,11 @@ def test_vit_layer(
     torch.manual_seed(0)
 
     if not IS_POLARIS:
-        if model_location_generator is None:
-            raise ValueError("model_location_generator is required when not running in POLARIS")
+#        if model_location_generator is None:
+#            raise ValueError("model_location_generator is required when not running in POLARIS")
 
         model = load_torch_model(model_location_generator, embedding=True)
+        model = model.to(torch.bfloat16)
         config = model.config
         model = model.vit.encoder.layer[0]
 
@@ -599,10 +603,9 @@ def test_vit_encoder(
     torch.manual_seed(0)
 
     if not IS_POLARIS:
-        if model_location_generator is None:
-            raise ValueError("model_location_generator is required when not running in POLARIS")
 
         model = load_torch_model(model_location_generator)
+        model = model.to(torch.bfloat16)
         config = model.config
         model = model.vit.encoder
 
@@ -618,12 +621,10 @@ def test_vit_encoder(
             custom_preprocessor=ttnn_functional_vit.custom_preprocessor,
         )
 
-        hidden_states = ttnn.from_torch(
-            torch_hidden_states, dtype=ttnn.bfloat16, layout=ttnn.TILE_LAYOUT, device=device
-        )
+        hidden_states = ttnn.from_torch(torch_hidden_states, layout=ttnn.TILE_LAYOUT, device=device)
         if torch_attention_mask is not None:
             attention_mask = ttnn.from_torch(
-                torch_attention_mask, dtype=ttnn.bfloat16, layout=ttnn.TILE_LAYOUT, device=device
+                torch_attention_mask, layout=ttnn.TILE_LAYOUT, device=device
             )
         else:
             attention_mask = None
@@ -683,10 +684,9 @@ def test_vit(
     torch.manual_seed(0)
 
     if not IS_POLARIS:
-        if model_location_generator is None:
-            raise ValueError("model_location_generator is required when not running in POLARIS")
 
         model = load_torch_model(model_location_generator)
+        model = model.to(torch.bfloat16)
         config = model.config
 
         dataset = load_dataset("huggingface/cats-image")
@@ -742,8 +742,8 @@ def test_vit(
         torch_pixel_values = torch_random(
             (batch_size, image_channels, image_size, image_size), -1, 1, dtype=torch.bfloat16
         )
-        # minitorch_shim has no permute / F.pad; use ttnn ops on ttsim tensors (same as NCHW→NHWC + pad 3→4 ch).
-        pixel_values = ttnn.permute(torch_pixel_values, [0, 2, 3, 1])
+        # minitorch_shim has no permute / F.pad; use ttsim ops on tensors (NCHW→NHWC + pad 3→4 ch).
+        pixel_values = permute_op(torch_pixel_values, [0, 2, 3, 1])
         pixel_values = ttnn.pad(pixel_values, [0, 1, 0, 0, 0, 0, 0, 0], value=0)
         pixel_values = ttnn.from_torch(pixel_values, dtype=ttnn.bfloat16, layout=ttnn.ROW_MAJOR_LAYOUT)
 
@@ -791,8 +791,12 @@ _STANDALONE_VALID_SHORT_NAMES = frozenset(s[0] for s in _STANDALONE_RUN_SPECS)
 
 
 def run_one(callback, wlname: str, cfg: dict):
-    from ttsim.front.ttnn.device import close_device, open_device
-    device = open_device()
+    if IS_POLARIS:
+        from ttsim.front.ttnn.device import close_device, open_device
+        device = open_device()
+    else:
+        from ttnn import close_device, open_device
+        device = open_device(device_id=0)
     callback(wlname, device, cfg)
     close_device(device)
 
@@ -805,9 +809,7 @@ def standalone(test_name: str | None = None) -> None:
     if test_name not in _STANDALONE_VALID_SHORT_NAMES:
         valid = ", ".join(sorted(_STANDALONE_VALID_SHORT_NAMES))
         logger.error(
-            "Unknown test %r. Valid names (without vit- prefix): %s",
-            test_name,
-            valid,
+            f"Unknown test {test_name}. Valid names (without vit- prefix): {valid}"
         )
         sys.exit(1)
     for short, fn, wlname in _STANDALONE_RUN_SPECS:

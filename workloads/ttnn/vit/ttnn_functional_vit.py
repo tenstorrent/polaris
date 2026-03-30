@@ -2,9 +2,11 @@
 # SPDX-FileCopyrightText: (C) 2025 Tenstorrent AI ULC
 # SPDX-License-Identifier: Apache-2.0
 
-import os, sys
+import os
+import sys
 sys.path.append(os.path.join(os.path.dirname(__file__), '../../..'))
 import ttsim.front.ttnn as ttnn
+from ttsim.front.ttnn.ttnn_shim import permute_op
 from loguru import logger
 
 _LAYOUT_OPERATOR_TODO_KEYS: set[str] = set()
@@ -89,7 +91,8 @@ def vit_layernorm_before(
         weight=parameters.layernorm_before.weight,
         bias=parameters.layernorm_before.bias,
     )
-
+    # TODO: placeholder for layer norm layout
+    attention_output.layout = ttnn.TILE_LAYOUT
     return attention_output
 
 
@@ -104,6 +107,8 @@ def vit_layernorm_after(
         weight=parameters.layernorm_after.weight,
         bias=parameters.layernorm_after.bias,
     )
+    # TODO: placeholder for layer norm layout
+    attention_output.layout = ttnn.TILE_LAYOUT
 
     return attention_output
 
@@ -141,7 +146,7 @@ def vit_attention(
         "reshape should set or require layout internally; remove explicit to_layout (query).",
     )
     query = ttnn.to_layout(query, layout=ttnn.TILE_LAYOUT)
-    query = ttnn.permute(query, (0, 2, 1, 3))
+    query = permute_op(query, (0, 2, 1, 3))
     # TODO(ttnn/operators): permute should set output layout; remove explicit assignment.
     _warn_layout_operator_todo_once(
         "vit_attn_query_permute_layout",
@@ -176,7 +181,7 @@ def vit_attention(
         "reshape should set layout metadata; remove explicit to_layout (key).",
     )
     key = ttnn.to_layout(key, layout=ttnn.TILE_LAYOUT)
-    key = ttnn.permute(key, (0, 2, 3, 1))
+    key = permute_op(key, (0, 2, 3, 1))
     # TODO(ttnn/operators): permute should set output layout; remove explicit assignment.
     _warn_layout_operator_todo_once(
         "vit_attn_key_permute_layout",
@@ -211,7 +216,7 @@ def vit_attention(
         "reshape should set layout metadata; remove explicit to_layout (value).",
     )
     value = ttnn.to_layout(value, layout=ttnn.TILE_LAYOUT)
-    value = ttnn.permute(value, (0, 2, 1, 3))
+    value = permute_op(value, (0, 2, 1, 3))
     # TODO(ttnn/operators): permute should set output layout; remove explicit assignment.
     _warn_layout_operator_todo_once(
         "vit_attn_value_permute_layout",
@@ -259,7 +264,7 @@ def vit_attention(
     context_layer.layout = ttnn.TILE_LAYOUT
     # TODO: end
     logger.debug("context_layer: {} layout {} before permute", context_layer.name, context_layer.layout)
-    context_layer = ttnn.permute(context_layer, (0, 2, 1, 3))
+    context_layer = permute_op(context_layer, (0, 2, 1, 3))
     # TODO: Remove this hack after fixing the issue with permute and reshape.
     # TODO(ttnn/operators): permute should set output layout; remove explicit assignment when op is fixed.
     _warn_layout_operator_todo_once(
@@ -309,8 +314,14 @@ def vit_intermediate(
     parameters,
 ):
     output = hidden_states @ parameters.dense.weight
+    # TODO: placeholder for matmul layout
+    output.layout = hidden_states.layout
     output = output + parameters.dense.bias
+    # TODO: placeholder for add layout
+    output.layout = hidden_states.layout
     output = ttnn.gelu(output)
+    # TODO: placeholder for gelu layout
+    output.layout = hidden_states.layout
     return output
 
 
@@ -418,9 +429,14 @@ def vit(
         weight=parameters.vit.layernorm.weight,
         bias=parameters.vit.layernorm.bias,
     )
-
+    # TODO: placeholder for layer norm layout
+    output.layout = ttnn.TILE_LAYOUT
     # Classifier
     classifier_output = output @ parameters.classifier.weight
+    # TODO: placeholder for matmul layout
+    classifier_output.layout = output.layout
     classifier_output = classifier_output + parameters.classifier.bias
+    # TODO: placeholder for add layout
+    classifier_output.layout = output.layout
 
     return classifier_output

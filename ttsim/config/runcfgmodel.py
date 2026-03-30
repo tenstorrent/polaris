@@ -124,6 +124,11 @@ class PolarisRunConfig(BaseModel, extra='forbid'):
         description='Use curve branch for hybrid operator LUT rows (polaris --operator-lookup-hybrid-curve)',
     )
 
+    operator_lookup_use_padded_shapes: Optional[bool] = Field(
+        default=False,
+        description='Use padded tensor shapes for operator LUT keys (polaris --operator-lookup-use-padded-shapes)',
+    )
+
     disable_fusion: Optional[bool] = Field(
         default=False,
         description='Skip op fusion in Device.execute_graph (polaris --disable-fusion)',

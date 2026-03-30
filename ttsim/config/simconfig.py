@@ -485,6 +485,8 @@ class PackageInstanceModel(BaseModel, extra='forbid'):
     operator_lookup_core_count: Optional[int] = None
     #: When True, ``entry_type: hybrid`` LUT rows use embedded ``curve`` stats at runtime core count.
     operator_lookup_hybrid_curve: bool = False
+    #: When True, tt-perf master lookup keys use tile-padded tensor extents when available (``Tensor.padded_shape``).
+    operator_lookup_use_padded_shapes: bool = False
 
     def get_ipgroup(self, iptype: str) -> IPGroupModel:
         matching = [ipgroup for ipgroup in self.ipgroups if ipgroup.iptype == iptype]

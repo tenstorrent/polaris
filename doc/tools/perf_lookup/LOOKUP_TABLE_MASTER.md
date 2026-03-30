@@ -48,13 +48,15 @@ Full `KEY_TUPLE_YAML_KEYS` order (`op_code`, `input_0_*`, `input_1_*`):
 | Field | Source |
 |-------|--------|
 | `op_code` | `op.optype` lowercased |
-| `input_0_*_pad_logical` | `SimTensor.shape` padded/truncated to rank 4 via `Shape.to_rank(4)` → `(w,z,y,x)` |
+| `input_0_*_pad_logical` | `SimTensor.shape` (or, when enabled, tile-padded extents from `Tensor.padded_shape`) padded/truncated to rank 4 via `Shape.to_rank(4)` → `(w,z,y,x)` |
 | `input_0_layout` | Tensor `layout` name if present; else `TILE` |
 | `input_0_datatype` | Tensor `dtype` name when recognized; else `op.precision` mapped (`BF16` → `BFLOAT16`, …) |
 | `input_0_memory` | Tensor memory config string if present; else `DEV_1_DRAM_INTERLEAVED` |
 | `input_1_*` | Same for the second input (binary ops only) |
 
 **Core count** for curve / hybrid curve evaluation: package `operator_lookup_core_count` if set, else compute IP group `num_units`, else `64`. See `resolve_operator_lookup_core_count`.
+
+**Padded-shape keys:** Package field `operator_lookup_use_padded_shapes` or Polaris CLI `--operator-lookup-use-padded-shapes` makes the simulator use each tensor’s tile-padded extents (`Tensor.padded_shape`) when building the same WZYX key tuple, when that API exists; otherwise logical `shape` is unchanged (`SimTensor` has no padded view).
 
 ### Arity not in master format
 

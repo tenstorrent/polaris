@@ -45,7 +45,7 @@ op_rsrc_spec:
              Cast, Clip, Concat, Constant, ConstantOfShape, Cos,
              Div, Dropout,
              Equal, Erf, Exp, Expand,
-             Flatten,
+             Flatten, Fold,
              Gather, GatherND, Gelu, GlobalAveragePool, Greater,
              Hardswish,
              Identity, IsNaN,
@@ -56,6 +56,6 @@ op_rsrc_spec:
              Reciprocal, ReduceMax, ReduceMean, ReduceSum, Relu, Reshape, Resize,
              Shape, Sigmoid, Sin, Slice, Softmax, Softplus, Split, Sqrt, Squeeze, Sub, Sum,
              Tanh, Tile, Tilize, TilizeWithValPadding, TorchGather, Transpose, Trilu,
-             Unsqueeze, Untilize, UntilizeWithUnpadding,
+             Unsqueeze, Untilize, UntilizeWithValUnpadding,
              VoxelPooling,
              Where]

@@ -346,13 +346,40 @@ def _tensor_datatype(t: Any, op_precision: Any) -> str:
     return _precision_to_master_datatype(op_precision)
 
 
-def _shape_wzyx(tensor: Any) -> Tuple[int, int, int, int]:
-    from ttsim.ops.tensor import Shape
+def _coerce_shape_like_to_list(shape_like: Any) -> list[int]:
+    """Normalize ``Shape``, sequence, or similar to a list of ints."""
+    if shape_like is None:
+        return []
+    if hasattr(shape_like, "view") and callable(getattr(shape_like, "view", None)):
+        return [int(x) for x in shape_like.view()]
+    if hasattr(shape_like, "_shape"):
+        return [int(x) for x in shape_like._shape]
+    return [int(x) for x in shape_like]
 
+
+def _raw_shape_list_for_lookup(tensor: Any, *, use_padded: bool) -> list[int]:
+    """
+    Shape basis for LUT WZYX keys: logical ``.shape`` by default, or tile-padded extents when
+    ``use_padded`` and the tensor exposes ``padded_shape`` (e.g. ``ttnn.front.ttnn.Tensor``).
+    """
+    if use_padded:
+        ps = getattr(tensor, "padded_shape", None)
+        if ps is not None:
+            sh = ps() if callable(ps) else ps
+            dims = _coerce_shape_like_to_list(sh)
+            if dims:
+                return dims
     raw = getattr(tensor, "shape", None)
     if raw is None:
         raise ValueError("tensor has no shape")
-    sh = Shape(list(raw)) if not isinstance(raw, Shape) else raw
+    return _coerce_shape_like_to_list(raw)
+
+
+def _shape_wzyx(tensor: Any, *, use_padded: bool = False) -> Tuple[int, int, int, int]:
+    from ttsim.ops.tensor import Shape
+
+    raw_list = _raw_shape_list_for_lookup(tensor, use_padded=use_padded)
+    sh = Shape(raw_list)
     v = sh.to_rank(4).view()
     return (int(v[0]), int(v[1]), int(v[2]), int(v[3]))
 
@@ -365,16 +392,22 @@ def _reshape_input0_lut_wzyx(w: int, z: int, y: int, x: int) -> Tuple[int, int, 
     return (1, 1, int(w) * int(z) * int(y), int(x))
 
 
-def _input0_wzyx_for_master_key(op: Any, tensor_0: Any) -> Tuple[int, int, int, int]:
-    w, z, y, x = _shape_wzyx(tensor_0)
+def _input0_wzyx_for_master_key(
+    op: Any, tensor_0: Any, *, use_padded_shapes: bool = False
+) -> Tuple[int, int, int, int]:
+    w, z, y, x = _shape_wzyx(tensor_0, use_padded=use_padded_shapes)
     if _op_code(op) == "reshape":
         return _reshape_input0_lut_wzyx(w, z, y, x)
     return (w, z, y, x)
 
 
-def build_master_key_tuple_8(op: Any, tensor_0: Any) -> Tuple[Any, ...]:
+def build_master_key_tuple_8(
+    op: Any, tensor_0: Any, *, use_padded_shapes: bool = False
+) -> Tuple[Any, ...]:
     """Logical 8-tuple (first input only); order matches ``KEY_TUPLE_YAML_KEYS[:8]``."""
-    w0, z0, y0, x0 = _input0_wzyx_for_master_key(op, tensor_0)
+    w0, z0, y0, x0 = _input0_wzyx_for_master_key(
+        op, tensor_0, use_padded_shapes=use_padded_shapes
+    )
     return (
         _op_code(op),
         w0,
@@ -387,10 +420,18 @@ def build_master_key_tuple_8(op: Any, tensor_0: Any) -> Tuple[Any, ...]:
     )
 
 
-def build_master_key_tuple_15(op: Any, tensor_0: Any, tensor_1: Any) -> Tuple[Any, ...]:
+def build_master_key_tuple_15(
+    op: Any,
+    tensor_0: Any,
+    tensor_1: Any,
+    *,
+    use_padded_shapes: bool = False,
+) -> Tuple[Any, ...]:
     """Logical 15-tuple matching ``tools.perf_lookup.tt_perf_master_schema.KEY_TUPLE_YAML_KEYS`` order."""
-    w0, z0, y0, x0 = _input0_wzyx_for_master_key(op, tensor_0)
-    w1, z1, y1, x1 = _shape_wzyx(tensor_1)
+    w0, z0, y0, x0 = _input0_wzyx_for_master_key(
+        op, tensor_0, use_padded_shapes=use_padded_shapes
+    )
+    w1, z1, y1, x1 = _shape_wzyx(tensor_1, use_padded=use_padded_shapes)
     return (
         _op_code(op),
         w0,
@@ -471,7 +512,13 @@ class OperatorPerfMap:
     and core count.
     """
 
-    def __init__(self, yaml_file: Union[str, Path], *, use_hybrid_curve: bool = False):
+    def __init__(
+        self,
+        yaml_file: Union[str, Path],
+        *,
+        use_hybrid_curve: bool = False,
+        use_padded_shapes: bool = False,
+    ):
         yaml_path = Path(yaml_file)
         if not yaml_path.exists():
             raise FileNotFoundError(f"YAML file not found: {yaml_file}")
@@ -479,6 +526,7 @@ class OperatorPerfMap:
         self._entries: Dict[tuple, dict] = load_existing_yaml(yaml_path)
         self._source_path = yaml_path
         self._use_hybrid_curve = bool(use_hybrid_curve)
+        self._use_padded_shapes = bool(use_padded_shapes)
 
     def __len__(self) -> int:
         return len(self._entries)
@@ -564,7 +612,9 @@ class OperatorPerfMap:
             if t0.shape is None:
                 return None
             try:
-                key_t = build_master_key_tuple_8(op, t0)
+                key_t = build_master_key_tuple_8(
+                    op, t0, use_padded_shapes=self._use_padded_shapes
+                )
             except Exception as e:
                 logger.debug("Perf lookup key build failed for op {}: {}", getattr(op, "name", "?"), e)
                 return None
@@ -576,7 +626,9 @@ class OperatorPerfMap:
             if t0.shape is None or t1.shape is None:
                 return None
             try:
-                key_t = build_master_key_tuple_15(op, t0, t1)
+                key_t = build_master_key_tuple_15(
+                    op, t0, t1, use_padded_shapes=self._use_padded_shapes
+                )
             except Exception as e:
                 logger.debug("Perf lookup key build failed for op {}: {}", getattr(op, "name", "?"), e)
                 return None
@@ -590,7 +642,9 @@ class OperatorPerfMap:
             and _op_code(op) in _BINARY_LUT_FALLBACK_TO_INPUT0_KEY_OPCODES
         ):
             try:
-                key8 = build_master_key_tuple_8(op, t0)
+                key8 = build_master_key_tuple_8(
+                    op, t0, use_padded_shapes=self._use_padded_shapes
+                )
             except Exception as e:
                 logger.debug(
                     "Perf lookup unary fallback key build failed for op {}: {}",

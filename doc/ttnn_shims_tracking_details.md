@@ -1,5 +1,9 @@
 # TTNN Shims - Internal Operation Tracking
 
+## SimOp-only APIs (no OperationTracker)
+
+Functions such as `tilize_op`, `untilize_op`, and `permute_op` add operators to the device graph and populate `perf_stats` via the op registry. They do **not** append to the shim `OperationTracker` lists described below (those lists are used by the executable `tilize` / `untilize` paths and related tracking).
+
 ## Answer to Your Question
 
 **Yes, the tilize and untilize operations now track internal operations including computations and memory movements.**

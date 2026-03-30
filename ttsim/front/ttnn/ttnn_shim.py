@@ -1577,7 +1577,8 @@ def tilize_with_val_padding_op(input_tensor, output_padded_shape, pad_value,
 def untilize_with_unpadding_op(input_tensor, output_shape,
                                 use_multicore=True, use_pack_untilize=True, element_size=2, memory_config=None):
     """
-    Create an UntilizeWithUnpadding SimOp and output tensor (tracking-only; no execution).
+    Create an UntilizeWithValUnpadding SimOp and output tensor (tracking-only; no execution).
+    (Python name ``untilize_with_unpadding_op`` is historical; optype matches hardware naming.)
     output_shape is the logical output shape (list or tuple); stored in op attrs.
     """
     assert input_tensor.device is not None, "untilize_with_unpadding_op requires input_tensor on device"
@@ -1597,7 +1598,7 @@ def untilize_with_unpadding_op(input_tensor, output_shape,
     input_tensor.op_in.append(op_name)
     opinfo = {
         'name': op_name,
-        'optype': 'UntilizeWithUnpadding',
+        'optype': 'UntilizeWithValUnpadding',
         'inList': [input_tensor.name],
         'outList': [out_tensor.name],
         'attrs': {
@@ -1606,6 +1607,49 @@ def untilize_with_unpadding_op(input_tensor, output_shape,
             'use_pack_untilize': use_pack_untilize,
             'element_size': element_size,
         },
+    }
+    opobj = SimOp(opinfo)
+    opobj.get_perf_counts([input_tensor], [out_tensor])
+    opobj.update_tensor_counts([input_tensor], [out_tensor])
+    input_tensor.device.add_op(opobj)
+    return out_tensor
+
+
+def permute_op(input_tensor, dims, memory_config=None):
+    """
+    Create a Permute SimOp and output tensor (tracking-only; no execution).
+
+    Parity with ``ttnn.permute(tensor, dims)`` on the data movement pattern, but
+    records optype **Permute** on the device graph. The generic front-end
+    ``ttnn.permute`` in ``op.py`` still lowers to **Transpose** for other call sites.
+
+    Requires ``input_tensor`` on a device (same contract as ``tilize_op``).
+    ``dims`` may be a list or tuple of dimension indices (full permutation).
+    """
+    assert input_tensor.device is not None, "permute_op requires input_tensor on device"
+    perm = list(dims)
+    in_shape = list(input_tensor.logical_shape()._shape)
+    if len(perm) != len(in_shape):
+        raise ValueError(
+            f"permute_op: len(dims)={len(perm)} must match input rank {len(in_shape)}"
+        )
+    out_shape = [in_shape[i] for i in perm]
+    op_name = generate_new_op_name()
+    out_tensor = Tensor(
+        name=op_name + '.out',
+        shape=out_shape,
+        dtype=input_tensor.dtype,
+        layout=input_tensor.layout,
+        op_out=[op_name],
+        device=input_tensor.device,
+    )
+    input_tensor.op_in.append(op_name)
+    opinfo = {
+        'name': op_name,
+        'optype': 'Permute',
+        'inList': [input_tensor.name],
+        'outList': [out_tensor.name],
+        'attrs': {'perm': perm},
     }
     opobj = SimOp(opinfo)
     opobj.get_perf_counts([input_tensor], [out_tensor])

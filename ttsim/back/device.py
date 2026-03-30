@@ -100,7 +100,13 @@ class Device:
     G_FUSE_OP_OVERLAP_COST_CONSTANT = 0.10
     G_GUARDBAND                     = 0.25
 
-    def __init__(self, simcfg_obj, *, operator_lookup_hybrid_curve: Optional[bool] = None):
+    def __init__(
+        self,
+        simcfg_obj,
+        *,
+        operator_lookup_hybrid_curve: Optional[bool] = None,
+        operator_lookup_use_padded_shapes: Optional[bool] = None,
+    ):
         compute_ips = [ipg for ipg in simcfg_obj.ipgroups if ipg.iptype == 'compute']
         memory_ips  = [ipg for ipg in simcfg_obj.ipgroups if ipg.iptype == 'memory']
         assert len(compute_ips) == 1, "ERR-1"
@@ -128,6 +134,12 @@ class Device:
             _hybrid_curve = bool(getattr(simcfg_obj, "operator_lookup_hybrid_curve", False))
         else:
             _hybrid_curve = bool(operator_lookup_hybrid_curve)
+        if operator_lookup_use_padded_shapes is None:
+            _use_padded_shapes = bool(
+                getattr(simcfg_obj, "operator_lookup_use_padded_shapes", False)
+            )
+        else:
+            _use_padded_shapes = bool(operator_lookup_use_padded_shapes)
         if hasattr(simcfg_obj, 'operator_lookup_file') and simcfg_obj.operator_lookup_file:
             lookup_file_path = Path(os.getcwd()) / simcfg_obj.operator_lookup_file
             if lookup_file_path.exists():
@@ -137,12 +149,14 @@ class Device:
                     self.operator_perf_map = OperatorPerfMap(
                         lookup_file_path,
                         use_hybrid_curve=_hybrid_curve,
+                        use_padded_shapes=_use_padded_shapes,
                     )
                     logger.info(
-                        "Loaded operator performance master lookup from {} (core_count={}, hybrid_curve={})",
+                        "Loaded operator performance master lookup from {} (core_count={}, hybrid_curve={}, padded_shapes={})",
                         lookup_file_path,
                         self._operator_lookup_core_count,
                         _hybrid_curve,
+                        _use_padded_shapes,
                     )
                 except Exception as e:
                     logger.warning(

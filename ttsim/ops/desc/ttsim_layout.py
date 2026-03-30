@@ -3,7 +3,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 """
-Layout op descriptors for Tilize, Untilize, TilizeWithValPadding, UntilizeWithUnpadding.
+Layout op descriptors for Tilize, Untilize, TilizeWithValPadding, UntilizeWithValUnpadding.
 Used by the TTNN front-end tracking-only operator APIs (tilize_op, etc.) in ttnn_shim.
 """
 
@@ -123,8 +123,8 @@ def tilize_with_val_padding_sinf(iTList, oTList, op, **kwargs):
     return
 
 
-def untilize_with_unpadding_sinf(iTList, oTList, op, **kwargs):
-    """Shape inference for UntilizeWithUnpadding: 1 input, output shape from attrs."""
+def untilize_with_val_unpadding_sinf(iTList, oTList, op, **kwargs):
+    """Shape inference for UntilizeWithValUnpadding: 1 input, output shape from attrs."""
     assert len(iTList) == 1 and len(oTList) == 1
     X = iTList[0]
     in_shape = list(X.shape) if X.shape is not None else []
@@ -155,7 +155,7 @@ def register_layout_ops():
         ['Tilize', 'ARITY_1->1', 'ttnn.layout', 'COMMON', 24, 21, 1, 1, 1, 1, tilize_sinf, True, True, True, True, True],
         ['Untilize', 'ARITY_1->1', 'ttnn.layout', 'COMMON', 24, 21, 1, 1, 1, 1, untilize_sinf, True, True, True, True, True],
         ['TilizeWithValPadding', 'ARITY_1->1', 'ttnn.layout', 'COMMON', 24, 21, 1, 1, 1, 1, tilize_with_val_padding_sinf, True, True, True, True, True],
-        ['UntilizeWithUnpadding', 'ARITY_1->1', 'ttnn.layout', 'COMMON', 24, 21, 1, 1, 1, 1, untilize_with_unpadding_sinf, True, True, True, True, True],
+        ['UntilizeWithValUnpadding', 'ARITY_1->1', 'ttnn.layout', 'COMMON', 24, 21, 1, 1, 1, 1, untilize_with_val_unpadding_sinf, True, True, True, True, True],
     ]
     register_ops('layout', _optbl)
     return
