@@ -50,6 +50,7 @@ from tools.perf_lookup.tt_perf_master_schema import (
     MASTER_HYBRID_CURVE_KEY,
     MASTER_HYBRID_SINGLE_KEY,
     MASTER_SINGLE_NUM_CORES_KEY,
+    tuple_to_labeled_key_map,
 )
 
 from loguru import logger
@@ -506,6 +507,60 @@ def _lut_keys_matching_op_code_only(entries: Dict[tuple, dict], key_t: tuple) ->
     return tuple(sorted(matched))
 
 
+def _warn_labeled_lut_key_candidates(
+    group_label: str,
+    keys: Tuple[tuple, ...],
+    *,
+    reference_key: Optional[tuple] = None,
+) -> None:
+    """Log each LUT key tuple for miss diagnostics.
+
+    When ``reference_key`` is set (the constructed lookup key), each candidate is compared
+    field-by-field and **only differing** attributes are logged as ``lookup=`` vs ``lut_row=``.
+    Otherwise the full labeled mapping is logged for each candidate.
+    """
+    n = len(keys)
+    if n == 0:
+        return
+    ref_labeled: Optional[Dict[str, Any]] = None
+    if reference_key is not None:
+        try:
+            ref_labeled = tuple_to_labeled_key_map(reference_key)
+        except ValueError:
+            ref_labeled = None
+
+    for i, k in enumerate(keys):
+        logger.warning("LUT {} candidate {}/{}:", group_label, i + 1, n)
+        try:
+            labeled = tuple_to_labeled_key_map(k)
+        except ValueError:
+            logger.warning("  raw={!r}", k)
+            continue
+        if ref_labeled is None:
+            for name, val in labeled.items():
+                logger.warning("  {}={}", name, val)
+            continue
+        diffs: list[tuple[str, Any, Any]] = []
+        for name, lut_val in labeled.items():
+            wanted = ref_labeled.get(name)
+            if wanted != lut_val:
+                diffs.append((name, wanted, lut_val))
+        if diffs:
+            logger.warning(
+                "  vs lookup: {} attribute(s) differ — {}",
+                len(diffs),
+                ", ".join(nm for nm, _, _ in diffs),
+            )
+            for name, wanted, lut_val in diffs:
+                logger.warning("    {}: lookup={!r} lut_row={!r}", name, wanted, lut_val)
+        else:
+            logger.warning(
+                "  vs lookup: no differing labeled fields (tuple mismatch may be subtle); "
+                "full row: {}",
+                labeled,
+            )
+
+
 class OperatorPerfMap:
     """
     Master-format operator performance table: lookup by constructed 8- or 15-tuple key
@@ -670,17 +725,24 @@ class OperatorPerfMap:
             same_op_only_keys = _lut_keys_matching_op_code_only(self._entries, key_t)
             logger.warning(
                 "Perf lookup miss (no matching LUT row) opname={!r} optype={!r} arity={} "
-                "key={} core_count={} lut={} lut_keys_same_op_and_shapes={} "
-                "lut_keys_same_op_code_only={}",
+                "key={} core_count={} lut={} n_lut_keys_same_op_and_shapes={} "
+                "n_lut_keys_same_op_code_only={}",
                 getattr(op, "name", None),
                 getattr(op, "optype", None),
                 n_in,
                 key_t,
                 core_count,
                 self._source_path,
-                list(same_op_shape_keys),
-                list(same_op_only_keys),
+                len(same_op_shape_keys),
+                len(same_op_only_keys),
             )
+            _warn_labeled_lut_key_candidates(
+                "same-op+shape", same_op_shape_keys, reference_key=key_t
+            )
+            _warn_labeled_lut_key_candidates(
+                "same-op-code-only", same_op_only_keys, reference_key=key_t
+            )
+            logger.warning("------------------------------------------")
             return None
 
         logger.debug(
