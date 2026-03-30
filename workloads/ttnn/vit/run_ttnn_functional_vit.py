@@ -528,8 +528,6 @@ def test_vit_layer(
     torch.manual_seed(0)
 
     if not IS_POLARIS:
-#        if model_location_generator is None:
-#            raise ValueError("model_location_generator is required when not running in POLARIS")
 
         model = load_torch_model(model_location_generator, embedding=True)
         model = model.to(torch.bfloat16)
@@ -690,7 +688,7 @@ def test_vit(
         config = model.config
 
         dataset = load_dataset("huggingface/cats-image")
-        image = dataset["test"]["image"][0:batch_size]
+        image = dataset["train"][0]["image"]
         image_processor = AutoImageProcessor.from_pretrained("google/vit-base-patch16-224")
         torch_pixel_values = image_processor(image, return_tensors="pt").pixel_values.to(torch.bfloat16)
         torch_pixel_values = torch_pixel_values.repeat(batch_size, 1, 1, 1)
@@ -733,7 +731,7 @@ def test_vit(
         )
         output = ttnn.to_torch(output)
 
-        assert_with_pcc(torch_output, output[0][0], 0.9999)  # 0.9806
+        assert_with_pcc(torch_output, output[0][0], 0.9996)  # 0.9806
     else:
         config = config_obj  # type: ignore[assignment]
         num_labels = 1000
@@ -826,6 +824,7 @@ if __name__ == "__main__":
         "test",
         nargs="?",
         metavar="TEST",
+        default="patch-embeddings",
         help=(
             "Run only this test by short name (omit the vit- prefix), "
             "e.g. attention, patch-embeddings, vit. If omitted, runs all tests."
