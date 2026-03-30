@@ -1619,9 +1619,8 @@ def permute_op(input_tensor, dims, memory_config=None):
     """
     Create a Permute SimOp and output tensor (tracking-only; no execution).
 
-    Parity with ``ttnn.permute(tensor, dims)`` on the data movement pattern, but
-    records optype **Permute** on the device graph. The generic front-end
-    ``ttnn.permute`` in ``op.py`` still lowers to **Transpose** for other call sites.
+    Used by :func:`permute` (re-exported as ``ttnn.permute`` from the Polaris package).
+    ``from ttsim.front.ttnn.op import permute`` still refers to **Transpose** in ``op.py``.
 
     Requires ``input_tensor`` on a device (same contract as ``tilize_op``).
     ``dims`` may be a list or tuple of dimension indices (full permutation).
@@ -1644,18 +1643,37 @@ def permute_op(input_tensor, dims, memory_config=None):
         device=input_tensor.device,
     )
     input_tensor.op_in.append(op_name)
+    attrs: dict = {'perm': perm}
+    if memory_config is not None:
+        attrs['memory_config'] = memory_config
     opinfo = {
         'name': op_name,
         'optype': 'Permute',
         'inList': [input_tensor.name],
         'outList': [out_tensor.name],
-        'attrs': {'perm': perm},
+        'attrs': attrs,
     }
     opobj = SimOp(opinfo)
     opobj.get_perf_counts([input_tensor], [out_tensor])
     opobj.update_tensor_counts([input_tensor], [out_tensor])
     input_tensor.device.add_op(opobj)
     return out_tensor
+
+
+def permute(input_tensor, dims, memory_config=None):
+    """
+    Polaris ``ttnn.permute`` implementation: records optype **Permute** on the device graph.
+
+    Matches ``ttnn.permute(tensor, dims)`` with ``dims`` a list or tuple of axis indices.
+    For ``memory_config``, see :func:`permute_op`.
+
+    Note: ``from ttsim.front.ttnn.op import permute`` is still the **Transpose** immediate op.
+    """
+    if isinstance(dims, (list, tuple)):
+        dims_list = [int(x) for x in dims]
+    else:
+        raise TypeError(f"permute: dims must be a list or tuple of ints, got {type(dims)}")
+    return permute_op(input_tensor, dims_list, memory_config=memory_config)
 
 
 def to_layout(tensor, layout, dtype=None, memory_config=None, sub_core_grids=None):

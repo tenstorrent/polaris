@@ -4,6 +4,7 @@
 
 import pytest
 
+import ttsim.front.ttnn as ttnn
 from ttsim.front.ttnn.device import ARCH, Device
 from ttsim.front.ttnn.tensor import DataType, Layout, Tensor
 from ttsim.front.ttnn.ttnn_shim import permute_op
@@ -57,3 +58,50 @@ def test_permute_op_rejects_wrong_perm_length():
     )
     with pytest.raises(ValueError, match="must match input rank"):
         permute_op(inp, [0, 1])
+
+
+@pytest.mark.unit
+def test_ttnn_package_permute_records_permute_simop():
+    """``import ttsim.front.ttnn as ttnn`` then ``ttnn.permute`` uses shim (Permute, not Transpose)."""
+    device = Device(device_id=0)
+    device.architecture = ARCH.WORMHOLE_B0
+    inp = Tensor(
+        name="pkg_perm_in",
+        shape=[2, 3, 4],
+        dtype=DataType.BFLOAT16,
+        layout=Layout.ROW_MAJOR_LAYOUT,
+        device=device,
+    )
+    out = ttnn.permute(inp, (0, 2, 1))
+    assert list(out.logical_shape()._shape) == [2, 4, 3]
+    ops = [op for op in device.ops.values() if op.optype == 'Permute']
+    assert len(ops) == 1
+    assert not any(op.optype == 'Transpose' for op in device.ops.values())
+
+
+@pytest.mark.unit
+def test_tensor_permute_variadic_and_sequence():
+    device = Device(device_id=0)
+    device.architecture = ARCH.WORMHOLE_B0
+    t4 = Tensor(
+        name="t4",
+        shape=[1, 2, 3, 4],
+        dtype=DataType.BFLOAT16,
+        layout=Layout.ROW_MAJOR_LAYOUT,
+        device=device,
+    )
+    out_v = t4.permute(0, 2, 1, 3)
+    assert list(out_v.logical_shape()._shape) == [1, 3, 2, 4]
+
+    device2 = Device(device_id=1)
+    device2.architecture = ARCH.WORMHOLE_B0
+    t4b = Tensor(
+        name="t4b",
+        shape=[1, 2, 3, 4],
+        dtype=DataType.BFLOAT16,
+        layout=Layout.ROW_MAJOR_LAYOUT,
+        device=device2,
+    )
+    out_s = t4b.permute([0, 2, 1, 3])
+    assert list(out_s.logical_shape()._shape) == [1, 3, 2, 4]
+    assert all(op.optype == 'Permute' for op in device2.ops.values())
