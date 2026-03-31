@@ -137,6 +137,12 @@ if IS_POLARIS:
     def polaris_vit_parameters(*, num_labels: int = 1000):
         """Full ViT parameter tree for POLARIS (no torch model). Shapes match ViT-Base / ttnn matmul paths."""
         hidden = config_dict["hidden_size"]
+        image_size = config_dict["image_size"]
+        patch_size = config_dict["patch_size"]
+        patches_per_side = image_size // patch_size
+        num_patch_tokens = patches_per_side * patches_per_side
+        num_cls_tokens = 1
+        sequence_length = num_patch_tokens + num_cls_tokens  # noqa: F841 — token dim incl. CLS (e.g. 197 for ViT-B/224)
 
         embeddings = _polaris_vit_embeddings_patch_parameters()
 

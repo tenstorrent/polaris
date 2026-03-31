@@ -26,7 +26,7 @@ from .memory import MemoryConfig, create_sharded_memory_config_, get_memory_conf
 from .types import TILE_HEIGHT, TILE_WIDTH
 from .core   import CoreCoord, CoreRange, CoreRangeSet, CoreGrid
 from .op     import *
-from .ttnn_shim import to_layout, permute
+from .ttnn_shim import to_layout, permute, ttnn_reshape as reshape
 from ttsim.ops.tensor import Shape
 
 

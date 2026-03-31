@@ -50,6 +50,7 @@ def vit_patch_embeddings(config, pixel_values, *, parameters, unittest_check=Fal
         parameters = parameters.vit.embeddings.patch_embeddings
 
     patch_embedding_output = ttnn.matmul(pixel_values, parameters.projection.weight)
+    patch_embedding_output.layout = ttnn.TILE_LAYOUT
     patch_embedding_output = patch_embedding_output + parameters.projection.bias
 
     # TODO(ttnn/operators): matmul/add should set output layout; remove explicit to_layout.
@@ -74,8 +75,11 @@ def vit_embeddings(
     parameters = parameters.vit.embeddings
 
     patch_embeddings = vit_patch_embeddings(config, pixel_values, parameters=parameters.patch_embeddings)
+    cls_token.layout = ttnn.ROW_MAJOR_LAYOUT
     embedding_output = ttnn.concat(cls_token, patch_embeddings, axis=1)
+    embedding_output.layout = ttnn.TILE_LAYOUT
     embedding_output = embedding_output + position_embeddings
+    embedding_output.layout = ttnn.TILE_LAYOUT
 
     return embedding_output
 

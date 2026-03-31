@@ -305,6 +305,16 @@ class Tensor(SimTensor):
     def logical_shape(self):
         return self.shape # self._logical_shape
 
+    def physical_volume(self):
+        """Element count in padded storage shape; used by shim execute paths (e.g. untilize_with_unpadding)."""
+        return self.padded_shape().volume()
+
+    def has_data(self):
+        return self.data is not None
+
+    def get_data(self):
+        return self.data
+
     def to(self, dt):
         self.dtype = dt.to_numpy
         return self

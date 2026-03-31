@@ -103,8 +103,8 @@ def tilize_with_val_padding_sinf(iTList, oTList, op, **kwargs):
     # Output padded shape comes from op attrs (caller may request larger tile-aligned shape); fallback = tile-round input.
     output_padded_shape = op.attrs.get('output_padded_shape', _pad_to_tile_shape(in_shape))
     out_padded = list(output_padded_shape)
-    # Logical shape of output is still the input shape; only physical/padded layout is expanded.
-    out_logical = in_shape
+    # Logical shape defaults to input; tile reshape may set output_logical_shape (row-major view before tilize).
+    out_logical = list(op.attrs.get('output_logical_shape', in_shape))
 
     oTList[0].shape = out_logical
     oTList[0].dtype = X.dtype

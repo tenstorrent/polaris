@@ -23,7 +23,7 @@ from ttsim.ops.op import SimOp
 from .tensor import DataType, Layout, Shape
 from .types import TILE_HEIGHT, TILE_WIDTH, TILE_HW
 from .tensor import Tensor
-from .op import generate_new_op_name
+from .op import generate_new_op_name, reshape as ttnn_reshape_simop
 
 # # Layout constants
 # class Layout:
@@ -1534,20 +1534,26 @@ def untilize_op(input_tensor, use_multicore=True, use_pack_untilize=True, elemen
 
 
 def tilize_with_val_padding_op(input_tensor, output_padded_shape, pad_value,
-                                use_multicore=True, element_size=2, memory_config=None):
+                                use_multicore=True, element_size=2, memory_config=None,
+                                output_logical_shape=None):
     """
     Create a TilizeWithValPadding SimOp and output tensor (tracking-only; no execution).
     output_padded_shape and pad_value are stored in op attrs.
+    If output_logical_shape is set, the output tensor's logical shape (and attrs) use it;
+    use after an Untilize when the row-major view was reshaped before tilize (hardware tile reshape).
     """
     assert input_tensor.device is not None, "tilize_with_val_padding_op requires input_tensor on device"
     if isinstance(output_padded_shape, Shape):
         output_padded_shape = output_padded_shape._shape
     output_padded_shape = list(output_padded_shape)
     op_name = generate_new_op_name()
-    out_logical = input_tensor.logical_shape()
+    if output_logical_shape is not None:
+        out_logical_shape = list(output_logical_shape)
+    else:
+        out_logical_shape = input_tensor.logical_shape()._shape
     out_tensor = Tensor(
         name=op_name + '.out',
-        shape=out_logical._shape,
+        shape=out_logical_shape,
         dtype=input_tensor.dtype,
         layout=Layout.TILE_LAYOUT,
         padded_shape=output_padded_shape,
@@ -1555,23 +1561,151 @@ def tilize_with_val_padding_op(input_tensor, output_padded_shape, pad_value,
         device=input_tensor.device,
     )
     input_tensor.op_in.append(op_name)
+    attrs = {
+        'output_padded_shape': output_padded_shape,
+        'pad_value': pad_value,
+        'use_multicore': use_multicore,
+        'element_size': element_size,
+    }
+    if output_logical_shape is not None:
+        attrs['output_logical_shape'] = out_logical_shape
     opinfo = {
         'name': op_name,
         'optype': 'TilizeWithValPadding',
         'inList': [input_tensor.name],
         'outList': [out_tensor.name],
-        'attrs': {
-            'output_padded_shape': output_padded_shape,
-            'pad_value': pad_value,
-            'use_multicore': use_multicore,
-            'element_size': element_size,
-        },
+        'attrs': attrs,
     }
     opobj = SimOp(opinfo)
     opobj.get_perf_counts([input_tensor], [out_tensor])
     opobj.update_tensor_counts([input_tensor], [out_tensor])
     input_tensor.device.add_op(opobj)
     return out_tensor
+
+
+def _pad_value_for_tilize_dtype(tensor_dtype):
+    if isinstance(tensor_dtype, np.dtype):
+        tensor_dtype = DataType.from_numpy(tensor_dtype)
+    return 0.0 if tensor_dtype in [DataType.BFLOAT16, DataType.FLOAT32] else 0
+
+
+def _device_tensor_has_buffer(tensor):
+    if not isinstance(tensor, Tensor):
+        return False
+    if tensor.storage_type() != "DEVICE":
+        return False
+    try:
+        return tensor.buffer() is not None
+    except Exception:
+        return False
+
+
+def _reshape_tile_device_execute(tensor, out_list, memory_config, sub_core_grids=None):
+    """Execute path: TILE → row-major (untilize*) → logical reshape → tilize with padding."""
+    ends = Shape([d - 1 for d in tensor.logical_shape()._shape])
+    mc = memory_config or tensor.memory_config() or DRAM_MEMORY_CONFIG
+    if tensor.logical_shape()._shape != tensor.padded_shape()._shape:
+        r = untilize_with_unpadding(tensor, ends, mc, True, True, sub_core_grids)
+    else:
+        r = untilize(tensor, mc, True, True, sub_core_grids)
+    r2 = reshape(r, Shape(out_list), None, mc, None, None, sub_core_grids)
+    p_out = pad_to_tile_shape(out_list)
+    pv = _pad_value_for_tilize_dtype(tensor.dtype)
+    return tilize_with_val_padding(r2, p_out, pv, mc, None, True, sub_core_grids)
+
+
+def ttnn_reshape(tensor, shape, memory_config=None, sub_core_grids=None):
+    """
+    Graph-aware reshape for ``ttsim.front.ttnn``.
+
+    * **TILE** tensors on device (with buffer): records **Untilize** / **UntilizeWithValUnpadding** then
+      **TilizeWithValPadding** (tile-native reshape on hardware), not a standalone **Reshape** op.
+    * **ROW_MAJOR** on device + track: uses **Reshape** SimOp (``op.reshape``).
+    * Otherwise: same as :func:`reshape` (metadata / host / execute-only).
+    """
+    if isinstance(shape, Shape):
+        out_list = list(shape._shape)
+    elif isinstance(shape, (list, tuple)):
+        out_list = [int(x) for x in shape]
+    else:
+        raise TypeError(f"ttnn_reshape: shape must be list, tuple, or Shape, got {type(shape)}")
+    out_shape = Shape(out_list)
+
+    mode = get_execution_mode()
+    should_execute = mode in (ExecutionMode.EXECUTE, ExecutionMode.EXECUTE_AND_TRACK)
+    should_track = mode in (ExecutionMode.TRACK_ONLY, ExecutionMode.EXECUTE_AND_TRACK)
+
+    if out_shape.volume() != tensor.logical_shape().volume():
+        raise RuntimeError(
+            f"ttnn.reshape: element count mismatch input {tensor.logical_shape()._shape} vs output {out_list}"
+        )
+
+    dev_graph = _device_tensor_has_buffer(tensor)
+
+    if dev_graph and tensor.get_layout() == Layout.TILE_LAYOUT:
+        if should_track:
+            _tracker.track_reshape(tensor.logical_shape()._shape, out_list)
+        out_exec = None
+        if should_execute:
+            out_exec = _reshape_tile_device_execute(
+                tensor, out_list, memory_config, sub_core_grids
+            )
+        if should_track:
+            mc = memory_config or tensor.memory_config() or DRAM_MEMORY_CONFIG
+            if tensor.logical_shape()._shape != tensor.padded_shape()._shape:
+                u = untilize_with_unpadding_op(
+                    tensor,
+                    tensor.logical_shape()._shape,
+                    use_multicore=True,
+                    use_pack_untilize=True,
+                    element_size=2,
+                    memory_config=mc,
+                )
+            else:
+                u = untilize_op(
+                    tensor,
+                    use_multicore=True,
+                    use_pack_untilize=True,
+                    element_size=2,
+                    memory_config=mc,
+                )
+            pv = _pad_value_for_tilize_dtype(tensor.dtype)
+            out_t = tilize_with_val_padding_op(
+                u,
+                pad_to_tile_shape(out_list)._shape,
+                pv,
+                use_multicore=True,
+                element_size=2,
+                memory_config=mc,
+                output_logical_shape=out_list,
+            )
+            if should_execute:
+                return out_exec
+            return out_t
+        return out_exec
+
+    if dev_graph and tensor.get_layout() == Layout.ROW_MAJOR_LAYOUT:
+        if should_execute:
+            out_e = reshape(
+                tensor,
+                out_shape,
+                out_shape,
+                memory_config,
+                None,
+                None,
+                sub_core_grids,
+            )
+            if should_track:
+                ttnn_reshape_simop(tensor, out_list)
+            return out_e
+        if should_track:
+            _tracker.track_reshape(tensor.logical_shape()._shape, out_list)
+            return ttnn_reshape_simop(tensor, out_list)
+        return reshape(
+            tensor, out_shape, out_shape, memory_config, None, None, sub_core_grids
+        )
+
+    return reshape(tensor, out_shape, None, memory_config, None, None, sub_core_grids)
 
 
 def untilize_with_unpadding_op(input_tensor, output_shape,
@@ -1809,7 +1943,17 @@ def to_layout(tensor, layout, dtype=None, memory_config=None, sub_core_grids=Non
                     result = untilize_with_unpadding(
                         tensor, output_tensor_end, output_memory_config, True, True, sub_core_grids
                     )
-                    return reshape(result, output_shape, None, None, None, sub_core_grids)
+                    out = reshape(result, output_shape, None, None, None, sub_core_grids)
+                    if should_track and tensor.device is not None and isinstance(tensor, Tensor):
+                        untilize_with_unpadding_op(
+                            tensor,
+                            output_shape._shape,
+                            use_multicore=True,
+                            use_pack_untilize=True,
+                            element_size=2,
+                            memory_config=output_memory_config,
+                        )
+                    return out
                 elif should_track and tensor.device is not None and isinstance(tensor, Tensor):
                     logger.debug(
                         "to_layout: choosing untilize_with_unpadding_op (device tensor, padding change, TILE->ROW_MAJOR; padded_shape!=logical_shape, padded_shape={}, logical_shape={}, output_shape={})",
@@ -1817,8 +1961,14 @@ def to_layout(tensor, layout, dtype=None, memory_config=None, sub_core_grids=Non
                         tensor.logical_shape()._shape,
                         output_shape._shape,
                     )
+                    # Single UntilizeWithValUnpadding SimOp; logical shape is final ROW_MAJOR (no Reshape op).
                     return untilize_with_unpadding_op(
-                        tensor, output_shape._shape, use_multicore=True, use_pack_untilize=True, element_size=2, memory_config=output_memory_config
+                        tensor,
+                        output_shape._shape,
+                        use_multicore=True,
+                        use_pack_untilize=True,
+                        element_size=2,
+                        memory_config=output_memory_config,
                     )
                 else:
                     # Not using untilize_with_unpadding_op: input is not a ttsim Tensor or has no device; preserve API with tracker + manual tensor.
