@@ -11,35 +11,67 @@ from ttsim.utils.common import prod_ints
 
 def trilu_sinf(iTList, oTList, op, **kwargs):
     """
-    TODO: this is very specific to DLRM usage right now
-     need to generalize this as specified in ONNX opset!!
+    Shape/perf inference for Trilu with dual behavior:
+
+    - len(iTList) == 1: DLRM legacy path that flattens the strict upper
+      triangle (i < j) into a feature vector (output shape != input shape).
+    - len(iTList) == 2: generic ONNX Trilu(A, k) where the output tensor
+      has the same shape and dtype as the input tensor A; k is ignored
+      for shape/perf purposes.
     """
-    upper = op.attrs.get('upper', 1)
-    assert len(iTList) == 1, f"More than 1 inputs not supported for Trilu for now!!"
 
-    X = iTList[0].clone_by_shape()
+    if len(iTList) == 1:
+        X = iTList[0].clone_by_shape()
 
-    # Get the upper triangular indices manually (excluding diagonal)
-    # This Code is DLRM specific
-    row_indices, col_indices = [], []
-    batch_size, num_features1, num_features2 = X.shape
-    assert num_features1 == num_features2, f"Input should be an batch of square matrices: {X.shape}"
-    num_features = num_features1
-    for i in range(num_features):
-        for j in range(i + 1, num_features):
-            row_indices.append(i)
-            col_indices.append(j)
-    tmp_data = X.data[:, row_indices, col_indices]
-    tmp_outT = build_tmp_data_tensor(tmp_data, op.name + '__tmp_out__')
-    update_output_tensor(op, tmp_outT, oTList[0])
+        row_indices, col_indices = [], []
+        batch_size, num_features1, num_features2 = X.shape
+        assert (
+            num_features1 == num_features2
+        ), f"Input should be an batch of square matrices: {X.shape}"
+        num_features = num_features1
+        for i in range(num_features):
+            for j in range(i + 1, num_features):
+                row_indices.append(i)
+                col_indices.append(j)
+        tmp_data = X.data[:, row_indices, col_indices]
+        tmp_outT = build_tmp_data_tensor(tmp_data, op.name + "__tmp_out__")
+        update_output_tensor(op, tmp_outT, oTList[0])
+
+        op.perf_stats = {
+            "inElems": X.nelems(),
+            "inBytes": X.nbytes(op.precision),
+            "outElems": oTList[0].nelems(),
+            "outBytes": oTList[0].nbytes(op.precision),
+            "instrs": {"mov": int(oTList[0].nelems())},
+        }
+        return op.perf_stats
+
+    X = iTList[0]
+    Y = oTList[0]
+
+    if not Y.check_shape():
+        assert X.check_shape(), f"Input tensor shape not defined: {X}"
+        Y.shape = list(X.shape)
+    else:
+        assert list(Y.shape) == list(X.shape), (
+            f"Preallocated output shape mismatch in Trilu: "
+            f"expected {X.shape}, got {Y.shape}"
+        )
+
+    Y.dtype = X.dtype
+
+    inBytes = sum(t.nbytes(op.precision) for t in iTList)
+    inElems = sum(t.nelems() for t in iTList)
+    outBytes = Y.nbytes(op.precision)
+    outElems = Y.nelems()
 
     op.perf_stats = {
-            'inElems' : X.nelems(),
-            'inBytes' : X.nbytes(op.precision),
-            'outElems': oTList[0].nelems(),
-            'outBytes': oTList[0].nbytes(op.precision),
-            'instrs'  : {'mov': 100} #dummy - TODO get the real cost involved!!
-            }
+        "inElems": int(inElems),
+        "inBytes": int(inBytes),
+        "outElems": int(outElems),
+        "outBytes": int(outBytes),
+        "instrs": {"mov": int(outElems)},
+    }
     return op.perf_stats
 
 def where_sinf(iTList, oTList, op, **kwargs):

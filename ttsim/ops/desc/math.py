@@ -71,6 +71,67 @@ def binary_cross_entropy_with_logits_sinf(iTList, oTList, op, **kwargs):
 
     return output_t
 
+def softmax_cross_entropy_loss_sinf(iTList, oTList, op, **kwargs):
+    """
+    SoftmaxCrossEntropyLoss shape/perf inference.
+    """
+    scores = iTList[0]
+    labels = iTList[1]
+
+    loss_out = oTList[0]
+    log_prob_out = oTList[1] if len(oTList) > 1 else None
+
+    reduction = op.attrs.get("reduction", "mean")
+
+    assert scores.check_shape(), f"Scores shape not defined: {scores}"
+    assert labels.check_shape(), f"Labels shape not defined: {labels}"
+
+    axis = op.attrs.get("axis", 1)
+    scores_shape = list(scores.shape)
+    labels_shape = list(labels.shape)
+
+    if axis < 0:
+        axis += len(scores_shape)
+    assert 0 <= axis < len(scores_shape), (
+        f"Invalid axis={axis} for scores shape {scores_shape}"
+    )
+
+    index_label_shape = scores_shape[:axis] + scores_shape[axis + 1 :]
+
+    assert (
+        labels_shape == scores_shape
+        or labels_shape == index_label_shape
+    ), (
+        f"Incompatible scores/labels shapes for SoftmaxCrossEntropyLoss: "
+        f"scores={scores_shape}, labels={labels_shape}, axis={axis}"
+    )
+
+    if reduction == "none":
+        loss_out.shape = list(labels.shape)
+    else:
+        loss_out.shape = []
+    loss_out.dtype = scores.dtype
+
+    if log_prob_out is not None:
+        log_prob_out.shape = list(scores.shape)
+        log_prob_out.dtype = scores.dtype
+
+    inBytes = sum(t.nbytes(op.precision) for t in iTList)
+    inElems = sum(t.nelems() for t in iTList)
+    outBytes = sum(
+        t.nbytes(op.precision) for t in oTList if t.check_shape()
+    )
+    outElems = sum(t.nelems() for t in oTList if t.check_shape())
+
+    op.perf_stats = {
+        "inElems": int(inElems),
+        "inBytes": int(inBytes),
+        "outElems": int(outElems),
+        "outBytes": int(outBytes),
+        "instrs": {"mov": int(outElems)},
+    }
+
+    return loss_out
 
 def einsum_sinf(iTList, oTList, op, **kwargs):
     """
@@ -800,6 +861,24 @@ def register_math_ops():
             1,
             1,
             binary_cross_entropy_with_logits_sinf,
+            True,
+            True,
+            True,
+            True,
+            True,
+        ],
+        [
+            "SoftmaxCrossEntropyLoss",
+            "ARITY_VARIADIC[2-3]->VARIADIC[1-2]",
+            "ai.onnx",
+            "COMMON",
+            13,
+            13,
+            3,
+            2,
+            2,
+            1,
+            softmax_cross_entropy_loss_sinf,
             True,
             True,
             True,

@@ -68,6 +68,31 @@ workloads:
                  img_width: 224 }
 
   - api: ONNX
+    name: PI0FAST_BASE
+    basedir: workloads/onnx
+    module: pi0fast_base_fixed-224.onnx
+    instances:
+      default: { path: pi0fast_base_fixed-224.onnx,
+                 bs: 1,
+                 img_height: 224,
+                 img_width: 224,
+                 seq_len: 200,
+                 fast_tokens: 256 }
+
+  - api: ONNX
+    name: PI05_BASE
+    basedir: workloads/onnx
+    module: pi05_base_fixed-224.onnx
+    instances:
+      default: { path: pi05_base_fixed-224.onnx,
+                 bs: 1,
+                 img_height: 224,
+                 img_width: 224,
+                 seq_len: 200,
+                 chunk_size: 50,
+                 max_action_dim: 32 }
+
+  - api: ONNX
     name: UNET-BASE
     basedir: workloads/onnx
     module: unet-fixed-256.onnx
