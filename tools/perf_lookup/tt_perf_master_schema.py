@@ -1,13 +1,9 @@
-# SPDX-FileCopyrightText: (C) 2025 Tenstorrent AI ULC
-# SPDX-License-Identifier: Apache-2.0
-
 """Wire-format constants and logical key ↔ labeled YAML mapping for tt-perf master files.
 
-Normative field names: ``doc/YAML_MASTER_FORMAT.md``. Pipeline and behavior:
-``doc/SPEC_tt_perf_mapper.md`` when present in-tree.
+Normative field names: ``doc/YAML_MASTER_FORMAT.md``. Pipeline and behavior: ``doc/SPEC_tt_perf_mapper.md``.
 On-disk ``schema_version`` stays **1** until the first release; bump only then for incompatible layout changes.
-``entry_type`` may be ``single``, ``curve``, or ``hybrid`` (matmul). Used by
-``tools.perf_lookup.tt_perf_master_loader`` and ``tt_perf_mapper`` (serialize, merge, Excel→stats keys).
+``entry_type`` may be ``single``, ``curve``, or ``hybrid`` (matmul). Used by ``tt_perf_master_loader`` and
+``tt_perf_mapper`` (serialize, merge, Excel→stats keys).
 
 Shared normalization and scalar checks live here (stdlib only) so loader and mapper stay aligned.
 """
@@ -34,6 +30,13 @@ KEY_TUPLE_YAML_KEYS = [
     "input_1_layout",
     "input_1_datatype",
     "input_1_memory",
+    "input_2_w_pad_logical",
+    "input_2_z_pad_logical",
+    "input_2_y_pad_logical",
+    "input_2_x_pad_logical",
+    "input_2_layout",
+    "input_2_datatype",
+    "input_2_memory",
 ]
 
 _KEY_TUPLE_YAML_KEYS_SET = frozenset(KEY_TUPLE_YAML_KEYS)
@@ -47,8 +50,6 @@ MASTER_ENTRY_TYPE_CURVE = "curve"
 MASTER_ENTRY_TYPE_HYBRID = "hybrid"
 
 # Flat ``entry_type: single`` payload: ``num_cores`` plus the stat keys below (same under ``hybrid.single``).
-# Util keys (*_util, *impact_pct, *pipe_util) are profiler-style **percentages**; Polaris lookup requires
-# ``matrix_pipe_util`` and ``vector_pipe_util`` to resolve on every hit and validates [0, 100] when present.
 MASTER_SINGLE_NUM_CORES_KEY = "num_cores"
 MASTER_SINGLE_STAT_KEYS = (
     MASTER_DURATION_MS_KEY,
@@ -62,6 +63,18 @@ MASTER_SINGLE_STAT_KEYS = (
 )
 
 MASTER_SINGLE_STAT_KEYS_SET = frozenset(MASTER_SINGLE_STAT_KEYS)
+
+# Flat single payload keys that are utilization-like percentages / scores (not duration or traffic).
+MASTER_SINGLE_UTIL_STAT_KEYS = frozenset(
+    (
+        "mem_util",
+        "noc_util",
+        "noc_multicast_util",
+        "npe_cong_impact_pct",
+        "vector_pipe_util",
+        "matrix_pipe_util",
+    )
+)
 
 # Each per-stat curve fit object (under ``curve`` / ``hybrid.curve``) uses these keys.
 MASTER_CURVE_STAT_ENTRY_KEYS = frozenset(("a", "b", "r2", "equation"))
@@ -87,8 +100,8 @@ MASTER_YAML_ENTRY_VALUE_FIELD = "value"
 def tuple_to_labeled_key_map(key_t: tuple) -> dict:
     """Serialize logical key tuple to YAML mapping (under ``entries[i]['key']``)."""
     n = len(key_t)
-    if n not in (8, 15):
-        raise ValueError(f"Key tuple length must be 8 or 15, got {n}")
+    if n not in (8, 15, 22):
+        raise ValueError(f"Key tuple length must be 8, 15, or 22, got {n}")
     return dict(zip(KEY_TUPLE_YAML_KEYS[:n], key_t))
 
 
@@ -106,16 +119,26 @@ def labeled_key_map_to_tuple(d: dict) -> tuple:
             unknown.append(k)
     if unknown:
         raise ValueError(f"Unknown labeled-key field(s): {unknown}")
+    has_i2 = any(str(k).startswith("input_2_") for k in filtered)
     has_i1 = any(str(k).startswith("input_1_") for k in filtered)
+    if has_i2:
+        names22 = KEY_TUPLE_YAML_KEYS
+        missing = [nm for nm in names22 if nm not in filtered]
+        if missing:
+            raise ValueError(
+                "Labeled key with any input_2 field must define all 22 fields; "
+                f"missing: {missing}"
+            )
+        return tuple(filtered[nm] for nm in names22)
     if has_i1:
-        names = KEY_TUPLE_YAML_KEYS
-        missing = [nm for nm in names if nm not in filtered]
+        names15 = KEY_TUPLE_YAML_KEYS[:15]
+        missing = [nm for nm in names15 if nm not in filtered]
         if missing:
             raise ValueError(
                 "Labeled key with any input_1 field must define all 15 fields; "
                 f"missing: {missing}"
             )
-        return tuple(filtered[nm] for nm in names)
+        return tuple(filtered[nm] for nm in names15)
     names8 = KEY_TUPLE_YAML_KEYS[:8]
     missing = [nm for nm in names8 if nm not in filtered]
     if missing:
@@ -129,8 +152,8 @@ def yaml_labeled_key_to_tuple(k: dict) -> tuple:
         raise TypeError(f"Entry key must be a mapping, got {type(k)!r}")
     key_t = labeled_key_map_to_tuple(k)
     n = len(key_t)
-    if n not in (8, 15):
-        raise ValueError(f"Key tuple length must be 8 or 15, got {n}")
+    if n not in (8, 15, 22):
+        raise ValueError(f"Key tuple length must be 8, 15, or 22, got {n}")
     return key_t
 
 
@@ -152,6 +175,18 @@ def normalize_flat_single_payload(d: dict) -> dict:
         out[MASTER_SINGLE_NUM_CORES_KEY] = normalize_num_cores_scalar(
             out[MASTER_SINGLE_NUM_CORES_KEY]
         )
+    for uk in MASTER_SINGLE_UTIL_STAT_KEYS:
+        if uk not in out:
+            continue
+        v = out[uk]
+        if type(v) is bool:
+            continue
+        try:
+            fv = float(v)
+        except (TypeError, ValueError):
+            continue
+        if not math.isfinite(fv):
+            out[uk] = 0.0
     return out
 
 

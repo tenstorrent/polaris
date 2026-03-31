@@ -54,15 +54,26 @@ Full `KEY_TUPLE_YAML_KEYS` order (`op_code`, `input_0_*`, `input_1_*`):
 | `input_0_memory` | Tensor memory config string if present; else `DEV_1_DRAM_INTERLEAVED` |
 | `input_1_*` | Same for the second input (binary ops only) |
 
+### Three-input ops (22-tuple)
+
+Extended `KEY_TUPLE_YAML_KEYS` order (`op_code`, `input_0_*`, `input_1_*`, `input_2_*`):
+
+| Field | Source |
+|-------|--------|
+| `op_code` | `op.optype` lowercased |
+| `input_0_*` | Same derivation as 8/15 tuple |
+| `input_1_*` | Same derivation as 15 tuple |
+| `input_2_*` | Same derivation for third input tensor |
+
 **Core count** for curve / hybrid curve evaluation: package `operator_lookup_core_count` if set, else compute IP group `num_units`, else `64`. See `resolve_operator_lookup_core_count`.
 
 **Padded-shape keys:** Package field `operator_lookup_use_padded_shapes` or Polaris CLI `--operator-lookup-use-padded-shapes` makes the simulator use each tensor’s tile-padded extents (`Tensor.padded_shape`) when building the same WZYX key tuple, when that API exists; otherwise logical `shape` is unchanged (`SimTensor` has no padded view).
 
 ### Arity not in master format
 
-Ops with **0** or **more than 2** graph inputs are **not** looked up (no 8/15 key). The simulator skips them **without** a warning; use DEBUG logs if needed.
+Ops with **0** or **more than 3** graph inputs are **not** looked up (no 8/15/22 key). The simulator skips them **without** a warning; use DEBUG logs if needed.
 
-A **miss** for unary/binary (key built but no matching row) logs a **WARNING** with op name, optype, key tuple, core count, and LUT path.
+A **miss** for unary/binary/ternary (key built but no matching row) logs a **WARNING** with op name, optype, key tuple, core count, and LUT path.
 
 ## Simulator output when `uses_perf_lookup`
 

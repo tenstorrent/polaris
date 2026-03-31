@@ -38,9 +38,9 @@ def single_output_immediate_op(optype, /, preprocess=None):
             args, kwargs = preprocess(args, kwargs)
 
         tensor_args = [x for x in args if isinstance(x, Tensor)]
-        if optype == 'MatMul':
-            for t in tensor_args:
-                assert t.layout == Layout.TILE_LAYOUT
+        if optype in ['Add', 'MatMul'] or ('layer' in optype.lower() and 'norm' in optype.lower()):
+            for ndx, t in enumerate(tensor_args):
+                assert t.layout == Layout.TILE_LAYOUT, f"input tensor {ndx} should be in TILE_LAYOUT, is {t.layout}"
         devchk_list = [x.device for x in tensor_args]
         device      = devchk_list[0]
         # assert device and all(x == device for x in devchk_list), f"device check: {devchk_list}"

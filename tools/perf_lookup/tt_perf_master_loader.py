@@ -1,6 +1,3 @@
-# SPDX-FileCopyrightText: (C) 2025 Tenstorrent AI ULC
-# SPDX-License-Identifier: Apache-2.0
-
 """Load tt-perf master YAML into ``dict[tuple, dict]`` (logical key → entry payload).
 
 Contract: ``doc/YAML_MASTER_FORMAT.md``. CLI: ``doc/SPEC_tt_perf_mapper.md``. Accepts
@@ -14,7 +11,34 @@ from pathlib import Path
 
 import yaml
 
-from tools.perf_lookup.tt_perf_master_schema import (
+try:
+    from .tt_perf_master_schema import (
+        MASTER_CURVE_FAMILY_KEY,
+        MASTER_CURVE_FAMILY_LINEAR,
+        MASTER_CURVE_FAMILY_POWER,
+        MASTER_CURVE_STAT_ENTRY_KEYS,
+        MASTER_DURATION_MS_KEY,
+        MASTER_ENTRY_TYPE_CURVE,
+        MASTER_ENTRY_TYPE_HYBRID,
+        MASTER_ENTRY_TYPE_KEY,
+        MASTER_ENTRY_TYPE_SINGLE,
+        MASTER_HYBRID_CURVE_KEY,
+        MASTER_HYBRID_SINGLE_KEY,
+        MASTER_SINGLE_NUM_CORES_KEY,
+        MASTER_SINGLE_STAT_KEYS,
+        is_real_stat_scalar,
+        normalize_flat_single_payload,
+        MASTER_YAML_ENTRIES_KEY,
+        MASTER_YAML_ENTRY_VALUE_FIELD,
+        MASTER_YAML_RECORD_KEY_FIELD,
+        MASTER_YAML_SCHEMA_NAME,
+        MASTER_YAML_SCHEMA_NAME_KEY,
+        MASTER_YAML_SCHEMA_VERSION,
+        MASTER_YAML_SCHEMA_VERSION_KEY,
+        yaml_labeled_key_to_tuple,
+    )
+except ImportError:
+    from tt_perf_master_schema import (  # type: ignore[import-not-found,no-redef]
     MASTER_CURVE_FAMILY_KEY,
     MASTER_CURVE_FAMILY_LINEAR,
     MASTER_CURVE_FAMILY_POWER,
@@ -37,8 +61,8 @@ from tools.perf_lookup.tt_perf_master_schema import (
     MASTER_YAML_SCHEMA_NAME_KEY,
     MASTER_YAML_SCHEMA_VERSION,
     MASTER_YAML_SCHEMA_VERSION_KEY,
-    yaml_labeled_key_to_tuple,
-)
+        yaml_labeled_key_to_tuple,
+    )
 
 # Polaris matmul layer type (first key field); must match tt_perf_mapper.POLARIS_LAYER_MATMUL.
 _POLARIS_LAYER_MATMUL = "matmul"
@@ -46,6 +70,8 @@ _POLARIS_LAYER_MATMUL = "matmul"
 
 def _normalize_loaded_master_value(val: dict) -> dict:
     """After YAML load: normalize ``num_cores`` whole-number floats to ``int``."""
+    if not isinstance(val, dict):
+        return val
     t = val.get(MASTER_ENTRY_TYPE_KEY)
     if t == MASTER_ENTRY_TYPE_CURVE:
         return dict(val)
@@ -72,7 +98,7 @@ def _validate_num_cores(nc, pair_index: int, ctx: str) -> None:
         raise ValueError(
             f"entries[{pair_index}]['value']{ctx} {MASTER_SINGLE_NUM_CORES_KEY!r} invalid (bool)"
         )
-    if isinstance(nc, int):
+    if isinstance(nc, int):  # type: ignore[unreachable]
         return
     if isinstance(nc, float):
         if not nc.is_integer():

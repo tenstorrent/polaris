@@ -6,7 +6,7 @@
 Operator performance lookup: tt-perf **master** YAML only (``correqn.tt-perf-master``).
 
 Loads via ``tools.perf_lookup.tt_perf_master_loader.load_existing_yaml``. Maps workload ops + tensors to a
-logical **8-tuple** (one input) or **15-tuple** (two inputs) key. Resolves ``single`` (flat
+logical **8-tuple** (one input), **15-tuple** (two inputs), or **22-tuple** (three inputs) key. Resolves ``single`` (flat
 ``num_cores`` + stat scalars), ``curve``, and ``hybrid``. For hybrid rows, whether ``curve`` is used
 is controlled by :class:`OperatorPerfMap` ``use_hybrid_curve`` (default ``False``: ``single`` only).
 See ``doc/tools/perf_lookup/LOOKUP_TABLE_MASTER.md``.
@@ -456,6 +456,47 @@ def build_master_key_tuple_15(
     )
 
 
+def build_master_key_tuple_22(
+    op: Any,
+    tensor_0: Any,
+    tensor_1: Any,
+    tensor_2: Any,
+    *,
+    use_padded_shapes: bool = False,
+) -> Tuple[Any, ...]:
+    """Logical 22-tuple matching ``tools.perf_lookup.tt_perf_master_schema.KEY_TUPLE_YAML_KEYS`` order."""
+    w0, z0, y0, x0 = _input0_wzyx_for_master_key(
+        op, tensor_0, use_padded_shapes=use_padded_shapes
+    )
+    w1, z1, y1, x1 = _shape_wzyx(tensor_1, use_padded=use_padded_shapes)
+    w2, z2, y2, x2 = _shape_wzyx(tensor_2, use_padded=use_padded_shapes)
+    prec = getattr(op, "precision", None)
+    return (
+        _op_code(op),
+        w0,
+        z0,
+        y0,
+        x0,
+        _tensor_layout_str(tensor_0),
+        _tensor_datatype(tensor_0, prec),
+        _tensor_memory_str(tensor_0),
+        w1,
+        z1,
+        y1,
+        x1,
+        _tensor_layout_str(tensor_1),
+        _tensor_datatype(tensor_1, prec),
+        _tensor_memory_str(tensor_1),
+        w2,
+        z2,
+        y2,
+        x2,
+        _tensor_layout_str(tensor_2),
+        _tensor_datatype(tensor_2, prec),
+        _tensor_memory_str(tensor_2),
+    )
+
+
 def build_master_key_tuple_15_add_broadcast_duplicate_full(
     op: Any,
     tensor_0: Any,
@@ -548,12 +589,13 @@ def _wzyx_int_tuple(t4: tuple) -> tuple:
 
 def _lut_keys_matching_op_and_wzyx(entries: Dict[tuple, dict], key_t: tuple) -> Tuple[tuple, ...]:
     """
-    LUT keys with same ``op_code`` and WZYX as ``key_t`` (input 0 for 8-tuple; inputs 0 and 1 for 15-tuple).
+    LUT keys with same ``op_code`` and WZYX as ``key_t``
+    (input 0 for 8-tuple; inputs 0 and 1 for 15-tuple; inputs 0, 1, and 2 for 22-tuple).
 
     Layout, datatype, and memory may differ — useful diagnostics when the full key misses.
     """
     n = len(key_t)
-    if n not in (8, 15):
+    if n not in (8, 15, 22):
         return ()
     oc = key_t[0]
     matched: list[tuple] = []
@@ -564,13 +606,26 @@ def _lut_keys_matching_op_and_wzyx(entries: Dict[tuple, dict], key_t: tuple) -> 
                 continue
             if _wzyx_int_tuple(k[1:5]) == w0:
                 matched.append(k)
-    else:
+    elif n == 15:
         w0 = _wzyx_int_tuple(key_t[1:5])
         w1 = _wzyx_int_tuple(key_t[8:12])
         for k in entries:
             if len(k) != 15 or k[0] != oc:
                 continue
             if _wzyx_int_tuple(k[1:5]) == w0 and _wzyx_int_tuple(k[8:12]) == w1:
+                matched.append(k)
+    else:
+        w0 = _wzyx_int_tuple(key_t[1:5])
+        w1 = _wzyx_int_tuple(key_t[8:12])
+        w2 = _wzyx_int_tuple(key_t[15:19])
+        for k in entries:
+            if len(k) != 22 or k[0] != oc:
+                continue
+            if (
+                _wzyx_int_tuple(k[1:5]) == w0
+                and _wzyx_int_tuple(k[8:12]) == w1
+                and _wzyx_int_tuple(k[15:19]) == w2
+            ):
                 matched.append(k)
     return tuple(sorted(matched))
 
@@ -583,7 +638,7 @@ def _lut_keys_matching_op_code_only(entries: Dict[tuple, dict], key_t: tuple) ->
     with :func:`_lut_keys_matching_op_and_wzyx` which also requires WZYX match.
     """
     n = len(key_t)
-    if n not in (8, 15):
+    if n not in (8, 15, 22):
         return ()
     oc = key_t[0]
     matched = [k for k in entries if len(k) == n and k[0] == oc]
@@ -646,7 +701,7 @@ def _warn_labeled_lut_key_candidates(
 
 class OperatorPerfMap:
     """
-    Master-format operator performance table: lookup by constructed 8- or 15-tuple key
+    Master-format operator performance table: lookup by constructed 8-, 15-, or 22-tuple key
     and core count.
     """
 
@@ -671,6 +726,8 @@ class OperatorPerfMap:
 
     def _stats_from_entry(self, key_t: tuple, entry_val: dict, core_count: int) -> Optional[MasterPerfStats]:
         et = entry_val.get(MASTER_ENTRY_TYPE_KEY)
+        if not isinstance(et, str):
+            return None
         resolve = _build_stat_resolver(
             entry_val,
             et,
@@ -725,7 +782,7 @@ class OperatorPerfMap:
         core_count: int,
     ) -> Optional[MasterPerfStats]:
         """
-        Return resolved stats when the table has a matching 8- or 15-tuple key, else ``None``.
+        Return resolved stats when the table has a matching 8-, 15-, or 22-tuple key, else ``None``.
 
         ``core_count`` should match profiler Core_Count bucketing (see package config).
         """
@@ -733,7 +790,7 @@ class OperatorPerfMap:
         n_in = len(in_list)
         tensors = getattr(wlgraph, "_tensors", {})
 
-        if n_in == 0 or n_in > 2:
+        if n_in == 0 or n_in > 3:
             logger.debug(
                 "Perf lookup skipped (arity {} not supported for master keys): op={} optype={}",
                 n_in,
@@ -742,6 +799,7 @@ class OperatorPerfMap:
             )
             return None
 
+        t0 = t1 = t2 = None
         if n_in == 1:
             t0_name = in_list[0]
             if t0_name not in tensors:
@@ -756,7 +814,7 @@ class OperatorPerfMap:
             except Exception as e:
                 logger.debug("Perf lookup key build failed for op {}: {}", getattr(op, "name", "?"), e)
                 return None
-        else:
+        elif n_in == 2:
             t0_name, t1_name = in_list[0], in_list[1]
             if t0_name not in tensors or t1_name not in tensors:
                 return None
@@ -766,6 +824,20 @@ class OperatorPerfMap:
             try:
                 key_t = build_master_key_tuple_15(
                     op, t0, t1, use_padded_shapes=self._use_padded_shapes
+                )
+            except Exception as e:
+                logger.debug("Perf lookup key build failed for op {}: {}", getattr(op, "name", "?"), e)
+                return None
+        else:
+            t0_name, t1_name, t2_name = in_list[0], in_list[1], in_list[2]
+            if t0_name not in tensors or t1_name not in tensors or t2_name not in tensors:
+                return None
+            t0, t1, t2 = tensors[t0_name], tensors[t1_name], tensors[t2_name]
+            if t0.shape is None or t1.shape is None or t2.shape is None:
+                return None
+            try:
+                key_t = build_master_key_tuple_22(
+                    op, t0, t1, t2, use_padded_shapes=self._use_padded_shapes
                 )
             except Exception as e:
                 logger.debug("Perf lookup key build failed for op {}: {}", getattr(op, "name", "?"), e)

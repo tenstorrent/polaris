@@ -2,9 +2,9 @@
 
 Repository path: **`doc/YAML_MASTER_FORMAT.md`** (companion **`doc/SPEC_tt_perf_mapper.md`**).
 
-Normative description of the YAML written by the **`tt_perf_mapper.py`** CLI when **`--update`** is set (inputs: repeatable **`--model-run`** / **`--sweep-run`**, optional existing **`--output`** file merged first). **`schema_version`** must equal **`MASTER_YAML_SCHEMA_VERSION`** in code (**`1`** until the first release; bump only then for incompatible changes). **Constants and parsing** live in **`tools/perf_lookup/tt_perf_master_schema.py`**; **reading** a file is **`tools.perf_lookup.tt_perf_master_loader.load_existing_yaml`**. Use this document to implement loaders, JSON Schema, Pydantic models, or contract tests in **other repositories**.
+Normative description of the YAML written by the **`tt_perf_mapper.py`** CLI when **`--update`** is set (inputs: repeatable **`--model-run`** / **`--sweep-run`**, optional existing **`--output`** file merged first). **`schema_version`** must equal **`MASTER_YAML_SCHEMA_VERSION`** in code (**`1`** until the first release; bump only then for incompatible changes). **Constants and parsing** live in **`tt_perf_master_schema.py`**; **reading** a file is **`tt_perf_master_loader.load_existing_yaml`**. Use this document to implement loaders, JSON Schema, Pydantic models, or contract tests in **other repositories**.
 
-**Producer:** `tt_perf_mapper.py` — **`serialize_master_for_yaml`** builds a mapping; **`yaml.dump`** (`default_flow_style=False`, `sort_keys=False`, `allow_unicode=True`). **Loader:** `tools/perf_lookup/tt_perf_master_loader.py` — **`load_existing_yaml`**.
+**Producer:** `tt_perf_mapper.py` — **`serialize_master_for_yaml`** builds a mapping; **`yaml.dump`** (`default_flow_style=False`, `sort_keys=False`, `allow_unicode=True`). **Loader:** `tt_perf_master_loader.py` — **`load_existing_yaml`**.
 
 **Related:** Excel/key-tuple semantics and pipeline details are in **`doc/SPEC_tt_perf_mapper.md`**.
 
@@ -12,7 +12,7 @@ Normative description of the YAML written by the **`tt_perf_mapper.py`** CLI whe
 
 ## Schema identity
 
-Stable names and keys (defined in `tools/perf_lookup/tt_perf_master_schema.py`):
+Stable names and keys (defined in `tt_perf_master_schema.py`):
 
 | Constant | Value | Role |
 |----------|-------|------|
@@ -30,9 +30,9 @@ Stable names and keys (defined in `tools/perf_lookup/tt_perf_master_schema.py`):
 | **`MASTER_CURVE_FAMILY_KEY`** | **`curve_family`** | **`curve`** and **`hybrid.curve`**: **`linear`** or **`power`** (same family for every stat; chosen from duration vs core count). |
 | **`MASTER_DURATION_MS_KEY`** | **`msecs`** | Device kernel duration in YAML (**milliseconds**); Excel column is nanoseconds. |
 
-**Consumers:** require **`schema_name`** **`correqn.tt-perf-master`**, **`schema_version`** equal to **`MASTER_YAML_SCHEMA_VERSION`**, and **`entries`** as defined below. Mismatch or missing fields → **`ValueError`** in **`tools.perf_lookup.tt_perf_master_loader.load_existing_yaml`**.
+**Consumers:** require **`schema_name`** **`correqn.tt-perf-master`**, **`schema_version`** equal to **`MASTER_YAML_SCHEMA_VERSION`**, and **`entries`** as defined below. Mismatch or missing fields → **`ValueError`** in **`tt_perf_master_loader.load_existing_yaml`**.
 
-**Record key wire shape:** **`entries[i]['key']`** is a **labeled mapping** (see **Record key**). **`yaml_labeled_key_to_tuple`** / **`labeled_key_map_to_tuple`** in **`tools.perf_lookup.tt_perf_master_schema`** parse it to an internal 8- or 15-tuple.
+**Record key wire shape:** **`entries[i]['key']`** is a **labeled mapping** (see **Record key**). **`yaml_labeled_key_to_tuple`** / **`labeled_key_map_to_tuple`** in **`tt_perf_master_schema`** parse it to an internal 8-, 15-, or 22-tuple.
 
 **Excel vs YAML:** The Excel sheet still uses full column titles (e.g. **`DEVICE KERNEL DURATION [ns]`**); the serialized master uses short stat keys (**`msecs`**, **`mem_util`**, …). That mapping is applied when **building** the master from Excel, not when loading YAML.
 
@@ -118,26 +118,27 @@ entries:
 
 ## Unsupported top-level shapes
 
-Only the **versioned** mapping (**`schema_name`**, **`schema_version`**, **`entries`**) is accepted by **`tools.perf_lookup.tt_perf_master_loader.load_existing_yaml`** (used by the **`tt_perf_mapper`** CLI when merging). Bare top-level lists, plain dicts without **`entries`**, **`entries`** items that are not **`{key, value}`** mappings, wrong **`schema_name`**, or **`schema_version` ≠ `MASTER_YAML_SCHEMA_VERSION`** are rejected on load.
+Only the **versioned** mapping (**`schema_name`**, **`schema_version`**, **`entries`**) is accepted by **`tt_perf_master_loader.load_existing_yaml`** (used by the **`tt_perf_mapper`** CLI when merging). Bare top-level lists, plain dicts without **`entries`**, **`entries`** items that are not **`{key, value}`** mappings, wrong **`schema_name`**, or **`schema_version` ≠ `MASTER_YAML_SCHEMA_VERSION`** are rejected on load.
 
 ---
 
 ## Record key (`entries[i]['key']`)
 
-The logical key is still an **8- or 15-tuple** (see **`doc/SPEC_tt_perf_mapper.md`**). Under **`key`**, the wire form is a **YAML mapping** whose field names are **`KEY_TUPLE_YAML_KEYS`** in `tools/perf_lookup/tt_perf_master_schema.py` (fixed order in the spec; values are the same scalars as the Excel-driven tuple).
+The logical key is an **8-, 15-, or 22-tuple** (see **`doc/SPEC_tt_perf_mapper.md`**). Under **`key`**, the wire form is a **YAML mapping** whose field names are **`KEY_TUPLE_YAML_KEYS`** in `tt_perf_master_schema.py` (fixed order in the spec; values are the same scalars as the Excel-driven tuple).
 
-- **`op_code`:** Polaris **layer type** (e.g. `matmul`, `eltwise`, `tilize`).
+- **`op_code`:** Polaris **layer type** (e.g. `matmul`, `eltwise`, `tilize`, `tilizewithvalpadding`, `untilize`, `untilizewithunpadding`).
 - **`input_0_w_pad_logical`**, **`input_0_z_pad_logical`**, **`input_0_y_pad_logical`**, **`input_0_x_pad_logical`:** logical pad integers (aligned with **`INPUT_0_*_PAD[LOGICAL]`**).
 - **`input_0_layout`**, **`input_0_datatype`**, **`input_0_memory`**
-- If the tuple has a second input (**15** fields), all seven **`input_1_*`** keys with the same naming pattern; if **8** fields, **omit** every **`input_1_*`** key (do not include `input_1_*` with nulls unless your loader convention explicitly allows it — the producer omits them).
+- If the tuple has a second input (**15** or **22** fields), all seven **`input_1_*`** keys with the same naming pattern; if **8** fields, **omit** every **`input_1_*`** and **`input_2_*`** key (the producer omits them rather than emitting nulls).
+- If the tuple has a third input (**22** fields), all seven **`input_2_*`** keys are present; **`input_2_*` must not appear** unless every **`input_1_*`** field is also present.
 
-Unknown fields in a labeled mapping: **`labeled_key_map_to_tuple`** raises **`ValueError`**. If any **`input_1_*`** field is present, **all** seven **`input_1_*`** fields are **required** (15-tuple).
+Unknown fields in a labeled mapping: **`labeled_key_map_to_tuple`** raises **`ValueError`**. If any **`input_1_*`** field is present, **all** seven **`input_1_*`** fields are **required** (15- or 22-tuple). If any **`input_2_*`** field is present, **all** seven **`input_2_*`** and **all** **`input_1_*`** fields are **required** (22-tuple).
 
 ---
 
 ## Entry discriminator: `entry_type`
 
-Each **`value`** mapping **must** include **`entry_type`**: **`single`**, **`curve`**, or **`hybrid`**. **`tools.perf_lookup.tt_perf_master_loader.load_existing_yaml`** rejects missing or other values (no inference from payload shape). **Curve** and **hybrid.curve** include **`curve_family`** (see below).
+Each **`value`** mapping **must** include **`entry_type`**: **`single`**, **`curve`**, or **`hybrid`**. **`tt_perf_master_loader.load_existing_yaml`** rejects missing or other values (no inference from payload shape). **Curve** and **hybrid.curve** include **`curve_family`** (see below).
 
 | Key | YAML value | Meaning |
 |-----|------------|---------|
@@ -173,18 +174,7 @@ Keys are **exact strings** (always present in producer output):
 | `vector_pipe_util` | `float` (from Excel **`SFPU Util Median (%)`**) |
 | `matrix_pipe_util` | `float` (from Excel **`FPU Util Median (%)`**) |
 
-Values must be **finite** real scalars: **`load_existing_yaml`** rejects **`inf`**, **`nan`**, and non-numeric types for stat fields (see **`is_real_stat_scalar`** in **`tools/perf_lookup/tt_perf_master_schema.py`**). PyYAML may still parse **`inf`** / **`nan`** from source text; such files fail strict load until edited.
-
-### Utilization percentages and Polaris operator lookup
-
-For the fields above that are **profiler/util percentages** — **`matrix_pipe_util`**, **`vector_pipe_util`**, **`mem_util`**, **`noc_util`**, **`noc_multicast_util`**, **`npe_cong_impact_pct`** — the Excel-driven producer stores them as **percent values**. The **Polaris** path in **`tools.perf_lookup.lookup_operator_perf.OperatorPerfMap`** enforces:
-
-- **`matrix_pipe_util`** and **`vector_pipe_util`** must **resolve** on every LUT hit (single scalars or curve/hybrid evaluation at runtime **`core_count`**). **0 is valid.**
-- When any of the six util keys **resolves** to a scalar, it must lie in **[0, 100] inclusive** (finite). Out-of-range or missing required pipe utils → **`OperatorPerfLUTValidationError`** (see **`doc/tools/perf_lookup/LOOKUP_TABLE_MASTER.md`**).
-
-**Curve** and **`hybrid.curve`** entries must include regression sub-mappings for **both** **`matrix_pipe_util`** and **`vector_pipe_util`** if that row is to be used for lookup; otherwise a hit can fail validation after **`msecs`** resolves.
-
-Serialized **`memory_traffic`** is **bytes**, not a percentage; it is not subject to the **[0, 100]** util rule.
+Values must be **finite** real scalars: **`load_existing_yaml`** rejects **`inf`**, **`nan`**, and non-numeric types for stat fields (see **`is_real_stat_scalar`** in **`tt_perf_master_schema.py`**). PyYAML may still parse **`inf`** / **`nan`** from source text; such files fail strict load until edited.
 
 ---
 
@@ -203,7 +193,6 @@ Serialized **`memory_traffic`** is **bytes**, not a percentage; it is not subjec
 - **Required:** `entry_type: curve` and **`curve_family`**: **`linear`** or **`power`**. This is the family used for **every** stat’s fit for that key tuple (selected from duration **`msecs`** vs core count; see spec). The loader rejects curve entries with a missing or invalid **`curve_family`**.
 - **Note:** The current **`tt_perf_mapper`** pipeline canonicalizes **matmul** to **`hybrid`** before write, so production files use **`hybrid.curve`** for matmul sweeps. A top-level **`curve`** entry remains valid for the format and for non-matmul keys if a future producer emits them.
 - **Additional keys:** One per **stat** (string keys matching the same stat names as in the single-mode stats dict, including **`msecs`**, `memory_traffic`, etc.).
-- **Polaris lookup:** For rows that will match workloads, include curve fits for **`matrix_pipe_util`** and **`vector_pipe_util`** (both must evaluate to **[0, 100]** at runtime core count). Omitting either can cause **`OperatorPerfLUTValidationError`** on hit (see **Utilization percentages and Polaris operator lookup**).
 - **Each stat value** is a mapping with:
 
 | Key | Type | Notes |
@@ -227,17 +216,16 @@ Special cases (same strings as in spec): all-NaN/zero stats use **`_curve_zero_l
 ## Suggested consumer algorithm
 
 1. `raw = yaml.safe_load(stream)`; handle **`None`** → no entries.
-2. Require `raw` is a **dict** with **`schema_name`**, **`schema_version`**, and **`entries`**. Reject if **`schema_name`** ≠ **`correqn.tt-perf-master`** or **`schema_version`** ≠ **`MASTER_YAML_SCHEMA_VERSION`** (see **`tools/perf_lookup/tt_perf_master_schema.py`**; **`1`** until first release).
+2. Require `raw` is a **dict** with **`schema_name`**, **`schema_version`**, and **`entries`**. Reject if **`schema_name`** ≠ **`correqn.tt-perf-master`** or **`schema_version`** ≠ **`MASTER_YAML_SCHEMA_VERSION`** (see **`tt_perf_master_schema.py`**; **`1`** until first release).
 3. Let `records = raw["entries"]` (a list).
-4. For each `item` in `records`: require `item` is a **dict** with exactly **`key`** and **`value`** (and no other keys). Let `key_wire = item["key"]`, `entry = item["value"]`. Require **`entry`** is a **mapping**. Require **`key_wire`** is a **dict**; map fields in **`KEY_TUPLE_YAML_KEYS`** order (8 or 15 keys per rules above) to `key_tuple` (same rules as **`labeled_key_map_to_tuple`**).
+4. For each `item` in `records`: require `item` is a **dict** with exactly **`key`** and **`value`** (and no other keys). Let `key_wire = item["key"]`, `entry = item["value"]`. Require **`entry`** is a **mapping**. Require **`key_wire`** is a **dict**; map fields in **`KEY_TUPLE_YAML_KEYS`** order (8, 15, or 22 keys per rules above) to `key_tuple` (same rules as **`labeled_key_map_to_tuple`**).
 5. Require `entry["entry_type"]` is **`single`**, **`curve`**, or **`hybrid`** (do not guess from keys).
-6. If **`key_tuple[0]`** (Polaris **`op_code`**) is **`matmul`**, require **`entry_type: hybrid`** (same rule as **`tools.perf_lookup.tt_perf_master_loader`**).
+6. If **`key_tuple[0]`** (Polaris **`op_code`**) is **`matmul`**, require **`entry_type: hybrid`** (same rule as **`tt_perf_master_loader`**).
 7. If **`single`**: read **`num_cores`** and the stat keys (see **`MASTER_SINGLE_STAT_KEYS`**); require all of them; unknown keys → warn (see **`load_existing_yaml`** / **`_validate_flat_single_payload`**). Stat values must be finite real scalars (including NumPy scalar types if your loader passes them through).
 8. If **`curve`**: read **`curve_family`** (`linear` \| `power`). For each `k, v` in `entry.items()` with `k` not in `entry_type` / `curve_family` and `v` a dict, require **`MASTER_CURVE_STAT_ENTRY_KEYS`**: `a`, `b`, `r2`, `equation` (extras → warn).
 9. If **`hybrid`**: parse optional **`single`** (flat **`num_cores`** + stats) and optional **`curve`** (`curve_family` + stat fits); require at least one branch.
 10. Optionally normalize **`num_cores`** whole-number floats to `int` (including under **`hybrid.single`**).
-11. If integrating **Polaris `OperatorPerfMap`**, apply the **utilization percentage** and **required pipe util** rules in **Utilization percentages and Polaris operator lookup** above.
 
-**Canonical stat keys** in YAML: **`msecs`**, **`memory_traffic`**, **`mem_util`**, **`noc_util`**, **`noc_multicast_util`**, **`npe_cong_impact_pct`**, **`vector_pipe_util`**, **`matrix_pipe_util`**. See **`MASTER_DURATION_MS_KEY`** in `tools/perf_lookup/tt_perf_master_schema.py` and **`OUTPUT_KEY_*`** in `tt_perf_mapper.py`.
+**Canonical stat keys** in YAML: **`msecs`**, **`memory_traffic`**, **`mem_util`**, **`noc_util`**, **`noc_multicast_util`**, **`npe_cong_impact_pct`**, **`vector_pipe_util`**, **`matrix_pipe_util`**. See **`MASTER_DURATION_MS_KEY`** in `tt_perf_master_schema.py` and **`OUTPUT_KEY_*`** in `tt_perf_mapper.py`.
 
-For **strict** validation (e.g. Pydantic), pin to a **`correqn`** git tag or commit, import constants from **`tools.perf_lookup.tt_perf_master_schema`**, and add golden-file tests.
+For **strict** validation (e.g. Pydantic), pin to a **`correqn`** git tag or commit, import constants from **`tt_perf_master_schema`**, and add golden-file tests.

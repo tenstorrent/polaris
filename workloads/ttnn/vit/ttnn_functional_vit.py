@@ -50,6 +50,10 @@ def vit_patch_embeddings(config, pixel_values, *, parameters, unittest_check=Fal
         parameters = parameters.vit.embeddings.patch_embeddings
 
     patch_embedding_output = ttnn.matmul(pixel_values, parameters.projection.weight)
+    _warn_layout_operator_todo_once(
+        "vit_patch_proj_matmul_layout",
+        "matmul should set output layout metadata; remove explicit TILE assignment (patch projection).",
+    )
     patch_embedding_output.layout = ttnn.TILE_LAYOUT
     patch_embedding_output = patch_embedding_output + parameters.projection.bias
 
@@ -77,8 +81,16 @@ def vit_embeddings(
     patch_embeddings = vit_patch_embeddings(config, pixel_values, parameters=parameters.patch_embeddings)
     cls_token.layout = ttnn.ROW_MAJOR_LAYOUT
     embedding_output = ttnn.concat(cls_token, patch_embeddings, axis=1)
+    _warn_layout_operator_todo_once(
+        "vit_embeddings_concat_layout",
+        "concat should set output layout metadata; remove explicit TILE assignment (embeddings).",
+    )
     embedding_output.layout = ttnn.TILE_LAYOUT
     embedding_output = embedding_output + position_embeddings
+    _warn_layout_operator_todo_once(
+        "vit_embeddings_add_layout",
+        "add should set output layout metadata; remove explicit TILE assignment (position embeddings).",
+    )
     embedding_output.layout = ttnn.TILE_LAYOUT
 
     return embedding_output
@@ -95,7 +107,10 @@ def vit_layernorm_before(
         weight=parameters.layernorm_before.weight,
         bias=parameters.layernorm_before.bias,
     )
-    # TODO: placeholder for layer norm layout
+    _warn_layout_operator_todo_once(
+        "vit_layernorm_before_layout",
+        "layer_norm should set output layout metadata; remove explicit TILE assignment (layernorm_before).",
+    )
     attention_output.layout = ttnn.TILE_LAYOUT
     return attention_output
 
@@ -111,7 +126,10 @@ def vit_layernorm_after(
         weight=parameters.layernorm_after.weight,
         bias=parameters.layernorm_after.bias,
     )
-    # TODO: placeholder for layer norm layout
+    _warn_layout_operator_todo_once(
+        "vit_layernorm_after_layout",
+        "layer_norm should set output layout metadata; remove explicit TILE assignment (layernorm_after).",
+    )
     attention_output.layout = ttnn.TILE_LAYOUT
 
     return attention_output
@@ -129,6 +147,7 @@ def vit_attention(
     head_size = hidden_size // num_heads
 
     query = hidden_states @ parameters.attention.query.weight
+    logger.warning('matmul query shape {} = hidden_states shape {} @ parameters.attention.query.weight shape {}', query.shape, hidden_states.shape, parameters.attention.query.weight.shape)
     # TODO(ttnn/operators): matmul should stamp output layout; remove explicit assignment.
     _warn_layout_operator_todo_once(
         "vit_attn_query_matmul_layout",
@@ -159,13 +178,17 @@ def vit_attention(
     query.layout = ttnn.TILE_LAYOUT
 
     key = hidden_states @ parameters.attention.key.weight
+    logger.warning('matmul key shape {} = hidden_states shape {} @ parameters.attention.key.weight shape {}', key.shape, hidden_states.shape, parameters.attention.key.weight.shape)
     # TODO(ttnn/operators): matmul should stamp output layout; remove explicit assignment.
     _warn_layout_operator_todo_once(
         "vit_attn_key_matmul_layout",
         "matmul should stamp output layout; remove explicit assignment (key projection).",
     )
     key.layout = hidden_states.layout
+    logger.warning('key shape {}', key.shape)
+    logger.warning('bias shape {}', parameters.attention.key.bias.shape)
     key = key + parameters.attention.key.bias
+    logger.warning('key result shape {}', key.shape)
     # TODO(ttnn/operators): add should set output layout; remove explicit assignment.
     _warn_layout_operator_todo_once(
         "vit_attn_key_add_layout",
@@ -194,6 +217,7 @@ def vit_attention(
     key.layout = ttnn.TILE_LAYOUT
 
     value = hidden_states @ parameters.attention.value.weight
+    logger.warning('matmul value shape {} = hidden_states shape {} @ parameters.attention.value.weight shape {}', value.shape, hidden_states.shape, parameters.attention.value.weight.shape)
     # TODO(ttnn/operators): matmul should stamp output layout; remove explicit assignment.
     _warn_layout_operator_todo_once(
         "vit_attn_value_matmul_layout",
@@ -229,6 +253,7 @@ def vit_attention(
     value.layout = ttnn.TILE_LAYOUT
 
     attention_scores = query @ key
+    logger.warning('matmul attention_scores shape {} = query shape {} @ key shape {}', attention_scores.shape, query.shape, key.shape)
     # TODO(ttnn/operators): matmul should set output layout; remove explicit assignment.
     _warn_layout_operator_todo_once(
         "vit_attn_scores_matmul_layout",
@@ -259,6 +284,8 @@ def vit_attention(
     attention_probs.layout = ttnn.TILE_LAYOUT
 
     context_layer = attention_probs @ value
+
+    logger.warning('matmul context_layer shape {} = attention_probs shape {} @ value shape {}', context_layer.shape, attention_probs.shape, value.shape)
     # TODO: Remove this hack after fixing the issue with permute and reshape.
     # TODO(ttnn/operators): matmul should set output layout; remove explicit assignment when permute/reshape fixed.
     _warn_layout_operator_todo_once(
@@ -296,6 +323,8 @@ def vit_attention(
     self_output = context_layer
     logger.warning("self_output layout {}", self_output.layout)
     self_output = self_output @ parameters.attention.output.dense.weight
+
+    logger.warning('matmul self_output shape {} = context_layer shape {} @ parameters.attention.output.dense.weight shape {}', self_output.shape, context_layer.shape, parameters.attention.output.dense.weight.shape)
     # TODO(ttnn/operators): matmul should set output layout; remove explicit assignment.
     _warn_layout_operator_todo_once(
         "vit_attn_output_dense_matmul_layout",
@@ -318,6 +347,7 @@ def vit_intermediate(
     parameters,
 ):
     output = hidden_states @ parameters.dense.weight
+    logger.warning('matmul output shape {} = hidden_states shape {} @ parameters.dense.weight shape {}', output.shape, hidden_states.shape, parameters.dense.weight.shape)
     # TODO: placeholder for matmul layout
     output.layout = hidden_states.layout
     output = output + parameters.dense.bias
@@ -337,9 +367,16 @@ def vit_output(
     parameters,
 ):
     output = hidden_states @ parameters.dense.weight
+    logger.warning('matmul output shape {} = hidden_states shape {} @ parameters.dense.weight shape {}', output.shape, hidden_states.shape, parameters.dense.weight.shape)
+    output.layout = hidden_states.layout
     output = output + parameters.dense.bias
+    output.layout = ttnn.TILE_LAYOUT
+    _warn_layout_operator_todo_once(
+        "vit_output_residual_add_layout",
+        "add/residual path should set output layout metadata; remove explicit TILE assignment (vit_output).",
+    )
     output = output + residual
-
+    output.layout = ttnn.TILE_LAYOUT
     return output
 
 
@@ -374,6 +411,11 @@ def vit_layer(
         parameters=parameters,
     )
     attention_output = attention_output + hidden_states
+    _warn_layout_operator_todo_once(
+        "vit_layer_residual_add_layout",
+        "residual add should set output layout metadata; remove explicit TILE assignment (vit_layer).",
+    )
+    attention_output.layout = ttnn.TILE_LAYOUT
     layernorm_after_output = vit_layernorm_after(
         config,
         attention_output,
@@ -433,10 +475,14 @@ def vit(
         weight=parameters.vit.layernorm.weight,
         bias=parameters.vit.layernorm.bias,
     )
-    # TODO: placeholder for layer norm layout
+    _warn_layout_operator_todo_once(
+        "vit_final_layernorm_layout",
+        "layer_norm should set output layout metadata; remove explicit TILE assignment (final norm).",
+    )
     output.layout = ttnn.TILE_LAYOUT
     # Classifier
     classifier_output = output @ parameters.classifier.weight
+    logger.warning('matmul classifier_output shape {} = output shape {} @ parameters.classifier.weight shape {}', classifier_output.shape, output.shape, parameters.classifier.weight.shape)
     # TODO: placeholder for matmul layout
     classifier_output.layout = output.layout
     classifier_output = classifier_output + parameters.classifier.bias
