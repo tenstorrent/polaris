@@ -422,6 +422,100 @@ def test_binary_mul_falls_back_to_unary_lut_key(tmp_path: Path):
 
 
 @pytest.mark.unit
+def test_add_broadcast_fallback_second_operand_is_1_1_1_x(tmp_path: Path):
+    """LUT row has both add inputs at full WZYX; graph has (1,1,1,X) as second operand."""
+    from tools.perf_lookup.lookup_operator_perf import OperatorPerfMap
+
+    doc = {
+        "schema_name": "correqn.tt-perf-master",
+        "schema_version": 1,
+        "entries": [
+            {
+                "key": {
+                    "op_code": "add",
+                    "input_0_w_pad_logical": 8,
+                    "input_0_z_pad_logical": 14,
+                    "input_0_y_pad_logical": 14,
+                    "input_0_x_pad_logical": 768,
+                    "input_0_layout": "TILE",
+                    "input_0_datatype": "BFLOAT16",
+                    "input_0_memory": "DEV_1_DRAM_INTERLEAVED",
+                    "input_1_w_pad_logical": 8,
+                    "input_1_z_pad_logical": 14,
+                    "input_1_y_pad_logical": 14,
+                    "input_1_x_pad_logical": 768,
+                    "input_1_layout": "TILE",
+                    "input_1_datatype": "BFLOAT16",
+                    "input_1_memory": "DEV_1_DRAM_INTERLEAVED",
+                },
+                "value": _flat_single_value(64, msecs=0.042, matrix_pipe_util=1.0, vector_pipe_util=2.0),
+            }
+        ],
+    }
+    p = tmp_path / "add_dup_full_lut.yaml"
+    p.write_text(yaml.dump(doc, sort_keys=False), encoding="utf-8")
+    m = OperatorPerfMap(p)
+
+    t0 = SimTensor({"name": "a", "shape": [8, 14, 14, 768], "op_in": [], "op_out": []})
+    t1 = SimTensor({"name": "b", "shape": [1, 1, 1, 768], "op_in": [], "op_out": []})
+    op = SimpleNamespace(optype="Add", precision="BF16", inList=["a", "b"])
+    g = SimpleNamespace(_tensors={"a": t0, "b": t1})
+
+    st = m.lookup(op, g, core_count=64)
+    assert st is not None
+    assert st.msecs == pytest.approx(0.042)
+    assert st.matrix_pipe_util == pytest.approx(1.0)
+    assert st.vector_pipe_util == pytest.approx(2.0)
+
+
+@pytest.mark.unit
+def test_add_broadcast_fallback_first_operand_is_1_1_1_x(tmp_path: Path):
+    """Same LUT as duplicate-full add; graph has (1,1,1,X) as first operand (option B)."""
+    from tools.perf_lookup.lookup_operator_perf import OperatorPerfMap
+
+    doc = {
+        "schema_name": "correqn.tt-perf-master",
+        "schema_version": 1,
+        "entries": [
+            {
+                "key": {
+                    "op_code": "add",
+                    "input_0_w_pad_logical": 8,
+                    "input_0_z_pad_logical": 14,
+                    "input_0_y_pad_logical": 14,
+                    "input_0_x_pad_logical": 768,
+                    "input_0_layout": "TILE",
+                    "input_0_datatype": "BFLOAT16",
+                    "input_0_memory": "DEV_1_DRAM_INTERLEAVED",
+                    "input_1_w_pad_logical": 8,
+                    "input_1_z_pad_logical": 14,
+                    "input_1_y_pad_logical": 14,
+                    "input_1_x_pad_logical": 768,
+                    "input_1_layout": "TILE",
+                    "input_1_datatype": "BFLOAT16",
+                    "input_1_memory": "DEV_1_DRAM_INTERLEAVED",
+                },
+                "value": _flat_single_value(64, msecs=0.051, matrix_pipe_util=3.0, vector_pipe_util=4.0),
+            }
+        ],
+    }
+    p = tmp_path / "add_dup_full_lut_swap.yaml"
+    p.write_text(yaml.dump(doc, sort_keys=False), encoding="utf-8")
+    m = OperatorPerfMap(p)
+
+    t0 = SimTensor({"name": "bias", "shape": [1, 1, 1, 768], "op_in": [], "op_out": []})
+    t1 = SimTensor({"name": "act", "shape": [8, 14, 14, 768], "op_in": [], "op_out": []})
+    op = SimpleNamespace(optype="Add", precision="BF16", inList=["bias", "act"])
+    g = SimpleNamespace(_tensors={"bias": t0, "act": t1})
+
+    st = m.lookup(op, g, core_count=64)
+    assert st is not None
+    assert st.msecs == pytest.approx(0.051)
+    assert st.matrix_pipe_util == pytest.approx(3.0)
+    assert st.vector_pipe_util == pytest.approx(4.0)
+
+
+@pytest.mark.unit
 def test_binary_reshape_falls_back_to_unary_lut_key(tmp_path: Path):
     """LUT has unary ``reshape``; graph pairs data tensor with a small shape constant (15-tuple miss)."""
     from tools.perf_lookup.lookup_operator_perf import OperatorPerfMap

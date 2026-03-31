@@ -21,6 +21,10 @@ treat that storage as ``BFLOAT16`` unless ``op_precision`` is IEEE FP16 (``fp16`
 
 For ``reshape`` master keys, ``input_0`` logical WZYX follows tt-perf convention ``(1, 1, w*z*y, x)``
 from the tensor's rank-4 logical ``(w, z, y, x)`` (see :func:`_reshape_input0_lut_wzyx`).
+
+For ``add``, after a 15-tuple miss, lookup may retry with a key that duplicates the full operand's
+WZYX on the broadcast operand when one side is exactly ``(1, 1, 1, X)`` and the other is a
+non-trivial rank-4 shape with the same ``X`` (see :func:`build_master_key_tuple_15_add_broadcast_duplicate_full`).
 """
 
 from __future__ import annotations
@@ -452,6 +456,85 @@ def build_master_key_tuple_15(
     )
 
 
+def build_master_key_tuple_15_add_broadcast_duplicate_full(
+    op: Any,
+    tensor_0: Any,
+    tensor_1: Any,
+    *,
+    use_padded_shapes: bool = False,
+) -> Optional[Tuple[Any, ...]]:
+    """
+    15-tuple key with the broadcast operand's WZYX replaced by the full operand's WZYX.
+
+    Used when the master row stored both inputs with the full logical shape while the graph has
+    ``(1, 1, 1, X)`` on one operand (either ``tensor_0`` or ``tensor_1``). Layout, datatype, and
+    memory for each input stay tied to that input's tensor.
+
+    Returns ``None`` unless ``op`` is ``add``, one operand is exactly ``(1,1,1,X)``, the other
+    has the same ``X`` and at least one of W, Z, Y greater than 1, and the pattern is unambiguous.
+    """
+    if _op_code(op) != "add":
+        return None
+    w0, z0, y0, x0 = _input0_wzyx_for_master_key(
+        op, tensor_0, use_padded_shapes=use_padded_shapes
+    )
+    w1, z1, y1, x1 = _shape_wzyx(tensor_1, use_padded=use_padded_shapes)
+    b0 = w0 == 1 and z0 == 1 and y0 == 1
+    b1 = w1 == 1 and z1 == 1 and y1 == 1
+    full0 = not b0
+    full1 = not b1
+    prec = getattr(op, "precision", None)
+    lay0, dt0, mem0 = (
+        _tensor_layout_str(tensor_0),
+        _tensor_datatype(tensor_0, prec),
+        _tensor_memory_str(tensor_0),
+    )
+    lay1, dt1, mem1 = (
+        _tensor_layout_str(tensor_1),
+        _tensor_datatype(tensor_1, prec),
+        _tensor_memory_str(tensor_1),
+    )
+    if b1 and full0 and x1 == x0:
+        wf, zf, yf, xf = w0, z0, y0, x0
+        return (
+            _op_code(op),
+            wf,
+            zf,
+            yf,
+            xf,
+            lay0,
+            dt0,
+            mem0,
+            wf,
+            zf,
+            yf,
+            xf,
+            lay1,
+            dt1,
+            mem1,
+        )
+    if b0 and full1 and x0 == x1:
+        wf, zf, yf, xf = w1, z1, y1, x1
+        return (
+            _op_code(op),
+            wf,
+            zf,
+            yf,
+            xf,
+            lay0,
+            dt0,
+            mem0,
+            wf,
+            zf,
+            yf,
+            xf,
+            lay1,
+            dt1,
+            mem1,
+        )
+    return None
+
+
 def _wzyx_int_tuple(t4: tuple) -> tuple:
     """Four logical dims as ints (YAML / numpy-safe)."""
     out: list[int] = []
@@ -690,6 +773,31 @@ class OperatorPerfMap:
 
         entry_val = self._entries.get(key_t)
         lookup_key = key_t
+
+        if entry_val is None and n_in == 2 and _op_code(op) == "add":
+            try:
+                key_add_bc = build_master_key_tuple_15_add_broadcast_duplicate_full(
+                    op, t0, t1, use_padded_shapes=self._use_padded_shapes
+                )
+            except Exception as e:
+                logger.debug(
+                    "Perf lookup add broadcast key build failed for op {}: {}",
+                    getattr(op, "name", "?"),
+                    e,
+                )
+                key_add_bc = None
+            if key_add_bc is not None:
+                ev_add = self._entries.get(key_add_bc)
+                if ev_add is not None:
+                    entry_val = ev_add
+                    lookup_key = key_add_bc
+                    logger.debug(
+                        "Perf lookup: 15-tuple miss for add op={!r}; using broadcast-duplicated "
+                        "LUT key {} (lut={})",
+                        getattr(op, "name", None),
+                        key_add_bc,
+                        self._source_path,
+                    )
 
         if (
             entry_val is None
