@@ -1116,6 +1116,7 @@ sys.path.append(os.path.join(os.path.dirname(__file__), "..", "..", "..", "..", 
 import numpy as np
 import ttsim.front.functional.op as F
 import ttsim.front.functional.sim_nn as SimNN
+from ttsim.ops.tensor import require_shape_list
 from einops import rearrange
 
 from workloads.MapTracker.plugin.models.heads.Map_Seg_Head import MapSegHead
@@ -1507,7 +1508,10 @@ class MapTracker(SimNN.Module):
         if self.use_backbone and self.bev_backbone is not None:
             img = self.input_tensors["img"]  # [bs, num_cams, 3, H, W]
             setattr(self, img.name, img)
-            bs = img.shape[0]
+            img_shape = require_shape_list(
+                img.shape, f"{img.name}: shape required for backbone path"
+            )
+            bs = int(img_shape[0])
 
             # Flatten cameras: [bs, num_cams, 3, H, W] -> [bs*num_cams, 3, H, W]
             flat_shape = F._from_data(
