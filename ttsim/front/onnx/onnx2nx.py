@@ -345,10 +345,10 @@ def resolve_tensor(_tname, _info):
             dims,
             _tname,
         )
-        dims = [d if isinstance(d, int) else 1 for d in dims]
+        # data_dynamic_axes_2 is an input size parameter for PANW model. For Polaris simulation, this is being set to 128.
+        dims = [d if isinstance(d, int) else 128 if d == 'data_dynamic_axes_2' else 1 for d in dims]
 
     dims = [int(d) for d in dims]
-
     return {
         'name':   _tname,
         'shape':  dims,

@@ -40,6 +40,18 @@ workloads:
     instances:
       rn50_b1_hd : { path: 'onnx/resnet50.onnx', img_height: 1024, img_width: 1024, bs: 1 }
 
+  - api: ONNX
+    name: model_20240914_fp16
+    basedir: workloads
+    instances:
+      model_20240914_fp16 : { path: 'onnx/mlexp_header_model_fp16_20240914_003924.onnx', bs: 1 }
+
+  - api: ONNX
+    name: model_20240914_base
+    basedir: workloads
+    instances:
+      model_20240914_base : { path: 'onnx/mlexp_header_model_20240914_003924.onnx', bs: 1 }
+
   - api: TTSIM
     name: DeformableDETR
     basedir: workloads/Deformable_DETR/models

@@ -257,6 +257,25 @@ def tile_sinf(iTList, oTList, op, **kwargs):
 def squeeze_sinf(iTList, oTList, op, **kwargs):
     assert iTList[0].check_shape(), f"Illegal Shape for {iTList[0]}"
     dataT = iTList[0]
+    if len(iTList) == 1:
+        # Squeeze with no axes: remove all dims of size 1
+        outshape = [dim for dim in dataT.shape if dim != 1]
+        oTList[0].shape = outshape
+        oTList[0].dtype = dataT.dtype
+
+        # Compute data if inputs have data
+        from ttsim.ops.desc.data_compute import try_compute_data, compute_squeeze
+        oTList[0].data = try_compute_data(compute_squeeze, iTList, op)
+
+        op.perf_stats = {
+                'inBytes' : int(iTList[0].nbytes(op.precision)),
+                'outBytes': int(oTList[0].nbytes(op.precision)),
+                'inElems' : int(iTList[0].nelems()),
+                'outElems': int(oTList[0].nelems()),
+                'instrs'  : {'mov': int(oTList[0].nelems())}
+                }
+        return
+
     axesT = iTList[1].clone_by_shape(data_maybe_missing=False) #Y.data must be present
 
     data_rank  = dataT.rank()
