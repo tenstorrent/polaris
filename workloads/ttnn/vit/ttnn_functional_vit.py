@@ -16,7 +16,7 @@ def _warn_layout_operator_todo_once(key: str, message: str) -> None:
     if key in _LAYOUT_OPERATOR_TODO_KEYS:
         return
     _LAYOUT_OPERATOR_TODO_KEYS.add(key)
-    logger.warning("[ttnn/operators layout TODO] {}", message)
+    logger.debug("[ttnn/operators layout TODO] {}", message)
 
 
 # TODO(ttnn/operators): This file uses explicit to_layout / .layout assignments where operator outputs
@@ -147,7 +147,7 @@ def vit_attention(
     head_size = hidden_size // num_heads
 
     query = hidden_states @ parameters.attention.query.weight
-    logger.warning('matmul query shape {} = hidden_states shape {} @ parameters.attention.query.weight shape {}', query.shape, hidden_states.shape, parameters.attention.query.weight.shape)
+    logger.debug('matmul query shape {} = hidden_states shape {} @ parameters.attention.query.weight shape {}', query.shape, hidden_states.shape, parameters.attention.query.weight.shape)
     # TODO(ttnn/operators): matmul should stamp output layout; remove explicit assignment.
     _warn_layout_operator_todo_once(
         "vit_attn_query_matmul_layout",
@@ -178,17 +178,17 @@ def vit_attention(
     query.layout = ttnn.TILE_LAYOUT
 
     key = hidden_states @ parameters.attention.key.weight
-    logger.warning('matmul key shape {} = hidden_states shape {} @ parameters.attention.key.weight shape {}', key.shape, hidden_states.shape, parameters.attention.key.weight.shape)
+    logger.debug('matmul key shape {} = hidden_states shape {} @ parameters.attention.key.weight shape {}', key.shape, hidden_states.shape, parameters.attention.key.weight.shape)
     # TODO(ttnn/operators): matmul should stamp output layout; remove explicit assignment.
     _warn_layout_operator_todo_once(
         "vit_attn_key_matmul_layout",
         "matmul should stamp output layout; remove explicit assignment (key projection).",
     )
     key.layout = hidden_states.layout
-    logger.warning('key shape {}', key.shape)
-    logger.warning('bias shape {}', parameters.attention.key.bias.shape)
+    logger.debug('key shape {}', key.shape)
+    logger.debug('bias shape {}', parameters.attention.key.bias.shape)
     key = key + parameters.attention.key.bias
-    logger.warning('key result shape {}', key.shape)
+    logger.debug('key result shape {}', key.shape)
     # TODO(ttnn/operators): add should set output layout; remove explicit assignment.
     _warn_layout_operator_todo_once(
         "vit_attn_key_add_layout",
@@ -217,7 +217,7 @@ def vit_attention(
     key.layout = ttnn.TILE_LAYOUT
 
     value = hidden_states @ parameters.attention.value.weight
-    logger.warning('matmul value shape {} = hidden_states shape {} @ parameters.attention.value.weight shape {}', value.shape, hidden_states.shape, parameters.attention.value.weight.shape)
+    logger.debug('matmul value shape {} = hidden_states shape {} @ parameters.attention.value.weight shape {}', value.shape, hidden_states.shape, parameters.attention.value.weight.shape)
     # TODO(ttnn/operators): matmul should stamp output layout; remove explicit assignment.
     _warn_layout_operator_todo_once(
         "vit_attn_value_matmul_layout",
@@ -253,21 +253,21 @@ def vit_attention(
     value.layout = ttnn.TILE_LAYOUT
 
     attention_scores = query @ key
-    logger.warning('matmul attention_scores shape {} = query shape {} @ key shape {}', attention_scores.shape, query.shape, key.shape)
+    logger.debug('matmul attention_scores shape {} = query shape {} @ key shape {}', attention_scores.shape, query.shape, key.shape)
     # TODO(ttnn/operators): matmul should set output layout; remove explicit assignment.
     _warn_layout_operator_todo_once(
         "vit_attn_scores_matmul_layout",
         "matmul should set output layout; remove explicit assignment (attention scores).",
     )
     attention_scores.layout = ttnn.TILE_LAYOUT
-    logger.warning("query layout {} key layout {}", query.layout, key.layout)
-    logger.warning("attention_scores layout {}", attention_scores.layout)
+    logger.debug("query layout {} key layout {}", query.layout, key.layout)
+    logger.debug("attention_scores layout {}", attention_scores.layout)
     attention_scores = attention_scores * (1 / (head_size**0.5))
     if attention_mask is not None:
-        logger.warning("attention mark shape {} layout {}", attention_mask.shape, attention_mask.layout)
-        logger.warning("attention scores shape {} layout {}", attention_scores.shape, attention_scores.layout)
+        logger.debug("attention mask shape {} layout {}", attention_mask.shape, attention_mask.layout)
+        logger.debug("attention scores shape {} layout {}", attention_scores.shape, attention_scores.layout)
         attention_scores = attention_scores + attention_mask
-    logger.warning("attention scores shape {} layout {}", attention_scores.shape, attention_scores.layout)
+    logger.debug("attention scores shape {} layout {}", attention_scores.shape, attention_scores.layout)
     # TODO(ttnn/operators): mul/add/mask broadcast should set output layout; remove explicit assignment.
     _warn_layout_operator_todo_once(
         "vit_attn_scores_post_scale_mask_layout",
@@ -285,7 +285,7 @@ def vit_attention(
 
     context_layer = attention_probs @ value
 
-    logger.warning('matmul context_layer shape {} = attention_probs shape {} @ value shape {}', context_layer.shape, attention_probs.shape, value.shape)
+    logger.debug('matmul context_layer shape {} = attention_probs shape {} @ value shape {}', context_layer.shape, attention_probs.shape, value.shape)
     # TODO: Remove this hack after fixing the issue with permute and reshape.
     # TODO(ttnn/operators): matmul should set output layout; remove explicit assignment when permute/reshape fixed.
     _warn_layout_operator_todo_once(
@@ -321,10 +321,10 @@ def vit_attention(
     context_layer = ttnn.to_layout(context_layer, ttnn.TILE_LAYOUT)
 
     self_output = context_layer
-    logger.warning("self_output layout {}", self_output.layout)
+    logger.debug("self_output layout {}", self_output.layout)
     self_output = self_output @ parameters.attention.output.dense.weight
 
-    logger.warning('matmul self_output shape {} = context_layer shape {} @ parameters.attention.output.dense.weight shape {}', self_output.shape, context_layer.shape, parameters.attention.output.dense.weight.shape)
+    logger.debug('matmul self_output shape {} = context_layer shape {} @ parameters.attention.output.dense.weight shape {}', self_output.shape, context_layer.shape, parameters.attention.output.dense.weight.shape)
     # TODO(ttnn/operators): matmul should set output layout; remove explicit assignment.
     _warn_layout_operator_todo_once(
         "vit_attn_output_dense_matmul_layout",
@@ -347,7 +347,7 @@ def vit_intermediate(
     parameters,
 ):
     output = hidden_states @ parameters.dense.weight
-    logger.warning('matmul output shape {} = hidden_states shape {} @ parameters.dense.weight shape {}', output.shape, hidden_states.shape, parameters.dense.weight.shape)
+    logger.debug('matmul output shape {} = hidden_states shape {} @ parameters.dense.weight shape {}', output.shape, hidden_states.shape, parameters.dense.weight.shape)
     # TODO: placeholder for matmul layout
     output.layout = hidden_states.layout
     output = output + parameters.dense.bias
@@ -367,7 +367,7 @@ def vit_output(
     parameters,
 ):
     output = hidden_states @ parameters.dense.weight
-    logger.warning('matmul output shape {} = hidden_states shape {} @ parameters.dense.weight shape {}', output.shape, hidden_states.shape, parameters.dense.weight.shape)
+    logger.debug('matmul output shape {} = hidden_states shape {} @ parameters.dense.weight shape {}', output.shape, hidden_states.shape, parameters.dense.weight.shape)
     output.layout = hidden_states.layout
     output = output + parameters.dense.bias
     output.layout = ttnn.TILE_LAYOUT
@@ -482,7 +482,7 @@ def vit(
     output.layout = ttnn.TILE_LAYOUT
     # Classifier
     classifier_output = output @ parameters.classifier.weight
-    logger.warning('matmul classifier_output shape {} = output shape {} @ parameters.classifier.weight shape {}', classifier_output.shape, output.shape, parameters.classifier.weight.shape)
+    logger.debug('matmul classifier_output shape {} = output shape {} @ parameters.classifier.weight shape {}', classifier_output.shape, output.shape, parameters.classifier.weight.shape)
     # TODO: placeholder for matmul layout
     classifier_output.layout = output.layout
     classifier_output = classifier_output + parameters.classifier.bias
