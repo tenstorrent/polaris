@@ -13,6 +13,7 @@ Edge cases: positive, negative, zeros, mixed, small, large, minimum_input
 
 import pytest
 import numpy as np
+from loguru import logger
 from ttsim.ops.tensor import SimTensor
 import ttsim.front.functional.sim_nn as SimNN
 from tests.test_ops.utils import generate_test_data
@@ -71,9 +72,9 @@ def test_linear(data_type):
         num_ok = None
 
     if shape_ok and num_ok:
-        print(f"Linear/{data_type}: PASS")
+        logger.info(f"Linear/{data_type}: PASS")
     else:
-        print(f"Linear/{data_type}: shape_ok={shape_ok}, num_ok={num_ok}")
+        logger.debug(f"Linear/{data_type}: shape_ok={shape_ok}, num_ok={num_ok}")
 
     assert shape_ok, f"Linear/{data_type} shape mismatch"
     if num_ok is not None:

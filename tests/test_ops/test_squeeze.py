@@ -7,6 +7,7 @@ import pytest
 import os
 from pathlib import Path
 import numpy as np
+from loguru import logger
 
 from ttsim.ops.op import SimOp
 from ttsim.ops.tensor import make_tensor
@@ -439,9 +440,9 @@ def test_squeeze_memory_validation(capsys, request):
     if not MEMORY_TEST_AVAILABLE:
         pytest.skip("Device config not available for memory estimation")
 
-    print("\n" + "=" * 60)
-    print("Squeeze Operation Memory Validation")
-    print("=" * 60)
+    logger.info("\n" + "=" * 60)
+    logger.info("Squeeze Operation Memory Validation")
+    logger.info("=" * 60)
 
     # Load device configuration
     config_path = Path(polaris_root) / "config" / "tt_wh.yaml"
@@ -450,14 +451,14 @@ def test_squeeze_memory_validation(capsys, request):
         device_pkg = packages["n150"]
         device = Device(device_pkg)
 
-        print(f"\nDevice: {device.devname} ({device.name})")
-        print(f"Device frequency: {device.freq_MHz} MHz")
-        print(f"Memory frequency: {device.memfreq_MHz} MHz")
-        print(
+        logger.info(f"\nDevice: {device.devname} ({device.name})")
+        logger.info(f"Device frequency: {device.freq_MHz} MHz")
+        logger.info(f"Memory frequency: {device.memfreq_MHz} MHz")
+        logger.info(
             f"Peak bandwidth: {device.simconfig_obj.peak_bandwidth(freq_units='GHz'):.2f} GB/s"
         )
     except Exception as e:
-        print(f"\nWarning: Could not load device config: {e}")
+        logger.info(f"\nWarning: Could not load device config: {e}")
         pytest.skip(f"Could not load device config: {e}")
         return
 
@@ -489,9 +490,9 @@ def test_squeeze_memory_validation(capsys, request):
         },
     ]
 
-    print(f"\n{'='*60}")
-    print("Running Memory Validation Tests")
-    print(f"{'='*60}\n")
+    logger.info(f"\n{'='*60}")
+    logger.info("Running Memory Validation Tests")
+    logger.info(f"{'='*60}\n")
 
     all_results = []
 
@@ -501,9 +502,9 @@ def test_squeeze_memory_validation(capsys, request):
         axes = test_case["axes"]
         description = test_case["description"]
 
-        print(f"\n-- Test: {test_name} --")
-        print(f"Description: {description}")
-        print(f"Input shape: {shape}, Squeeze axes: {axes}")
+        logger.debug(f"\n-- Test: {test_name} --")
+        logger.debug(f"Description: {description}")
+        logger.debug(f"Input shape: {shape}, Squeeze axes: {axes}")
 
         # Generate test data
         np.random.seed(42)
@@ -593,50 +594,58 @@ def test_squeeze_memory_validation(capsys, request):
         bottleneck = "COMPUTE" if compute_cycles >= memory_cycles else "MEMORY"
 
         # Print detailed breakdown
-        print(f"\n  -- Instructions & Operations --")
-        print(f"  Instructions executed: {instructions_executed:,} (mov)")
-        print(f"  Input elements:        {input_elems:,}")
-        print(f"  Output elements:       {output_elems:,}")
-        print(f"  Expected instructions: ~{output_elems:,} (mov for data movement)")
+        logger.debug(f"\n  -- Instructions & Operations --")
+        logger.debug(f"  Instructions executed: {instructions_executed:,} (mov)")
+        logger.debug(f"  Input elements:        {input_elems:,}")
+        logger.debug(f"  Output elements:       {output_elems:,}")
+        logger.debug(
+            f"  Expected instructions: ~{output_elems:,} (mov for data movement)"
+        )
         instruction_ratio = actual_mov / output_elems if output_elems > 0 else 0
-        print(f"  Instruction ratio:     {instruction_ratio:.2f} (✓ mov per output)")
-        print(f"  Dimensions removed:    {dims_removed}")
+        logger.debug(
+            f"  Instruction ratio:     {instruction_ratio:.2f} (✓ mov per output)"
+        )
+        logger.debug(f"  Dimensions removed:    {dims_removed}")
 
-        print(f"\n  -- Data Movement --")
-        print(
+        logger.debug(f"\n  -- Data Movement --")
+        logger.debug(
             f"  Input bytes:      {actual_in_bytes:,} bytes ({actual_in_bytes/1024:.2f} KB)"
         )
-        print(
+        logger.debug(
             f"  Output bytes:     {actual_out_bytes:,} bytes ({actual_out_bytes/1024:.2f} KB)"
         )
-        print(
+        logger.debug(
             f"  Total data moved: {total_data_movement:,} bytes ({total_data_movement/1024:.2f} KB)"
         )
-        print(
+        logger.debug(
             f"  Elements preserved: {input_elems:,} → {output_elems:,} (shape transformation only)"
         )
-        print(f"  Output shape:     {' × '.join(map(str, output_shape))}")
+        logger.debug(f"  Output shape:     {' × '.join(map(str, output_shape))}")
 
-        print(f"\n  -- Memory Metrics --")
-        print(f"  Arithmetic intensity:  {arithmetic_intensity:.4f} ops/byte")
+        logger.debug(f"\n  -- Memory Metrics --")
+        logger.debug(f"  Arithmetic intensity:  {arithmetic_intensity:.4f} ops/byte")
         # For reshape operations, arithmetic intensity should be very low (< 0.5)
         assert (
             arithmetic_intensity < 0.5
         ), f"Arithmetic intensity too high for shape transformation: {arithmetic_intensity}"
-        print(f"  ✓ Low AI expected for shape transformation (no arithmetic)")
+        logger.debug(
+            "  ✓ Low AI expected for shape transformation (no arithmetic)"
+        )
 
-        print(f"\n  -- Execution Cycles --")
-        print(f"  Compute cycles:   {compute_cycles:,}")
-        print(f"  Memory cycles:    {memory_cycles:,}")
-        print(f"    Read cycles:    {mem_rd_cycles:,}")
-        print(f"    Write cycles:   {mem_wr_cycles:,}")
-        print(f"  Ideal cycles:     {total_cycles:,}")
-        print(f"  Bottleneck:       {bottleneck}")
+        logger.debug(f"\n  -- Execution Cycles --")
+        logger.debug(f"  Compute cycles:   {compute_cycles:,}")
+        logger.debug(f"  Memory cycles:    {memory_cycles:,}")
+        logger.debug(f"    Read cycles:    {mem_rd_cycles:,}")
+        logger.debug(f"    Write cycles:   {mem_wr_cycles:,}")
+        logger.debug(f"  Ideal cycles:     {total_cycles:,}")
+        logger.debug(f"  Bottleneck:       {bottleneck}")
         # Validate: squeeze should always be memory-bound (pure data movement)
         assert (
             bottleneck == "MEMORY"
         ), f"Expected MEMORY bottleneck for squeeze operation, got {bottleneck}"
-        print(f"  ✓ Bottleneck analysis: {bottleneck} for shape transformation")
+        logger.debug(
+            f"  ✓ Bottleneck analysis: {bottleneck} for shape transformation"
+        )
 
         # Store results for summary
         all_results.append(
@@ -656,36 +665,38 @@ def test_squeeze_memory_validation(capsys, request):
             }
         )
 
-        print(f"\n  ✓ Test PASSED")
+        logger.debug("\n  ✓ Test PASSED")
 
     # Summary
-    print(f"\n{'='*60}")
-    print("Memory Validation Summary")
-    print(f"{'='*60}\n")
-    print(f"Total tests run: {len(all_results)}")
-    print(f"All tests passed: ✓")
+    logger.info(f"\n{'='*60}")
+    logger.info("Memory Validation Summary")
+    logger.info(f"{'='*60}\n")
+    logger.info(f"Total tests run: {len(all_results)}")
+    logger.info("All tests passed: ✓")
 
-    print(f"\n-- Arithmetic Intensity Comparison --")
+    logger.info("\n-- Arithmetic Intensity Comparison --")
     for result in all_results:
         ai = result["arithmetic_intensity"]
-        print(
+        logger.info(
             f"{result['test_name']:30s}: {ai:.4f} ops/byte (dims removed: {result['dims_removed']})"
         )
 
-    print(f"\n-- Shape Transformation Analysis --")
+    logger.info("\n-- Shape Transformation Analysis --")
     for result in all_results:
         input_shape_str = "×".join(map(str, result["input_shape"]))
         output_shape_str = "×".join(map(str, result["output_shape"]))
-        print(f"{result['test_name']:30s}: {input_shape_str} → {output_shape_str}")
+        logger.info(
+            f"{result['test_name']:30s}: {input_shape_str} → {output_shape_str}"
+        )
 
-    print(f"\n-- Bottleneck Analysis --")
+    logger.info("\n-- Bottleneck Analysis --")
     for result in all_results:
         bottleneck = result["bottleneck"]
-        print(f"{result['test_name']:30s}: {bottleneck}")
+        logger.info(f"{result['test_name']:30s}: {bottleneck}")
 
-    print(f"\n{'='*60}")
-    print("Memory validation complete!")
-    print(f"{'='*60}\n")
+    logger.info(f"\n{'='*60}")
+    logger.info("Memory validation complete!")
+    logger.info(f"{'='*60}\n")
 
     # Summary for pytest output (visible even without -s flag)
     summary_lines = [
@@ -735,12 +746,12 @@ def test_squeeze_memory_validation(capsys, request):
     except Exception:
         # Fallback: disable capture and print directly
         with capsys.disabled():
-            print("\n" + "=" * 70)
-            print("MEMORY VALIDATION RESULTS")
-            print("=" * 70)
+            logger.info("\n" + "=" * 70)
+            logger.info("MEMORY VALIDATION RESULTS")
+            logger.info("=" * 70)
             for line in summary_lines:
-                print(line)
-            print("=" * 70 + "\n")
+                logger.info(line)
+            logger.info("=" * 70 + "\n")
 
     # Final assertion
     assert len(all_results) == len(

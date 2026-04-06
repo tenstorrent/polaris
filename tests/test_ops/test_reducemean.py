@@ -5,6 +5,7 @@ import pytest
 
 import warnings
 import numpy as np
+from loguru import logger
 from ttsim.ops.op import SimOp
 from ttsim.ops.tensor import make_tensor
 import ttsim.front.functional.op as F
@@ -127,7 +128,9 @@ def test_reducemean():
             computed, expected, rtol=1e-5, atol=1e-6
         ), f"[{tno}] {tmsg}: numerical mismatch"
 
-        print(f"TEST[{tno:3d}] {tmsg:{msgw}s} PASS  out_shape={list(expected.shape)}")
+        logger.debug(
+            f"TEST[{tno:3d}] {tmsg:{msgw}s} PASS  out_shape={list(expected.shape)}"
+        )
 
 
 # --------------------------------------------------------------------------
@@ -180,11 +183,13 @@ def test_reducemean_errors():
                 warnings.simplefilter("ignore", RuntimeWarning)
                 op_obj.get_perf_counts(i_tensors, o_tensors)
                 computed = compute_reducemean(i_tensors, op_obj)
-            print(
+            logger.debug(
                 f"EDGE[{tno:2d}] {tmsg:{msgw}s} PASS (output shape: {computed.shape})"
             )
         except (ValueError, AssertionError, IndexError, RuntimeWarning) as e:
-            print(f"EDGE[{tno:2d}] {tmsg:{msgw}s} PASS (raised {type(e).__name__})")
+            logger.debug(
+                f"EDGE[{tno:2d}] {tmsg:{msgw}s} PASS (raised {type(e).__name__})"
+            )
 
 
 # --------------------------------------------------------------------------
@@ -309,7 +314,7 @@ def test_reducemean_precision():
         assert np.allclose(
             computed, expected, rtol=1e-5, atol=1e-6
         ), f"Precision test '{tmsg}': expected {expected}, got {computed}"
-        print(f"PRECISION[{tno:2d}] {tmsg:{msgw}s} PASS")
+        logger.debug(f"PRECISION[{tno:2d}] {tmsg:{msgw}s} PASS")
 
 
 # --------------------------------------------------------------------------
@@ -355,7 +360,7 @@ def test_reducemean_bounds():
         assert np.all(computed >= mins - 1e-6) and np.all(
             computed <= maxs + 1e-6
         ), f"Mean out of [min, max] bounds for shape {shape}, axes {axes}"
-        print(f"BOUNDS TEST[{idx}] shape={shape} axes={axes} PASS")
+        logger.debug(f"BOUNDS TEST[{idx}] shape={shape} axes={axes} PASS")
 
 
 @pytest.mark.unit
@@ -388,7 +393,7 @@ def test_reducemean_constant_input():
         assert np.allclose(
             computed, val, rtol=1e-5
         ), f"Mean of constant {val} tensor should be {val}, got {computed}"
-        print(f"CONSTANT INPUT[{idx}] val={val:.2f} shape={shape} PASS")
+        logger.debug(f"CONSTANT INPUT[{idx}] val={val:.2f} shape={shape} PASS")
 
 
 @pytest.mark.unit
@@ -444,7 +449,7 @@ def test_reducemean_keepdims_shape():
     assert np.allclose(
         c1.squeeze(axis=1), c2, rtol=1e-5
     ), "keepdims=0 and keepdims=1 values should match after squeeze"
-    print("KEEPDIMS SHAPE TEST PASS")
+    logger.debug("KEEPDIMS SHAPE TEST PASS")
 
 
 @pytest.mark.unit
@@ -474,4 +479,4 @@ def test_reducemean_noop():
     assert np.array_equal(
         computed, data
     ), "noop_with_empty_axes=1 should return input unchanged"
-    print("NOOP TEST PASS")
+    logger.debug("NOOP TEST PASS")

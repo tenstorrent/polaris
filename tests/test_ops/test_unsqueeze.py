@@ -7,6 +7,7 @@ import time
 import numpy as np
 import pytest
 from pathlib import Path
+from loguru import logger
 
 from ttsim.ops.op import SimOp
 from ttsim.ops.tensor import make_tensor
@@ -138,7 +139,7 @@ class TestUnsqueezeNumerical:
         np.testing.assert_array_equal(
             out_data, expected, err_msg=f"[{test_id}] data mismatch"
         )
-        print(f"  [{test_id}] shape={out_shape} -- OK")
+        logger.debug(f"  [{test_id}] shape={out_shape} -- OK")
 
 
 # ---------------------------------------------------------------------------
@@ -154,7 +155,7 @@ class TestUnsqueezeEdge:
         out_shape, out_data, expected = _run_unsqueeze(data, axes)
         assert out_shape == [1, 1, 1, 1, 1, 5]
         np.testing.assert_array_equal(out_data, expected)
-        print("  [large_rank] -- OK")
+        logger.debug("  [large_rank] -- OK")
 
     @pytest.mark.unit
     @pytest.mark.opunit
@@ -165,7 +166,7 @@ class TestUnsqueezeEdge:
         out_shape, out_data, expected = _run_unsqueeze(data, [-1])
         assert out_shape == [3, 1]
         np.testing.assert_array_equal(out_data, expected)
-        print("  [negative_axes] -- OK")
+        logger.debug("  [negative_axes] -- OK")
 
     @pytest.mark.unit
     @pytest.mark.opunit
@@ -175,7 +176,7 @@ class TestUnsqueezeEdge:
         out_shape, out_data, expected = _run_unsqueeze(data, [0])
         assert out_shape == [1, 1, 1, 1]
         np.testing.assert_array_equal(out_data, expected)
-        print("  [all_ones_shape] -- OK")
+        logger.debug("  [all_ones_shape] -- OK")
 
 
 # ---------------------------------------------------------------------------
@@ -191,7 +192,7 @@ class TestUnsqueezePrecision:
         assert out_shape == [1, 3]
         expected = np.array([[10.0, 20.0, 30.0]], dtype=np.float32)
         np.testing.assert_array_equal(out_data, expected)
-        print("  [exact_values_1d] -- OK")
+        logger.debug("  [exact_values_1d] -- OK")
 
     @pytest.mark.unit
     @pytest.mark.opunit
@@ -202,7 +203,7 @@ class TestUnsqueezePrecision:
         assert out_shape == [2, 1, 2]
         expected = np.array([[[1, 2]], [[3, 4]]], dtype=np.float32)
         np.testing.assert_array_equal(out_data, expected)
-        print("  [exact_values_2d] -- OK")
+        logger.debug("  [exact_values_2d] -- OK")
 
     @pytest.mark.unit
     @pytest.mark.opunit
@@ -213,7 +214,7 @@ class TestUnsqueezePrecision:
         assert out_shape == [1, 1]
         expected = np.array([[42.0]], dtype=np.float32)
         np.testing.assert_array_equal(out_data, expected)
-        print("  [exact_scalar] -- OK")
+        logger.debug("  [exact_scalar] -- OK")
 
     @pytest.mark.unit
     @pytest.mark.opunit
@@ -223,7 +224,7 @@ class TestUnsqueezePrecision:
         out_shape, out_data, _ = _run_unsqueeze(data, [0])
         assert out_shape == [1, 3]
         np.testing.assert_array_equal(out_data.flatten(), data)
-        print("  [negative_values] -- OK")
+        logger.debug("  [negative_values] -- OK")
 
     @pytest.mark.unit
     @pytest.mark.opunit
@@ -235,7 +236,7 @@ class TestUnsqueezePrecision:
         assert np.isinf(out_data[0, 1]) and out_data[0, 1] < 0
         assert np.isnan(out_data[0, 2])
         assert out_data[0, 3] == 0.0
-        print("  [special_float_values] -- OK")
+        logger.debug("  [special_float_values] -- OK")
 
     @pytest.mark.unit
     @pytest.mark.opunit
@@ -244,7 +245,7 @@ class TestUnsqueezePrecision:
         data = np.array([1, 2, 3], dtype=np.int32)
         _, out_data, _ = _run_unsqueeze(data, [0], dtype=np.int32)
         np.testing.assert_array_equal(out_data, np.array([[1, 2, 3]], dtype=np.int32))
-        print("  [int_dtype_preserved] -- OK")
+        logger.debug("  [int_dtype_preserved] -- OK")
 
 
 # ---------------------------------------------------------------------------
@@ -258,7 +259,7 @@ class TestUnsqueezeProperties:
         data = np.random.rand(3, 4, 5).astype(np.float32)
         _, out_data, _ = _run_unsqueeze(data, [0, 2])
         assert out_data.size == data.size
-        print("  [preserves_total_elements] -- OK")
+        logger.debug("  [preserves_total_elements] -- OK")
 
     @pytest.mark.unit
     @pytest.mark.opunit
@@ -267,7 +268,7 @@ class TestUnsqueezeProperties:
         data = np.random.rand(2, 3).astype(np.float32)
         _, out_data, _ = _run_unsqueeze(data, [1])
         np.testing.assert_array_equal(data.flatten(), out_data.flatten())
-        print("  [preserves_data_content] -- OK")
+        logger.debug("  [preserves_data_content] -- OK")
 
     @pytest.mark.unit
     @pytest.mark.opunit
@@ -277,7 +278,7 @@ class TestUnsqueezeProperties:
         axes = [0, 2, 4]
         out_shape, _, _ = _run_unsqueeze(data, axes)
         assert len(out_shape) == data.ndim + len(axes)
-        print("  [rank_increases_by_num_axes] -- OK")
+        logger.debug("  [rank_increases_by_num_axes] -- OK")
 
     @pytest.mark.unit
     @pytest.mark.opunit
@@ -288,7 +289,7 @@ class TestUnsqueezeProperties:
         # out_data shape: [1, 3, 4, 1]
         recovered = np.squeeze(out_data, axis=(0, 3))
         np.testing.assert_array_equal(recovered, data)
-        print("  [squeeze_inverse] -- OK")
+        logger.debug("  [squeeze_inverse] -- OK")
 
     @pytest.mark.unit
     @pytest.mark.opunit
@@ -302,7 +303,7 @@ class TestUnsqueezeProperties:
             assert (
                 out_shape[ax] == 1
             ), f"Dim at axis {ax} should be 1, got {out_shape[ax]}"
-        print("  [inserted_dims_are_size_one] -- OK")
+        logger.debug("  [inserted_dims_are_size_one] -- OK")
 
     @pytest.mark.unit
     @pytest.mark.opunit
@@ -313,7 +314,7 @@ class TestUnsqueezeProperties:
         np.testing.assert_array_equal(
             out_data, np.full([1, 2, 3], 7.0, dtype=np.float32)
         )
-        print("  [constant_input] -- OK")
+        logger.debug("  [constant_input] -- OK")
 
 
 # ===========================================================================
@@ -536,14 +537,14 @@ class TestUnsqueezeMemory:
             test_data = np.random.randn(64, 128).astype(np.float32)
             test_axes = [0, 3]  # Insert dims at positions 0 and 3
 
-            print(f"\n{'='*70}")
-            print("Unsqueeze Operation Memory Performance")
-            print(f"{'='*70}")
-            print(f"\nDevice: {device.devname} ({device.name})")
-            print(f"Compute frequency: {device.freq_MHz} MHz")
-            print(f"Memory frequency: {device.memfreq_MHz} MHz")
-            print(f"Test data shape: {test_data.shape}")
-            print(f"Axes to unsqueeze: {test_axes}")
+            logger.info(f"\n{'='*70}")
+            logger.info("Unsqueeze Operation Memory Performance")
+            logger.info(f"{'='*70}")
+            logger.info(f"\nDevice: {device.devname} ({device.name})")
+            logger.info(f"Compute frequency: {device.freq_MHz} MHz")
+            logger.info(f"Memory frequency: {device.memfreq_MHz} MHz")
+            logger.info(f"Test data shape: {test_data.shape}")
+            logger.info(f"Axes to unsqueeze: {test_axes}")
 
             # Benchmark NumPy
             numpy_stats = self._calculate_numpy_memory_stats(
@@ -556,57 +557,59 @@ class TestUnsqueezeMemory:
             )
 
             if ttsim_stats is None:
-                print(
+                logger.info(
                     "\nWarning: Could not calculate ttsim memory stats (perf_stats unavailable)"
                 )
                 return
 
             # Display comparison
-            print(f"\n{'='*60}")
-            print("Memory Performance Comparison")
-            print(f"{'='*60}")
+            logger.info(f"\n{'='*60}")
+            logger.info("Memory Performance Comparison")
+            logger.info(f"{'='*60}")
 
-            print(f"\n-- Execution Time --")
-            print(f"NumPy:  {numpy_stats['execution_time_ms']:.6f} ms")
-            print(f"ttsim:  {ttsim_stats['execution_time_ms']:.6f} ms")
+            logger.info("\n-- Execution Time --")
+            logger.info(f"NumPy:  {numpy_stats['execution_time_ms']:.6f} ms")
+            logger.info(f"ttsim:  {ttsim_stats['execution_time_ms']:.6f} ms")
 
-            print(f"\n-- Throughput (Inferences/sec) --")
-            print(f"NumPy:  {numpy_stats['inferences_per_sec']:.2f}")
-            print(f"ttsim:  {ttsim_stats['inferences_per_sec']:.2f}")
+            logger.info("\n-- Throughput (Inferences/sec) --")
+            logger.info(f"NumPy:  {numpy_stats['inferences_per_sec']:.2f}")
+            logger.info(f"ttsim:  {ttsim_stats['inferences_per_sec']:.2f}")
 
-            print(f"\n-- Data Movement --")
-            print(f"NumPy:  {numpy_stats['data_movement_MB']:.3f} MB")
-            print(f"ttsim:  {ttsim_stats['data_movement_MB']:.3f} MB")
+            logger.info("\n-- Data Movement --")
+            logger.info(f"NumPy:  {numpy_stats['data_movement_MB']:.3f} MB")
+            logger.info(f"ttsim:  {ttsim_stats['data_movement_MB']:.3f} MB")
 
-            print(f"\n-- Total Operations --")
-            print(f"NumPy:  {numpy_stats['total_operations']:,}")
-            print(f"ttsim:  {ttsim_stats['total_operations']:,}")
+            logger.info("\n-- Total Operations --")
+            logger.info(f"NumPy:  {numpy_stats['total_operations']:,}")
+            logger.info(f"ttsim:  {ttsim_stats['total_operations']:,}")
 
-            print(f"\n-- Arithmetic Intensity (ops/byte) --")
-            print(f"NumPy:  {numpy_stats['arithmetic_intensity']:.4f}")
-            print(f"ttsim:  {ttsim_stats['arithmetic_intensity']:.4f}")
+            logger.info("\n-- Arithmetic Intensity (ops/byte) --")
+            logger.info(f"NumPy:  {numpy_stats['arithmetic_intensity']:.4f}")
+            logger.info(f"ttsim:  {ttsim_stats['arithmetic_intensity']:.4f}")
 
-            print(f"\n-- ttsim-Only Memory Analysis --")
-            print(
+            logger.info("\n-- ttsim-Only Memory Analysis --")
+            logger.info(
                 f"Memory Efficiency (vs Effective):  {ttsim_stats['memory_efficiency']:.1%}"
             )
-            print(
+            logger.info(
                 f"Memory BW Utilization (vs Peak):   {ttsim_stats['mem_bw_utilization']:.1%}"
             )
-            print(f"Bottleneck:                         {ttsim_stats['bottleneck']}")
-            print(
+            logger.info(
+                f"Bottleneck:                         {ttsim_stats['bottleneck']}"
+            )
+            logger.info(
                 f"Memory Pressure Score:              {ttsim_stats['memory_pressure']:.3f}"
             )
 
-            print(f"\n-- ttsim Memory Cycles Breakdown --")
-            print(f"Compute Cycles:    {ttsim_stats['compute_cycles']}")
-            print(f"Memory Cycles:     {ttsim_stats['memory_cycles']}")
-            print(f"  Read Cycles:     {ttsim_stats['mem_rd_cycles']}")
-            print(f"  Write Cycles:    {ttsim_stats['mem_wr_cycles']}")
-            print(f"Memory Read Util:  {ttsim_stats['mem_rd_util']:.1%}")
-            print(f"Memory Write Util: {ttsim_stats['mem_wr_util']:.1%}")
+            logger.info("\n-- ttsim Memory Cycles Breakdown --")
+            logger.info(f"Compute Cycles:    {ttsim_stats['compute_cycles']}")
+            logger.info(f"Memory Cycles:     {ttsim_stats['memory_cycles']}")
+            logger.info(f"  Read Cycles:     {ttsim_stats['mem_rd_cycles']}")
+            logger.info(f"  Write Cycles:    {ttsim_stats['mem_wr_cycles']}")
+            logger.info(f"Memory Read Util:  {ttsim_stats['mem_rd_util']:.1%}")
+            logger.info(f"Memory Write Util: {ttsim_stats['mem_wr_util']:.1%}")
 
-            print(f"\n{'='*60}\n")
+            logger.info(f"\n{'='*60}\n")
 
             # Assert basic sanity checks
             assert (
@@ -624,7 +627,9 @@ class TestUnsqueezeMemory:
             ), "ttsim operations should be non-negative"
 
         except Exception as e:
-            print(f"\nWarning: Could not complete memory performance test: {e}")
+            logger.info(
+                f"\nWarning: Could not complete memory performance test: {e}"
+            )
             import traceback
 
             traceback.print_exc()
@@ -655,9 +660,9 @@ def test_unsqueeze_memory_validation(capsys, request):
     if not MEMORY_TEST_AVAILABLE:
         pytest.skip("Device config not available for memory estimation")
 
-    print("\n" + "=" * 80)
-    print("Unsqueeze Operation Memory Validation")
-    print("=" * 80)
+    logger.info("\n" + "=" * 80)
+    logger.info("Unsqueeze Operation Memory Validation")
+    logger.info("=" * 80)
 
     # Load device configuration once
     polaris_root = Path(__file__).parent.parent.parent
@@ -667,9 +672,9 @@ def test_unsqueeze_memory_validation(capsys, request):
         device_pkg = packages["n150"]
         device = Device(device_pkg)
 
-        print(f"\nDevice: {device.devname} ({device.name})")
-        print(f"Frequency: {device.freq_MHz} MHz")
-        print(
+        logger.info(f"\nDevice: {device.devname} ({device.name})")
+        logger.info(f"Frequency: {device.freq_MHz} MHz")
+        logger.info(
             f"Peak Bandwidth: {device.simconfig_obj.peak_bandwidth(freq_units='GHz'):.2f} GB/s"
         )
     except Exception as e:
@@ -709,9 +714,9 @@ def test_unsqueeze_memory_validation(capsys, request):
         },
     ]
 
-    print(f"\n{'='*80}")
-    print("Running Memory Validation Tests")
-    print(f"{'='*80}\n")
+    logger.info(f"\n{'='*80}")
+    logger.info("Running Memory Validation Tests")
+    logger.info(f"{'='*80}\n")
 
     all_results = []
 
@@ -720,9 +725,9 @@ def test_unsqueeze_memory_validation(capsys, request):
         shape = test_case["shape"]
         axes = test_case["axes"]
 
-        print(f"\n-- Test: {test_name} --")
-        print(f"Description: {test_case['description']}")
-        print(f"Input shape: {shape}, Axes to unsqueeze: {axes}")
+        logger.debug(f"\n-- Test: {test_name} --")
+        logger.debug(f"Description: {test_case['description']}")
+        logger.debug(f"Input shape: {shape}, Axes to unsqueeze: {axes}")
 
         # Generate test data
         np.random.seed(42)
@@ -778,7 +783,7 @@ def test_unsqueeze_memory_validation(capsys, request):
         assert (
             output_shape == expected_shape
         ), f"Output shape {output_shape} != expected {expected_shape}"
-        print(f"Output shape: {output_shape}")
+        logger.debug(f"Output shape: {output_shape}")
 
         # Extract instruction counts
         total_instructions = sum(perf_stats.get("instrs", {}).values())
@@ -809,60 +814,64 @@ def test_unsqueeze_memory_validation(capsys, request):
         # Bottleneck
         bottleneck = "COMPUTE" if compute_cycles >= memory_cycles else "MEMORY"
 
-        print(f"\n  -- Instructions & Operations --")
-        print(f"  Instructions executed: {total_instructions:,}")
-        print(f"  Instruction types:     {dict(actual_instrs)}")
-        print(f"  Input elements:        {input_elems:,}")
-        print(f"  Output elements:       {output_elems:,}")
+        logger.debug(f"\n  -- Instructions & Operations --")
+        logger.debug(f"  Instructions executed: {total_instructions:,}")
+        logger.debug(f"  Instruction types:     {dict(actual_instrs)}")
+        logger.debug(f"  Input elements:        {input_elems:,}")
+        logger.debug(f"  Output elements:       {output_elems:,}")
 
         # Validate: unsqueeze preserves total elements (just reshapes)
         assert (
             output_elems == input_elems
         ), f"Element mismatch: {output_elems} != {input_elems}"
-        print(f"  ✓ Element count preserved (shape manipulation only)")
+        logger.debug("  ✓ Element count preserved (shape manipulation only)")
 
         # Validate: 'mov' instructions should match output elements (1 per element)
         assert (
             abs(total_instructions - output_elems) <= output_elems * 0.1
         ), f"Instruction mismatch: {total_instructions} vs expected ~{output_elems}"
-        print(f"  ✓ Instruction count validates (1 'mov' per output element)")
+        logger.debug("  ✓ Instruction count validates (1 'mov' per output element)")
 
-        print(f"\n  -- Data Movement --")
-        print(f"  Input bytes:      {input_bytes:,} ({input_bytes/1024:.2f} KB)")
-        print(f"  Output bytes:     {output_bytes:,} ({output_bytes/1024:.2f} KB)")
-        print(
+        logger.debug(f"\n  -- Data Movement --")
+        logger.debug(
+            f"  Input bytes:      {input_bytes:,} ({input_bytes/1024:.2f} KB)"
+        )
+        logger.debug(
+            f"  Output bytes:     {output_bytes:,} ({output_bytes/1024:.2f} KB)"
+        )
+        logger.debug(
             f"  Total data moved: {total_data_moved:,} ({total_data_moved/1024:.2f} KB)"
         )
 
         # For unsqueeze, input data bytes and output bytes should be equal (same data, different shape)
         # Note: input_bytes includes axes tensor, so compare data portion
         assert output_bytes > 0, "Output bytes should be positive"
-        print(f"  ✓ Shape manipulation without data duplication")
+        logger.debug("  ✓ Shape manipulation without data duplication")
 
-        print(f"\n  -- Memory Metrics --")
-        print(f"  Arithmetic intensity:  {arithmetic_intensity:.4f} ops/byte")
-        print(
+        logger.debug(f"\n  -- Memory Metrics --")
+        logger.debug(f"  Arithmetic intensity:  {arithmetic_intensity:.4f} ops/byte")
+        logger.debug(
             f"  Bytes per element:     {output_bytes/output_elems if output_elems > 0 else 0:.1f}"
         )
         assert (
             arithmetic_intensity < 1.0
         ), f"Arithmetic intensity too high for memory-bound op: {arithmetic_intensity}"
-        print(f"  ✓ Low arithmetic intensity (memory-bound operation)")
+        logger.debug("  ✓ Low arithmetic intensity (memory-bound operation)")
 
-        print(f"\n  -- Execution Cycles --")
-        print(f"  Compute cycles:   {compute_cycles:,}")
-        print(f"  Memory cycles:    {memory_cycles:,}")
-        print(f"    Read cycles:    {mem_rd_cycles:,}")
-        print(f"    Write cycles:   {mem_wr_cycles:,}")
-        print(f"  Ideal cycles:     {ideal_cycles:,}")
-        print(f"  Bottleneck:       {bottleneck}")
+        logger.debug(f"\n  -- Execution Cycles --")
+        logger.debug(f"  Compute cycles:   {compute_cycles:,}")
+        logger.debug(f"  Memory cycles:    {memory_cycles:,}")
+        logger.debug(f"    Read cycles:    {mem_rd_cycles:,}")
+        logger.debug(f"    Write cycles:   {mem_wr_cycles:,}")
+        logger.debug(f"  Ideal cycles:     {ideal_cycles:,}")
+        logger.debug(f"  Bottleneck:       {bottleneck}")
 
         # Validate: unsqueeze should be memory-bound for large tensors
         if output_elems > 1000:
             assert (
                 bottleneck == "MEMORY"
             ), f"Expected MEMORY bottleneck, got {bottleneck}"
-            print(f"  ✓ Memory-bound as expected")
+            logger.debug("  ✓ Memory-bound as expected")
 
         # Store results
         all_results.append(
@@ -882,51 +891,51 @@ def test_unsqueeze_memory_validation(capsys, request):
             }
         )
 
-        print(f"\n  ✓ Test PASSED")
+        logger.debug("\n  ✓ Test PASSED")
 
     # Summary
-    print(f"\n{'='*80}")
-    print("Memory Validation Summary")
-    print(f"{'='*80}\n")
-    print(f"Total tests: {len(all_results)}/{len(test_cases)} PASSED ✓")
+    logger.info(f"\n{'='*80}")
+    logger.info("Memory Validation Summary")
+    logger.info(f"{'='*80}\n")
+    logger.info(f"Total tests: {len(all_results)}/{len(test_cases)} PASSED ✓")
 
     # Arithmetic Intensity Comparison
-    print(f"\n-- Arithmetic Intensity Comparison --")
-    print(f"{'Test Name':<30s} {'Ops/Byte':<12s} {'Data Moved':<15s}")
-    print("-" * 60)
+    logger.info("\n-- Arithmetic Intensity Comparison --")
+    logger.info(f"{'Test Name':<30s} {'Ops/Byte':<12s} {'Data Moved':<15s}")
+    logger.info("-" * 60)
     for result in all_results:
-        print(
+        logger.info(
             f"{result['test_name']:<30s} {result['arithmetic_intensity']:<12.4f} {result['total_data_moved']/1024:>10.1f} KB"
         )
 
     # Dimension Expansion Analysis
-    print(f"\n-- Dimension Expansion Analysis --")
-    print(
+    logger.info("\n-- Dimension Expansion Analysis --")
+    logger.info(
         f"{'Test Name':<30s} {'Input Shape':<20s} {'Output Shape':<20s} {'Axes':<10s}"
     )
-    print("-" * 85)
+    logger.info("-" * 85)
     for result in all_results:
         in_shape = str(result["input_shape"])
         out_shape = str(result["output_shape"])
         axes_str = str(result["axes"])
-        print(
+        logger.info(
             f"{result['test_name']:<30s} {in_shape:<20s} {out_shape:<20s} {axes_str:<10s}"
         )
 
     # Bottleneck Analysis
-    print(f"\n-- Bottleneck Analysis --")
-    print(
+    logger.info("\n-- Bottleneck Analysis --")
+    logger.info(
         f"{'Test Name':<30s} {'Bottleneck':<15s} {'Compute Cycles':<18s} {'Memory Cycles':<15s}"
     )
-    print("-" * 80)
+    logger.info("-" * 80)
     for result in all_results:
-        print(
+        logger.info(
             f"{result['test_name']:<30s} {result['bottleneck']:<15s} {result['compute_cycles']:>15,} {result['memory_cycles']:>15,}"
         )
 
-    print(f"\n{'='*80}")
-    print("Memory validation complete!")
-    print(f"{'='*80}\n")
+    logger.info(f"\n{'='*80}")
+    logger.info("Memory validation complete!")
+    logger.info(f"{'='*80}\n")
 
     # Create pytest summary
     summary_lines = [
@@ -967,12 +976,12 @@ def test_unsqueeze_memory_validation(capsys, request):
     except Exception:
         # Fallback: disable capture and print directly
         with capsys.disabled():
-            print("\n" + "=" * 70)
-            print("UNSQUEEZE MEMORY VALIDATION RESULTS")
-            print("=" * 70)
+            logger.info("\n" + "=" * 70)
+            logger.info("UNSQUEEZE MEMORY VALIDATION RESULTS")
+            logger.info("=" * 70)
             for line in summary_lines:
-                print(line)
-            print("=" * 70 + "\n")
+                logger.info(line)
+            logger.info("=" * 70 + "\n")
 
     # Final assertion
     assert len(all_results) == len(

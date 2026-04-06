@@ -14,6 +14,7 @@ Edge cases: positive, negative, zeros, mixed, small, large, minimum_input
 
 import pytest
 import numpy as np
+from loguru import logger
 from ttsim.ops.tensor import SimTensor
 from ttsim.ops.desc.data_compute import compute_glu
 from tests.test_ops.utils import generate_test_data
@@ -73,10 +74,10 @@ def test_glu(data_type):
     num_ok = bool(np.allclose(tt_out, ref_out, rtol=RTOL, atol=ATOL))
 
     if shape_ok and num_ok:
-        print(f"Glu/{data_type}: PASS")
+        logger.debug(f"Glu/{data_type}: PASS")
     else:
         max_diff = float(np.abs(tt_out - ref_out).max())
-        print(f"Glu/{data_type}: FAIL (max_diff={max_diff:.2e})")
+        logger.debug(f"Glu/{data_type}: FAIL (max_diff={max_diff:.2e})")
 
     assert shape_ok, f"Glu/{data_type} shape mismatch"
     assert num_ok, f"Glu/{data_type} numerical mismatch"

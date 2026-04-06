@@ -6,6 +6,7 @@
 import numpy as np
 import pytest
 from pathlib import Path
+from loguru import logger
 
 from ttsim.ops.op import SimOp
 from ttsim.ops.tensor import make_tensor
@@ -314,9 +315,9 @@ def test_abs_memory_validation(capsys, request):
     if not MEMORY_TEST_AVAILABLE:
         pytest.skip("Device config not available for memory estimation")
 
-    print("\n" + "=" * 80)
-    print("Abs Operation Memory Validation")
-    print("=" * 80)
+    logger.info("\n" + "=" * 80)
+    logger.info("Abs Operation Memory Validation")
+    logger.info("=" * 80)
 
     # Load device configuration once
     polaris_root = Path(__file__).parent.parent.parent
@@ -326,9 +327,9 @@ def test_abs_memory_validation(capsys, request):
         device_pkg = packages["n150"]
         device = Device(device_pkg)
 
-        print(f"\nDevice: {device.devname} ({device.name})")
-        print(f"Frequency: {device.freq_MHz} MHz")
-        print(
+        logger.info(f"\nDevice: {device.devname} ({device.name})")
+        logger.info(f"Frequency: {device.freq_MHz} MHz")
+        logger.info(
             f"Peak Bandwidth: {device.simconfig_obj.peak_bandwidth(freq_units='GHz'):.2f} GB/s"
         )
     except Exception as e:
@@ -359,9 +360,9 @@ def test_abs_memory_validation(capsys, request):
         {"name": "Large 2D", "shape": (128, 256), "description": "Large 2D matrix"},
     ]
 
-    print(f"\n{'='*80}")
-    print("Running Memory Validation Tests")
-    print(f"{'='*80}\n")
+    logger.info(f"\n{'='*80}")
+    logger.info("Running Memory Validation Tests")
+    logger.info(f"{'='*80}\n")
 
     all_results = []
 
@@ -369,9 +370,9 @@ def test_abs_memory_validation(capsys, request):
         test_name = test_case["name"]
         shape = test_case["shape"]
 
-        print(f"\n-- Test: {test_name} --")
-        print(f"Description: {test_case['description']}")
-        print(f"Shape: {shape}")
+        logger.info(f"\n-- Test: {test_name} --")
+        logger.debug(f"Description: {test_case['description']}")
+        logger.debug(f"Shape: {shape}")
 
         # Generate test data with mixed positive/negative values
         np.random.seed(42)
@@ -417,7 +418,7 @@ def test_abs_memory_validation(capsys, request):
         assert out_t.shape == list(
             shape
         ), f"Output shape {out_t.shape} != expected {list(shape)}"
-        print(f"Output shape: {out_t.shape}")
+        logger.debug(f"Output shape: {out_t.shape}")
 
         # Extract instruction counts
         total_instructions = sum(perf_stats.get("instrs", {}).values())
@@ -462,22 +463,26 @@ def test_abs_memory_validation(capsys, request):
         # Bottleneck
         bottleneck = "COMPUTE" if compute_cycles >= memory_cycles else "MEMORY"
 
-        print(f"\n  -- Instructions & Operations --")
-        print(f"  Instructions executed: {total_instructions:,}")
-        print(f"  Instruction types:     {dict(actual_instrs)}")
-        print(f"  Input elements:        {num_elements:,}")
-        print(f"  Output elements:       {num_elements:,}")
+        logger.debug("\n  -- Instructions & Operations --")
+        logger.debug(f"  Instructions executed: {total_instructions:,}")
+        logger.debug(f"  Instruction types:     {dict(actual_instrs)}")
+        logger.debug(f"  Input elements:        {num_elements:,}")
+        logger.debug(f"  Output elements:       {num_elements:,}")
 
         # Validate: 'abs' instructions should match output elements (1 per element)
         assert (
             abs(total_instructions - num_elements) <= num_elements * 0.1
         ), f"Instruction mismatch: {total_instructions} vs expected ~{num_elements}"
-        print(f"  ✓ Instruction count validates (1 'abs' per element)")
+        logger.debug("  ✓ Instruction count validates (1 'abs' per element)")
 
-        print(f"\n  -- Data Movement --")
-        print(f"  Input bytes:      {input_bytes:,} ({input_bytes/1024:.2f} KB)")
-        print(f"  Output bytes:     {output_bytes:,} ({output_bytes/1024:.2f} KB)")
-        print(
+        logger.debug("\n  -- Data Movement --")
+        logger.debug(
+            f"  Input bytes:      {input_bytes:,} ({input_bytes/1024:.2f} KB)"
+        )
+        logger.debug(
+            f"  Output bytes:     {output_bytes:,} ({output_bytes/1024:.2f} KB)"
+        )
+        logger.debug(
             f"  Total data moved: {total_data_moved:,} ({total_data_moved/1024:.2f} KB)"
         )
 
@@ -485,11 +490,13 @@ def test_abs_memory_validation(capsys, request):
         assert (
             abs(output_bytes - input_bytes) <= 1
         ), f"Input/Output bytes should be equal for Abs"
-        print(f"  ✓ Input/Output bytes equal (element-wise operation)")
+        logger.debug("  ✓ Input/Output bytes equal (element-wise operation)")
 
-        print(f"\n  -- Memory Metrics --")
-        print(f"  Arithmetic intensity:  {arithmetic_intensity:.4f} ops/byte")
-        print(
+        logger.debug("\n  -- Memory Metrics --")
+        logger.debug(
+            f"  Arithmetic intensity:  {arithmetic_intensity:.4f} ops/byte"
+        )
+        logger.debug(
             f"  Bytes per element:     {output_bytes/num_elements if num_elements > 0 else 0:.1f}"
         )
 
@@ -497,20 +504,20 @@ def test_abs_memory_validation(capsys, request):
         assert (
             arithmetic_intensity < 1.0
         ), f"Arithmetic intensity too high for memory-bound Abs: {arithmetic_intensity}"
-        print(f"  ✓ Low arithmetic intensity (memory-bound operation)")
+        logger.debug("  ✓ Low arithmetic intensity (memory-bound operation)")
 
-        print(f"\n  -- Execution Cycles (Estimated) --")
-        print(f"  Compute cycles:   {compute_cycles:,.0f}")
-        print(f"  Memory cycles:    {memory_cycles:,.0f}")
-        print(f"  Ideal cycles:     {ideal_cycles:,.0f}")
-        print(f"  Bottleneck:       {bottleneck}")
+        logger.debug("\n  -- Execution Cycles (Estimated) --")
+        logger.debug(f"  Compute cycles:   {compute_cycles:,.0f}")
+        logger.debug(f"  Memory cycles:    {memory_cycles:,.0f}")
+        logger.debug(f"  Ideal cycles:     {ideal_cycles:,.0f}")
+        logger.debug(f"  Bottleneck:       {bottleneck}")
 
         # Validate: Abs should be memory-bound for typical cases
         if num_elements > 1000:
             assert (
                 bottleneck == "MEMORY"
             ), f"Expected MEMORY bottleneck, got {bottleneck}"
-            print(f"  ✓ Memory-bound as expected")
+            logger.debug("  ✓ Memory-bound as expected")
 
         # Store results
         all_results.append(
@@ -529,47 +536,47 @@ def test_abs_memory_validation(capsys, request):
             }
         )
 
-        print(f"\n  ✓ Test PASSED")
+        logger.debug("\n  ✓ Test PASSED")
 
     # Summary
-    print(f"\n{'='*80}")
-    print("Memory Validation Summary")
-    print(f"{'='*80}\n")
-    print(f"Total tests: {len(all_results)}/{len(test_cases)} PASSED ✓")
+    logger.info(f"\n{'='*80}")
+    logger.info("Memory Validation Summary")
+    logger.info(f"{'='*80}\n")
+    logger.info(f"Total tests: {len(all_results)}/{len(test_cases)} PASSED ✓")
 
     # Arithmetic Intensity Comparison
-    print(f"\n-- Arithmetic Intensity Comparison --")
-    print(f"{'Test Name':<30s} {'Ops/Byte':<12s} {'Data Moved':<15s}")
-    print("-" * 60)
+    logger.info(f"\n-- Arithmetic Intensity Comparison --")
+    logger.info(f"{'Test Name':<30s} {'Ops/Byte':<12s} {'Data Moved':<15s}")
+    logger.info("-" * 60)
     for result in all_results:
-        print(
+        logger.debug(
             f"{result['test_name']:<30s} {result['arithmetic_intensity']:<12.4f} {result['total_data_moved']/1024:>10.1f} KB"
         )
 
     # Shape Analysis
-    print(f"\n-- Shape & Element Count --")
-    print(f"{'Test Name':<30s} {'Shape':<20s} {'Elements':<15s}")
-    print("-" * 70)
+    logger.info(f"\n-- Shape & Element Count --")
+    logger.info(f"{'Test Name':<30s} {'Shape':<20s} {'Elements':<15s}")
+    logger.info("-" * 70)
     for result in all_results:
         shape_str = "x".join(map(str, result["shape"]))
-        print(
+        logger.debug(
             f"{result['test_name']:<30s} {shape_str:<20s} {result['num_elements']:>12,}"
         )
 
     # Bottleneck Analysis
-    print(f"\n-- Bottleneck Analysis --")
-    print(
+    logger.info(f"\n-- Bottleneck Analysis --")
+    logger.info(
         f"{'Test Name':<30s} {'Bottleneck':<15s} {'Compute Cycles':<18s} {'Memory Cycles':<15s}"
     )
-    print("-" * 80)
+    logger.info("-" * 80)
     for result in all_results:
-        print(
+        logger.debug(
             f"{result['test_name']:<30s} {result['bottleneck']:<15s} {result['compute_cycles']:>15,} {result['memory_cycles']:>15,}"
         )
 
-    print(f"\n{'='*80}")
-    print("Memory validation complete!")
-    print(f"{'='*80}\n")
+    logger.info(f"\n{'='*80}")
+    logger.info("Memory validation complete!")
+    logger.info(f"{'='*80}\n")
 
     # Create pytest summary
     summary_lines = [
@@ -610,12 +617,12 @@ def test_abs_memory_validation(capsys, request):
     except Exception:
         # Fallback: disable capture and print directly
         with capsys.disabled():
-            print("\n" + "=" * 70)
-            print("ABS MEMORY VALIDATION RESULTS")
-            print("=" * 70)
+            logger.info("\n" + "=" * 70)
+            logger.info("ABS MEMORY VALIDATION RESULTS")
+            logger.info("=" * 70)
             for line in summary_lines:
-                print(line)
-            print("=" * 70 + "\n")
+                logger.info(line)
+            logger.info("=" * 70 + "\n")
 
     # Final assertion
     assert len(all_results) == len(

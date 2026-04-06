@@ -15,6 +15,7 @@ from ttsim.ops.tensor import make_tensor
 import ttsim.front.functional.op as F
 from ttsim.config import get_arspec_from_yaml
 from ttsim.back.device import Device
+from loguru import logger
 
 # Add polaris root to path for config access
 polaris_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
@@ -416,30 +417,33 @@ class TestLessMemoryValidation:
             device_pkg = packages["n150"]  # Use Wormhole n150 device
             device = Device(device_pkg)
 
-            print(f"\n{'='*60}")
-            print("Less Operation Memory Validation")
-            print(f"{'='*60}\n")
-            print(f"Device: Wormhole (n150)")
-            print(f"Device frequency: {device.freq_MHz} MHz")
-            print(f"Memory frequency: {device.memfreq_MHz} MHz")
-            print(
-                f"Peak bandwidth: {device.simconfig_obj.peak_bandwidth(freq_units='GHz'):.2f} GB/s"
+            logger.info(f"\n{'='*60}")
+            logger.info("Less Operation Memory Validation")
+            logger.info(f"{'='*60}\n")
+            logger.info("Device: Wormhole (n150)")
+            logger.info(f"Device frequency: {device.freq_MHz} MHz")
+            logger.info(f"Memory frequency: {device.memfreq_MHz} MHz")
+            logger.info(
+                "Peak bandwidth: "
+                f"{device.simconfig_obj.peak_bandwidth(freq_units='GHz'):.2f} GB/s"
             )
         except Exception as e:
-            print(f"\nWarning: Could not load device config: {e}")
-            print("Skipping memory validation test")
+            logger.info(f"\nWarning: Could not load device config: {e}")
+            logger.info("Skipping memory validation test")
             pytest.skip(f"Could not load device config: {e}")
             return
 
-        print(f"\n{'='*60}")
-        print("Running Memory Validation Tests")
-        print(f"{'='*60}\n")
+        logger.info(f"\n{'='*60}")
+        logger.info("Running Memory Validation Tests")
+        logger.info(f"{'='*60}\n")
 
         all_results = []
 
         for input_shape_a, input_shape_b, description in memory_validation_cases:
-            print(f"\n-- Test: {description} --")
-            print(f"Input shape A: {input_shape_a}, Input shape B: {input_shape_b}")
+            logger.info(f"\n-- Test: {description} --")
+            logger.info(
+                f"Input shape A: {input_shape_a}, Input shape B: {input_shape_b}"
+            )
 
             # Generate random inputs
             input_data_a = np.random.randn(*input_shape_a).astype(np.float32)
@@ -546,35 +550,50 @@ class TestLessMemoryValidation:
             bottleneck = "COMPUTE" if compute_cycles >= memory_cycles else "MEMORY"
 
             # Print detailed breakdown
-            print(f"\n  -- Instructions & Operations --")
-            print(f"  Instructions executed: {instructions_executed:,} (cmp)")
-            print(f"  Input A elements:      {expected_stats['input_elements_a']:,}")
-            print(f"  Input B elements:      {expected_stats['input_elements_b']:,}")
-            print(f"  Output elements:       {expected_stats['output_elements']:,}")
-            print(
-                f"  Expected instructions: ~{expected_stats['expected_cmp_instrs']:,} (1 cmp per output element)"
+            logger.debug("\n  -- Instructions & Operations --")
+            logger.debug(
+                f"  Instructions executed: {instructions_executed:,} (cmp)"
+            )
+            logger.debug(
+                f"  Input A elements:      {expected_stats['input_elements_a']:,}"
+            )
+            logger.debug(
+                f"  Input B elements:      {expected_stats['input_elements_b']:,}"
+            )
+            logger.debug(
+                f"  Output elements:       {expected_stats['output_elements']:,}"
+            )
+            logger.debug(
+                "  Expected instructions: "
+                f"~{expected_stats['expected_cmp_instrs']:,} (1 cmp per output element)"
             )
             instruction_ratio = (
                 actual_cmp / expected_stats["output_elements"]
                 if expected_stats["output_elements"] > 0
                 else 0
             )
-            print(
+            logger.debug(
                 f"  Instruction ratio:     {instruction_ratio:.2f} (✓ 1 cmp per output)"
             )
 
-            print(f"\n  -- Data Movement --")
-            print(
-                f"  Input A bytes:    {expected_stats['input_bytes_a']:,} bytes ({expected_stats['input_bytes_a']/1024:.2f} KB)"
+            logger.debug("\n  -- Data Movement --")
+            logger.debug(
+                "  Input A bytes:    "
+                f"{expected_stats['input_bytes_a']:,} bytes "
+                f"({expected_stats['input_bytes_a']/1024:.2f} KB)"
             )
-            print(
-                f"  Input B bytes:    {expected_stats['input_bytes_b']:,} bytes ({expected_stats['input_bytes_b']/1024:.2f} KB)"
+            logger.debug(
+                "  Input B bytes:    "
+                f"{expected_stats['input_bytes_b']:,} bytes "
+                f"({expected_stats['input_bytes_b']/1024:.2f} KB)"
             )
-            print(
-                f"  Output bytes:     {actual_out_bytes:,} bytes ({actual_out_bytes/1024:.2f} KB)"
+            logger.debug(
+                "  Output bytes:     "
+                f"{actual_out_bytes:,} bytes ({actual_out_bytes/1024:.2f} KB)"
             )
-            print(
-                f"  Total data moved: {total_data_movement:,} bytes ({total_data_movement/1024:.2f} KB)"
+            logger.debug(
+                "  Total data moved: "
+                f"{total_data_movement:,} bytes ({total_data_movement/1024:.2f} KB)"
             )
 
             # Calculate broadcast ratio
@@ -589,12 +608,15 @@ class TestLessMemoryValidation:
                 broadcast_type = f"broadcast {expected_stats['input_elements_b']}→{expected_stats['output_elements']}"
             else:
                 broadcast_type = "no broadcast"
-            print(f"  Broadcast:        {broadcast_type}")
+            logger.debug(f"  Broadcast:        {broadcast_type}")
 
-            print(f"\n  -- Memory Metrics --")
-            print(f"  Arithmetic intensity:  {arithmetic_intensity:.4f} ops/byte")
-            print(
-                f"  Expected intensity:    {expected_stats['arithmetic_intensity']:.4f} ops/byte"
+            logger.debug("\n  -- Memory Metrics --")
+            logger.debug(
+                f"  Arithmetic intensity:  {arithmetic_intensity:.4f} ops/byte"
+            )
+            logger.debug(
+                "  Expected intensity:    "
+                f"{expected_stats['arithmetic_intensity']:.4f} ops/byte"
             )
             np.testing.assert_allclose(
                 arithmetic_intensity,
@@ -603,16 +625,18 @@ class TestLessMemoryValidation:
                 atol=1e-6,
                 err_msg=f"Arithmetic intensity mismatch",
             )
-            print(f"  ✓ Arithmetic intensity within expected range")
+            logger.debug("  ✓ Arithmetic intensity within expected range")
 
-            print(f"\n  -- Execution Cycles --")
-            print(f"  Compute cycles:   {compute_cycles:,}")
-            print(f"  Memory cycles:    {memory_cycles:,}")
-            print(f"    Read cycles:    {mem_rd_cycles:,}")
-            print(f"    Write cycles:   {mem_wr_cycles:,}")
-            print(f"  Ideal cycles:     {total_cycles:,}")
-            print(f"  Bottleneck:       {bottleneck}")
-            print(f"  ✓ Bottleneck analysis: {bottleneck} for comparison operation")
+            logger.debug("\n  -- Execution Cycles --")
+            logger.debug(f"  Compute cycles:   {compute_cycles:,}")
+            logger.debug(f"  Memory cycles:    {memory_cycles:,}")
+            logger.debug(f"    Read cycles:    {mem_rd_cycles:,}")
+            logger.debug(f"    Write cycles:   {mem_wr_cycles:,}")
+            logger.debug(f"  Ideal cycles:     {total_cycles:,}")
+            logger.debug(f"  Bottleneck:       {bottleneck}")
+            logger.debug(
+                f"  ✓ Bottleneck analysis: {bottleneck} for comparison operation"
+            )
 
             # Validate arithmetic intensity matches expected
             np.testing.assert_allclose(
@@ -641,35 +665,35 @@ class TestLessMemoryValidation:
                 }
             )
 
-            print(f"\n  ✓ Test PASSED")
+            logger.info("\n  ✓ Test PASSED")
 
         # Summary
-        print(f"\n{'='*60}")
-        print("Memory Validation Summary")
-        print(f"{'='*60}\n")
-        print(f"Total tests run: {len(all_results)}")
-        print(f"All tests passed: ✓")
+        logger.info(f"\n{'='*60}")
+        logger.info("Memory Validation Summary")
+        logger.info(f"{'='*60}\n")
+        logger.info(f"Total tests run: {len(all_results)}")
+        logger.info("All tests passed: ✓")
 
         # Compare arithmetic intensity across tests
-        print(f"\n-- Arithmetic Intensity Comparison --")
+        logger.info("\n-- Arithmetic Intensity Comparison --")
         for result in all_results:
             ai = result["arithmetic_intensity"]
-            print(f"{result['test_name']:30s}: {ai:.4f} ops/byte")
+            logger.info(f"{result['test_name']:30s}: {ai:.4f} ops/byte")
 
         # Compare broadcast types
-        print(f"\n-- Broadcast Analysis --")
+        logger.info("\n-- Broadcast Analysis --")
         for result in all_results:
             broadcast = result["broadcast_type"]
-            print(f"{result['test_name']:30s}: {broadcast}")
+            logger.info(f"{result['test_name']:30s}: {broadcast}")
 
-        print(f"\n-- Bottleneck Analysis --")
+        logger.info("\n-- Bottleneck Analysis --")
         for result in all_results:
             bottleneck = result["bottleneck"]
-            print(f"{result['test_name']:30s}: {bottleneck}")
+            logger.info(f"{result['test_name']:30s}: {bottleneck}")
 
-        print(f"\n{'='*60}")
-        print("Memory validation complete!")
-        print(f"{'='*60}\n")
+        logger.info(f"\n{'='*60}")
+        logger.info("Memory validation complete!")
+        logger.info(f"{'='*60}\n")
 
         # Create a summary that will be displayed in pytest output (even without -s flag)
         summary_lines = [
@@ -720,12 +744,12 @@ class TestLessMemoryValidation:
         except Exception:
             # Fallback: disable capture and print directly
             with capsys.disabled():
-                print("\n" + "=" * 70)
-                print("MEMORY VALIDATION RESULTS")
-                print("=" * 70)
+                logger.info("\n" + "=" * 70)
+                logger.info("MEMORY VALIDATION RESULTS")
+                logger.info("=" * 70)
                 for line in summary_lines:
-                    print(line)
-                print("=" * 70 + "\n")
+                    logger.info(line)
+                logger.info("=" * 70 + "\n")
 
         # Final assertion
         assert len(all_results) == len(

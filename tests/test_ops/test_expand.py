@@ -4,6 +4,7 @@
 import pytest
 
 import numpy as np
+from loguru import logger
 from ttsim.ops.op import SimOp
 from ttsim.ops.tensor import make_tensor
 import ttsim.front.functional.op as F
@@ -55,14 +56,14 @@ def test_expand():
         inf_shape = o_tensors[0].shape
 
         if inf_shape == expected_shape:
-            print(f"TEST[{tno:3d}] {tmsg:{msgw}s} PASS")
+            logger.debug(f"TEST[{tno:3d}] {tmsg:{msgw}s} PASS")
         else:
-            print("INPUTS:")
+            logger.debug("INPUTS:")
             for x in i_tensors:
-                print("\t", x)
-            print("OUTPUTS:")
+                logger.debug("\t%s", x)
+            logger.debug("OUTPUTS:")
             for x in o_tensors:
-                print("\t", x)
+                logger.debug("\t%s", x)
             assert (
                 False
             ), f"TEST[{tno:3d}] {tmsg:{msgw}s} FAIL {inf_shape} != {expected_shape}"
@@ -105,4 +106,6 @@ def test_expand_errors():
         # These should raise exceptions during shape inference
         with pytest.raises((ValueError, AssertionError)):
             op_obj.get_perf_counts(i_tensors, o_tensors)
-            print(f"TEST[{tno:3d}] {tmsg:{msgw}s} PASS (raised exception as expected)")
+            logger.debug(
+                f"TEST[{tno:3d}] {tmsg:{msgw}s} PASS (raised exception as expected)"
+            )

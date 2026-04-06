@@ -4,6 +4,7 @@
 import pytest
 
 import numpy as np
+from loguru import logger
 from ttsim.ops.op import SimOp
 from ttsim.ops.tensor import make_tensor
 import ttsim.front.functional.op as F
@@ -149,4 +150,4 @@ def test_dropout():
             assert (
                 False
             ), f"Dropout cannot outputs should be 1 or 2; instead it is {num_outputs}"
-        print(f"TEST[{tno:3d}] {trec['name']:{msgw}s} PASS")  # type: ignore
+        logger.debug(f"TEST[{tno:3d}] {trec['name']:{msgw}s} PASS")  # type: ignore

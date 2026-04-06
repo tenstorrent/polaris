@@ -3,7 +3,8 @@
 # SPDX-License-Identifier: Apache-2.0
 import numpy as np
 from functools import lru_cache, partial
-from typing import Union, Iterator
+from itertools import count as _count
+from typing import Union, Iterator, Any
 
 from loguru import logger
 from ttsim.graph import WorkloadGraph
@@ -560,9 +561,11 @@ def Conv2d(name, in_channels, out_channels, kernel_size, **kwargs):
     padding = common.make_tuple(eff_args["padding"], 2 * 2)
     dilation = common.make_tuple(eff_args["dilation"], 2)
     param_dims = [out_channels, in_channels // eff_args["groups"], *kernel_dims]
+
+    # Create parameter tensors with correct shapes/dtypes only; we don't need
+    # random weight initialization in the TTSIM front-end.
     conv_param = _from_shape(name + ".param", param_dims, is_param=True)
 
-    # Create bias tensor if enabled
     params_list = [(1, conv_param)]
     if eff_args["bias"]:
         bias_param = _from_shape(name + ".bias", [out_channels], is_param=True)
@@ -872,6 +875,28 @@ def ReduceMax(name: str, axes=None, **kwargs):
         op_hndl = SimOpHandle(name, 'ReduceMax', params=[], ipos=[0], **kwargs)
     return op_hndl
 
+def ReduceMin(name: str, axes=None, **kwargs):
+    """
+    ReduceMin operator
+    Args:
+        name: Operation name
+        axes: Axis or axes to reduce (int, list of ints, or None for all axes)
+        **kwargs: Additional kwargs (e.g., keepdims)
+    """
+    # Convert to list if single int
+    if axes is not None:
+        axes_list = [axes] if isinstance(axes, int) else axes
+        axesT = _from_data(name + '.axes', np.array(axes_list, dtype=np.int64), is_param=False, is_const=True)
+        op_hndl = SimOpHandle(name, 'ReduceMin', params=[(1, axesT)], ipos=[0], **kwargs)
+        op_hndl.implicit_inputs.append(axesT)
+    else:
+        # For axes=None, don't pass axes tensor - reduce over all dimensions
+        # Set noop_with_empty_axes=0 to ensure reduction happens
+        if 'noop_with_empty_axes' not in kwargs:
+            kwargs['noop_with_empty_axes'] = 0
+        op_hndl = SimOpHandle(name, 'ReduceMin', params=[], ipos=[0], **kwargs)
+    return op_hndl
+
 
 def ArgMax(name: str, axis=-1, **kwargs):
     """
@@ -947,6 +972,9 @@ Mean = partial(UnaryOperator, optype="Mean")
 Reciprocal = partial(UnaryOperator, optype="Reciprocal")
 Hardswish = partial(UnaryOperator, optype="HardSwish")
 Atan = partial(UnaryOperator, optype='Atan')
+Sign = partial(UnaryOperator, optype="Sign")
+NonZero = partial(UnaryOperator, optype="NonZero")
+Floor = partial(UnaryOperator, optype="Floor")
 
 # Binary Operators
 BinaryOperator = partial(UniversalOperator, params=[], ipos=[0, 1])
@@ -958,10 +986,16 @@ Gather = partial(BinaryOperator, optype="Gather")
 MatMul = partial(BinaryOperator, optype="MatMul")
 Reshape = partial(BinaryOperator, optype="Reshape")
 Pow = partial(BinaryOperator, optype="Pow")
+Atan2 = partial(BinaryOperator, optype="Atan2")
 Unsqueeze = partial(BinaryOperator, optype="Unsqueeze")
 Squeeze = partial(BinaryOperator, optype="Squeeze")
 Tile = partial(BinaryOperator, optype="Tile")
 Equal = partial(BinaryOperator, optype="Equal")
+GreaterOrEqual = partial(BinaryOperator, optype="GreaterEqual")
+LessOrEqual = partial(BinaryOperator, optype="LessEqual")
+And = partial(BinaryOperator, optype="LogicalAnd")
+Or = partial(BinaryOperator, optype="LogicalOr")
+Mod = partial(BinaryOperator, optype="Remainder")
 Assign = partial(BinaryOperator, optype="Assign")
 Pad = partial(BinaryOperator, optype="Pad")
 L1Loss = partial(BinaryOperator, optype="L1Loss")  # legacy; prefer SimNN.L1Loss
@@ -1074,8 +1108,56 @@ VoxelPooling = partial(FourAryOperator, optype="VoxelPooling")
 # class VariadicInputOpHandle:
 #    def __init__(self, name, optype, input_range, /, **kwargs):
 ConcatX = partial(VariadicInputOpHandle, optype="Concat", input_range=(2, float("inf")))
+Concat = ConcatX  # alias for ConcatX
 TriluX = partial(VariadicInputOpHandle, optype="Trilu", input_range=(1, 2))
 SliceF = partial(VariadicInputOpHandle, optype="Slice", input_range=(3, 6))
+
+
+def Slice(name: str, /, starts, ends, axes=None, steps=None, **kwargs):
+    """Slice operation with starts/ends/axes/steps specified as lists."""
+    starts_t = _from_data(
+        name + ".starts", np.array(starts, dtype=np.int64), is_const=True
+    )
+    ends_t = _from_data(
+        name + ".ends", np.array(ends, dtype=np.int64), is_const=True
+    )
+    params: list = [(1, starts_t), (2, ends_t)]
+    implicit_inputs = [starts_t, ends_t]
+
+    if axes is not None:
+        axes_t = _from_data(
+            name + ".axes", np.array(axes, dtype=np.int64), is_const=True
+        )
+        params.append((3, axes_t))
+        implicit_inputs.append(axes_t)
+
+    if steps is not None:
+        steps_t = _from_data(
+            name + ".steps", np.array(steps, dtype=np.int64), is_const=True
+        )
+        params.append((4, steps_t))
+        implicit_inputs.append(steps_t)
+
+    return SimOpHandle(
+        name,
+        "Slice",
+        params=params,
+        ipos=[0],
+        implicit_inputs=implicit_inputs,
+        **kwargs,
+    )
+
+_stack_counter = _count(start=1, step=1)
+
+
+def Stack(inputs, /, axis=0, name=None, **kwargs):
+    """Stack a list of tensors along a new dimension. Functional form: Stack(list, axis=N)."""
+    n = name or f"_stack_{next(_stack_counter)}"
+    h = VariadicInputOpHandle(
+        n, optype="Stack", input_range=(1, float("inf")), axis=axis, **kwargs
+    )
+    return h(*inputs)
+
 
 #Generator Operators (zero inputs)
 def Constant(name_or_value, value=None, shape=None, dtype=None, **kwargs):

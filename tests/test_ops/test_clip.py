@@ -4,6 +4,7 @@
 import pytest
 
 import numpy as np
+from loguru import logger
 from ttsim.ops.op import SimOp
 from ttsim.ops.tensor import make_tensor
 import ttsim.front.functional.op as F
@@ -128,34 +129,34 @@ def test_clip():
             )
             if not numerical_match:
                 max_diff = np.max(np.abs(computed_output - ref_output))
-                print(f"\n  Max difference: {max_diff}")
+                logger.debug(f"\n  Max difference: {max_diff}")
         except Exception as e:
             numerical_match = f"Error: {e}"
-            print(f"\n  Numerical validation error: {e}")
+            logger.debug(f"\n  Numerical validation error: {e}")
 
         # Report results
         if shape_match and numerical_match == True:
-            print(f"TEST[{tno:3d}] {tmsg:{msgw}s} PASS [Shape ✓, Numerical ✓]")
+            logger.debug(f"TEST[{tno:3d}] {tmsg:{msgw}s} PASS [Shape ✓, Numerical ✓]")
         elif shape_match:
-            print(
+            logger.debug(
                 f"TEST[{tno:3d}] {tmsg:{msgw}s} PARTIAL [Shape ✓, Numerical: {numerical_match}]"
             )
         else:
-            print(f"\nTEST[{tno:3d}] {tmsg:{msgw}s} FAIL")
-            print(
+            logger.debug(f"\nTEST[{tno:3d}] {tmsg:{msgw}s} FAIL")
+            logger.debug(
                 f"  Shape match: {shape_match} (got {inf_shape}, expected {ref_shape})"
             )
-            print(f"  Numerical match: {numerical_match}")
-            print("INPUTS:")
+            logger.debug(f"  Numerical match: {numerical_match}")
+            logger.debug("INPUTS:")
             for x in i_tensors:
-                print(f"\t{x.name}: shape={x.shape}, dtype={x.dtype}")
-            print("OUTPUTS:")
+                logger.debug(f"\t{x.name}: shape={x.shape}, dtype={x.dtype}")
+            logger.debug("OUTPUTS:")
             for x in o_tensors:
-                print(f"\t{x.name}: shape={x.shape}, dtype={x.dtype}")
+                logger.debug(f"\t{x.name}: shape={x.shape}, dtype={x.dtype}")
             try:
                 computed_output = compute_clip(i_tensors, op_obj)
-                print(f"  Computed sample: {computed_output.flat[:5]}")
-                print(f"  Expected sample: {ref_output.flat[:5]}")
+                logger.debug(f"  Computed sample: {computed_output.flat[:5]}")
+                logger.debug(f"  Expected sample: {ref_output.flat[:5]}")
             except:
                 pass
 
@@ -219,21 +220,21 @@ def test_clip_errors():
                 if np.any(np.isnan(computed_output)) or np.any(
                     np.isinf(computed_output)
                 ):
-                    print(
+                    logger.debug(
                         f"TEST[{tno:3d}] {tmsg:{msgw}s} PASS (invalid output detected: NaN or Inf)"
                     )
                 else:
                     # Some edge cases may produce valid output - that's OK
                     # For example, min > max might just swap them
-                    print(
+                    logger.debug(
                         f"TEST[{tno:3d}] {tmsg:{msgw}s} PASS (edge case handled, output shape: {computed_output.shape})"
                     )
             except (ValueError, RuntimeError) as e:
-                print(
+                logger.debug(
                     f"TEST[{tno:3d}] {tmsg:{msgw}s} PASS (raised {type(e).__name__} during compute)"
                 )
         except (ValueError, AssertionError, RuntimeError) as e:
-            print(
+            logger.debug(
                 f"TEST[{tno:3d}] {tmsg:{msgw}s} PASS (raised {type(e).__name__} during shape inference)"
             )
 
@@ -324,13 +325,15 @@ def test_clip_precision():
 
             match = np.allclose(computed_output, expected_output, rtol=1e-5, atol=1e-7)
             if match:
-                print(f"PRECISION TEST[{tno}] {tmsg:{msgw}s} PASS")
+                logger.debug(f"PRECISION TEST[{tno}] {tmsg:{msgw}s} PASS")
             else:
-                print(f"\nPRECISION TEST[{tno}] {tmsg:{msgw}s} FAIL")
-                print(f"  Expected: {expected_output.flatten()}")
-                print(f"  Got:      {computed_output.flatten()}")
-                print(f"  Diff:     {(computed_output - expected_output).flatten()}")
+                logger.debug(f"\nPRECISION TEST[{tno}] {tmsg:{msgw}s} FAIL")
+                logger.debug(f"  Expected: {expected_output.flatten()}")
+                logger.debug(f"  Got:      {computed_output.flatten()}")
+                logger.debug(
+                    f"  Diff:     {(computed_output - expected_output).flatten()}"
+                )
                 assert False, f"Precision test failed for {tmsg}"
         except Exception as e:
-            print(f"PRECISION TEST[{tno}] {tmsg:{msgw}s} ERROR: {e}")
+            logger.debug(f"PRECISION TEST[{tno}] {tmsg:{msgw}s} ERROR: {e}")
             assert False, f"Precision test error: {e}"

@@ -4,6 +4,7 @@
 import pytest
 
 import numpy as np
+from loguru import logger
 from ttsim.ops.op import SimOp
 from ttsim.ops.tensor import make_tensor
 import ttsim.front.functional.op as F
@@ -130,25 +131,28 @@ def test_meshgrid():
             )
             if not numerical_match:
                 max_diff = np.max(np.abs(computed_output - ref_output))
-                print(f"\n  Max difference: {max_diff}")
+                logger.debug(f"\n  Max difference: {max_diff}")
         except Exception as e:
             numerical_match = f"Error: {e}"
             shape_match = False
-            print(f"\n  Validation error: {e}")
+            logger.debug(f"\n  Validation error: {e}")
 
         # Report results
         if shape_match and numerical_match == True:
-            print(f"TEST[{tno:3d}] {tmsg:{msgw}s} PASS [Shape ✓, Numerical ✓]")
+            logger.debug(
+                f"TEST[{tno:3d}] {tmsg:{msgw}s} PASS [Shape ✓, Numerical ✓]"
+            )
         elif shape_match:
-            print(
+            logger.debug(
                 f"TEST[{tno:3d}] {tmsg:{msgw}s} PARTIAL [Shape ✓, Numerical: {numerical_match}]"
             )
         else:
-            print(f"\nTEST[{tno:3d}] {tmsg:{msgw}s} FAIL")
-            print(
-                f"  Shape match: {shape_match} (got {computed_shape if 'computed_shape' in locals() else 'N/A'}, expected {expected_shape})"
+            logger.debug(f"\nTEST[{tno:3d}] {tmsg:{msgw}s} FAIL")
+            logger.debug(
+                "  Shape match: "
+                f"{shape_match} (got {computed_shape if 'computed_shape' in locals() else 'N/A'}, expected {expected_shape})"
             )
-            print(f"  Numerical match: {numerical_match}")
+            logger.debug(f"  Numerical match: {numerical_match}")
 
 
 # Error test cases - testing edge cases that could break the model
@@ -198,17 +202,21 @@ def test_meshgrid_errors():
 
             # Check if output is valid
             if computed_output.size == 0:
-                print(
+                logger.debug(
                     f"TEST[{tno:3d}] {tmsg:{msgw}s} PASS (empty output for invalid input)"
                 )
             elif np.any(np.isnan(computed_output)) or np.any(np.isinf(computed_output)):
-                print(f"TEST[{tno:3d}] {tmsg:{msgw}s} PASS (invalid values detected)")
+                logger.debug(
+                    f"TEST[{tno:3d}] {tmsg:{msgw}s} PASS (invalid values detected)"
+                )
             else:
-                print(
+                logger.debug(
                     f"TEST[{tno:3d}] {tmsg:{msgw}s} PASS (edge case handled, shape: {computed_output.shape})"
                 )
         except (ValueError, IndexError, TypeError, RuntimeError) as e:
-            print(f"TEST[{tno:3d}] {tmsg:{msgw}s} PASS (raised {type(e).__name__})")
+            logger.debug(
+                f"TEST[{tno:3d}] {tmsg:{msgw}s} PASS (raised {type(e).__name__})"
+            )
 
 
 # Precision test cases with known outputs
@@ -292,26 +300,30 @@ def test_meshgrid_precision():
             match = np.allclose(computed_output, expected_output, rtol=1e-5, atol=1e-7)
 
             if match:
-                print(f"PRECISION TEST[{tno}] {tmsg:{msgw}s} PASS")
+                logger.debug(f"PRECISION TEST[{tno}] {tmsg:{msgw}s} PASS")
             else:
-                print(f"\nPRECISION TEST[{tno}] {tmsg:{msgw}s} FAIL")
-                print(f"  Expected shape: {expected_output.shape}")
-                print(f"  Got shape:      {computed_output.shape}")
+                logger.debug(f"\nPRECISION TEST[{tno}] {tmsg:{msgw}s} FAIL")
+                logger.debug(f"  Expected shape: {expected_output.shape}")
+                logger.debug(f"  Got shape:      {computed_output.shape}")
 
                 # Show a sample of values for debugging
                 if computed_output.shape == expected_output.shape:
-                    print(f"  Expected sample (first few coordinates):")
+                    logger.debug("  Expected sample (first few coordinates):")
                     for y in range(min(2, ny)):
                         for x in range(min(2, nx)):
-                            print(f"    [{y},{x}]: {expected_output[0,0,y,x]}")
-                    print(f"  Got sample (first few coordinates):")
+                            logger.debug(
+                                f"    [{y},{x}]: {expected_output[0,0,y,x]}"
+                            )
+                    logger.debug("  Got sample (first few coordinates):")
                     for y in range(min(2, ny)):
                         for x in range(min(2, nx)):
-                            print(f"    [{y},{x}]: {computed_output[0,0,y,x]}")
+                            logger.debug(
+                                f"    [{y},{x}]: {computed_output[0,0,y,x]}"
+                            )
 
                 assert False, f"Precision test failed for {tmsg}"
         except Exception as e:
-            print(f"PRECISION TEST[{tno}] {tmsg:{msgw}s} ERROR: {e}")
+            logger.debug(f"PRECISION TEST[{tno}] {tmsg:{msgw}s} ERROR: {e}")
             assert False, f"Precision test error: {e}"
 
 
@@ -387,17 +399,17 @@ def test_meshgrid_properties():
             )
 
             if all_props_pass:
-                print(
+                logger.debug(
                     f"PROPERTY TEST[{tno}] {tmsg:{msgw}s} PASS [X↑ ✓, Y↑ ✓, X-range ✓, Y-range ✓]"
                 )
             else:
-                print(f"\nPROPERTY TEST[{tno}] {tmsg:{msgw}s} FAIL")
-                print(f"  X increases along width: {x_increases}")
-                print(f"  Y increases along height: {y_increases}")
-                print(f"  X range [0, {nx-1}]: {x_range_correct}")
-                print(f"  Y range [0, {ny-1}]: {y_range_correct}")
+                logger.debug(f"\nPROPERTY TEST[{tno}] {tmsg:{msgw}s} FAIL")
+                logger.debug(f"  X increases along width: {x_increases}")
+                logger.debug(f"  Y increases along height: {y_increases}")
+                logger.debug(f"  X range [0, {nx-1}]: {x_range_correct}")
+                logger.debug(f"  Y range [0, {ny-1}]: {y_range_correct}")
                 assert False, f"Property test failed for {tmsg}"
 
         except Exception as e:
-            print(f"PROPERTY TEST[{tno}] {tmsg:{msgw}s} ERROR: {e}")
+            logger.debug(f"PROPERTY TEST[{tno}] {tmsg:{msgw}s} ERROR: {e}")
             assert False, f"Property test error: {e}"

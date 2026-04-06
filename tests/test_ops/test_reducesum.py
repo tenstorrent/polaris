@@ -9,6 +9,7 @@ import numpy as np
 import os
 import sys
 from pathlib import Path
+from loguru import logger
 
 from ttsim.ops.desc.data_compute import compute_reducesum
 from ttsim.ops import SimOp
@@ -531,9 +532,9 @@ class TestReduceSumMemoryValidation:
         Run with: pytest tests/test_ops/test_reducesum.py::TestReduceSumMemoryValidation -v
         For detailed output: add -s flag
         """
-        print("\n" + "=" * 60)
-        print("ReduceSum Operation Memory Validation")
-        print("=" * 60)
+        logger.info("\n" + "=" * 60)
+        logger.info("ReduceSum Operation Memory Validation")
+        logger.info("=" * 60)
 
         # Load device configuration
         config_path = Path(polaris_root) / "config" / "tt_wh.yaml"
@@ -542,28 +543,29 @@ class TestReduceSumMemoryValidation:
             device_pkg = packages["n150"]  # Use Wormhole n150 device
             device = Device(device_pkg)
 
-            print(f"\nDevice: {device.devname} ({device.name})")
-            print(f"Device frequency: {device.freq_MHz} MHz")
-            print(f"Memory frequency: {device.memfreq_MHz} MHz")
-            print(
-                f"Peak bandwidth: {device.simconfig_obj.peak_bandwidth(freq_units='GHz'):.2f} GB/s"
+            logger.info(f"\nDevice: {device.devname} ({device.name})")
+            logger.info(f"Device frequency: {device.freq_MHz} MHz")
+            logger.info(f"Memory frequency: {device.memfreq_MHz} MHz")
+            logger.info(
+                "Peak bandwidth: "
+                f"{device.simconfig_obj.peak_bandwidth(freq_units='GHz'):.2f} GB/s"
             )
         except Exception as e:
-            print(f"\nWarning: Could not load device config: {e}")
-            print("Skipping memory validation test")
+            logger.info(f"\nWarning: Could not load device config: {e}")
+            logger.info("Skipping memory validation test")
             pytest.skip(f"Could not load device config: {e}")
             return
 
-        print(f"\n{'='*60}")
-        print("Running Memory Validation Tests")
-        print(f"{'='*60}\n")
+        logger.info(f"\n{'='*60}")
+        logger.info("Running Memory Validation Tests")
+        logger.info(f"{'='*60}\n")
 
         all_results = []
 
         for input_shape, axes, keepdims, description in memory_validation_cases:
-            print(f"\n-- Test: {description} --")
-            print(f"Input shape: {input_shape}")
-            print(f"Axes: {axes}, KeepDims: {keepdims}")
+            logger.info(f"\n-- Test: {description} --")
+            logger.info(f"Input shape: {input_shape}")
+            logger.info(f"Axes: {axes}, KeepDims: {keepdims}")
 
             # Generate random input
             input_data = np.random.randn(*input_shape).astype(np.float32)
@@ -687,56 +689,77 @@ class TestReduceSumMemoryValidation:
             bottleneck = "COMPUTE" if compute_cycles >= memory_cycles else "MEMORY"
 
             # Print detailed breakdown
-            print(f"\n  -- Instructions & Operations --")
-            print(f"  Instructions executed: {instructions_executed:,} (add)")
-            print(f"  Input elements:        {expected_stats['input_elements']:,}")
-            print(f"  Output elements:       {expected_stats['output_elements']:,}")
-            print(
-                f"  Expected instructions: ~{expected_stats['expected_add_instrs']:,} (1 add per input element)"
+            logger.debug("\n  -- Instructions & Operations --")
+            logger.debug(
+                f"  Instructions executed: {instructions_executed:,} (add)"
+            )
+            logger.debug(
+                f"  Input elements:        {expected_stats['input_elements']:,}"
+            )
+            logger.debug(
+                f"  Output elements:       {expected_stats['output_elements']:,}"
+            )
+            logger.debug(
+                "  Expected instructions: "
+                f"~{expected_stats['expected_add_instrs']:,} (1 add per input element)"
             )
             instruction_ratio = (
                 actual_add / expected_stats["input_elements"]
                 if expected_stats["input_elements"] > 0
                 else 0
             )
-            print(
+            logger.debug(
                 f"  Instruction ratio:     {instruction_ratio:.2f} (✓ 1 add per input)"
             )
 
-            print(f"\n  -- Data Movement --")
-            print(
-                f"  Input bytes:      {actual_in_bytes:,} bytes ({actual_in_bytes/1024:.2f} KB)"
+            logger.debug("\n  -- Data Movement --")
+            logger.debug(
+                "  Input bytes:      "
+                f"{actual_in_bytes:,} bytes ({actual_in_bytes/1024:.2f} KB)"
             )
-            print(
-                f"  Output bytes:     {actual_out_bytes:,} bytes ({actual_out_bytes/1024:.2f} KB)"
+            logger.debug(
+                "  Output bytes:     "
+                f"{actual_out_bytes:,} bytes ({actual_out_bytes/1024:.2f} KB)"
             )
-            print(
-                f"  Total data moved: {total_data_movement:,} bytes ({total_data_movement/1024:.2f} KB)"
+            logger.debug(
+                "  Total data moved: "
+                f"{total_data_movement:,} bytes "
+                f"({total_data_movement/1024:.2f} KB)"
             )
-            print(
-                f"  Reduction ratio:  {expected_stats['reduction_ratio']:.1f}x ({expected_stats['input_elements']:,} → {expected_stats['output_elements']:,})"
+            logger.debug(
+                "  Reduction ratio:  "
+                f"{expected_stats['reduction_ratio']:.1f}x "
+                f"({expected_stats['input_elements']:,} → {expected_stats['output_elements']:,})"
             )
-            print(
-                f"  Expected input:   {expected_in_bytes:,} bytes (✓ matches fp32 + axes)"
+            logger.debug(
+                "  Expected input:   "
+                f"{expected_in_bytes:,} bytes (✓ matches fp32 + axes)"
             )
-            print(
-                f"  Expected output:  {expected_stats['output_bytes']:,} bytes (✓ matches fp32)"
+            logger.debug(
+                "  Expected output:  "
+                f"{expected_stats['output_bytes']:,} bytes (✓ matches fp32)"
             )
 
-            print(f"\n  -- Memory Metrics --")
-            print(f"  Arithmetic intensity:  {arithmetic_intensity:.4f} ops/byte")
-            print(f"  ✓ Arithmetic intensity within expected range for reduction")
+            logger.debug("\n  -- Memory Metrics --")
+            logger.debug(
+                f"  Arithmetic intensity:  {arithmetic_intensity:.4f} ops/byte"
+            )
+            logger.debug(
+                "  ✓ Arithmetic intensity within expected range for reduction"
+            )
 
-            print(f"\n  -- Execution Cycles --")
-            print(f"  Compute cycles:   {compute_cycles:,}")
-            print(f"  Memory cycles:    {memory_cycles:,}")
-            print(f"    Read cycles:    {mem_rd_cycles:,}")
-            print(f"    Write cycles:   {mem_wr_cycles:,}")
-            print(f"  Ideal cycles:     {total_cycles:,}")
-            print(f"  Bottleneck:       {bottleneck}")
+            logger.debug("\n  -- Execution Cycles --")
+            logger.debug(f"  Compute cycles:   {compute_cycles:,}")
+            logger.debug(f"  Memory cycles:    {memory_cycles:,}")
+            logger.debug(f"    Read cycles:    {mem_rd_cycles:,}")
+            logger.debug(f"    Write cycles:   {mem_wr_cycles:,}")
+            logger.debug(f"  Ideal cycles:     {total_cycles:,}")
+            logger.debug(f"  Bottleneck:       {bottleneck}")
 
             if expected_stats["input_elements"] > 100:
-                print(f"  ✓ Bottleneck analysis: {bottleneck} for reduction operation")
+                logger.debug(
+                    f"  ✓ Bottleneck analysis: {bottleneck} for reduction operation"
+                )
 
             # Validate arithmetic intensity matches expected
             np.testing.assert_allclose(
@@ -766,35 +789,35 @@ class TestReduceSumMemoryValidation:
                 }
             )
 
-            print(f"\n  ✓ Test PASSED")
+            logger.info("\n  ✓ Test PASSED")
 
         # Summary
-        print(f"\n{'='*60}")
-        print("Memory Validation Summary")
-        print(f"{'='*60}\n")
-        print(f"Total tests run: {len(all_results)}")
-        print(f"All tests passed: ✓")
+        logger.info(f"\n{'='*60}")
+        logger.info("Memory Validation Summary")
+        logger.info(f"{'='*60}\n")
+        logger.info(f"Total tests run: {len(all_results)}")
+        logger.info("All tests passed: ✓")
 
         # Compare arithmetic intensity across tests
-        print(f"\n-- Arithmetic Intensity Comparison --")
+        logger.info("\n-- Arithmetic Intensity Comparison --")
         for result in all_results:
             ai = result["arithmetic_intensity"]
-            print(f"{result['test_name']:30s}: {ai:.4f} ops/byte")
+            logger.info(f"{result['test_name']:30s}: {ai:.4f} ops/byte")
 
         # Compare reduction ratios
-        print(f"\n-- Reduction Ratio Comparison --")
+        logger.info("\n-- Reduction Ratio Comparison --")
         for result in all_results:
             ratio = result["reduction_ratio"]
-            print(f"{result['test_name']:30s}: {ratio:.1f}x")
+            logger.info(f"{result['test_name']:30s}: {ratio:.1f}x")
 
-        print(f"\n-- Bottleneck Analysis --")
+        logger.info("\n-- Bottleneck Analysis --")
         for result in all_results:
             bottleneck = result["bottleneck"]
-            print(f"{result['test_name']:30s}: {bottleneck}")
+            logger.info(f"{result['test_name']:30s}: {bottleneck}")
 
-        print(f"\n{'='*60}")
-        print("Memory validation complete!")
-        print(f"{'='*60}\n")
+        logger.info(f"\n{'='*60}")
+        logger.info("Memory validation complete!")
+        logger.info(f"{'='*60}\n")
 
         # Create a summary that will be displayed in pytest output (even without -s flag)
         summary_lines = [
@@ -845,12 +868,12 @@ class TestReduceSumMemoryValidation:
         except Exception:
             # Fallback: disable capture and print directly
             with capsys.disabled():
-                print("\n" + "=" * 70)
-                print("MEMORY VALIDATION RESULTS")
-                print("=" * 70)
+                logger.info("\n" + "=" * 70)
+                logger.info("MEMORY VALIDATION RESULTS")
+                logger.info("=" * 70)
                 for line in summary_lines:
-                    print(line)
-                print("=" * 70 + "\n")
+                    logger.info(line)
+                logger.info("=" * 70 + "\n")
 
         # Final assertion
         assert len(all_results) == len(

@@ -4,6 +4,7 @@
 import pytest
 
 import numpy as np
+from loguru import logger
 from ttsim.ops.op import SimOp
 from ttsim.ops.tensor import make_tensor
 import ttsim.front.functional.op as F
@@ -66,14 +67,14 @@ def test_concat():
         ref_shape = ref_impl(input_shapes, axis)
 
         if inf_shape == ref_shape and inf_shape == expected_shape:
-            print(f"TEST[{tno:3d}] {tmsg:{msgw}s} PASS")
+            logger.debug(f"TEST[{tno:3d}] {tmsg:{msgw}s} PASS")
         else:
-            print("INPUTS:")
+            logger.debug("INPUTS:")
             for x in i_tensors:
-                print("\t", x)
-            print("OUTPUTS:")
+                logger.debug("\t%s", x)
+            logger.debug("OUTPUTS:")
             for x in o_tensors:
-                print("\t", x)
+                logger.debug("\t%s", x)
             assert (
                 False
             ), f"TEST[{tno:3d}] {tmsg:{msgw}s} FAIL {inf_shape} != {ref_shape} (expected {expected_shape})"
@@ -117,7 +118,9 @@ def test_concat_errors():
         # These should raise exceptions during shape inference
         with pytest.raises((ValueError, AssertionError)):
             op_obj.get_perf_counts(i_tensors, o_tensors)
-        print(f"TEST[{tno:3d}] {tmsg:{msgw}s} PASS (raised exception as expected)")
+        logger.debug(
+            f"TEST[{tno:3d}] {tmsg:{msgw}s} PASS (raised exception as expected)"
+        )
 
 
 # ============================================================================
@@ -145,7 +148,7 @@ def test_concat_numerical():
         def __init__(self, axis):
             self.attrs = {"axis": axis}
 
-    print("\nTesting Concat Numerical Validation:")
+    logger.info("\nTesting Concat Numerical Validation:")
 
     test_cases_numerical = [
         (
@@ -254,10 +257,10 @@ def test_concat_numerical():
             err_msg=f"{name}: Numerical mismatch",
         )
 
-        print(f"  {name}: PASS [Shape ✓, Numerical ✓]")
+        logger.debug(f"  {name}: PASS [Shape ✓, Numerical ✓]")
         passed += 1
 
-    print(f"\nConcat Numerical Tests: {passed}/{total} passed")
+    logger.info(f"\nConcat Numerical Tests: {passed}/{total} passed")
     assert passed == total, f"Only {passed}/{total} tests passed"
 
 
@@ -274,10 +277,10 @@ def test_concat_precision():
         def __init__(self, axis):
             self.attrs = {"axis": axis}
 
-    print("\nTesting Concat Precision (Known Outputs):")
+    logger.info("\nTesting Concat Precision (Known Outputs):")
 
     # Test 1: Simple 2D concatenation along axis 0
-    print("  Test 1: [[1, 2], [3, 4]] + [[5, 6]] along axis 0")
+    logger.debug("  Test 1: [[1, 2], [3, 4]] + [[5, 6]] along axis 0")
     A1 = np.array([[1, 2], [3, 4]], dtype=np.float32)
     B1 = np.array([[5, 6]], dtype=np.float32)
     iTList1 = [MockTensor(A1), MockTensor(B1)]
@@ -285,10 +288,10 @@ def test_concat_precision():
     result1 = compute_concat(iTList1, op1)
     expected1 = np.array([[1, 2], [3, 4], [5, 6]], dtype=np.float32)
     np.testing.assert_allclose(result1, expected1, rtol=1e-6, atol=1e-7)
-    print(f"    Result:\n{result1} ✓")
+    logger.debug("    Result:\n%s ✓", result1)
 
     # Test 2: Simple 2D concatenation along axis 1
-    print("  Test 2: [[1, 2], [3, 4]] + [[5], [6]] along axis 1")
+    logger.debug("  Test 2: [[1, 2], [3, 4]] + [[5], [6]] along axis 1")
     A2 = np.array([[1, 2], [3, 4]], dtype=np.float32)
     B2 = np.array([[5], [6]], dtype=np.float32)
     iTList2 = [MockTensor(A2), MockTensor(B2)]
@@ -296,10 +299,10 @@ def test_concat_precision():
     result2 = compute_concat(iTList2, op2)
     expected2 = np.array([[1, 2, 5], [3, 4, 6]], dtype=np.float32)
     np.testing.assert_allclose(result2, expected2, rtol=1e-6, atol=1e-7)
-    print(f"    Result:\n{result2} ✓")
+    logger.debug("    Result:\n%s ✓", result2)
 
     # Test 3: 1D concatenation
-    print("  Test 3: [1, 2, 3] + [4, 5] = [1, 2, 3, 4, 5]")
+    logger.debug("  Test 3: [1, 2, 3] + [4, 5] = [1, 2, 3, 4, 5]")
     A3 = np.array([1, 2, 3], dtype=np.float32)
     B3 = np.array([4, 5], dtype=np.float32)
     iTList3 = [MockTensor(A3), MockTensor(B3)]
@@ -307,10 +310,10 @@ def test_concat_precision():
     result3 = compute_concat(iTList3, op3)
     expected3 = np.array([1, 2, 3, 4, 5], dtype=np.float32)
     np.testing.assert_allclose(result3, expected3, rtol=1e-6, atol=1e-7)
-    print(f"    Result: {result3} ✓")
+    logger.debug("    Result: %s ✓", result3)
 
     # Test 4: Three arrays concatenation
-    print("  Test 4: [1] + [2] + [3] = [1, 2, 3]")
+    logger.debug("  Test 4: [1] + [2] + [3] = [1, 2, 3]")
     A4 = np.array([1], dtype=np.float32)
     B4 = np.array([2], dtype=np.float32)
     C4 = np.array([3], dtype=np.float32)
@@ -319,10 +322,10 @@ def test_concat_precision():
     result4 = compute_concat(iTList4, op4)
     expected4 = np.array([1, 2, 3], dtype=np.float32)
     np.testing.assert_allclose(result4, expected4, rtol=1e-6, atol=1e-7)
-    print(f"    Result: {result4} ✓")
+    logger.debug("    Result: %s ✓", result4)
 
     # Test 5: 3D concatenation
-    print("  Test 5: 3D arrays along axis 1")
+    logger.debug("  Test 5: 3D arrays along axis 1")
     A5 = np.ones((2, 1, 3), dtype=np.float32)
     B5 = np.ones((2, 2, 3), dtype=np.float32) * 2
     iTList5 = [MockTensor(A5), MockTensor(B5)]
@@ -332,10 +335,10 @@ def test_concat_precision():
     # Check first channel is all 1s, next two channels are all 2s
     np.testing.assert_allclose(result5[:, 0, :], 1.0, rtol=1e-6, atol=1e-7)
     np.testing.assert_allclose(result5[:, 1:, :], 2.0, rtol=1e-6, atol=1e-7)
-    print(f"    Result shape: {result5.shape} ✓")
+    logger.debug("    Result shape: %s ✓", result5.shape)
 
     # Test 6: Negative axis
-    print("  Test 6: [1, 2] + [3, 4] with axis=-1 (same as axis=0)")
+    logger.debug("  Test 6: [1, 2] + [3, 4] with axis=-1 (same as axis=0)")
     A6 = np.array([1, 2], dtype=np.float32)
     B6 = np.array([3, 4], dtype=np.float32)
     iTList6 = [MockTensor(A6), MockTensor(B6)]
@@ -343,10 +346,10 @@ def test_concat_precision():
     result6 = compute_concat(iTList6, op6)
     expected6 = np.array([1, 2, 3, 4], dtype=np.float32)
     np.testing.assert_allclose(result6, expected6, rtol=1e-6, atol=1e-7)
-    print(f"    Result: {result6} ✓")
+    logger.debug("    Result: %s ✓", result6)
 
     # Test 7: Multiple arrays with specific values
-    print("  Test 7: Concatenate identity patterns")
+    logger.debug("  Test 7: Concatenate identity patterns")
     A7 = np.array([[1, 0], [0, 1]], dtype=np.float32)
     B7 = np.array([[0, 1], [1, 0]], dtype=np.float32)
     iTList7 = [MockTensor(A7), MockTensor(B7)]
@@ -354,9 +357,9 @@ def test_concat_precision():
     result7 = compute_concat(iTList7, op7)
     expected7 = np.array([[1, 0], [0, 1], [0, 1], [1, 0]], dtype=np.float32)
     np.testing.assert_allclose(result7, expected7, rtol=1e-6, atol=1e-7)
-    print(f"    Result:\n{result7} ✓")
+    logger.debug("    Result:\n%s ✓", result7)
 
-    print("\nAll precision tests passed!")
+    logger.info("\nAll precision tests passed!")
 
 
 @pytest.mark.unit
@@ -372,10 +375,10 @@ def test_concat_properties():
         def __init__(self, axis):
             self.attrs = {"axis": axis}
 
-    print("\nTesting Concat Mathematical Properties:")
+    logger.info("\nTesting Concat Mathematical Properties:")
 
     # Property 1: Concatenation preserves data order
-    print("  Property 1: Data order preservation")
+    logger.debug("  Property 1: Data order preservation")
     A1 = np.array([[1, 2], [3, 4]], dtype=np.float32)
     B1 = np.array([[5, 6], [7, 8]], dtype=np.float32)
 
@@ -385,10 +388,10 @@ def test_concat_properties():
     np.testing.assert_allclose(result1[:2, :], A1, rtol=1e-6, atol=1e-7)
     # Second part should match B1
     np.testing.assert_allclose(result1[2:, :], B1, rtol=1e-6, atol=1e-7)
-    print(f"    Order preserved: A then B ✓")
+    logger.debug("    Order preserved: A then B ✓")
 
     # Property 2: Associativity (with same axis)
-    print("  Property 2: Associativity ((A+B)+C = A+(B+C))")
+    logger.debug("  Property 2: Associativity ((A+B)+C = A+(B+C))")
     A2 = np.random.randn(2, 3).astype(np.float32)
     B2 = np.random.randn(2, 3).astype(np.float32)
     C2 = np.random.randn(2, 3).astype(np.float32)
@@ -402,19 +405,19 @@ def test_concat_properties():
     result_right = compute_concat([MockTensor(A2), MockTensor(BC)], MockOp(0))
 
     np.testing.assert_allclose(result_left, result_right, rtol=1e-5, atol=1e-6)
-    print(f"    (A+B)+C = A+(B+C) ✓")
+    logger.debug("    (A+B)+C = A+(B+C) ✓")
 
     # Property 3: Concatenating with empty produces original (for non-concat dims)
-    print("  Property 3: Identity with appropriate empty tensor")
+    logger.debug("  Property 3: Identity with appropriate empty tensor")
     A3 = np.random.randn(3, 4).astype(np.float32)
     B3 = np.zeros((0, 4), dtype=np.float32)  # Empty along concat axis
 
     result3 = compute_concat([MockTensor(A3), MockTensor(B3)], MockOp(0))
     np.testing.assert_allclose(result3, A3, rtol=1e-6, atol=1e-7)
-    print(f"    A + empty = A ✓")
+    logger.debug("    A + empty = A ✓")
 
     # Property 4: Dimension size adds up along concat axis
-    print("  Property 4: Dimension summation along concat axis")
+    logger.debug("  Property 4: Dimension summation along concat axis")
     A4 = np.random.randn(2, 3, 4).astype(np.float32)
     B4 = np.random.randn(2, 5, 4).astype(np.float32)
     C4 = np.random.randn(2, 7, 4).astype(np.float32)
@@ -426,10 +429,10 @@ def test_concat_properties():
     assert (
         result4.shape == expected_shape
     ), f"Expected {expected_shape}, got {result4.shape}"
-    print(f"    Concat axis size = 3+5+7 = 15 ✓")
+    logger.debug("    Concat axis size = 3+5+7 = 15 ✓")
 
     # Property 5: Non-concat dimensions remain unchanged
-    print("  Property 5: Non-concat dimensions preserved")
+    logger.debug("  Property 5: Non-concat dimensions preserved")
     test_shapes = [
         ([(2, 3, 4), (2, 5, 4)], 1, (2, 8, 4)),
         ([(1, 2, 3), (1, 2, 3)], 0, (2, 2, 3)),
@@ -449,10 +452,10 @@ def test_concat_properties():
                 if dim_idx != axis % len(orig_shape):
                     assert result.shape[dim_idx] == orig_shape[dim_idx]
 
-    print(f"    All non-concat dimensions preserved ✓")
+    logger.debug("    All non-concat dimensions preserved ✓")
 
     # Property 6: Concatenation is deterministic
-    print("  Property 6: Deterministic operation")
+    logger.debug("  Property 6: Deterministic operation")
     A6 = np.random.randn(3, 4).astype(np.float32)
     B6 = np.random.randn(3, 4).astype(np.float32)
 
@@ -460,6 +463,6 @@ def test_concat_properties():
     result6_2 = compute_concat([MockTensor(A6), MockTensor(B6)], MockOp(0))
 
     np.testing.assert_allclose(result6_1, result6_2, rtol=1e-6, atol=1e-7)
-    print(f"    Same inputs produce same output ✓")
+    logger.debug("    Same inputs produce same output ✓")
 
-    print("\nAll property tests passed!")
+    logger.info("\nAll property tests passed!")

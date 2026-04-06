@@ -61,6 +61,15 @@ workloads:
       detr_640x640 : { img_height: 640, img_width: 640 }
       detr_800x800 : { img_height: 800, img_width: 800 }
 
+  - api: TTSIM
+    name: BEVFormer
+    basedir: workloads/BEVFormer/ttsim_models
+    module : BEVFormer@bevformer.py
+    params : {num_cams: 6, img_channels: 3, embed_dims: 256, num_classes: 10, bs: 1}
+    instances:
+      bevformer_tiny   : { img_height: 256, img_width: 256, bev_h: 25, bev_w: 25, num_query: 300 }
+      bevformer_small  : { img_height: 512, img_width: 512, bev_h: 50, bev_w: 50, num_query: 900 }
+
   # generate bert-fixed-128.onnx using code in workloads/onnx/examples/:
   - api: ONNX
     name: BERT-BASE

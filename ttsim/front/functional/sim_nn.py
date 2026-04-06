@@ -607,3 +607,4 @@ class L1Loss(Module):
 
     def analytical_param_count(self, lvl):
         return 0
+

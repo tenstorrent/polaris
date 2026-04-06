@@ -12,6 +12,7 @@ Inputs: [data, starts, ends] or [data, starts, ends, axes] or
 
 import pytest
 import numpy as np
+from loguru import logger
 
 from ttsim.ops.op import SimOp
 from ttsim.ops.tensor import make_tensor
@@ -145,27 +146,29 @@ def test_slice():
             )
             if not numerical_match:
                 max_diff = np.max(np.abs(computed_output - ref_output))
-                print(f"\n  Max difference: {max_diff}")
+                logger.debug(f"\n  Max difference: {max_diff}")
         except Exception as e:
             numerical_match = f"Error: {e}"
-            print(f"\n  Numerical validation error: {e}")
+            logger.debug(f"\n  Numerical validation error: {e}")
 
         if shape_match and numerical_match == True:
-            print(f"TEST[{tno:3d}] {tmsg:{msgw}s} PASS [Shape OK, Numerical OK]")
+            logger.debug(
+                f"TEST[{tno:3d}] {tmsg:{msgw}s} PASS [Shape OK, Numerical OK]"
+            )
         elif shape_match:
-            print(
+            logger.debug(
                 f"TEST[{tno:3d}] {tmsg:{msgw}s} PARTIAL [Shape OK, Numerical: {numerical_match}]"
             )
         else:
-            print(f"\nTEST[{tno:3d}] {tmsg:{msgw}s} FAIL")
-            print(f"  Shape: got {inf_shape}, expected {expected_shape}")
-            print(f"  Numerical: {numerical_match}")
-            print("INPUTS:")
+            logger.debug(f"\nTEST[{tno:3d}] {tmsg:{msgw}s} FAIL")
+            logger.debug(f"  Shape: got {inf_shape}, expected {expected_shape}")
+            logger.debug(f"  Numerical: {numerical_match}")
+            logger.debug("INPUTS:")
             for x in i_tensors:
-                print(f"\t{x.name}: shape={x.shape}, dtype={x.dtype}")
-            print("OUTPUTS:")
+                logger.debug(f"\t{x.name}: shape={x.shape}, dtype={x.dtype}")
+            logger.debug("OUTPUTS:")
             for x in o_tensors:
-                print(f"\t{x.name}: shape={x.shape}, dtype={x.dtype}")
+                logger.debug(f"\t{x.name}: shape={x.shape}, dtype={x.dtype}")
             assert (
                 False
             ), f"TEST[{tno:3d}] {tmsg:{msgw}s} FAIL {inf_shape} != {expected_shape}"
@@ -223,17 +226,19 @@ def test_slice_errors():
             try:
                 computed_output = compute_slice(i_tensors, op_obj)
                 if computed_output.size == 0:
-                    print(f"TEST[{tno:3d}] {tmsg:{msgw}s} PASS (empty output)")
+                    logger.debug(
+                        f"TEST[{tno:3d}] {tmsg:{msgw}s} PASS (empty output)"
+                    )
                 else:
-                    print(
+                    logger.debug(
                         f"TEST[{tno:3d}] {tmsg:{msgw}s} PASS (output shape: {computed_output.shape})"
                     )
             except (ValueError, IndexError, TypeError) as e:
-                print(
+                logger.debug(
                     f"TEST[{tno:3d}] {tmsg:{msgw}s} PASS (raised {type(e).__name__} during compute)"
                 )
         except (ValueError, AssertionError, IndexError) as e:
-            print(
+            logger.debug(
                 f"TEST[{tno:3d}] {tmsg:{msgw}s} PASS (raised {type(e).__name__} during shape inference)"
             )
 
@@ -375,14 +380,14 @@ def test_slice_precision():
             computed_output = compute_slice(i_tensors, op_obj)
             match = np.allclose(computed_output, expected_output, rtol=1e-5, atol=1e-7)
             if match:
-                print(f"PRECISION TEST[{tno:2d}] {tmsg:{msgw}s} PASS")
+                logger.debug(f"PRECISION TEST[{tno:2d}] {tmsg:{msgw}s} PASS")
             else:
-                print(f"\nPRECISION TEST[{tno:2d}] {tmsg:{msgw}s} FAIL")
-                print(f"  Expected: {expected_output.flatten()}")
-                print(f"  Got:      {computed_output.flatten()}")
+                logger.debug(f"\nPRECISION TEST[{tno:2d}] {tmsg:{msgw}s} FAIL")
+                logger.debug(f"  Expected: {expected_output.flatten()}")
+                logger.debug(f"  Got:      {computed_output.flatten()}")
                 assert False, f"Precision test failed for {tmsg}"
         except Exception as e:
-            print(f"PRECISION TEST[{tno:2d}] {tmsg:{msgw}s} ERROR: {e}")
+            logger.debug(f"PRECISION TEST[{tno:2d}] {tmsg:{msgw}s} ERROR: {e}")
             assert False, f"Precision test error: {e}"
 
 
@@ -440,7 +445,7 @@ def test_slice_preserves_data():
         assert np.array_equal(
             result, expected
         ), f"Data preservation failed for shape {shape}"
-        print(f"PRESERVE DATA TEST[{idx}] shape {shape} PASS")
+        logger.debug(f"PRESERVE DATA TEST[{idx}] shape {shape} PASS")
 
 
 @pytest.mark.unit
@@ -482,7 +487,7 @@ def test_slice_full_is_identity():
         assert np.array_equal(
             result, data
         ), f"Full slice identity failed for shape {shape}"
-        print(f"FULL IDENTITY TEST[{idx}] shape {shape} PASS")
+        logger.debug(f"FULL IDENTITY TEST[{idx}] shape {shape} PASS")
 
 
 @pytest.mark.unit
@@ -530,7 +535,9 @@ def test_slice_output_shape():
         assert (
             inf_shape == expected_out_shape
         ), f"Shape inference test {idx}: got {inf_shape}, expected {expected_out_shape}"
-        print(f"OUTPUT SHAPE TEST[{idx}] {data_shape} -> {expected_out_shape} PASS")
+        logger.debug(
+            f"OUTPUT SHAPE TEST[{idx}] {data_shape} -> {expected_out_shape} PASS"
+        )
 
 
 @pytest.mark.unit
@@ -586,4 +593,4 @@ def test_slice_contiguous_reassembly():
         assert np.array_equal(
             reassembled, data
         ), f"Contiguous reassembly failed for shape {shape}"
-        print(f"REASSEMBLY TEST[{idx}] shape {shape} PASS")
+        logger.debug(f"REASSEMBLY TEST[{idx}] shape {shape} PASS")

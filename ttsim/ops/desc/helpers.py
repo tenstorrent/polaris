@@ -38,6 +38,8 @@ from ttsim.ops.desc.data_compute import (
     compute_less,
     compute_argmax,
     compute_reducemax,
+    compute_sign,
+    compute_atan2,
     try_compute_data,
 )
 
@@ -275,6 +277,7 @@ def unary_fwd(iTList, oTList, op, **kwargs):
         'Abs': compute_abs,
         'Neg': compute_neg,
         'ArgMax': compute_argmax,
+        'Sign': compute_sign,
     }
     if op.optype in _unary_compute_funcs:
         Y.data = try_compute_data(_unary_compute_funcs[op.optype], iTList, op)
@@ -422,6 +425,7 @@ def bidir_bcast(iTList, oTList, op, **kwargs):
         'Div': compute_div,
         'Pow': compute_pow,
         'Less': compute_less,
+        'Atan2': compute_atan2,
     }
     if op.optype in _binary_compute_funcs:
         Y.data = try_compute_data(_binary_compute_funcs[op.optype], iTList, op)

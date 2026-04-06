@@ -1606,6 +1606,16 @@ def compute_grid_sample(iTList, op) -> np.ndarray:
         raise ValueError(f"Unsupported mode: {mode}")
 
 
+def compute_gridsample(iTList, op):
+    """Backward-compatible alias for the canonical GridSample helper.
+
+    Delegates to ``compute_grid_sample`` so any existing registrations or call
+    sites using the older name keep working, while we maintain a single
+    implementation.
+    """
+    return compute_grid_sample(iTList, op)
+
+
 def compute_view_reshape(iTList, op) -> np.ndarray | None:
     """
     View/reshape operation (no data copy, just shape change).

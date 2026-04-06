@@ -7,6 +7,7 @@ import pytest
 import numpy as np
 import os
 from pathlib import Path
+from loguru import logger
 
 from ttsim.ops.op import SimOp
 from ttsim.ops.tensor import make_tensor
@@ -510,9 +511,9 @@ def test_upsample_memory_validation(capsys, request):
     if not MEMORY_TEST_AVAILABLE:
         pytest.skip("Device config not available for memory estimation")
 
-    print("\n" + "=" * 80)
-    print("Upsample/Downsample Operation Memory Validation")
-    print("=" * 80)
+    logger.info("\n" + "=" * 80)
+    logger.info("Upsample/Downsample Operation Memory Validation")
+    logger.info("=" * 80)
 
     # Load device configuration once
     config_path = Path(polaris_root) / "config" / "tt_wh.yaml"
@@ -521,9 +522,9 @@ def test_upsample_memory_validation(capsys, request):
         device_pkg = packages["n150"]
         device = Device(device_pkg)
 
-        print(f"\nDevice: {device.devname} ({device.name})")
-        print(f"Frequency: {device.freq_MHz} MHz")
-        print(
+        logger.info(f"\nDevice: {device.devname} ({device.name})")
+        logger.info(f"Frequency: {device.freq_MHz} MHz")
+        logger.info(
             f"Peak Bandwidth: {device.simconfig_obj.peak_bandwidth(freq_units='GHz'):.2f} GB/s"
         )
     except Exception as e:
@@ -582,9 +583,9 @@ def test_upsample_memory_validation(capsys, request):
         },
     ]
 
-    print(f"\n{'='*80}")
-    print("Running Memory Validation Tests")
-    print(f"{'='*80}\n")
+    logger.info(f"\n{'='*80}")
+    logger.info("Running Memory Validation Tests")
+    logger.info(f"{'='*80}\n")
 
     all_results = []
 
@@ -594,9 +595,9 @@ def test_upsample_memory_validation(capsys, request):
         scale = test_case["scale"]
         mode = test_case["mode"]
 
-        print(f"\n-- Test: {test_name} --")
-        print(f"Description: {test_case['description']}")
-        print(f"Input shape: {shape}, Scale: {scale}x, Mode: {mode}")
+        logger.debug(f"\n-- Test: {test_name} --")
+        logger.debug(f"Description: {test_case['description']}")
+        logger.debug(f"Input shape: {shape}, Scale: {scale}x, Mode: {mode}")
 
         # Generate test data
         np.random.seed(42)
@@ -640,7 +641,7 @@ def test_upsample_memory_validation(capsys, request):
         input_elems = np.prod(shape)
         output_elems = np.prod(output_shape)
 
-        print(f"Output shape: {output_shape}")
+        logger.debug(f"Output shape: {output_shape}")
 
         # Extract instruction counts
         total_instructions = sum(perf_stats.get("instrs", {}).values())
@@ -676,15 +677,15 @@ def test_upsample_memory_validation(capsys, request):
         # Bottleneck
         bottleneck = "COMPUTE" if compute_cycles >= memory_cycles else "MEMORY"
 
-        print(f"\n  -- Section 1: Instructions & Operations --")
-        print(f"  Total instructions:    {total_instructions:,}")
-        print(f"  Instruction types:     {dict(actual_instrs)}")
-        print(f"  Input elements:        {input_elems:,}")
-        print(f"  Output elements:       {output_elems:,}")
-        print(
+        logger.debug("\n  -- Section 1: Instructions & Operations --")
+        logger.debug(f"  Total instructions:    {total_instructions:,}")
+        logger.debug(f"  Instruction types:     {dict(actual_instrs)}")
+        logger.debug(f"  Input elements:        {input_elems:,}")
+        logger.debug(f"  Output elements:       {output_elems:,}")
+        logger.debug(
             f"  Scale amplification:   {scale}x → {output_elems/input_elems:.1f}x elements"
         )
-        print(
+        logger.debug(
             f"  Ops per output elem:   {total_instructions/output_elems if output_elems > 0 else 0:.2f}"
         )
 
@@ -706,14 +707,14 @@ def test_upsample_memory_validation(capsys, request):
                 0.5 <= instruction_ratio <= 20.0
             ), f"Instruction mismatch for {mode}: {total_instructions} (ratio: {instruction_ratio:.2f})"
 
-        print(f"\n  -- Section 2: Data Movement --")
-        print(
+        logger.debug("\n  -- Section 2: Data Movement --")
+        logger.debug(
             f"  Input data read:       {input_bytes:,} bytes ({input_bytes/1024:.2f} KB)"
         )
-        print(
+        logger.debug(
             f"  Output data written:   {output_bytes:,} bytes ({output_bytes/1024:.2f} KB)"
         )
-        print(
+        logger.debug(
             f"  Total data moved:      {total_data_moved:,} bytes ({total_data_moved/1024:.2f} KB)"
         )
 
@@ -723,24 +724,24 @@ def test_upsample_memory_validation(capsys, request):
             assert (
                 output_bytes > input_bytes
             ), f"Output should be larger than input for upsampling"
-            print(f"  Amplification ratio:   {size_ratio:.1f}x (upsampling)")
+            logger.debug(f"  Amplification ratio:   {size_ratio:.1f}x (upsampling)")
         elif scale < 1:
             assert (
                 output_bytes < input_bytes
             ), f"Output should be smaller than input for downsampling"
-            print(f"  Reduction ratio:       {size_ratio:.2f}x (downsampling)")
+            logger.debug(f"  Reduction ratio:       {size_ratio:.2f}x (downsampling)")
         else:
             assert output_bytes == input_bytes, f"Output should equal input for scale=1"
-            print(f"  Size ratio:            {size_ratio:.1f}x (identity)")
+            logger.debug(f"  Size ratio:            {size_ratio:.1f}x (identity)")
 
-        print(f"\n  -- Section 3: Arithmetic Intensity & Bottleneck --")
-        print(f"  Arithmetic intensity:  {arithmetic_intensity:.4f} ops/byte")
-        print(f"  Compute cycles:        {compute_cycles:,}")
-        print(
+        logger.debug("\n  -- Section 3: Arithmetic Intensity & Bottleneck --")
+        logger.debug(f"  Arithmetic intensity:  {arithmetic_intensity:.4f} ops/byte")
+        logger.debug(f"  Compute cycles:        {compute_cycles:,}")
+        logger.debug(
             f"  Memory cycles:         {memory_cycles:,} (rd: {mem_rd_cycles:,}, wr: {mem_wr_cycles:,})"
         )
-        print(f"  Ideal cycles:          {ideal_cycles:,}")
-        print(f"  Bottleneck:            {bottleneck}")
+        logger.debug(f"  Ideal cycles:          {ideal_cycles:,}")
+        logger.debug(f"  Bottleneck:            {bottleneck}")
 
         # Upsample is typically memory-bound (especially nearest)
         # Downsample may be compute or memory bound depending on sampling pattern
@@ -755,37 +756,37 @@ def test_upsample_memory_validation(capsys, request):
                 bottleneck == "MEMORY"
             ), f"Expected MEMORY bottleneck, got {bottleneck}"
 
-        print(f"\n  -- Section 4: Resample-Specific Metrics --")
-        print(f"  Mode:                  {mode}")
-        print(
+        logger.debug("\n  -- Section 4: Resample-Specific Metrics --")
+        logger.debug(f"  Mode:                  {mode}")
+        logger.debug(
             f"  Scale factor:          {scale}x ({'upsample' if scale > 1 else 'downsample' if scale < 1 else 'identity'})"
         )
         if mode == "nearest":
-            print(
+            logger.debug(
                 f"  Expected ops/output:   ~1 mov per element (actual: {total_instructions/output_elems:.2f})"
             )
-            print(f"  Operation:             Simple copy from nearest neighbor")
+            logger.debug("  Operation:             Simple copy from nearest neighbor")
         else:
-            print(
+            logger.debug(
                 f"  Expected ops/output:   ~4 muls + ~3 adds = ~7 ops (actual: {total_instructions/output_elems:.2f})"
             )
-            print(f"  Operation:             Bilinear interpolation from 4 neighbors")
+            logger.debug("  Operation:             Bilinear interpolation from 4 neighbors")
 
         # Memory Estimation
-        print(f"\n  -- Memory Estimation --")
+        logger.debug("\n  -- Memory Estimation --")
         # Peak memory = input tensor + output tensor + scales (minimal)
         scales_bytes = 4 * 4  # 4 float32 values for scales
         peak_memory_bytes = input_bytes + output_bytes + scales_bytes
-        print(
+        logger.debug(
             f"  Input tensor:          {input_bytes:,} bytes ({input_bytes/1024:.2f} KB)"
         )
-        print(
+        logger.debug(
             f"  Output tensor:         {output_bytes:,} bytes ({output_bytes/1024:.2f} KB)"
         )
-        print(
+        logger.debug(
             f"  Scales tensor:         {scales_bytes:,} bytes ({scales_bytes/1024:.4f} KB)"
         )
-        print(
+        logger.debug(
             f"  Peak memory:           {peak_memory_bytes:,} bytes ({peak_memory_bytes/1024:.2f} KB)"
         )
         mem_ratio_desc = (
@@ -793,7 +794,9 @@ def test_upsample_memory_validation(capsys, request):
             if scale > 1
             else "reduction factor" if scale < 1 else "ratio"
         )
-        print(f"  Memory {mem_ratio_desc}:  {peak_memory_bytes/input_bytes:.2f}x")
+        logger.debug(
+            f"  Memory {mem_ratio_desc}:  {peak_memory_bytes/input_bytes:.2f}x"
+        )
 
         # Validate memory estimate is reasonable
         assert peak_memory_bytes >= max(
@@ -829,29 +832,29 @@ def test_upsample_memory_validation(capsys, request):
             }
         )
 
-        print(f"\n  ✓ Test PASSED")
+        logger.debug("\n  ✓ Test PASSED")
 
     # Summary
-    print(f"\n{'='*80}")
-    print("Memory Validation Summary")
-    print(f"{'='*80}\n")
-    print(f"Total tests: {len(all_results)}/{len(test_cases)} PASSED ✓")
+    logger.info(f"\n{'='*80}")
+    logger.info("Memory Validation Summary")
+    logger.info(f"{'='*80}\n")
+    logger.info(f"Total tests: {len(all_results)}/{len(test_cases)} PASSED ✓")
 
     # Arithmetic Intensity Comparison
-    print(f"\n-- Arithmetic Intensity Comparison --")
-    print(f"{'Test Name':<30s} {'Mode':<10s} {'Ops/Byte':<12s} {'Data Moved':<15s}")
-    print("-" * 70)
+    logger.info("\n-- Arithmetic Intensity Comparison --")
+    logger.info(f"{'Test Name':<30s} {'Mode':<10s} {'Ops/Byte':<12s} {'Data Moved':<15s}")
+    logger.info("-" * 70)
     for result in all_results:
-        print(
+        logger.info(
             f"{result['test_name']:<30s} {result['mode']:<10s} {result['arithmetic_intensity']:<12.4f} {result['total_data_moved']/1024:>10.1f} KB"
         )
 
     # Scale Factor Analysis
-    print(f"\n-- Scale Factor & Amplification --")
-    print(
+    logger.info("\n-- Scale Factor & Amplification --")
+    logger.info(
         f"{'Test Name':<30s} {'Scale':<10s} {'Input Elems':<15s} {'Output Elems':<15s} {'Change':<15s}"
     )
-    print("-" * 85)
+    logger.info("-" * 85)
     for result in all_results:
         input_elems = np.prod(result["input_shape"])
         output_elems = np.prod(result["output_shape"])
@@ -860,27 +863,27 @@ def test_upsample_memory_validation(capsys, request):
         change_type = (
             "up" if result["scale"] > 1 else "down" if result["scale"] < 1 else "same"
         )
-        print(
+        logger.info(
             f"{result['test_name']:<30s} {scale_str:<10s} {input_elems:>12,}   {output_elems:>12,}   {amp:>10.2f}x {change_type}"
         )
 
     # Bottleneck Analysis
-    print(f"\n-- Bottleneck Analysis --")
-    print(
+    logger.info("\n-- Bottleneck Analysis --")
+    logger.info(
         f"{'Test Name':<30s} {'Mode':<10s} {'Bottleneck':<15s} {'Compute Cycles':<18s} {'Memory Cycles':<15s}"
     )
-    print("-" * 90)
+    logger.info("-" * 90)
     for result in all_results:
-        print(
+        logger.info(
             f"{result['test_name']:<30s} {result['mode']:<10s} {result['bottleneck']:<15s} {result['compute_cycles']:>15,} {result['memory_cycles']:>15,}"
         )
 
     # Memory Footprint Analysis
-    print(f"\n-- Memory Footprint Analysis --")
-    print(
+    logger.info("\n-- Memory Footprint Analysis --")
+    logger.info(
         f"{'Test Name':<30s} {'Input':<12s} {'Output':<12s} {'Peak Memory':<15s} {'Ratio':<15s}"
     )
-    print("-" * 85)
+    logger.info("-" * 85)
     for result in all_results:
         ratio = (
             result["peak_memory_bytes"] / result["input_bytes"]
@@ -890,13 +893,13 @@ def test_upsample_memory_validation(capsys, request):
         ratio_type = (
             "amp" if result["scale"] > 1 else "red" if result["scale"] < 1 else "eq"
         )
-        print(
+        logger.info(
             f"{result['test_name']:<30s} {result['input_bytes']/1024:>9.2f} KB {result['output_bytes']/1024:>9.2f} KB {result['peak_memory_bytes']/1024:>12.2f} KB {ratio:>10.2f}x {ratio_type}"
         )
 
-    print(f"\n{'='*80}")
-    print("Memory validation complete!")
-    print(f"{'='*80}\n")
+    logger.info(f"\n{'='*80}")
+    logger.info("Memory validation complete!")
+    logger.info(f"{'='*80}\n")
 
     # Create pytest summary
     summary_lines = [
@@ -940,12 +943,12 @@ def test_upsample_memory_validation(capsys, request):
             terminalreporter.write_sep("=", "", bold=True)
     except Exception:
         with capsys.disabled():
-            print("\n" + "=" * 70)
-            print("UPSAMPLE/DOWNSAMPLE MEMORY VALIDATION RESULTS")
-            print("=" * 70)
+            logger.info("\n" + "=" * 70)
+            logger.info("UPSAMPLE/DOWNSAMPLE MEMORY VALIDATION RESULTS")
+            logger.info("=" * 70)
             for line in summary_lines:
-                print(line)
-            print("=" * 70 + "\n")
+                logger.info(line)
+            logger.info("=" * 70 + "\n")
 
     assert len(all_results) == len(
         test_cases

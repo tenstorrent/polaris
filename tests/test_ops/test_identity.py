@@ -4,6 +4,7 @@
 import pytest
 
 import numpy as np
+from loguru import logger
 from ttsim.ops.op import SimOp
 from ttsim.ops.tensor import make_tensor
 import ttsim.front.functional.op as F
@@ -150,24 +151,24 @@ def test_identity():
                     numerical_match = True
                 else:
                     max_diff = np.max(np.abs(computed_output - test_data))
-                    print(f"\n  Max difference: {max_diff}")
+                    logger.debug(f"\n  Max difference: {max_diff}")
         except Exception as e:
             numerical_match = f"Error: {e}"
-            print(f"\n  Numerical validation error: {e}")
+            logger.debug(f"\n  Numerical validation error: {e}")
 
         # Report results
         if shape_match and numerical_match == True:
-            print(f"TEST[{tno:3d}] {tmsg:{msgw}s} PASS [Shape ✓, Numerical ✓]")
+            logger.debug(f"TEST[{tno:3d}] {tmsg:{msgw}s} PASS [Shape ✓, Numerical ✓]")
         elif shape_match:
-            print(
+            logger.debug(
                 f"TEST[{tno:3d}] {tmsg:{msgw}s} PARTIAL [Shape ✓, Numerical: {numerical_match}]"
             )
         else:
-            print(f"\nTEST[{tno:3d}] {tmsg:{msgw}s} FAIL")
-            print(
+            logger.debug(f"\nTEST[{tno:3d}] {tmsg:{msgw}s} FAIL")
+            logger.debug(
                 f"  Shape match: {shape_match} (got {inf_shape}, expected {ref_shape})"
             )
-            print(f"  Numerical match: {numerical_match}")
+            logger.debug(f"  Numerical match: {numerical_match}")
 
 
 # Error test cases - Identity should handle all inputs gracefully
@@ -237,19 +238,23 @@ def test_identity_errors():
                 if input_has_inf and output_has_inf:
                     # Check they match exactly
                     if np.array_equal(computed_output, test_data):
-                        print(
+                        logger.debug(
                             f"TEST[{tno:3d}] {tmsg:{msgw}s} PASS (inf values preserved exactly)"
                         )
                     else:
-                        print(
+                        logger.debug(
                             f"TEST[{tno:3d}] {tmsg:{msgw}s} PASS (special values handled)"
                         )
                 else:
-                    print(f"TEST[{tno:3d}] {tmsg:{msgw}s} PASS (edge case handled)")
+                    logger.debug(
+                        f"TEST[{tno:3d}] {tmsg:{msgw}s} PASS (edge case handled)"
+                    )
             except (ValueError, RuntimeError) as e:
-                print(f"TEST[{tno:3d}] {tmsg:{msgw}s} PASS (raised {type(e).__name__})")
+                logger.debug(
+                    f"TEST[{tno:3d}] {tmsg:{msgw}s} PASS (raised {type(e).__name__})"
+                )
         except (ValueError, AssertionError, RuntimeError) as e:
-            print(
+            logger.debug(
                 f"TEST[{tno:3d}] {tmsg:{msgw}s} PASS (raised {type(e).__name__} during shape inference)"
             )
 
@@ -325,22 +330,26 @@ def test_identity_precision():
             exact_match = np.array_equal(computed_output, expected_output)
 
             if exact_match:
-                print(f"PRECISION TEST[{tno}] {tmsg:{msgw}s} PASS (exact match)")
+                logger.debug(
+                    f"PRECISION TEST[{tno}] {tmsg:{msgw}s} PASS (exact match)"
+                )
             else:
                 # Try allclose as fallback
                 allclose_match = np.allclose(
                     computed_output, expected_output, rtol=1e-7, atol=1e-9
                 )
                 if allclose_match:
-                    print(f"PRECISION TEST[{tno}] {tmsg:{msgw}s} PASS (allclose match)")
+                    logger.debug(
+                        f"PRECISION TEST[{tno}] {tmsg:{msgw}s} PASS (allclose match)"
+                    )
                 else:
-                    print(f"\nPRECISION TEST[{tno}] {tmsg:{msgw}s} FAIL")
-                    print(f"  Expected: {expected_output.flatten()}")
-                    print(f"  Got:      {computed_output.flatten()}")
-                    print(
+                    logger.debug(f"\nPRECISION TEST[{tno}] {tmsg:{msgw}s} FAIL")
+                    logger.debug(f"  Expected: {expected_output.flatten()}")
+                    logger.debug(f"  Got:      {computed_output.flatten()}")
+                    logger.debug(
                         f"  Diff:     {(computed_output - expected_output).flatten()}"
                     )
                     assert False, f"Precision test failed for {tmsg}"
         except Exception as e:
-            print(f"PRECISION TEST[{tno}] {tmsg:{msgw}s} ERROR: {e}")
+            logger.debug(f"PRECISION TEST[{tno}] {tmsg:{msgw}s} ERROR: {e}")
             assert False, f"Precision test error: {e}"

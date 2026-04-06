@@ -4,6 +4,7 @@
 import sys, os, logging
 import pytest
 import numpy as np
+from loguru import logger
 from ttsim.ops.op import SimOp
 from ttsim.ops.tensor import make_tensor, SimTensor
 import ttsim.front.functional.op as F
@@ -102,25 +103,28 @@ def test_shape_numerical():
             numerical_match = np.array_equal(computed_output, ref_output)
 
             if not numerical_match:
-                print(f"\n  Expected: {ref_output}")
-                print(f"  Got:      {computed_output}")
+                logger.debug(f"\n  Expected: {ref_output}")
+                logger.debug(f"  Got:      {computed_output}")
         except Exception as e:
             numerical_match = f"Error: {e}"
-            print(f"\n  Numerical validation error: {e}")
+            logger.debug(f"\n  Numerical validation error: {e}")
 
         # Report results
         if shape_match and numerical_match == True:
-            print(f"TEST[{tno:3d}] {tmsg:{msgw}s} PASS [Shape ✓, Values ✓]")
+            logger.debug(
+                f"TEST[{tno:3d}] {tmsg:{msgw}s} PASS [Shape ✓, Values ✓]"
+            )
         elif shape_match:
-            print(
+            logger.debug(
                 f"TEST[{tno:3d}] {tmsg:{msgw}s} PARTIAL [Shape ✓, Values: {numerical_match}]"
             )
         else:
-            print(f"\nTEST[{tno:3d}] {tmsg:{msgw}s} FAIL")
-            print(
-                f"  Shape match: {shape_match} (got {inf_shape}, expected {ref_shape})"
+            logger.debug(f"\nTEST[{tno:3d}] {tmsg:{msgw}s} FAIL")
+            logger.debug(
+                "  Shape match: "
+                f"{shape_match} (got {inf_shape}, expected {ref_shape})"
             )
-            print(f"  Values match: {numerical_match}")
+            logger.debug(f"  Values match: {numerical_match}")
 
 
 # Precision test cases with known outputs
@@ -173,13 +177,17 @@ def test_shape_precision():
             dtype_match = computed_output.dtype == expected_output.dtype
 
             if match and dtype_match:
-                print(f"PRECISION TEST[{tno}] {tmsg:{msgw}s} PASS")
+                logger.debug(f"PRECISION TEST[{tno}] {tmsg:{msgw}s} PASS")
             else:
-                print(f"\nPRECISION TEST[{tno}] {tmsg:{msgw}s} FAIL")
-                print(f"  Expected: {expected_output} (dtype: {expected_output.dtype})")
-                print(f"  Got:      {computed_output} (dtype: {computed_output.dtype})")
+                logger.debug(f"\nPRECISION TEST[{tno}] {tmsg:{msgw}s} FAIL")
+                logger.debug(
+                    f"  Expected: {expected_output} (dtype: {expected_output.dtype})"
+                )
+                logger.debug(
+                    f"  Got:      {computed_output} (dtype: {computed_output.dtype})"
+                )
         except Exception as e:
-            print(f"PRECISION TEST[{tno}] {tmsg:{msgw}s} ERROR: {e}")
+            logger.debug(f"PRECISION TEST[{tno}] {tmsg:{msgw}s} ERROR: {e}")
 
 
 # Edge cases
@@ -253,14 +261,14 @@ def test_shape_edge_cases():
             assert np.all(computed_output > 0), "All dimensions must be positive"
 
             if match:
-                print(f"EDGE TEST[{tno}] {tmsg:{msgw}s} PASS - {description}")
+                logger.debug(f"EDGE TEST[{tno}] {tmsg:{msgw}s} PASS - {description}")
             else:
-                print(f"\nEDGE TEST[{tno}] {tmsg:{msgw}s} FAIL")
-                print(f"  {description}")
-                print(f"  Expected: {ref_output}")
-                print(f"  Got:      {computed_output}")
+                logger.debug(f"\nEDGE TEST[{tno}] {tmsg:{msgw}s} FAIL")
+                logger.debug(f"  {description}")
+                logger.debug(f"  Expected: {ref_output}")
+                logger.debug(f"  Got:      {computed_output}")
         except Exception as e:
-            print(f"EDGE TEST[{tno}] {tmsg:{msgw}s} ERROR: {e}")
+            logger.debug(f"EDGE TEST[{tno}] {tmsg:{msgw}s} ERROR: {e}")
 
 
 # Additional property tests
@@ -269,10 +277,10 @@ def test_shape_edge_cases():
 def test_shape_properties():
     """Test mathematical properties of Shape operation"""
 
-    print("\nTesting Shape Operation Properties:")
+    logger.info("\nTesting Shape Operation Properties:")
 
     # Property 1: Shape output is 1D
-    print("  Property 1: Output is always 1D")
+    logger.info("  Property 1: Output is always 1D")
     for ndim in [1, 2, 3, 4, 5]:
         shape = tuple(np.random.randint(2, 10, size=ndim))
         test_data = np.random.randn(*shape).astype(np.float32)
@@ -300,10 +308,10 @@ def test_shape_properties():
         assert len(result.shape) == 1, f"Output not 1D for {ndim}D input"
         assert result.shape[0] == ndim, f"Output length {result.shape[0]} != {ndim}"
 
-    print("    All 1D outputs ✓")
+        logger.info("    All 1D outputs ✓")
 
     # Property 2: Data content doesn't affect shape
-    print("  Property 2: Data content doesn't affect output")
+        logger.info("  Property 2: Data content doesn't affect output")
     shape = [4, 5, 6]
     data1 = np.zeros(shape, dtype=np.float32)
     data2 = np.ones(shape, dtype=np.float32)
@@ -333,10 +341,10 @@ def test_shape_properties():
 
     assert np.array_equal(results[0], results[1]), "Zeros vs ones differ"
     assert np.array_equal(results[0], results[2]), "Zeros vs random differ"
-    print("    Content-independent ✓")
+    logger.info("    Content-independent ✓")
 
     # Property 3: Output length equals input rank
-    print("  Property 3: Output length = input rank")
+    logger.info("  Property 3: Output length = input rank")
     for ndim in range(1, 7):
         shape = tuple(np.random.randint(1, 10, size=ndim))
         test_data = np.random.randn(*shape).astype(np.float32)
@@ -364,9 +372,9 @@ def test_shape_properties():
         assert len(result) == ndim, f"Output length {len(result)} != rank {ndim}"
         assert len(result) == len(test_data.shape), "Output length != input rank"
 
-    print("    Rank matching \u2713")
+    logger.info("    Rank matching \u2713")
 
-    print("\nAll property tests passed!")
+    logger.info("\nAll property tests passed!")
 
 
 def calculate_shape_memory_stats(input_shape):
@@ -415,14 +423,14 @@ def test_shape_memory_validation():
     ipgroups, packages = get_arspec_from_yaml(config_path)
     device = Device(packages["n150"])
 
-    print("\n" + "=" * 80)
-    print("SHAPE MEMORY VALIDATION")
-    print("=" * 80)
-    print(f"Device: {device.devname}")
-    print(f"  Name: {device.name}")
-    print(f"  Frequency: {device.freq_MHz} MHz")
-    print(f"  Memory Frequency: {device.memfreq_MHz} MHz")
-    print("=" * 80)
+    logger.info("\n" + "=" * 80)
+    logger.info("SHAPE MEMORY VALIDATION")
+    logger.info("=" * 80)
+    logger.info(f"Device: {device.devname}")
+    logger.info(f"  Name: {device.name}")
+    logger.info(f"  Frequency: {device.freq_MHz} MHz")
+    logger.info(f"  Memory Frequency: {device.memfreq_MHz} MHz")
+    logger.info("=" * 80)
 
     # Various input shapes — Shape op only reads the rank, not the data
     test_configs = [
@@ -441,21 +449,21 @@ def test_shape_memory_validation():
     for shape in test_configs:
         stats = calculate_shape_memory_stats(shape)
 
-        print(f"\nInput shape: {shape} (rank={len(shape)})")
-        print(f"  Memory: {stats['memory_mb']:.6f} MB")
-        print(f"  Operations: {stats['ops']}")
-        print(f"  Arithmetic Intensity: {stats['arithmetic_intensity']:.6f} ops/byte")
-        print(f"  Bottleneck: {stats['bottleneck']}")
+        logger.info(f"\nInput shape: {shape} (rank={len(shape)})")
+        logger.info(f"  Memory: {stats['memory_mb']:.6f} MB")
+        logger.info(f"  Operations: {stats['ops']}")
+        logger.info(f"  Arithmetic Intensity: {stats['arithmetic_intensity']:.6f} ops/byte")
+        logger.info(f"  Bottleneck: {stats['bottleneck']}")
 
         if stats["bottleneck"] == "memory-bound":
             memory_bound_count += 1
         else:
             compute_bound_count += 1
 
-    print("\n" + "=" * 80)
-    print("SUMMARY")
-    print("=" * 80)
-    print(f"Total configurations tested: {len(test_configs)}")
-    print(f"Memory-bound: {memory_bound_count}")
-    print(f"Compute-bound: {compute_bound_count}")
-    print("=" * 80)
+    logger.info("\n" + "=" * 80)
+    logger.info("SUMMARY")
+    logger.info("=" * 80)
+    logger.info(f"Total configurations tested: {len(test_configs)}")
+    logger.info(f"Memory-bound: {memory_bound_count}")
+    logger.info(f"Compute-bound: {compute_bound_count}")
+    logger.info("=" * 80)

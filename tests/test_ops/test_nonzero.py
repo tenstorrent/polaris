@@ -4,6 +4,7 @@
 import sys, os, logging
 import pytest
 import numpy as np
+from loguru import logger
 from ttsim.ops.op import SimOp
 from ttsim.ops.tensor import make_tensor, SimTensor
 import ttsim.front.functional.op as F
@@ -161,29 +162,33 @@ def test_nonzero_numerical():
             numerical_match = np.array_equal(computed_output, ref_output)
 
             if not numerical_match:
-                print(
+                logger.debug(
                     f"\n  Output shape: {computed_output.shape}, expected: {ref_output.shape}"
                 )
-                print(
-                    f"  Num nonzero: computed={computed_output.shape[1]}, ref={ref_output.shape[1]}"
+                logger.debug(
+                    "  Num nonzero: computed="
+                    f"{computed_output.shape[1]}, ref={ref_output.shape[1]}"
                 )
         except Exception as e:
             numerical_match = f"Error: {e}"
-            print(f"\n  Numerical validation error: {e}")
+            logger.debug(f"\n  Numerical validation error: {e}")
 
         # Report results
         if shape_match and numerical_match == True:
-            print(f"TEST[{tno:3d}] {tmsg:{msgw}s} PASS [Shape ✓, Indices ✓]")
+            logger.debug(
+                f"TEST[{tno:3d}] {tmsg:{msgw}s} PASS [Shape ✓, Indices ✓]"
+            )
         elif shape_match:
-            print(
+            logger.debug(
                 f"TEST[{tno:3d}] {tmsg:{msgw}s} PARTIAL [Shape ✓, Indices: {numerical_match}]"
             )
         else:
-            print(f"\nTEST[{tno:3d}] {tmsg:{msgw}s} FAIL")
-            print(
-                f"  Shape match: {shape_match} (got {inf_shape}, expected {ref_shape})"
+            logger.debug(f"\nTEST[{tno:3d}] {tmsg:{msgw}s} FAIL")
+            logger.debug(
+                "  Shape match: "
+                f"{shape_match} (got {inf_shape}, expected {ref_shape})"
             )
-            print(f"  Indices match: {numerical_match}")
+            logger.debug(f"  Indices match: {numerical_match}")
 
 
 # Precision test cases with known outputs
@@ -255,17 +260,18 @@ def test_nonzero_precision():
             computed_output = compute_nonzero(i_tensors, op_obj)
             match = np.array_equal(computed_output, expected_output)
             if match:
-                print(f"PRECISION TEST[{tno}] {tmsg:{msgw}s} PASS")
+                logger.debug(f"PRECISION TEST[{tno}] {tmsg:{msgw}s} PASS")
             else:
-                print(f"\nPRECISION TEST[{tno}] {tmsg:{msgw}s} FAIL")
-                print(
-                    f"  Expected shape: {expected_output.shape}, got: {computed_output.shape}"
+                logger.debug(f"\nPRECISION TEST[{tno}] {tmsg:{msgw}s} FAIL")
+                logger.debug(
+                    "  Expected shape: "
+                    f"{expected_output.shape}, got: {computed_output.shape}"
                 )
                 if expected_output.size <= 20 and computed_output.size <= 20:
-                    print(f"  Expected: {expected_output}")
-                    print(f"  Got:      {computed_output}")
+                    logger.debug(f"  Expected: {expected_output}")
+                    logger.debug(f"  Got:      {computed_output}")
         except Exception as e:
-            print(f"PRECISION TEST[{tno}] {tmsg:{msgw}s} ERROR: {e}")
+            logger.debug(f"PRECISION TEST[{tno}] {tmsg:{msgw}s} ERROR: {e}")
 
 
 # Edge cases
@@ -383,15 +389,16 @@ def test_nonzero_edge_cases():
             assert computed_output.dtype == np.int64, "Output must be int64"
 
             if match:
-                print(f"EDGE TEST[{tno}] {tmsg:{msgw}s} PASS - {description}")
+                logger.debug(f"EDGE TEST[{tno}] {tmsg:{msgw}s} PASS - {description}")
             else:
-                print(f"\nEDGE TEST[{tno}] {tmsg:{msgw}s} FAIL")
-                print(f"  {description}")
-                print(
-                    f"  Expected shape: {ref_output.shape}, got: {computed_output.shape}"
+                logger.debug(f"\nEDGE TEST[{tno}] {tmsg:{msgw}s} FAIL")
+                logger.debug(f"  {description}")
+                logger.debug(
+                    "  Expected shape: "
+                    f"{ref_output.shape}, got: {computed_output.shape}"
                 )
         except Exception as e:
-            print(f"EDGE TEST[{tno}] {tmsg:{msgw}s} ERROR: {e}")
+            logger.debug(f"EDGE TEST[{tno}] {tmsg:{msgw}s} ERROR: {e}")
 
 
 def calculate_nonzero_memory_stats(shape):
@@ -464,14 +471,14 @@ def test_nonzero_memory_validation():
     ipgroups, packages = get_arspec_from_yaml(config_path)
     device = Device(packages["n150"])
 
-    print("\n" + "=" * 80)
-    print("NONZERO MEMORY VALIDATION")
-    print("=" * 80)
-    print(f"Device: {device.devname}")
-    print(f"  Name: {device.name}")
-    print(f"  Frequency: {device.freq_MHz} MHz")
-    print(f"  Memory Frequency: {device.memfreq_MHz} MHz")
-    print("=" * 80)
+    logger.info("\n" + "=" * 80)
+    logger.info("NONZERO MEMORY VALIDATION")
+    logger.info("=" * 80)
+    logger.info(f"Device: {device.devname}")
+    logger.info(f"  Name: {device.name}")
+    logger.info(f"  Frequency: {device.freq_MHz} MHz")
+    logger.info(f"  Memory Frequency: {device.memfreq_MHz} MHz")
+    logger.info("=" * 80)
 
     # Various input shapes with dense (mostly nonzero) data
     test_configs = [
@@ -490,21 +497,23 @@ def test_nonzero_memory_validation():
     for shape in test_configs:
         stats = calculate_nonzero_memory_stats(shape)
 
-        print(f"\nInput shape: {shape}")
-        print(f"  Memory: {stats['memory_mb']:.4f} MB")
-        print(f"  Operations: {stats['ops']}")
-        print(f"  Arithmetic Intensity: {stats['arithmetic_intensity']:.6f} ops/byte")
-        print(f"  Bottleneck: {stats['bottleneck']}")
+        logger.debug(f"\nInput shape: {shape}")
+        logger.debug(f"  Memory: {stats['memory_mb']:.4f} MB")
+        logger.debug(f"  Operations: {stats['ops']}")
+        logger.debug(
+            f"  Arithmetic Intensity: {stats['arithmetic_intensity']:.6f} ops/byte"
+        )
+        logger.debug(f"  Bottleneck: {stats['bottleneck']}")
 
         if stats["bottleneck"] == "memory-bound":
             memory_bound_count += 1
         else:
             compute_bound_count += 1
 
-    print("\n" + "=" * 80)
-    print("SUMMARY")
-    print("=" * 80)
-    print(f"Total configurations tested: {len(test_configs)}")
-    print(f"Memory-bound: {memory_bound_count}")
-    print(f"Compute-bound: {compute_bound_count}")
-    print("=" * 80)
+    logger.info("\n" + "=" * 80)
+    logger.info("SUMMARY")
+    logger.info("=" * 80)
+    logger.info(f"Total configurations tested: {len(test_configs)}")
+    logger.info(f"Memory-bound: {memory_bound_count}")
+    logger.info(f"Compute-bound: {compute_bound_count}")
+    logger.info("=" * 80)

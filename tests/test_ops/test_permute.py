@@ -11,6 +11,7 @@ Edge cases: positive, negative, zeros, mixed, small, large, minimum_input
 
 import pytest
 import numpy as np
+from loguru import logger
 from ttsim.ops.tensor import SimTensor
 import ttsim.front.functional.sim_nn as SimNN
 import ttsim.front.functional.tensor_op as tensor_op  # noqa: F401
@@ -74,9 +75,9 @@ def test_permute(data_type):
         num_ok = bool(np.allclose(out.data, ref, rtol=RTOL, atol=ATOL))
 
     if shape_ok and (num_ok or out.data is None):
-        print(f"permute/{data_type}: PASS")
+        logger.info(f"permute/{data_type}: PASS")
     else:
-        print(f"permute/{data_type}: FAIL")
+        logger.debug(f"permute/{data_type}: FAIL")
 
     assert shape_ok, f"permute/{data_type} shape failed"
     if out.data is not None:

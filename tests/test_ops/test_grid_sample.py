@@ -15,6 +15,7 @@ import pytest
 import numpy as np
 import os
 from pathlib import Path
+from loguru import logger
 
 from ttsim.ops.op import SimOp
 from ttsim.ops.tensor import make_tensor
@@ -608,9 +609,9 @@ def test_gridsample_memory_validation(capsys, request):
     if not MEMORY_TEST_AVAILABLE:
         pytest.skip("Device config not available for memory estimation")
 
-    print("\n" + "=" * 60)
-    print("GridSample Operation Memory Validation")
-    print("=" * 60)
+    logger.info("\n" + "=" * 60)
+    logger.info("GridSample Operation Memory Validation")
+    logger.info("=" * 60)
 
     # Load device configuration
     config_path = Path(polaris_root) / "config" / "tt_wh.yaml"
@@ -619,14 +620,15 @@ def test_gridsample_memory_validation(capsys, request):
         device_pkg = packages["n150"]
         device = Device(device_pkg)
 
-        print(f"\nDevice: {device.devname} ({device.name})")
-        print(f"Device frequency: {device.freq_MHz} MHz")
-        print(f"Memory frequency: {device.memfreq_MHz} MHz")
-        print(
-            f"Peak bandwidth: {device.simconfig_obj.peak_bandwidth(freq_units='GHz'):.2f} GB/s"
+        logger.info(f"\nDevice: {device.devname} ({device.name})")
+        logger.info(f"Device frequency: {device.freq_MHz} MHz")
+        logger.info(f"Memory frequency: {device.memfreq_MHz} MHz")
+        logger.info(
+            "Peak bandwidth: %.2f GB/s",
+            device.simconfig_obj.peak_bandwidth(freq_units="GHz"),
         )
     except Exception as e:
-        print(f"\nWarning: Could not load device config: {e}")
+        logger.info(f"\nWarning: Could not load device config: {e}")
         pytest.skip(f"Could not load device config: {e}")
         return
 
@@ -669,12 +671,12 @@ def test_gridsample_memory_validation(capsys, request):
         },
     ]
 
-    print(f"\n{'='*60}")
-    print("Running Memory Validation Tests")
-    print(f"{'='*60}\n")
+    logger.info("\n%s", "=" * 60)
+    logger.info("Running Memory Validation Tests")
+    logger.info("%s\n", "=" * 60)
 
     # Early check: try first test case to see if GridSample supports perf stats
-    print("Checking if GridSample supports performance statistics...")
+    logger.info("Checking if GridSample supports performance statistics...")
     try:
         test_input = np.random.randn(1, 1, 4, 4).astype(np.float32)
         test_grid = np.random.uniform(-1, 1, (1, 4, 4, 2)).astype(np.float32)
@@ -695,17 +697,17 @@ def test_gridsample_memory_validation(capsys, request):
         device.execute_op(test_op)
 
         if test_op.perf_stats is None:
-            print(
+            logger.info(
                 "⚠ GridSample operation does not support device execution/performance stats yet"
             )
             pytest.skip(
                 "GridSample operation does not support device execution/performance stats"
             )
     except Exception as e:
-        print(f"⚠ GridSample check failed: {e}")
+        logger.info(f"⚠ GridSample check failed: {e}")
         pytest.skip(f"GridSample operation does not support device execution: {e}")
 
-    print("✓ Performance statistics available\n")
+    logger.info("✓ Performance statistics available\n")
 
     all_results = []
 
@@ -715,9 +717,11 @@ def test_gridsample_memory_validation(capsys, request):
         grid_shape = test_case["grid_shape"]
         mode = test_case["mode"]
 
-        print(f"\n-- Test: {test_name} --")
-        print(f"Description: {test_case['description']}")
-        print(f"Input shape: {input_shape}, Grid shape: {grid_shape}, Mode: {mode}")
+        logger.debug(f"\n-- Test: {test_name} --")
+        logger.debug(f"Description: {test_case['description']}")
+        logger.debug(
+            f"Input shape: {input_shape}, Grid shape: {grid_shape}, Mode: {mode}"
+        )
 
         # Generate test data
         np.random.seed(42)
@@ -767,7 +771,7 @@ def test_gridsample_memory_validation(capsys, request):
         grid_elems = np.prod(grid_shape)
         output_elems = np.prod(expected_output_shape)
 
-        print(f"Output shape: {expected_output_shape}")
+        logger.debug(f"Output shape: {expected_output_shape}")
 
         # Extract instruction counts
         total_instructions = sum(perf_stats.get("instrs", {}).values())
@@ -805,12 +809,12 @@ def test_gridsample_memory_validation(capsys, request):
         # Bottleneck
         bottleneck = "COMPUTE" if compute_cycles >= memory_cycles else "MEMORY"
 
-        print(f"\n  -- Instructions & Operations --")
-        print(f"  Instructions executed: {total_instructions:,}")
-        print(f"  Instruction types:     {dict(actual_instrs)}")
-        print(f"  Input elements:        {input_elems:,}")
-        print(f"  Grid elements:         {grid_elems:,}")
-        print(f"  Output elements:       {output_elems:,}")
+        logger.debug("\n  -- Instructions & Operations --")
+        logger.debug(f"  Instructions executed: {total_instructions:,}")
+        logger.debug(f"  Instruction types:     {dict(actual_instrs)}")
+        logger.debug(f"  Input elements:        {input_elems:,}")
+        logger.debug(f"  Grid elements:         {grid_elems:,}")
+        logger.debug(f"  Output elements:       {output_elems:,}")
 
         # Validate instruction count based on mode
         if mode == "nearest":
@@ -821,7 +825,9 @@ def test_gridsample_memory_validation(capsys, request):
             assert (
                 0.5 <= instruction_ratio <= 2.0
             ), f"Instruction mismatch for nearest: {total_instructions} vs expected ~{output_elems}"
-            print(f"  ✓ Instruction count validates (1 'mov' per output element)")
+            logger.debug(
+                "  ✓ Instruction count validates (1 'mov' per output element)"
+            )
         else:
             # Bilinear: simplified model uses ~1 mov per element; theoretical is 4 mul + 3 add = 7 ops
             instruction_ratio = (
@@ -830,24 +836,29 @@ def test_gridsample_memory_validation(capsys, request):
             assert (
                 0.5 <= instruction_ratio <= 9.0
             ), f"Instruction mismatch for bilinear: {total_instructions} (ratio: {instruction_ratio:.2f})"
-            print(f"  ✓ Instruction count validates")
+            logger.debug("  ✓ Instruction count validates")
 
-        print(f"\n  -- Data Movement --")
-        print(f"  Input bytes:      {input_bytes:,} ({input_bytes/1024:.2f} KB)")
-        print(f"  Output bytes:     {output_bytes:,} ({output_bytes/1024:.2f} KB)")
-        print(
+        logger.debug("\n  -- Data Movement --")
+        logger.debug(
+            f"  Input bytes:      {input_bytes:,} ({input_bytes/1024:.2f} KB)"
+        )
+        logger.debug(
+            f"  Output bytes:     {output_bytes:,} ({output_bytes/1024:.2f} KB)"
+        )
+        logger.debug(
             f"  Total data moved: {total_data_moved:,} ({total_data_moved/1024:.2f} KB)"
         )
 
         # Verify output bytes
         assert output_bytes > 0, "Output bytes should be positive"
         bytes_per_elem = output_bytes / output_elems if output_elems > 0 else 0
-        print(f"  ✓ Bytes per element: {bytes_per_elem:.1f}")
+        logger.debug(f"  ✓ Bytes per element: {bytes_per_elem:.1f}")
 
-        print(f"\n  -- Memory Metrics --")
-        print(f"  Arithmetic intensity:  {arithmetic_intensity:.4f} ops/byte")
-        print(
-            f"  Bytes per element:     {output_bytes/output_elems if output_elems > 0 else 0:.1f}"
+        logger.debug("\n  -- Memory Metrics --")
+        logger.debug(f"  Arithmetic intensity:  {arithmetic_intensity:.4f} ops/byte")
+        logger.debug(
+            "  Bytes per element:     %.1f",
+            output_bytes / output_elems if output_elems > 0 else 0,
         )
 
         # Validate arithmetic intensity based on mode
@@ -856,25 +867,31 @@ def test_gridsample_memory_validation(capsys, request):
             assert (
                 arithmetic_intensity < 2.0
             ), f"Arithmetic intensity too high for memory-bound nearest: {arithmetic_intensity}"
-            print(f"  ✓ Low arithmetic intensity (memory-bound nearest mode)")
+            logger.debug(
+                "  ✓ Low arithmetic intensity (memory-bound nearest mode)"
+            )
         else:
             # Bilinear has higher AI due to interpolation
-            print(f"  ✓ Arithmetic intensity reflects bilinear interpolation")
+            logger.debug(
+                "  ✓ Arithmetic intensity reflects bilinear interpolation"
+            )
 
-        print(f"\n  -- Execution Cycles --")
-        print(f"  Compute cycles:   {compute_cycles:,}")
-        print(f"  Memory cycles:    {memory_cycles:,}")
-        print(f"    Read cycles:    {mem_rd_cycles:,}")
-        print(f"    Write cycles:   {mem_wr_cycles:,}")
-        print(f"  Ideal cycles:     {ideal_cycles:,}")
-        print(f"  Bottleneck:       {bottleneck}")
+        logger.debug("\n  -- Execution Cycles --")
+        logger.debug(f"  Compute cycles:   {compute_cycles:,}")
+        logger.debug(f"  Memory cycles:    {memory_cycles:,}")
+        logger.debug(f"    Read cycles:    {mem_rd_cycles:,}")
+        logger.debug(f"    Write cycles:   {mem_wr_cycles:,}")
+        logger.debug(f"  Ideal cycles:     {ideal_cycles:,}")
+        logger.debug(f"  Bottleneck:       {bottleneck}")
 
         # Validate: nearest should be memory-bound for large tensors
         if mode == "nearest" and output_elems > 5000:
             assert (
                 bottleneck == "MEMORY"
             ), f"Expected MEMORY bottleneck, got {bottleneck}"
-            print(f"  ✓ Memory-bound as expected (large nearest gridsample)")
+            logger.debug(
+                "  ✓ Memory-bound as expected (large nearest gridsample)"
+            )
 
         # Store results
         all_results.append(
@@ -895,51 +912,53 @@ def test_gridsample_memory_validation(capsys, request):
             }
         )
 
-        print(f"\n  ✓ Test PASSED")
+        logger.debug("\n  ✓ Test PASSED")
 
     # Summary
-    print(f"\n{'='*80}")
-    print("Memory Validation Summary")
-    print(f"{'='*80}\n")
-    print(f"Total tests: {len(all_results)}/{len(test_cases)} PASSED ✓")
+    logger.info("\n%s", "=" * 80)
+    logger.info("Memory Validation Summary")
+    logger.info("%s\n", "=" * 80)
+    logger.info(f"Total tests: {len(all_results)}/{len(test_cases)} PASSED ✓")
 
     # Arithmetic Intensity Comparison
-    print(f"\n-- Arithmetic Intensity Comparison --")
-    print(f"{'Test Name':<30s} {'Mode':<10s} {'Ops/Byte':<12s} {'Data Moved':<15s}")
-    print("-" * 70)
+    logger.info("\n-- Arithmetic Intensity Comparison --")
+    logger.info(
+        f"{'Test Name':<30s} {'Mode':<10s} {'Ops/Byte':<12s} {'Data Moved':<15s}"
+    )
+    logger.info("-" * 70)
     for result in all_results:
-        print(
+        logger.info(
             f"{result['test_name']:<30s} {result['mode']:<10s} {result['arithmetic_intensity']:<12.4f} {result['total_data_moved']/1024:>10.1f} KB"
         )
 
     # Grid vs Output Size
-    print(f"\n-- Grid-Guided Output Size --")
-    print(
+    logger.info("\n-- Grid-Guided Output Size --")
+    logger.info(
         f"{'Test Name':<30s} {'Input Shape':<20s} {'Grid Shape':<20s} {'Output Shape':<20s}"
     )
-    print("-" * 95)
+    logger.info("-" * 95)
     for result in all_results:
         input_str = "x".join(map(str, result["input_shape"]))
         grid_str = "x".join(map(str, result["grid_shape"]))
         output_str = "x".join(map(str, result["output_shape"]))
-        print(
+        logger.info(
             f"{result['test_name']:<30s} {input_str:<20s} {grid_str:<20s} {output_str:<20s}"
         )
 
     # Bottleneck Analysis
-    print(f"\n-- Bottleneck Analysis --")
-    print(
+    logger.info("\n-- Bottleneck Analysis --")
+    logger.info(
         f"{'Test Name':<30s} {'Mode':<10s} {'Bottleneck':<15s} {'Compute Cycles':<18s} {'Memory Cycles':<15s}"
     )
-    print("-" * 90)
+    logger.info("-" * 90)
     for result in all_results:
-        print(
+        logger.info(
             f"{result['test_name']:<30s} {result['mode']:<10s} {result['bottleneck']:<15s} {result['compute_cycles']:>15,} {result['memory_cycles']:>15,}"
         )
 
-    print(f"\n{'='*80}")
-    print("Memory validation complete!")
-    print(f"{'='*80}\n")
+    logger.info("\n%s", "=" * 80)
+    logger.info("Memory validation complete!")
+    logger.info("%s\n", "=" * 80)
 
     # Create pytest summary
     summary_lines = [
@@ -982,12 +1001,12 @@ def test_gridsample_memory_validation(capsys, request):
     except Exception:
         # Fallback: disable capture and print directly
         with capsys.disabled():
-            print("\n" + "=" * 70)
-            print("GRIDSAMPLE MEMORY VALIDATION RESULTS")
-            print("=" * 70)
+            logger.info("\n" + "=" * 70)
+            logger.info("GRIDSAMPLE MEMORY VALIDATION RESULTS")
+            logger.info("=" * 70)
             for line in summary_lines:
-                print(line)
-            print("=" * 70 + "\n")
+                logger.info(line)
+            logger.info("=" * 70 + "\n")
 
     # Final assertion
     assert len(all_results) == len(

@@ -235,14 +235,16 @@ def test_sign_precision():
             computed_output = compute_sign(i_tensors, op_obj)
             match = np.allclose(computed_output, expected_output, rtol=1e-7, atol=1e-7)
             if match:
-                print(f"PRECISION TEST[{tno}] {tmsg:{msgw}s} PASS")
+                logger.debug(f"PRECISION TEST[{tno}] {tmsg:{msgw}s} PASS")
             else:
-                print(f"\nPRECISION TEST[{tno}] {tmsg:{msgw}s} FAIL")
-                print(f"  Expected: {expected_output.flatten()}")
-                print(f"  Got:      {computed_output.flatten()}")
-                print(f"  Diff:     {(computed_output - expected_output).flatten()}")
+                logger.debug(f"\nPRECISION TEST[{tno}] {tmsg:{msgw}s} FAIL")
+                logger.debug(f"  Expected: {expected_output.flatten()}")
+                logger.debug(f"  Got:      {computed_output.flatten()}")
+                logger.debug(
+                    f"  Diff:     {(computed_output - expected_output).flatten()}"
+                )
         except Exception as e:
-            print(f"PRECISION TEST[{tno}] {tmsg:{msgw}s} ERROR: {e}")
+            logger.debug(f"PRECISION TEST[{tno}] {tmsg:{msgw}s} ERROR: {e}")
 
 
 def calculate_sign_memory_stats(shape):
@@ -314,14 +316,14 @@ def test_sign_memory_validation():
     ipgroups, packages = get_arspec_from_yaml(config_path)
     device = Device(packages["n150"])
 
-    print("\n" + "=" * 80)
-    print("SIGN MEMORY VALIDATION")
-    print("=" * 80)
-    print(f"Device: {device.devname}")
-    print(f"  Name: {device.name}")
-    print(f"  Frequency: {device.freq_MHz} MHz")
-    print(f"  Memory Frequency: {device.memfreq_MHz} MHz")
-    print("=" * 80)
+    logger.info("\n" + "=" * 80)
+    logger.info("SIGN MEMORY VALIDATION")
+    logger.info("=" * 80)
+    logger.info(f"Device: {device.devname}")
+    logger.info(f"  Name: {device.name}")
+    logger.info(f"  Frequency: {device.freq_MHz} MHz")
+    logger.info(f"  Memory Frequency: {device.memfreq_MHz} MHz")
+    logger.info("=" * 80)
 
     # Typical activation shapes [N, C, H, W]
     test_configs = [
@@ -340,21 +342,23 @@ def test_sign_memory_validation():
     for shape in test_configs:
         stats = calculate_sign_memory_stats(shape)
 
-        print(f"\nShape: {shape}")
-        print(f"  Memory: {stats['memory_mb']:.4f} MB")
-        print(f"  Operations: {stats['ops']}")
-        print(f"  Arithmetic Intensity: {stats['arithmetic_intensity']:.6f} ops/byte")
-        print(f"  Bottleneck: {stats['bottleneck']}")
+        logger.debug(f"\nShape: {shape}")
+        logger.debug(f"  Memory: {stats['memory_mb']:.4f} MB")
+        logger.debug(f"  Operations: {stats['ops']}")
+        logger.debug(
+            f"  Arithmetic Intensity: {stats['arithmetic_intensity']:.6f} ops/byte"
+        )
+        logger.debug(f"  Bottleneck: {stats['bottleneck']}")
 
         if stats["bottleneck"] == "memory-bound":
             memory_bound_count += 1
         else:
             compute_bound_count += 1
 
-    print("\n" + "=" * 80)
-    print("SUMMARY")
-    print("=" * 80)
-    print(f"Total configurations tested: {len(test_configs)}")
-    print(f"Memory-bound: {memory_bound_count}")
-    print(f"Compute-bound: {compute_bound_count}")
-    print("=" * 80)
+    logger.info("\n" + "=" * 80)
+    logger.info("SUMMARY")
+    logger.info("=" * 80)
+    logger.info(f"Total configurations tested: {len(test_configs)}")
+    logger.info(f"Memory-bound: {memory_bound_count}")
+    logger.info(f"Compute-bound: {compute_bound_count}")
+    logger.info("=" * 80)

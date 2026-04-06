@@ -16,6 +16,7 @@ import sys
 sys.path.append(os.getcwd())
 
 import numpy as np
+from loguru import logger
 from pathlib import Path
 
 from ttsim.ops.op import SimOp
@@ -194,10 +195,10 @@ def test_elementwise_max():
             )
             if not numerical_match:
                 max_diff = np.max(np.abs(computed_output - ref_output))
-                print(f"\n  Max difference: {max_diff}")
+                logger.debug(f"\n  Max difference: {max_diff}")
         except Exception as e:
             numerical_match = f"Error: {e}"
-            print(f"\n  Numerical validation error: {e}")
+            logger.debug(f"\n  Numerical validation error: {e}")
 
         # 3. Validate data propagated through op pipeline
         pipeline_match = True
@@ -214,12 +215,12 @@ def test_elementwise_max():
                 f"TEST[{tno:3d}] Max {tmsg:{msgw}s} PASS [Shape OK, Numerical OK, Pipeline OK]"
             )
         else:
-            print(f"\nTEST[{tno:3d}] Max {tmsg:{msgw}s} FAIL")
-            print(
+            logger.debug(f"\nTEST[{tno:3d}] Max {tmsg:{msgw}s} FAIL")
+            logger.debug(
                 f"  Shape match: {shape_match} (got {inf_shape}, expected {ref_shape})"
             )
-            print(f"  Numerical match: {numerical_match}")
-            print(f"  Pipeline match: {pipeline_match}")
+            logger.debug(f"  Numerical match: {numerical_match}")
+            logger.debug(f"  Pipeline match: {pipeline_match}")
             assert False, f"TEST[{tno:3d}] Max {tmsg} FAIL"
 
 
@@ -284,10 +285,10 @@ def test_elementwise_min():
             )
             if not numerical_match:
                 max_diff = np.max(np.abs(computed_output - ref_output))
-                print(f"\n  Max difference: {max_diff}")
+                logger.debug(f"\n  Max difference: {max_diff}")
         except Exception as e:
             numerical_match = f"Error: {e}"
-            print(f"\n  Numerical validation error: {e}")
+            logger.debug(f"\n  Numerical validation error: {e}")
 
         # 3. Validate data propagated through op pipeline
         pipeline_match = True
@@ -304,12 +305,12 @@ def test_elementwise_min():
                 f"TEST[{tno:3d}] Min {tmsg:{msgw}s} PASS [Shape OK, Numerical OK, Pipeline OK]"
             )
         else:
-            print(f"\nTEST[{tno:3d}] Min {tmsg:{msgw}s} FAIL")
-            print(
+            logger.debug(f"\nTEST[{tno:3d}] Min {tmsg:{msgw}s} FAIL")
+            logger.debug(
                 f"  Shape match: {shape_match} (got {inf_shape}, expected {ref_shape})"
             )
-            print(f"  Numerical match: {numerical_match}")
-            print(f"  Pipeline match: {pipeline_match}")
+            logger.debug(f"  Numerical match: {numerical_match}")
+            logger.debug(f"  Pipeline match: {pipeline_match}")
             assert False, f"TEST[{tno:3d}] Min {tmsg} FAIL"
 
 
@@ -339,7 +340,7 @@ def test_maximum_frontend_api():
     assert np.allclose(
         result.data, ref, rtol=1e-5, atol=1e-7
     ), f"Numerical mismatch: max diff = {np.max(np.abs(result.data - ref))}"
-    print("TEST F.Maximum front-end API PASS")
+    logger.debug("TEST F.Maximum front-end API PASS")
 
 
 @pytest.mark.unit
@@ -362,7 +363,7 @@ def test_minimum_frontend_api():
     assert np.allclose(
         result.data, ref, rtol=1e-5, atol=1e-7
     ), f"Numerical mismatch: max diff = {np.max(np.abs(result.data - ref))}"
-    print("TEST F.Minimum front-end API PASS")
+    logger.debug("TEST F.Minimum front-end API PASS")
 
 
 # ============================================================================
@@ -429,7 +430,7 @@ def test_clamp_pattern():
         result_max.data, expected_max
     ), f"Maximum clamp values wrong: {result_max.data}"
 
-    print("TEST clamp pattern PASS")
+    logger.debug("TEST clamp pattern PASS")
 
 
 # ============================================================================
@@ -449,7 +450,7 @@ def test_shape_only_max():
 
     assert list(result.shape) == [2, 3, 4], f"Shape mismatch: {result.shape}"
     assert result.data is None, "Expected no data for shape-only inputs"
-    print("TEST shape-only Max PASS")
+    logger.debug("TEST shape-only Max PASS")
 
 
 @pytest.mark.unit
@@ -464,7 +465,7 @@ def test_shape_only_min():
 
     assert list(result.shape) == [2, 3, 4], f"Shape mismatch: {result.shape}"
     assert result.data is None, "Expected no data for shape-only inputs"
-    print("TEST shape-only Min PASS")
+    logger.debug("TEST shape-only Min PASS")
 
 
 # ============================================================================
@@ -485,7 +486,7 @@ def test_mixed_data_shape_max():
 
     assert list(result.shape) == [3], f"Shape mismatch: {result.shape}"
     assert result.data is None, "Expected no data when one input is shape-only"
-    print("TEST mixed data/shape Max PASS")
+    logger.debug("TEST mixed data/shape Max PASS")
 
 
 # ============================================================================
@@ -512,9 +513,9 @@ def test_minmax_memory_validation(capsys, request):
     if not MEMORY_TEST_AVAILABLE:
         pytest.skip("Device config not available for memory estimation")
 
-    print("\n" + "=" * 80)
-    print("Element-wise Min/Max Operation Memory Validation")
-    print("=" * 80)
+    logger.info("\n" + "=" * 80)
+    logger.info("Element-wise Min/Max Operation Memory Validation")
+    logger.info("=" * 80)
 
     # Load device configuration once
     config_path = Path(polaris_root) / "config" / "tt_wh.yaml"
@@ -523,10 +524,11 @@ def test_minmax_memory_validation(capsys, request):
         device_pkg = packages["n150"]
         device = Device(device_pkg)
 
-        print(f"\nDevice: {device.devname} ({device.name})")
-        print(f"Frequency: {device.freq_MHz} MHz")
-        print(
-            f"Peak Bandwidth: {device.simconfig_obj.peak_bandwidth(freq_units='GHz'):.2f} GB/s"
+        logger.info(f"\nDevice: {device.devname} ({device.name})")
+        logger.info(f"Frequency: {device.freq_MHz} MHz")
+        logger.info(
+            "Peak Bandwidth: %.2f GB/s",
+            device.simconfig_obj.peak_bandwidth(freq_units="GHz"),
         )
     except Exception as e:
         pytest.skip(f"Could not load device config: {e}")
@@ -599,9 +601,9 @@ def test_minmax_memory_validation(capsys, request):
         },
     ]
 
-    print(f"\n{'='*80}")
-    print("Running Memory Validation Tests")
-    print(f"{'='*80}\n")
+    logger.info("\n%s", "=" * 80)
+    logger.info("Running Memory Validation Tests")
+    logger.info("%s\n", "=" * 80)
 
     all_results = []
 
@@ -612,10 +614,10 @@ def test_minmax_memory_validation(capsys, request):
         shape_B = test_case["shape_B"]
         data_type = test_case["data_type"]
 
-        print(f"\n-- Test: {test_name} --")
-        print(f"Description: {test_case['description']}")
-        print(f"Operation: {op_type}")
-        print(f"Shape A: {shape_A}, Shape B: {shape_B}")
+        logger.debug(f"\n-- Test: {test_name} --")
+        logger.debug(f"Description: {test_case['description']}")
+        logger.debug(f"Operation: {op_type}")
+        logger.debug(f"Shape A: {shape_A}, Shape B: {shape_B}")
 
         # Generate test data
         np.random.seed(42)
@@ -692,45 +694,47 @@ def test_minmax_memory_validation(capsys, request):
         # ==================================================================
         # Section 1: Instructions & Operations
         # ==================================================================
-        print(f"\n  ══ Section 1: Instructions & Operations ══")
+        logger.debug("\n  ══ Section 1: Instructions & Operations ══")
 
         total_instrs = sum(actual_instrs.values())
-        print(f"  Total instructions: {total_instrs:,}")
-        print(f"  Instruction types: {', '.join(actual_instrs.keys())}")
+        logger.debug(f"  Total instructions: {total_instrs:,}")
+        logger.debug(f"  Instruction types: {', '.join(actual_instrs.keys())}")
 
         # Min/Max use CMP (comparison) instruction
         cmp_count = actual_instrs.get("cmp", 0)
         mov_count = actual_instrs.get("mov", 0)
 
         if cmp_count > 0:
-            print(f"  Compare operations: {cmp_count:,}")
+            logger.debug(f"  Compare operations: {cmp_count:,}")
         if mov_count > 0:
-            print(f"  Move operations:    {mov_count:,}")
+            logger.debug(f"  Move operations:    {mov_count:,}")
 
-        print(f"\n  Input A elements: {input_A_elems:,}")
-        print(f"  Input B elements: {input_B_elems:,}")
-        print(f"  Output elements:  {output_elems:,}")
-        print(
+        logger.debug(f"\n  Input A elements: {input_A_elems:,}")
+        logger.debug(f"  Input B elements: {input_B_elems:,}")
+        logger.debug(f"  Output elements:  {output_elems:,}")
+        logger.debug(
             f"  Expected ops:     ~{output_elems:,} (1 comparison per output element)"
         )
 
         # ==================================================================
         # Section 2: Data Movement
         # ==================================================================
-        print(f"\n  ══ Section 2: Data Movement ══")
+        logger.debug("\n  ══ Section 2: Data Movement ══")
 
-        print(f"  Input bytes:     {actual_in_bytes:,} ({actual_in_bytes/1024:.2f} KB)")
-        print(
+        logger.debug(
+            f"  Input bytes:     {actual_in_bytes:,} ({actual_in_bytes/1024:.2f} KB)"
+        )
+        logger.debug(
             f"  Output bytes:    {actual_out_bytes:,} ({actual_out_bytes/1024:.2f} KB)"
         )
         total_data_movement = actual_in_bytes + actual_out_bytes
-        print(
+        logger.debug(
             f"  Total data:      {total_data_movement:,} ({total_data_movement/1024:.2f} KB)"
         )
 
         # Broadcast amplification factor
         if shape_A != shape_B:
-            print(
+            logger.debug(
                 f"\n  Broadcasting: Shape {shape_A} + Shape {shape_B} → {list(output_shape)}"
             )
 
@@ -745,19 +749,19 @@ def test_minmax_memory_validation(capsys, request):
             actual_out_bytes == expected_out_bytes
         ), f"Output bytes mismatch: {actual_out_bytes} vs {expected_out_bytes}"
 
-        print(f"  ✓ Data movement validation passed")
+        logger.debug("  ✓ Data movement validation passed")
 
         # ==================================================================
         # Section 3: Arithmetic Intensity & Bottleneck
         # ==================================================================
-        print(f"\n  ══ Section 3: Arithmetic Intensity & Bottleneck ══")
+        logger.debug("\n  ══ Section 3: Arithmetic Intensity & Bottleneck ══")
 
         arithmetic_intensity = (
             total_instrs / total_data_movement if total_data_movement > 0 else 0
         )
-        print(f"  Arithmetic intensity: {arithmetic_intensity:.4f} ops/byte")
-        print(f"  Operations: {total_instrs:,}")
-        print(f"  Data moved: {total_data_movement:,} bytes")
+        logger.debug(f"  Arithmetic intensity: {arithmetic_intensity:.4f} ops/byte")
+        logger.debug(f"  Operations: {total_instrs:,}")
+        logger.debug(f"  Data moved: {total_data_movement:,} bytes")
 
         # Calculate execution cycles
         compute_cycles = op_obj.compute_cycles
@@ -767,58 +771,60 @@ def test_minmax_memory_validation(capsys, request):
         total_cycles = max(compute_cycles, memory_cycles)
         bottleneck = "COMPUTE" if compute_cycles >= memory_cycles else "MEMORY"
 
-        print(f"\n  Compute cycles:  {compute_cycles:,}")
-        print(f"  Memory cycles:   {memory_cycles:,}")
-        print(f"    Read cycles:   {mem_rd_cycles:,}")
-        print(f"    Write cycles:  {mem_wr_cycles:,}")
-        print(f"  Ideal cycles:    {total_cycles:,}")
-        print(f"  Bottleneck:      {bottleneck}")
+        logger.debug(f"\n  Compute cycles:  {compute_cycles:,}")
+        logger.debug(f"  Memory cycles:   {memory_cycles:,}")
+        logger.debug(f"    Read cycles:   {mem_rd_cycles:,}")
+        logger.debug(f"    Write cycles:  {mem_wr_cycles:,}")
+        logger.debug(f"  Ideal cycles:    {total_cycles:,}")
+        logger.debug(f"  Bottleneck:      {bottleneck}")
 
         # Element-wise operations are typically memory-bound
-        print(f"  ✓ Bottleneck: {bottleneck} (element-wise operations)")
+        logger.debug(f"  ✓ Bottleneck: {bottleneck} (element-wise operations)")
 
         # ==================================================================
         # Section 4: Min/Max-Specific Metrics
         # ==================================================================
-        print(f"\n  ══ Section 4: {op_type}-Specific Metrics ══")
+        logger.debug(f"\n  ══ Section 4: {op_type}-Specific Metrics ══")
 
-        print(f"  Operation type:  Element-wise {op_type}")
-        print(
+        logger.debug(f"  Operation type:  Element-wise {op_type}")
+        logger.debug(
             f"  Comparison:      Per-element {'maximum' if op_type == 'Max' else 'minimum'} selection"
         )
-        print(f"  Broadcasting:    {'Yes' if shape_A != shape_B else 'No'}")
+        logger.debug(f"  Broadcasting:    {'Yes' if shape_A != shape_B else 'No'}")
         if shape_A != shape_B:
-            print(f"  Broadcast from:  {shape_A} + {shape_B}")
-            print(f"  Broadcast to:    {list(output_shape)}")
+            logger.debug(f"  Broadcast from:  {shape_A} + {shape_B}")
+            logger.debug(f"  Broadcast to:    {list(output_shape)}")
 
         # ==================================================================
         # Memory Estimation
         # ==================================================================
-        print(f"\n  ══ Memory Estimation ══")
+        logger.debug("\n  ══ Memory Estimation ══")
 
         input_A_memory = input_A_elems * bytes_per_element
         input_B_memory = input_B_elems * bytes_per_element
         output_memory = output_elems * bytes_per_element
 
-        print(
+        logger.debug(
             f"  Input A tensor:  {input_A_memory:,} bytes ({input_A_memory/1024:.2f} KB)"
         )
-        print(
+        logger.debug(
             f"  Input B tensor:  {input_B_memory:,} bytes ({input_B_memory/1024:.2f} KB)"
         )
-        print(
+        logger.debug(
             f"  Output tensor:   {output_memory:,} bytes ({output_memory/1024:.2f} KB)"
         )
 
         peak_memory = input_A_memory + input_B_memory + output_memory
-        print(f"\n  Peak memory:     {peak_memory:,} bytes ({peak_memory/1024:.2f} KB)")
+        logger.debug(
+            f"\n  Peak memory:     {peak_memory:,} bytes ({peak_memory/1024:.2f} KB)"
+        )
 
         # Validate memory estimation
         assert (
             peak_memory == total_data_movement
         ), f"Peak memory should equal total data movement: {peak_memory} vs {total_data_movement}"
 
-        print(f"  ✓ Memory estimation validated")
+        logger.debug("  ✓ Memory estimation validated")
 
         # Store results for summary
         all_results.append(
@@ -836,63 +842,69 @@ def test_minmax_memory_validation(capsys, request):
             }
         )
 
-        print(f"\n  ✓ Test PASSED")
+        logger.debug("\n  ✓ Test PASSED")
 
     # ==================================================================
     # Summary
     # ==================================================================
-    print(f"\n{'='*80}")
-    print("Memory Validation Summary")
-    print(f"{'='*80}\n")
-    print(f"Total tests run: {len(all_results)}")
-    print(f"All tests passed: ✓")
+    logger.info("\n%s", "=" * 80)
+    logger.info("Memory Validation Summary")
+    logger.info("%s\n", "=" * 80)
+    logger.info(f"Total tests run: {len(all_results)}")
+    logger.info("All tests passed: ✓")
 
     # Summary Table 1: Arithmetic Intensity Comparison
-    print(f"\n-- Arithmetic Intensity Comparison --")
-    print(
+    logger.info("\n-- Arithmetic Intensity Comparison --")
+    logger.info(
         f"{'Test Name':<30} {'Op':>5} {'Ops/Byte':>12} {'Total Ops':>15} {'Data Moved':>15}"
     )
-    print("-" * 80)
+    logger.info("-" * 80)
     for result in all_results:
-        print(
+        logger.info(
             f"{result['test_name']:<30} {result['op_type']:>5} {result['arithmetic_intensity']:>12.4f} "
             f"{result['total_instrs']:>15,} {result['total_data_moved']:>15,}"
         )
 
     # Summary Table 2: Shape Analysis
-    print(f"\n-- Shape Analysis --")
-    print(f"{'Test Name':<30} {'Op':>5} {'Shape A':>15} {'Shape B':>15} {'Output':>15}")
-    print("-" * 83)
+    logger.info("\n-- Shape Analysis --")
+    logger.info(
+        f"{'Test Name':<30} {'Op':>5} {'Shape A':>15} {'Shape B':>15} {'Output':>15}"
+    )
+    logger.info("-" * 83)
     for result in all_results:
         shape_A_str = "x".join(map(str, result["shape_A"]))
         shape_B_str = "x".join(map(str, result["shape_B"]))
         output_str = "x".join(map(str, result["output_shape"]))
-        print(
+        logger.info(
             f"{result['test_name']:<30} {result['op_type']:>5} {shape_A_str:>15} {shape_B_str:>15} {output_str:>15}"
         )
 
     # Summary Table 3: Bottleneck Analysis
-    print(f"\n-- Bottleneck Analysis --")
-    print(f"{'Test Name':<30} {'Op':>5} {'Bottleneck':>15} {'AI (ops/byte)':>18}")
-    print("-" * 72)
+    logger.info("\n-- Bottleneck Analysis --")
+    logger.info(
+        f"{'Test Name':<30} {'Op':>5} {'Bottleneck':>15} {'AI (ops/byte)':>18}"
+    )
+    logger.info("-" * 72)
     for result in all_results:
         bottleneck = result["bottleneck"]
         ai = result["arithmetic_intensity"]
-        print(
+        logger.info(
             f"{result['test_name']:<30} {result['op_type']:>5} {bottleneck:>15} {ai:>18.4f}"
         )
 
     # Summary Table 4: Memory Footprint
-    print(f"\n-- Memory Footprint Analysis --")
-    print(f"{'Test Name':<30} {'Op':>5} {'Peak Memory (KB)':>20}")
-    print("-" * 60)
+    logger.info("\n-- Memory Footprint Analysis --")
+    logger.info(f"{'Test Name':<30} {'Op':>5} {'Peak Memory (KB)':>20}")
+    logger.info("-" * 60)
     for result in all_results:
         peak_kb = result["peak_memory"] / 1024
-        print(f"{result['test_name']:<30} {result['op_type']:>5} {peak_kb:>20.2f}")
+        logger.info(
+            f"{result['test_name']:<30} {result['op_type']:>5} {peak_kb:>20.2f}"
+        )
 
-    print(f"\n{'='*80}")
-    print("Memory validation complete!")
-    print(f"{'='*80}\n")
+    logger.info("\n%s", "=" * 80)
+    logger.info("Memory validation complete!")
+    logger.info("%s\n", "=" * 80)
 
     # Create summary for pytest output
     summary_lines = [
@@ -940,12 +952,12 @@ def test_minmax_memory_validation(capsys, request):
             terminalreporter.write_sep("=", "", bold=True)
     except Exception:
         with capsys.disabled():
-            print("\n" + "=" * 80)
-            print("MIN/MAX MEMORY VALIDATION RESULTS")
-            print("=" * 80)
+            logger.info("\n" + "=" * 80)
+            logger.info("MIN/MAX MEMORY VALIDATION RESULTS")
+            logger.info("=" * 80)
             for line in summary_lines:
-                print(line)
-            print("=" * 80 + "\n")
+                logger.info(line)
+            logger.info("=" * 80 + "\n")
 
     # Final assertion
     assert len(all_results) == len(
@@ -958,14 +970,14 @@ def test_minmax_memory_validation(capsys, request):
 # ============================================================================
 
 if __name__ == "__main__":
-    print("=" * 70)
-    print("Element-wise Min/Max Unit Tests")
-    print("=" * 70)
+    logger.info("=" * 70)
+    logger.info("Element-wise Min/Max Unit Tests")
+    logger.info("=" * 70)
 
     test_elementwise_max()
-    print()
+    logger.info("")
     test_elementwise_min()
-    print()
+    logger.info("")
     test_maximum_frontend_api()
     test_minimum_frontend_api()
     test_clamp_pattern()
@@ -973,6 +985,6 @@ if __name__ == "__main__":
     test_shape_only_min()
     test_mixed_data_shape_max()
 
-    print("\n" + "=" * 70)
-    print("All tests passed!")
-    print("=" * 70)
+    logger.info("\n" + "=" * 70)
+    logger.info("All tests passed!")
+    logger.info("=" * 70)

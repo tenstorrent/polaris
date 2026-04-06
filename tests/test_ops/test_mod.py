@@ -4,6 +4,7 @@
 import sys, os, logging
 import pytest
 import numpy as np
+from loguru import logger
 from ttsim.ops.op import SimOp
 from ttsim.ops.tensor import make_tensor, SimTensor
 import ttsim.front.functional.op as F
@@ -149,24 +150,27 @@ def test_mod_numerical():
 
             if not numerical_match:
                 max_diff = np.max(np.abs(computed_output - ref_output))
-                print(f"\n  Max difference: {max_diff}")
+                logger.debug(f"\n  Max difference: {max_diff}")
         except Exception as e:
             numerical_match = f"Error: {e}"
-            print(f"\n  Numerical validation error: {e}")
+            logger.debug(f"\n  Numerical validation error: {e}")
 
         # Report results
         if shape_match and numerical_match == True:
-            print(f"TEST[{tno:3d}] {tmsg:{msgw}s} PASS [Shape ✓, Numerical ✓]")
+            logger.debug(
+                f"TEST[{tno:3d}] {tmsg:{msgw}s} PASS [Shape ✓, Numerical ✓]"
+            )
         elif shape_match:
-            print(
+            logger.debug(
                 f"TEST[{tno:3d}] {tmsg:{msgw}s} PARTIAL [Shape ✓, Numerical: {numerical_match}]"
             )
         else:
-            print(f"\nTEST[{tno:3d}] {tmsg:{msgw}s} FAIL")
-            print(
-                f"  Shape match: {shape_match} (got {inf_shape}, expected {ref_shape})"
+            logger.debug(f"\nTEST[{tno:3d}] {tmsg:{msgw}s} FAIL")
+            logger.debug(
+                "  Shape match: "
+                f"{shape_match} (got {inf_shape}, expected {ref_shape})"
             )
-            print(f"  Numerical match: {numerical_match}")
+            logger.debug(f"  Numerical match: {numerical_match}")
 
 
 # Precision test cases with known outputs
@@ -244,14 +248,16 @@ def test_mod_precision():
             computed_output = compute_mod(i_tensors, op_obj)
             match = np.allclose(computed_output, expected_output, rtol=1e-5, atol=1e-6)
             if match:
-                print(f"PRECISION TEST[{tno}] {tmsg:{msgw}s} PASS")
+                logger.debug(f"PRECISION TEST[{tno}] {tmsg:{msgw}s} PASS")
             else:
-                print(f"\nPRECISION TEST[{tno}] {tmsg:{msgw}s} FAIL")
-                print(f"  Expected: {expected_output.flatten()}")
-                print(f"  Got:      {computed_output.flatten()}")
-                print(f"  Diff:     {(computed_output - expected_output).flatten()}")
+                logger.debug(f"\nPRECISION TEST[{tno}] {tmsg:{msgw}s} FAIL")
+                logger.debug(f"  Expected: {expected_output.flatten()}")
+                logger.debug(f"  Got:      {computed_output.flatten()}")
+                logger.debug(
+                    f"  Diff:     {(computed_output - expected_output).flatten()}"
+                )
         except Exception as e:
-            print(f"PRECISION TEST[{tno}] {tmsg:{msgw}s} ERROR: {e}")
+            logger.debug(f"PRECISION TEST[{tno}] {tmsg:{msgw}s} ERROR: {e}")
 
 
 # Edge cases
@@ -355,13 +361,15 @@ def test_mod_edge_cases():
             # (except edge cases with negative numbers in fmod)
 
             if match:
-                print(f"EDGE TEST[{tno}] {tmsg:{msgw}s} PASS - {description}")
+                logger.debug(f"EDGE TEST[{tno}] {tmsg:{msgw}s} PASS - {description}")
             else:
-                print(f"\nEDGE TEST[{tno}] {tmsg:{msgw}s} FAIL")
-                print(f"  {description}")
-                print(f"  Max diff: {np.max(np.abs(computed_output - ref_output))}")
+                logger.debug(f"\nEDGE TEST[{tno}] {tmsg:{msgw}s} FAIL")
+                logger.debug(f"  {description}")
+                logger.debug(
+                    f"  Max diff: {np.max(np.abs(computed_output - ref_output))}"
+                )
         except Exception as e:
-            print(f"EDGE TEST[{tno}] {tmsg:{msgw}s} ERROR: {e}")
+            logger.debug(f"EDGE TEST[{tno}] {tmsg:{msgw}s} ERROR: {e}")
 
 
 def calculate_mod_memory_stats(shape_a, shape_b):
@@ -436,14 +444,14 @@ def test_mod_memory_validation():
     ipgroups, packages = get_arspec_from_yaml(config_path)
     device = Device(packages["n150"])
 
-    print("\n" + "=" * 80)
-    print("MOD MEMORY VALIDATION")
-    print("=" * 80)
-    print(f"Device: {device.devname}")
-    print(f"  Name: {device.name}")
-    print(f"  Frequency: {device.freq_MHz} MHz")
-    print(f"  Memory Frequency: {device.memfreq_MHz} MHz")
-    print("=" * 80)
+    logger.info("\n" + "=" * 80)
+    logger.info("MOD MEMORY VALIDATION")
+    logger.info("=" * 80)
+    logger.info(f"Device: {device.devname}")
+    logger.info(f"  Name: {device.name}")
+    logger.info(f"  Frequency: {device.freq_MHz} MHz")
+    logger.info(f"  Memory Frequency: {device.memfreq_MHz} MHz")
+    logger.info("=" * 80)
 
     # (shape_a, shape_b) — elementwise so typically same shapes
     test_configs = [
@@ -462,21 +470,23 @@ def test_mod_memory_validation():
     for shape_a, shape_b in test_configs:
         stats = calculate_mod_memory_stats(shape_a, shape_b)
 
-        print(f"\nShape A: {shape_a}, Shape B: {shape_b}")
-        print(f"  Memory: {stats['memory_mb']:.4f} MB")
-        print(f"  Operations: {stats['ops']}")
-        print(f"  Arithmetic Intensity: {stats['arithmetic_intensity']:.6f} ops/byte")
-        print(f"  Bottleneck: {stats['bottleneck']}")
+        logger.debug(f"\nShape A: {shape_a}, Shape B: {shape_b}")
+        logger.debug(f"  Memory: {stats['memory_mb']:.4f} MB")
+        logger.debug(f"  Operations: {stats['ops']}")
+        logger.debug(
+            f"  Arithmetic Intensity: {stats['arithmetic_intensity']:.6f} ops/byte"
+        )
+        logger.debug(f"  Bottleneck: {stats['bottleneck']}")
 
         if stats["bottleneck"] == "memory-bound":
             memory_bound_count += 1
         else:
             compute_bound_count += 1
 
-    print("\n" + "=" * 80)
-    print("SUMMARY")
-    print("=" * 80)
-    print(f"Total configurations tested: {len(test_configs)}")
-    print(f"Memory-bound: {memory_bound_count}")
-    print(f"Compute-bound: {compute_bound_count}")
-    print("=" * 80)
+    logger.info("\n" + "=" * 80)
+    logger.info("SUMMARY")
+    logger.info("=" * 80)
+    logger.info(f"Total configurations tested: {len(test_configs)}")
+    logger.info(f"Memory-bound: {memory_bound_count}")
+    logger.info(f"Compute-bound: {compute_bound_count}")
+    logger.info("=" * 80)

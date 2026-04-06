@@ -7,6 +7,7 @@ import sys
 import logging
 
 import numpy as np
+from loguru import logger
 from ttsim.ops.op import SimOp
 from ttsim.ops.tensor import make_tensor, SimTensor
 import ttsim.front.functional.op as F
@@ -151,28 +152,28 @@ def test_atan():
             )
             if not all_in_range:
                 numerical_match = False
-                print(f"\n  Output not in range (-π/2, π/2)")
+                logger.debug("\n  Output not in range (-π/2, π/2)")
 
             if not numerical_match:
                 max_diff = np.max(np.abs(computed_output - ref_output))
-                print(f"\n  Max difference: {max_diff}")
+                logger.debug(f"\n  Max difference: {max_diff}")
         except Exception as e:
             numerical_match = f"Error: {e}"
-            print(f"\n  Numerical validation error: {e}")
+            logger.debug(f"\n  Numerical validation error: {e}")
 
         # Report results
         if shape_match and numerical_match == True:
-            print(f"TEST[{tno:3d}] {tmsg:{msgw}s} PASS [Shape ✓, Numerical ✓]")
+            logger.debug(f"TEST[{tno:3d}] {tmsg:{msgw}s} PASS [Shape ✓, Numerical ✓]")
         elif shape_match:
-            print(
+            logger.debug(
                 f"TEST[{tno:3d}] {tmsg:{msgw}s} PARTIAL [Shape ✓, Numerical: {numerical_match}]"
             )
         else:
-            print(f"\nTEST[{tno:3d}] {tmsg:{msgw}s} FAIL")
-            print(
+            logger.debug(f"\nTEST[{tno:3d}] {tmsg:{msgw}s} FAIL")
+            logger.debug(
                 f"  Shape match: {shape_match} (got {inf_shape}, expected {ref_shape})"
             )
-            print(f"  Numerical match: {numerical_match}")
+            logger.debug(f"  Numerical match: {numerical_match}")
 
 
 # Precision test cases with known outputs
@@ -239,14 +240,16 @@ def test_atan_precision():
             computed_output = compute_atan(i_tensors, op_obj)
             match = np.allclose(computed_output, expected_output, rtol=1e-5, atol=1e-6)
             if match:
-                print(f"PRECISION TEST[{tno}] {tmsg:{msgw}s} PASS")
+                logger.debug(f"PRECISION TEST[{tno}] {tmsg:{msgw}s} PASS")
             else:
-                print(f"\nPRECISION TEST[{tno}] {tmsg:{msgw}s} FAIL")
-                print(f"  Expected: {expected_output.flatten()}")
-                print(f"  Got:      {computed_output.flatten()}")
-                print(f"  Diff:     {(computed_output - expected_output).flatten()}")
+                logger.debug(f"\nPRECISION TEST[{tno}] {tmsg:{msgw}s} FAIL")
+                logger.debug(f"  Expected: {expected_output.flatten()}")
+                logger.debug(f"  Got:      {computed_output.flatten()}")
+                logger.debug(
+                    f"  Diff:     {(computed_output - expected_output).flatten()}"
+                )
         except Exception as e:
-            print(f"PRECISION TEST[{tno}] {tmsg:{msgw}s} ERROR: {e}")
+            logger.debug(f"PRECISION TEST[{tno}] {tmsg:{msgw}s} ERROR: {e}")
 
 
 def calculate_atan_memory_stats(op, device, input_shape, precision="fp16"):
@@ -396,9 +399,9 @@ def test_atan_memory_validation(capsys, request):
     Run with: pytest tests/test_ops/test_atan.py::test_atan_memory_validation -v
     For detailed output: add -s flag
     """
-    print("\n" + "=" * 60)
-    print("Atan Operation Memory Validation")
-    print("=" * 60)
+    logger.info("\n" + "=" * 60)
+    logger.info("Atan Operation Memory Validation")
+    logger.info("=" * 60)
 
     # Load device configuration
     config_path = os.path.join(polaris_root, "config", "tt_wh.yaml")
@@ -407,15 +410,15 @@ def test_atan_memory_validation(capsys, request):
         device_pkg = packages["n150"]  # Use Wormhole n150 device
         device = Device(device_pkg)
 
-        print(f"\nDevice: {device.devname} ({device.name})")
-        print(f"Device frequency: {device.freq_MHz} MHz")
-        print(f"Memory frequency: {device.memfreq_MHz} MHz")
-        print(
+        logger.info(f"\nDevice: {device.devname} ({device.name})")
+        logger.info(f"Device frequency: {device.freq_MHz} MHz")
+        logger.info(f"Memory frequency: {device.memfreq_MHz} MHz")
+        logger.info(
             f"Peak bandwidth: {device.simconfig_obj.peak_bandwidth(freq_units='GHz'):.2f} GB/s"
         )
     except Exception as e:
-        print(f"\nWarning: Could not load device config: {e}")
-        print("Skipping memory validation test")
+        logger.info(f"\nWarning: Could not load device config: {e}")
+        logger.info("Skipping memory validation test")
         pytest.skip(f"Could not load device config: {e}")
         return
 
@@ -450,16 +453,16 @@ def test_atan_memory_validation(capsys, request):
         },
     ]
 
-    print(f"\n{'='*60}")
-    print("Running Memory Validation Tests")
-    print(f"{'='*60}\n")
+    logger.info(f"\n{'='*60}")
+    logger.info("Running Memory Validation Tests")
+    logger.info(f"{'='*60}\n")
 
     all_results = []
 
     for test_case in test_cases:
-        print(f"\n-- Test: {test_case['name']} --")
-        print(f"Description: {test_case['description']}")
-        print(f"Shape: {test_case['shape']}")
+        logger.info(f"\n-- Test: {test_case['name']} --")
+        logger.debug(f"Description: {test_case['description']}")
+        logger.debug(f"Shape: {test_case['shape']}")
 
         # Create input tensor with fp16 precision to match operation precision
         input_tensor = SimTensor(
@@ -497,10 +500,12 @@ def test_atan_memory_validation(capsys, request):
             # Validate metrics
             output_elems = np.prod(test_case["shape"])
 
-            print(f"\n  -- Instructions & Operations --")
-            print(f"  Instructions executed: {mem_stats['instructions_executed']:,}")
-            print(f"  Output elements:       {output_elems:,}")
-            print(
+            logger.debug("\n  -- Instructions & Operations --")
+            logger.debug(
+                f"  Instructions executed: {mem_stats['instructions_executed']:,}"
+            )
+            logger.debug(f"  Output elements:       {output_elems:,}")
+            logger.debug(
                 f"  Expected instructions: ~{output_elems:,} (1 atan per output element)"
             )
 
@@ -514,21 +519,21 @@ def test_atan_memory_validation(capsys, request):
             assert (
                 0.8 <= instruction_ratio <= 1.5
             ), f"Instruction count mismatch: {mem_stats['instructions_executed']} vs expected ~{output_elems}"
-            print(
+            logger.debug(
                 f"  Instruction ratio:     {instruction_ratio:.2f} (✓ within expected range)"
             )
 
-            print(f"\n  -- Data Movement --")
-            print(
+            logger.debug("\n  -- Data Movement --")
+            logger.debug(
                 f"  Input bytes:      {mem_stats['input_bytes']:,} bytes ({mem_stats['input_bytes']/1024:.2f} KB)"
             )
-            print(
+            logger.debug(
                 f"  Input total:      {mem_stats['input_bytes_total']:,} bytes ({mem_stats['input_bytes_total']/1024:.2f} KB)"
             )
-            print(
+            logger.debug(
                 f"  Output bytes:     {mem_stats['output_bytes']:,} bytes ({mem_stats['output_bytes']/1024:.2f} KB)"
             )
-            print(
+            logger.debug(
                 f"  Total data moved: {mem_stats['total_data_moved']:,} bytes ({mem_stats['total_data_moved']/1024:.2f} KB)"
             )
 
@@ -542,35 +547,41 @@ def test_atan_memory_validation(capsys, request):
                 < expected_output_bytes * 0.1
             ), f"Output bytes mismatch: {mem_stats['output_bytes']} vs expected {expected_output_bytes}"
 
-            print(
+            logger.debug(
                 f"  Expected output:  {expected_output_bytes:,} bytes (✓ matches fp16 precision)"
             )
 
-            print(f"\n  -- Memory Metrics --")
-            print(
+            logger.debug("\n  -- Memory Metrics --")
+            logger.debug(
                 f"  Arithmetic intensity:  {mem_stats['arithmetic_intensity']:.4f} ops/byte"
             )
-            print(f"  Read/Write ratio:      {mem_stats['read_write_ratio']:.2f}")
-            print(f"  Bytes per cycle:       {mem_stats['bytes_per_cycle']:.2f}")
+            logger.debug(
+                f"  Read/Write ratio:      {mem_stats['read_write_ratio']:.2f}"
+            )
+            logger.debug(
+                f"  Bytes per cycle:       {mem_stats['bytes_per_cycle']:.2f}"
+            )
 
             # For unary atan, arithmetic intensity should be low (memory-bound)
             # Typically < 1.0 ops/byte for simple operations
             assert (
                 mem_stats["arithmetic_intensity"] < 1.0
             ), f"Arithmetic intensity too high for memory-bound op: {mem_stats['arithmetic_intensity']}"
-            print(f"  ✓ Low arithmetic intensity confirms memory-bound operation")
+            logger.debug(
+                "  ✓ Low arithmetic intensity confirms memory-bound operation"
+            )
 
-            print(f"\n  -- Execution Cycles --")
-            print(f"  Compute cycles:   {mem_stats['compute_cycles']:,}")
-            print(f"  Memory cycles:    {mem_stats['memory_cycles']:,}")
-            print(f"    Read cycles:    {mem_stats['mem_rd_cycles']:,}")
-            print(f"    Write cycles:   {mem_stats['mem_wr_cycles']:,}")
-            print(f"  Ideal cycles:     {mem_stats['ideal_cycles']:,}")
-            print(f"  Bottleneck:       {mem_stats['bottleneck']}")
+            logger.debug("\n  -- Execution Cycles --")
+            logger.debug(f"  Compute cycles:   {mem_stats['compute_cycles']:,}")
+            logger.debug(f"  Memory cycles:    {mem_stats['memory_cycles']:,}")
+            logger.debug(f"    Read cycles:    {mem_stats['mem_rd_cycles']:,}")
+            logger.debug(f"    Write cycles:   {mem_stats['mem_wr_cycles']:,}")
+            logger.debug(f"  Ideal cycles:     {mem_stats['ideal_cycles']:,}")
+            logger.debug(f"  Bottleneck:       {mem_stats['bottleneck']}")
 
             # Note: Atan is more compute-intensive than simple arithmetic operations
             # For larger tensors, it may be COMPUTE-bound due to transcendental function complexity
-            print(
+            logger.debug(
                 f"  ✓ Bottleneck identified ({'COMPUTE' if mem_stats['bottleneck'] == 'COMPUTE' else 'MEMORY'}-bound operation)"
             )
 
@@ -583,32 +594,32 @@ def test_atan_memory_validation(capsys, request):
                 }
             )
 
-            print(f"\n  ✓ Test PASSED")
+            logger.debug("\n  ✓ Test PASSED")
         else:
-            print(f"\n  ✗ Test FAILED: Could not calculate memory stats")
+            logger.info("\n  ✗ Test FAILED: Could not calculate memory stats")
             assert False, "Failed to calculate memory stats"
 
     # Summary
-    print(f"\n{'='*60}")
-    print("Memory Validation Summary")
-    print(f"{'='*60}\n")
-    print(f"Total tests run: {len(all_results)}")
-    print(f"All tests passed: ✓")
+    logger.info(f"\n{'='*60}")
+    logger.info("Memory Validation Summary")
+    logger.info(f"{'='*60}\n")
+    logger.info(f"Total tests run: {len(all_results)}")
+    logger.info("All tests passed: ✓")
 
     # Compare arithmetic intensity across tests
-    print(f"\n-- Arithmetic Intensity Comparison --")
+    logger.info("\n-- Arithmetic Intensity Comparison --")
     for result in all_results:
         ai = result["stats"]["arithmetic_intensity"]
-        print(f"{result['test_name']:30s}: {ai:.4f} ops/byte")
+        logger.debug(f"{result['test_name']:30s}: {ai:.4f} ops/byte")
 
-    print(f"\n-- Bottleneck Analysis --")
+    logger.info("\n-- Bottleneck Analysis --")
     for result in all_results:
         bottleneck = result["stats"]["bottleneck"]
-        print(f"{result['test_name']:30s}: {bottleneck}")
+        logger.debug(f"{result['test_name']:30s}: {bottleneck}")
 
-    print(f"\n{'='*60}")
-    print("Memory validation complete!")
-    print(f"{'='*60}\n")
+    logger.info(f"\n{'='*60}")
+    logger.info("Memory validation complete!")
+    logger.info(f"{'='*60}\n")
 
     # Create a summary that will be displayed in pytest output (even without -s flag)
     summary_lines = [
@@ -657,12 +668,12 @@ def test_atan_memory_validation(capsys, request):
     except Exception:
         # Fallback: disable capture and print directly
         with capsys.disabled():
-            print("\n" + "=" * 70)
-            print("MEMORY VALIDATION RESULTS")
-            print("=" * 70)
+            logger.info("\n" + "=" * 70)
+            logger.info("MEMORY VALIDATION RESULTS")
+            logger.info("=" * 70)
             for line in summary_lines:
-                print(line)
-            print("=" * 70 + "\n")
+                logger.info(line)
+            logger.info("=" * 70 + "\n")
 
     # Final assertion
     assert len(all_results) == len(

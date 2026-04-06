@@ -4,6 +4,7 @@
 import pytest
 
 import numpy as np
+from loguru import logger
 from ttsim.ops.op import SimOp
 from ttsim.ops.tensor import make_tensor
 import ttsim.front.functional.op as F
@@ -110,7 +111,7 @@ def test_tile():
             err_msg=f"[{tmsg}] numerical mismatch",
         )
 
-        print(f"  {tmsg:<{msgw}} -- OK")
+        logger.debug(f"  {tmsg:<{msgw}} -- OK")
 
 
 # --------------------------------------------------------------------------
@@ -150,7 +151,7 @@ def test_tile_edge_cases():
             computed, expected, rtol=1e-5, atol=1e-7, err_msg=f"[{tmsg}] mismatch"
         )
 
-        print(f"  {tmsg:<{msgw}} -- OK")
+        logger.debug(f"  {tmsg:<{msgw}} -- OK")
 
 
 # --------------------------------------------------------------------------
@@ -241,7 +242,7 @@ def test_tile_precision():
             err_msg=f"[{tmsg}] precision mismatch",
         )
 
-        print(f"  {tmsg:<{msgw}} -- OK")
+        logger.debug(f"  {tmsg:<{msgw}} -- OK")
 
 
 # --------------------------------------------------------------------------
@@ -270,7 +271,7 @@ def test_tile_output_shape():
             o_tensors[0].shape == expected_shape
         ), f"Shape {o_tensors[0].shape} != expected {expected_shape}"
 
-    print("  Output shape = input * repeats -- OK")
+    logger.debug("  Output shape = input * repeats -- OK")
 
 
 @pytest.mark.unit
@@ -288,7 +289,7 @@ def test_tile_identity_repeat():
             computed, data, err_msg=f"Identity tile failed for shape {shape}"
         )
 
-    print("  Tile with all 1s = identity -- OK")
+    logger.debug("  Tile with all 1s = identity -- OK")
 
 
 @pytest.mark.unit
@@ -311,7 +312,7 @@ def test_tile_preserves_total_elements():
             computed.size == expected_elems
         ), f"Element count {computed.size} != {expected_elems}"
 
-    print("  Total elements = input * prod(repeats) -- OK")
+    logger.debug("  Total elements = input * prod(repeats) -- OK")
 
 
 @pytest.mark.unit
@@ -333,7 +334,7 @@ def test_tile_contains_original_data():
             first_block, data, err_msg=f"First tile block != original for shape {shape}"
         )
 
-    print("  Output contains original as first block -- OK")
+    logger.debug("  Output contains original as first block -- OK")
 
 
 @pytest.mark.unit
@@ -355,7 +356,7 @@ def test_tile_periodic_structure():
                 block, data, err_msg=f"Block ({ri},{ci}) doesn't match original"
             )
 
-    print("  Periodic repetition verified -- OK")
+    logger.debug("  Periodic repetition verified -- OK")
 
 
 @pytest.mark.unit
@@ -371,4 +372,4 @@ def test_tile_constant_input():
 
     assert np.all(computed == val), "Constant input should produce constant output"
 
-    print("  Constant input -> constant output -- OK")
+    logger.debug("  Constant input -> constant output -- OK")

@@ -2,13 +2,40 @@
 # SPDX-FileCopyrightText: (C) 2025 Tenstorrent AI ULC
 # SPDX-License-Identifier: Apache-2.0
 import pytest
+import os
+import sys
+from loguru import logger
+
+# Silence the ttsim-related log messages
+try:
+    from loguru import logger as _loguru_logger
+
+    _loguru_logger.disable("ttsim")
+except ImportError:
+    pass
 
 import numpy as np
 from ttsim.ops.op import SimOp
-from ttsim.ops.tensor import make_tensor
+from ttsim.ops.tensor import make_tensor, SimTensor
 import ttsim.front.functional.op as F
-from ttsim.ops.desc.data_compute import compute_split
 
+try:
+    from ttsim.config import get_arspec_from_yaml
+    from ttsim.back.device import Device
+
+    HAS_TTSIM_MEMORY_VALIDATION = True
+except ImportError:
+    get_arspec_from_yaml = None  # type: ignore[assignment]
+    Device = None  # type: ignore[assignment]
+    HAS_TTSIM_MEMORY_VALIDATION = False
+
+MEMORY_VALIDATION_SKIP = pytest.mark.skipif(
+    not HAS_TTSIM_MEMORY_VALIDATION,
+    reason="ttsim config/device backend not available for split memory validation",
+)
+
+polaris_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
+from ttsim.ops.desc.data_compute import compute_split
 
 def ref_impl(data_shape, indices, axis):
     X = np.random.randn(*data_shape)
@@ -255,22 +282,22 @@ def test_split():
         for x in o_tensors:
             x.op_out = [op_name]
 
-        op_perf = op_obj.get_perf_counts(i_tensors, o_tensors)
+        op_obj.get_perf_counts(i_tensors, o_tensors)
 
         check = all([o_tensors[i].shape == list(trec["expected_outputs"][i].shape) for i in range(num_outputs)])  # type: ignore
 
         if check:
-            print(f"TEST[{tno:3d}] {trec['name']:{msgw}s} PASS")
+            logger.debug(f"TEST[{tno:3d}] {trec['name']:{msgw}s} PASS")
         else:
-            print("INPUTS:")
+            logger.debug("INPUTS:")
             for x in i_tensors:
-                print("\t", x)
-            print("OUTPUTS:")
+                logger.debug(f"\t{x}")
+            logger.debug("OUTPUTS:")
             for x in o_tensors:
-                print("\t", x)
-            print("REF OUTPUTS:")
+                logger.debug(f"\t{x}")
+            logger.debug("REF OUTPUTS:")
             for x in trec["expected_outputs"]:
-                print("\t", x.shape)  # type: ignore
+                logger.debug(f"\t{x.shape}")  # type: ignore
             assert False, f"TEST[{tno:3d}] {trec['name']:{msgw}s} FAIL"
 
 
@@ -412,7 +439,7 @@ def test_split_numerical():
                 err_msg=f"[{tmsg}] output {idx} mismatch",
             )
 
-        print(f"  {tmsg:<{msgw}} -- OK")
+        logger.debug(f"  {tmsg:<{msgw}} -- OK")
 
 
 # --------------------------------------------------------------------------
@@ -461,7 +488,7 @@ def test_split_edge_cases():
                 err_msg=f"[{tmsg}] output {idx} mismatch",
             )
 
-        print(f"  {tmsg:<{msgw}} -- OK")
+        logger.debug(f"  {tmsg:<{msgw}} -- OK")
 
 
 # --------------------------------------------------------------------------
@@ -530,7 +557,7 @@ def test_split_precision():
                 err_msg=f"[{tmsg}] output {idx} mismatch",
             )
 
-        print(f"  {tmsg:<{msgw}} -- OK")
+        logger.debug(f"  {tmsg:<{msgw}} -- OK")
 
 
 # --------------------------------------------------------------------------
@@ -563,7 +590,7 @@ def test_split_concat_recovers_original():
             err_msg=f"Concat recovery failed for shape={shape}, axis={axis}",
         )
 
-    print("  Concatenation recovers original -- OK")
+    logger.debug("  Concatenation recovers original -- OK")
 
 
 @pytest.mark.unit
@@ -587,7 +614,7 @@ def test_split_output_shapes_sum_to_input():
             total_split_dim == shape[axis]
         ), f"Split dim sum {total_split_dim} != input dim {shape[axis]}"
 
-    print("  Output shapes sum to input dim -- OK")
+    logger.debug("  Output shapes sum to input dim -- OK")
 
 
 @pytest.mark.unit
@@ -612,7 +639,7 @@ def test_split_preserves_other_dims():
                         ot.shape[d] == shape[d]
                     ), f"Non-split dim {d} changed: {ot.shape[d]} vs {shape[d]}"
 
-    print("  Non-split dims preserved -- OK")
+    logger.debug("  Non-split dims preserved -- OK")
 
 
 @pytest.mark.unit
@@ -634,7 +661,7 @@ def test_split_preserves_total_elements():
         total = sum(r.size for r in result_list)
         assert total == data.size, f"Total elements {total} != {data.size}"
 
-    print("  Total elements preserved -- OK")
+    logger.debug("  Total elements preserved -- OK")
 
 
 @pytest.mark.unit
@@ -659,7 +686,7 @@ def test_split_equal_parts_identical_shapes():
                 ot.shape == first_shape
             ), f"Output {idx} shape {ot.shape} != {first_shape}"
 
-    print("  Equal split -> identical shapes -- OK")
+    logger.debug("  Equal split -> identical shapes -- OK")
 
 
 @pytest.mark.unit
@@ -680,4 +707,128 @@ def test_split_data_ordering():
         result_list[2], np.array([8, 9, 10, 11], dtype=np.float32)
     )
 
-    print("  Data ordering preserved -- OK")
+    logger.debug("  Data ordering preserved -- OK")
+
+
+def calculate_split_memory_stats(shape, axis=0, num_outputs=2, dtype="float32"):
+    """Calculate memory and compute statistics for a split operation"""
+    # Get device configuration
+    config_path = os.path.join(polaris_root, "config", "tt_wh.yaml")
+    ipgroups, packages = get_arspec_from_yaml(config_path)
+    device = Device(packages["n150"])
+
+    # Create input tensors (equal split, no split_sizes tensor)
+    np_dtype = getattr(np, dtype)
+    data_X = np.random.randn(*shape).astype(np_dtype)
+    i_tensors = [F._from_data("X", data_X)]
+    o_tensors = [make_tensor(f"Y{i}") for i in range(num_outputs)]
+
+    # Create operation
+    op_info = {
+        "optype": "Split",
+        "name": "split_mem_test",
+        "inList": ["X"],
+        "outList": [f"Y{i}" for i in range(num_outputs)],
+        "attrs": {"axis": axis, "num_outputs": num_outputs},
+    }
+    op_obj = SimOp(op_info)
+
+    # Set op references
+    for x in i_tensors:
+        x.op_in = [op_info["name"]]
+    for x in o_tensors:
+        x.op_out = [op_info["name"]]
+
+    # Get performance counts
+    op_obj.get_perf_counts(i_tensors, o_tensors)
+
+    # Calculate statistics
+    perf_stats = op_obj.perf_stats
+    actual_instructions = perf_stats.get("instrs", {})
+    ops = (
+        sum(actual_instructions.values())
+        if isinstance(actual_instructions, dict)
+        else np.prod(shape)
+    )
+    input_bytes = perf_stats["inBytes"]
+    output_bytes = perf_stats["outBytes"]
+    total_memory = input_bytes + output_bytes
+
+    # Calculate intensities
+    arithmetic_intensity = ops / total_memory if total_memory > 0 else 0
+    mem_bw_bytes_per_cycle = (
+        device.simconfig_obj.peak_bandwidth(freq_units="GHz")
+        * 1e9
+        / device.freq_MHz
+        / 1e6
+    )
+    compute_throughput = 1  # 1 op per cycle for split
+    compute_cycles = ops / compute_throughput
+    memory_cycles = total_memory / mem_bw_bytes_per_cycle
+
+    bottleneck = "compute-bound" if compute_cycles > memory_cycles else "memory-bound"
+
+    return {
+        "shape": shape,
+        "axis": axis,
+        "num_outputs": num_outputs,
+        "input_bytes": input_bytes,
+        "output_bytes": output_bytes,
+        "total_memory": total_memory,
+        "ops": ops,
+        "arithmetic_intensity": arithmetic_intensity,
+        "bottleneck": bottleneck,
+        "device": device,
+    }
+
+@MEMORY_VALIDATION_SKIP
+def test_split_memory_validation():
+    """Memory validation test for split operation"""
+    logger.info("\n" + "=" * 80)
+    logger.info("SPLIT MEMORY VALIDATION TEST")
+    logger.info("=" * 80)
+
+    # Test configurations (shape, axis, num_outputs)
+    test_configs = [
+        ([32], 0, 2),
+        ([64, 64], 0, 2),
+        ([32, 32, 32], 0, 2),
+        ([16, 16, 16, 16], 0, 2),
+        ([1, 224, 224, 3], 1, 2),
+        ([8, 128, 128, 64], 0, 2),
+        ([4, 56, 56, 256], 0, 2),
+    ]
+
+    results = []
+    for shape, axis, num_outputs in test_configs:
+        stats = calculate_split_memory_stats(shape, axis, num_outputs)
+        results.append(stats)
+
+    # Print device info once
+    device = results[0]["device"]
+    logger.info(f"\nDevice: {device.devname}")
+    logger.info(f"  Name: {device.name}")
+    logger.info(f"  Frequency: {device.freq_MHz} MHz")
+    logger.info(f"  Memory Frequency: {device.memfreq_MHz} MHz")
+
+    # Print results for each configuration
+    for stats in results:
+        logger.debug(
+            f"Shape: {stats['shape']}, Axis: {stats['axis']}, Num Outputs: {stats['num_outputs']}"
+        )
+        logger.debug(f"  Memory: {stats['total_memory']/1e6:.4f} MB")
+        logger.debug(f"  Operations: {stats['ops']:.0f}")
+        logger.debug(f"  Arithmetic Intensity: {stats['arithmetic_intensity']:.6f} ops/byte")
+        logger.debug(f"  Bottleneck: {stats['bottleneck']}")
+
+    # Summary statistics
+    memory_bound = sum(1 for r in results if r["bottleneck"] == "memory-bound")
+    compute_bound = sum(1 for r in results if r["bottleneck"] == "compute-bound")
+
+    logger.info("=" * 80)
+    logger.info("SUMMARY")
+    logger.info("=" * 80)
+    logger.info(f"Total configurations tested: {len(results)}")
+    logger.info(f"Memory-bound: {memory_bound}")
+    logger.info(f"Compute-bound: {compute_bound}")
+    logger.info("=" * 80)

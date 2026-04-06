@@ -15,6 +15,7 @@ import logging
 sys.path.append(os.getcwd())
 
 import numpy as np
+from loguru import logger
 from pathlib import Path
 
 from ttsim.ops.op import SimOp
@@ -179,10 +180,10 @@ def test_elementwise_sum_2_inputs():
             numerical_match = np.allclose(computed_output, ref_output, rtol=1e-5, atol=1e-7)
             if not numerical_match:
                 max_diff = np.max(np.abs(computed_output - ref_output))
-                print(f"\n  Max difference: {max_diff}")
+                logger.debug(f"\n  Max difference: {max_diff}")
         except Exception as e:
             numerical_match = f"Error: {e}"
-            print(f"\n  Numerical validation error: {e}")
+            logger.debug(f"\n  Numerical validation error: {e}")
 
         # 3. Validate data propagated through op pipeline
         pipeline_match = True
@@ -197,16 +198,20 @@ def test_elementwise_sum_2_inputs():
             instrs = op_obj.perf_stats.get('instrs', {})
             if 'add' not in instrs:
                 perf_ok = False
-                print(f"\n  Missing 'add' in perf_stats instrs: {instrs}")
+                logger.debug(f"\n  Missing 'add' in perf_stats instrs: {instrs}")
 
         if shape_match and numerical_match is True and pipeline_match is True and perf_ok:
-            print(f"TEST[{tno:3d}] Sum {tmsg:{msgw}s} PASS [Shape OK, Numerical OK, Pipeline OK]")
+            logger.debug(
+                f"TEST[{tno:3d}] Sum {tmsg:{msgw}s} PASS [Shape OK, Numerical OK, Pipeline OK]"
+            )
         else:
-            print(f"\nTEST[{tno:3d}] Sum {tmsg:{msgw}s} FAIL")
-            print(f"  Shape match: {shape_match} (got {inf_shape}, expected {ref_shape})")
-            print(f"  Numerical match: {numerical_match}")
-            print(f"  Pipeline match: {pipeline_match}")
-            print(f"  Perf stats OK: {perf_ok}")
+            logger.debug(f"\nTEST[{tno:3d}] Sum {tmsg:{msgw}s} FAIL")
+            logger.debug(
+                f"  Shape match: {shape_match} (got {inf_shape}, expected {ref_shape})"
+            )
+            logger.debug(f"  Numerical match: {numerical_match}")
+            logger.debug(f"  Pipeline match: {pipeline_match}")
+            logger.debug(f"  Perf stats OK: {perf_ok}")
             assert False, f"TEST[{tno:3d}] Sum {tmsg} FAIL"
 
 
@@ -255,7 +260,7 @@ def test_elementwise_sum_3_inputs():
     assert instrs.get('add') == expected_adds, \
         f"Expected {expected_adds} adds, got {instrs.get('add')}"
 
-    print("TEST Sum 3 inputs PASS")
+    logger.debug("TEST Sum 3 inputs PASS")
 
 
 @pytest.mark.unit
@@ -285,7 +290,7 @@ def test_elementwise_sum_4_inputs():
     assert o_tensors[0].data is not None, "No data propagated for 4-input Sum"
     assert np.allclose(o_tensors[0].data, ref_output, rtol=1e-5, atol=1e-7), \
         f"Numerical mismatch: max diff = {np.max(np.abs(o_tensors[0].data - ref_output))}"
-    print("TEST Sum 4 inputs PASS")
+    logger.debug("TEST Sum 4 inputs PASS")
 
 
 # ============================================================================
@@ -326,7 +331,7 @@ def test_elementwise_sum_3_inputs_broadcast():
     assert o_tensors[0].data is not None, "No data propagated"
     assert np.allclose(o_tensors[0].data, ref_output, rtol=1e-5, atol=1e-7), \
         f"Numerical mismatch: max diff = {np.max(np.abs(o_tensors[0].data - ref_output))}"
-    print("TEST Sum 3 inputs broadcast PASS")
+    logger.debug("TEST Sum 3 inputs broadcast PASS")
 
 
 # ============================================================================
@@ -358,7 +363,7 @@ def test_shape_only_sum():
 
     assert o_tensors[0].shape == [2, 3, 4], f"Shape mismatch: {o_tensors[0].shape}"
     assert o_tensors[0].data is None, "Expected no data for shape-only inputs"
-    print("TEST shape-only Sum PASS")
+    logger.debug("TEST shape-only Sum PASS")
 
 
 # ============================================================================
@@ -391,7 +396,7 @@ def test_mixed_data_shape_sum():
 
     assert o_tensors[0].shape == [3], f"Shape mismatch: {o_tensors[0].shape}"
     assert o_tensors[0].data is None, "Expected no data when one input is shape-only"
-    print("TEST mixed data/shape Sum PASS")
+    logger.debug("TEST mixed data/shape Sum PASS")
 
 
 # ============================================================================
@@ -432,7 +437,7 @@ def test_residual_pattern():
     assert o_tensors[0].data is not None, "No data propagated for residual Sum"
     assert np.allclose(o_tensors[0].data, ref_output, rtol=1e-5, atol=1e-6), \
         f"Numerical mismatch: max diff = {np.max(np.abs(o_tensors[0].data - ref_output))}"
-    print("TEST residual pattern PASS")
+    logger.debug("TEST residual pattern PASS")
 
 
 # ============================================================================
@@ -448,9 +453,9 @@ if __name__ == '__main__':
     test_shape_only_sum()
     test_mixed_data_shape_sum()
     test_residual_pattern()
-    print("\n" + "=" * 60)
-    print("ALL ELEMENTWISE SUM TESTS PASSED")
-    print("=" * 60)
+    logger.info("\n" + "=" * 60)
+    logger.info("ALL ELEMENTWISE SUM TESTS PASSED")
+    logger.info("=" * 60)
 
 
 # ============================================================================
@@ -548,9 +553,9 @@ class TestSumMemoryValidation:
         Run with: pytest tests/test_ops/test_elementwise_sum.py::TestSumMemoryValidation -v
         For detailed output: add -s flag
         """
-        print("\n" + "=" * 60)
-        print("Element-wise Sum Operation Memory Validation")
-        print("=" * 60)
+        logger.info("\n" + "=" * 60)
+        logger.info("Element-wise Sum Operation Memory Validation")
+        logger.info("=" * 60)
 
         # Load device configuration
         config_path = Path(polaris_root) / "config" / "tt_wh.yaml"
@@ -559,27 +564,28 @@ class TestSumMemoryValidation:
             device_pkg = packages["n150"]
             device = Device(device_pkg)
 
-            print(f"\nDevice: {device.devname} ({device.name})")
-            print(f"Device frequency: {device.freq_MHz} MHz")
-            print(f"Memory frequency: {device.memfreq_MHz} MHz")
-            print(
-                f"Peak bandwidth: {device.simconfig_obj.peak_bandwidth(freq_units='GHz'):.2f} GB/s"
+            logger.info(f"\nDevice: {device.devname} ({device.name})")
+            logger.info(f"Device frequency: {device.freq_MHz} MHz")
+            logger.info(f"Memory frequency: {device.memfreq_MHz} MHz")
+            logger.info(
+                "Peak bandwidth: %.2f GB/s",
+                device.simconfig_obj.peak_bandwidth(freq_units="GHz"),
             )
         except Exception as e:
-            print(f"\nWarning: Could not load device config: {e}")
+            logger.info(f"\nWarning: Could not load device config: {e}")
             pytest.skip(f"Could not load device config: {e}")
             return
 
-        print(f"\n{'='*60}")
-        print("Running Memory Validation Tests")
-        print(f"{'='*60}\n")
+        logger.info("\n%s", "=" * 60)
+        logger.info("Running Memory Validation Tests")
+        logger.info("%s\n", "=" * 60)
 
         all_results = []
 
         for input_shapes, description in memory_validation_cases:
             n_inputs = len(input_shapes)
-            print(f"\n-- Test: {description} --")
-            print(f"Input shapes: {input_shapes}, N={n_inputs}")
+            logger.debug(f"\n-- Test: {description} --")
+            logger.debug(f"Input shapes: {input_shapes}, N={n_inputs}")
 
             # Generate random inputs
             np.random.seed(42)
@@ -664,47 +670,59 @@ class TestSumMemoryValidation:
             bottleneck = "COMPUTE" if compute_cycles >= memory_cycles else "MEMORY"
 
             # Print detailed breakdown
-            print(f"\n  -- Instructions & Operations --")
-            print(f"  Instructions executed: {instructions_executed:,} (add)")
-            print(f"  Input elements (all):  {expected_stats['total_input_elements']:,}")
-            print(f"  Output elements:       {expected_stats['output_elements']:,}")
-            print(
+            logger.debug("\n  -- Instructions & Operations --")
+            logger.debug(
+                f"  Instructions executed: {instructions_executed:,} (add)"
+            )
+            logger.debug(
+                f"  Input elements (all):  {expected_stats['total_input_elements']:,}"
+            )
+            logger.debug(
+                f"  Output elements:       {expected_stats['output_elements']:,}"
+            )
+            logger.debug(
                 f"  Expected:              {expected_stats['expected_add_instrs']:,} add ({n_inputs-1} per output elem)"
             )
             ops_per_elem = instructions_executed / expected_stats['output_elements']
-            print(
+            logger.debug(
                 f"  Ops per output elem:   {ops_per_elem:.1f} (OK: {n_inputs-1} add)"
             )
 
-            print(f"\n  -- Data Movement --")
-            print(
+            logger.debug("\n  -- Data Movement --")
+            logger.debug(
                 f"  Input bytes:      {actual_in_bytes:,} bytes ({actual_in_bytes/1024:.2f} KB)"
             )
-            print(
+            logger.debug(
                 f"  Output bytes:     {actual_out_bytes:,} bytes ({actual_out_bytes/1024:.2f} KB)"
             )
-            print(
+            logger.debug(
                 f"  Total data moved: {total_data_movement:,} bytes ({total_data_movement/1024:.2f} KB)"
             )
             read_write_ratio = actual_in_bytes / actual_out_bytes if actual_out_bytes > 0 else 0
-            print(
+            logger.debug(
                 f"  Read/Write ratio: {read_write_ratio:.1f}:1 ({n_inputs} inputs -> 1 output)"
             )
 
-            print(f"\n  -- Memory Metrics --")
-            print(f"  Arithmetic intensity:  {arithmetic_intensity:.4f} ops/byte")
-            print(f"  [PASS] Arithmetic intensity within expected range for {n_inputs}-input sum")
+            logger.debug("\n  -- Memory Metrics --")
+            logger.debug(
+                f"  Arithmetic intensity:  {arithmetic_intensity:.4f} ops/byte"
+            )
+            logger.debug(
+                f"  [PASS] Arithmetic intensity within expected range for {n_inputs}-input sum"
+            )
 
-            print(f"\n  -- Execution Cycles --")
-            print(f"  Compute cycles:   {compute_cycles:,}")
-            print(f"  Memory cycles:    {memory_cycles:,}")
-            print(f"    Read cycles:    {mem_rd_cycles:,}")
-            print(f"    Write cycles:   {mem_wr_cycles:,}")
-            print(f"  Ideal cycles:     {total_cycles:,}")
-            print(f"  Bottleneck:       {bottleneck}")
+            logger.debug("\n  -- Execution Cycles --")
+            logger.debug(f"  Compute cycles:   {compute_cycles:,}")
+            logger.debug(f"  Memory cycles:    {memory_cycles:,}")
+            logger.debug(f"    Read cycles:    {mem_rd_cycles:,}")
+            logger.debug(f"    Write cycles:   {mem_wr_cycles:,}")
+            logger.debug(f"  Ideal cycles:     {total_cycles:,}")
+            logger.debug(f"  Bottleneck:       {bottleneck}")
 
             if expected_stats['output_elements'] > 100:
-                print(f"  [PASS] Bottleneck analysis: {bottleneck} for element-wise sum")
+                logger.debug(
+                    f"  [PASS] Bottleneck analysis: {bottleneck} for element-wise sum"
+                )
 
             # Validate arithmetic intensity matches expected
             np.testing.assert_allclose(
@@ -729,34 +747,34 @@ class TestSumMemoryValidation:
                 'ideal_cycles': total_cycles,
             })
 
-            print(f"\n  [PASS] Test PASSED")
+            logger.debug("\n  [PASS] Test PASSED")
 
         # Summary
-        print(f"\n{'='*60}")
-        print("Memory Validation Summary")
-        print(f"{'='*60}\n")
-        print(f"Total tests run: {len(all_results)}")
-        print(f"All tests passed: YES")
+        logger.info("\n%s", "=" * 60)
+        logger.info("Memory Validation Summary")
+        logger.info("%s\n", "=" * 60)
+        logger.info(f"Total tests run: {len(all_results)}")
+        logger.info("All tests passed: YES")
 
-        print(f"\n-- Arithmetic Intensity Comparison --")
+        logger.info("\n-- Arithmetic Intensity Comparison --")
         for result in all_results:
             ai = result['arithmetic_intensity']
-            print(f"{result['test_name']:30s}: {ai:.4f} ops/byte")
+            logger.info(f"{result['test_name']:30s}: {ai:.4f} ops/byte")
 
-        print(f"\n-- Instruction Breakdown --")
+        logger.info("\n-- Instruction Breakdown --")
         for result in all_results:
-            print(
+            logger.info(
                 f"{result['test_name']:30s}: {result['add_instructions']:,} add = {result['total_instructions']:,} total"
             )
 
-        print(f"\n-- Bottleneck Analysis --")
+        logger.info("\n-- Bottleneck Analysis --")
         for result in all_results:
             bottleneck = result['bottleneck']
-            print(f"{result['test_name']:30s}: {bottleneck}")
+            logger.info(f"{result['test_name']:30s}: {bottleneck}")
 
-        print(f"\n{'='*60}")
-        print("Memory validation complete!")
-        print(f"{'='*60}\n")
+        logger.info("\n%s", "=" * 60)
+        logger.info("Memory validation complete!")
+        logger.info("%s\n", "=" * 60)
 
         # Summary for pytest output
         summary_lines = [
@@ -804,12 +822,12 @@ class TestSumMemoryValidation:
                 terminalreporter.write_sep("=", "", bold=True)
         except Exception:
             with capsys.disabled():
-                print("\n" + "=" * 70)
-                print("MEMORY VALIDATION RESULTS")
-                print("=" * 70)
+                logger.info("\n" + "=" * 70)
+                logger.info("MEMORY VALIDATION RESULTS")
+                logger.info("=" * 70)
                 for line in summary_lines:
-                    print(line)
-                print("=" * 70 + "\n")
+                    logger.info(line)
+                logger.info("=" * 70 + "\n")
 
         # Final assertion
         assert len(all_results) == len(memory_validation_cases), \

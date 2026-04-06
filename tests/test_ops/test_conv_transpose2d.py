@@ -17,6 +17,7 @@ sys.path.append(os.getcwd())
 import pytest
 import numpy as np
 from pathlib import Path
+from loguru import logger
 
 from ttsim.ops.op import SimOp
 from ttsim.ops.tensor import make_tensor, SimTensor
@@ -670,9 +671,9 @@ def test_conv_transpose2d_memory_validation(capsys, request):
     if not MEMORY_TEST_AVAILABLE:
         pytest.skip("Device config not available for memory estimation")
 
-    print("\n" + "=" * 80)
-    print("ConvTranspose2d Operation Memory Validation")
-    print("=" * 80)
+    logger.info("\n" + "=" * 80)
+    logger.info("ConvTranspose2d Operation Memory Validation")
+    logger.info("=" * 80)
 
     # Load device configuration once
     config_path = Path(polaris_root) / "config" / "tt_wh.yaml"
@@ -681,10 +682,11 @@ def test_conv_transpose2d_memory_validation(capsys, request):
         device_pkg = packages["n150"]
         device = Device(device_pkg)
 
-        print(f"\nDevice: {device.devname} ({device.name})")
-        print(f"Frequency: {device.freq_MHz} MHz")
-        print(
-            f"Peak Bandwidth: {device.simconfig_obj.peak_bandwidth(freq_units='GHz'):.2f} GB/s"
+        logger.info(f"\nDevice: {device.devname} ({device.name})")
+        logger.info(f"Frequency: {device.freq_MHz} MHz")
+        logger.info(
+            "Peak Bandwidth: %.2f GB/s",
+            device.simconfig_obj.peak_bandwidth(freq_units="GHz"),
         )
     except Exception as e:
         pytest.skip(f"Could not load device config: {e}")
@@ -743,9 +745,9 @@ def test_conv_transpose2d_memory_validation(capsys, request):
         },
     ]
 
-    print(f"\n{'='*80}")
-    print("Running Memory Validation Tests")
-    print(f"{'='*80}\n")
+    logger.info("\n%s", "=" * 80)
+    logger.info("Running Memory Validation Tests")
+    logger.info("%s\n", "=" * 80)
 
     all_results = []
 
@@ -758,10 +760,10 @@ def test_conv_transpose2d_memory_validation(capsys, request):
         has_bias = test_case["has_bias"]
         groups = test_case["groups"]
 
-        print(f"\n-- Test: {test_name} --")
-        print(f"Description: {test_case['description']}")
-        print(f"Input shape: {X_shape}, Weight shape: {W_shape}")
-        print(f"Stride: {stride}, Padding: {padding}, Groups: {groups}")
+        logger.debug(f"\n-- Test: {test_name} --")
+        logger.debug(f"Description: {test_case['description']}")
+        logger.debug(f"Input shape: {X_shape}, Weight shape: {W_shape}")
+        logger.debug(f"Stride: {stride}, Padding: {padding}, Groups: {groups}")
 
         # Generate test data
         np.random.seed(42)
@@ -862,21 +864,21 @@ def test_conv_transpose2d_memory_validation(capsys, request):
         # ==================================================================
         # Section 1: Instructions & Operations
         # ==================================================================
-        print(f"\n  ══ Section 1: Instructions & Operations ══")
+        logger.debug("\n  ══ Section 1: Instructions & Operations ══")
 
         total_instrs = sum(actual_instrs.values())
-        print(f"  Total instructions: {total_instrs:,}")
-        print(f"  Instruction types: {', '.join(actual_instrs.keys())}")
+        logger.debug(f"  Total instructions: {total_instrs:,}")
+        logger.debug(f"  Instruction types: {', '.join(actual_instrs.keys())}")
 
         # ConvTranspose involves MAC operations
         mul_count = actual_instrs.get("mul", 0)
         add_count = actual_instrs.get("add", 0)
         mov_count = actual_instrs.get("mov", 0)
 
-        print(f"  Multiply operations: {mul_count:,}")
-        print(f"  Add operations:      {add_count:,}")
+        logger.debug(f"  Multiply operations: {mul_count:,}")
+        logger.debug(f"  Add operations:      {add_count:,}")
         if mov_count > 0:
-            print(f"  Move operations:     {mov_count:,}")
+            logger.debug(f"  Move operations:     {mov_count:,}")
 
         # Calculate expected MACs
         # For each output element: C_in × kH × kW MACs (per group)
@@ -884,34 +886,47 @@ def test_conv_transpose2d_memory_validation(capsys, request):
         macs_per_output = C_in_per_group * kH * kW
         expected_macs = N * C_out * H_out * W_out * macs_per_output // groups
 
-        print(f"\n  Input elements:  {input_elems:,} ({N}×{C_in}×{H_in}×{W_in})")
-        print(
+        logger.debug(
+            f"\n  Input elements:  {input_elems:,} ({N}×{C_in}×{H_in}×{W_in})"
+        )
+        logger.debug(
             f"  Weight elements: {weight_elems:,} ({W_shape[0]}×{W_shape[1]}×{kH}×{kW})"
         )
         if has_bias:
-            print(f"  Bias elements:   {bias_elems:,}")
-        print(f"  Output elements: {output_elems:,} ({N_out}×{C_out}×{H_out}×{W_out})")
-        print(f"\n  Expected MACs:   ~{expected_macs:,} (C_in×kH×kW per output)")
-        print(f"  MACs per output: {macs_per_output:,}")
+            logger.debug(f"  Bias elements:   {bias_elems:,}")
+        logger.debug(
+            f"  Output elements: {output_elems:,} ({N_out}×{C_out}×{H_out}×{W_out})"
+        )
+        logger.debug(
+            f"\n  Expected MACs:   ~{expected_macs:,} (C_in×kH×kW per output)"
+        )
+        logger.debug(f"  MACs per output: {macs_per_output:,}")
 
         # ==================================================================
         # Section 2: Data Movement
         # ==================================================================
-        print(f"\n  ══ Section 2: Data Movement ══")
+        logger.debug("\n  ══ Section 2: Data Movement ══")
 
-        print(f"  Input bytes:     {actual_in_bytes:,} ({actual_in_bytes/1024:.2f} KB)")
-        print(
+        logger.debug(
+            f"  Input bytes:     {actual_in_bytes:,} ({actual_in_bytes/1024:.2f} KB)"
+        )
+        logger.debug(
             f"  Output bytes:    {actual_out_bytes:,} ({actual_out_bytes/1024:.2f} KB)"
         )
         total_data_movement = actual_in_bytes + actual_out_bytes
-        print(
+        logger.debug(
             f"  Total data:      {total_data_movement:,} ({total_data_movement/1024:.2f} KB)"
         )
 
         # Spatial amplification from transposed convolution
         spatial_amplification = (H_out * W_out) / (H_in * W_in)
-        print(
-            f"\n  Spatial amplification: {spatial_amplification:.2f}x ({H_in}×{W_in} → {H_out}×{W_out})"
+        logger.debug(
+            "\n  Spatial amplification: %.2fx (%s×%s → %s×%s)",
+            spatial_amplification,
+            H_in,
+            W_in,
+            H_out,
+            W_out,
         )
 
         # Validate data movement
@@ -933,19 +948,19 @@ def test_conv_transpose2d_memory_validation(capsys, request):
                 input_elems * bytes_per_element
             ), "ConvTranspose with stride≥2 should amplify spatial dimensions"
 
-        print(f"  ✓ Data movement validation passed")
+        logger.debug("  ✓ Data movement validation passed")
 
         # ==================================================================
         # Section 3: Arithmetic Intensity & Bottleneck
         # ==================================================================
-        print(f"\n  ══ Section 3: Arithmetic Intensity & Bottleneck ══")
+        logger.debug("\n  ══ Section 3: Arithmetic Intensity & Bottleneck ══")
 
         arithmetic_intensity = (
             total_instrs / total_data_movement if total_data_movement > 0 else 0
         )
-        print(f"  Arithmetic intensity: {arithmetic_intensity:.4f} ops/byte")
-        print(f"  Operations: {total_instrs:,}")
-        print(f"  Data moved: {total_data_movement:,} bytes")
+        logger.debug(f"  Arithmetic intensity: {arithmetic_intensity:.4f} ops/byte")
+        logger.debug(f"  Operations: {total_instrs:,}")
+        logger.debug(f"  Data moved: {total_data_movement:,} bytes")
 
         # Calculate execution cycles
         compute_cycles = op_obj.compute_cycles
@@ -955,66 +970,77 @@ def test_conv_transpose2d_memory_validation(capsys, request):
         total_cycles = max(compute_cycles, memory_cycles)
         bottleneck = "COMPUTE" if compute_cycles >= memory_cycles else "MEMORY"
 
-        print(f"\n  Compute cycles:  {compute_cycles:,}")
-        print(f"  Memory cycles:   {memory_cycles:,}")
-        print(f"    Read cycles:   {mem_rd_cycles:,}")
-        print(f"    Write cycles:  {mem_wr_cycles:,}")
-        print(f"  Ideal cycles:    {total_cycles:,}")
-        print(f"  Bottleneck:      {bottleneck}")
+        logger.debug(f"\n  Compute cycles:  {compute_cycles:,}")
+        logger.debug(f"  Memory cycles:   {memory_cycles:,}")
+        logger.debug(f"    Read cycles:   {mem_rd_cycles:,}")
+        logger.debug(f"    Write cycles:  {mem_wr_cycles:,}")
+        logger.debug(f"  Ideal cycles:    {total_cycles:,}")
+        logger.debug(f"  Bottleneck:      {bottleneck}")
 
         # ConvTranspose is typically compute-bound due to many MACs
-        print(
-            f"  ✓ Bottleneck: {bottleneck} (expected COMPUTE for convolution operations)"
+        logger.debug(
+            "  ✓ Bottleneck: %s (expected COMPUTE for convolution operations)",
+            bottleneck,
         )
 
         # ==================================================================
         # Section 4: ConvTranspose-Specific Metrics
         # ==================================================================
-        print(f"\n  ══ Section 4: ConvTranspose-Specific Metrics ══")
+        logger.debug("\n  ══ Section 4: ConvTranspose-Specific Metrics ══")
 
-        print(f"  Kernel size:     {kH}×{kW}")
-        print(f"  Stride:          {stride[0]}×{stride[1]}")
-        print(f"  Padding:         {padding[0]},{padding[1]}")
-        print(f"  Groups:          {groups} {'(depthwise)' if groups == C_in else ''}")
-        print(f"  Has bias:        {'Yes' if has_bias else 'No'}")
-        print(f"\n  Operation:       Transposed convolution (upsampling)")
-        print(f"  Input → Output:  {H_in}×{W_in} → {H_out}×{W_out}")
-        print(f"  Amplification:   {spatial_amplification:.2f}x spatial size")
+        logger.debug(f"  Kernel size:     {kH}×{kW}")
+        logger.debug(f"  Stride:          {stride[0]}×{stride[1]}")
+        logger.debug(f"  Padding:         {padding[0]},{padding[1]}")
+        logger.debug(
+            f"  Groups:          {groups} {'(depthwise)' if groups == C_in else ''}"
+        )
+        logger.debug(f"  Has bias:        {'Yes' if has_bias else 'No'}")
+        logger.debug("\n  Operation:       Transposed convolution (upsampling)")
+        logger.debug(f"  Input → Output:  {H_in}×{W_in} → {H_out}×{W_out}")
+        logger.debug(
+            f"  Amplification:   {spatial_amplification:.2f}x spatial size"
+        )
 
         # ==================================================================
         # Memory Estimation
         # ==================================================================
-        print(f"\n  ══ Memory Estimation ══")
+        logger.debug("\n  ══ Memory Estimation ══")
 
         input_memory = input_elems * bytes_per_element
         weight_memory = weight_elems * bytes_per_element
         bias_memory = bias_elems * bytes_per_element if has_bias else 0
         output_memory = output_elems * bytes_per_element
 
-        print(f"  Input tensor:   {input_memory:,} bytes ({input_memory/1024:.2f} KB)")
-        print(
+        logger.debug(
+            f"  Input tensor:   {input_memory:,} bytes ({input_memory/1024:.2f} KB)"
+        )
+        logger.debug(
             f"  Weight tensor:  {weight_memory:,} bytes ({weight_memory/1024:.2f} KB)"
         )
         if has_bias:
-            print(
+            logger.debug(
                 f"  Bias tensor:    {bias_memory:,} bytes ({bias_memory/1024:.2f} KB)"
             )
-        print(
+        logger.debug(
             f"  Output tensor:  {output_memory:,} bytes ({output_memory/1024:.2f} KB)"
         )
 
         peak_memory = input_memory + weight_memory + bias_memory + output_memory
-        print(f"\n  Peak memory:    {peak_memory:,} bytes ({peak_memory/1024:.2f} KB)")
+        logger.debug(
+            f"\n  Peak memory:    {peak_memory:,} bytes ({peak_memory/1024:.2f} KB)"
+        )
 
         memory_amplification = output_memory / input_memory if input_memory > 0 else 0
-        print(f"  Memory amplification: {memory_amplification:.2f}x (output vs input)")
+        logger.debug(
+            f"  Memory amplification: {memory_amplification:.2f}x (output vs input)"
+        )
 
         # Validate memory estimation
         assert (
             peak_memory == total_data_movement
         ), f"Peak memory should equal total data movement: {peak_memory} vs {total_data_movement}"
 
-        print(f"  ✓ Memory estimation validated")
+        logger.debug("  ✓ Memory estimation validated")
 
         # Store results for summary
         all_results.append(
@@ -1037,67 +1063,73 @@ def test_conv_transpose2d_memory_validation(capsys, request):
             }
         )
 
-        print(f"\n  ✓ Test PASSED")
+        logger.debug("\n  ✓ Test PASSED")
 
     # ==================================================================
     # Summary
     # ==================================================================
-    print(f"\n{'='*80}")
-    print("Memory Validation Summary")
-    print(f"{'='*80}\n")
-    print(f"Total tests run: {len(all_results)}")
-    print(f"All tests passed: ✓")
+    logger.info("\n%s", "=" * 80)
+    logger.info("Memory Validation Summary")
+    logger.info("%s\n", "=" * 80)
+    logger.info(f"Total tests run: {len(all_results)}")
+    logger.info("All tests passed: ✓")
 
     # Summary Table 1: Arithmetic Intensity Comparison
-    print(f"\n-- Arithmetic Intensity Comparison --")
-    print(f"{'Test Name':<25} {'Ops/Byte':>12} {'Total Ops':>15} {'Data Moved':>15}")
-    print("-" * 70)
+    logger.info("\n-- Arithmetic Intensity Comparison --")
+    logger.info(
+        f"{'Test Name':<25} {'Ops/Byte':>12} {'Total Ops':>15} {'Data Moved':>15}"
+    )
+    logger.info("-" * 70)
     for result in all_results:
-        print(
+        logger.info(
             f"{result['test_name']:<25} {result['arithmetic_intensity']:>12.4f} "
             f"{result['total_instrs']:>15,} {result['total_data_moved']:>15,}"
         )
 
     # Summary Table 2: Spatial Amplification
-    print(f"\n-- Spatial Amplification Analysis --")
-    print(
+    logger.info("\n-- Spatial Amplification Analysis --")
+    logger.info(
         f"{'Test Name':<25} {'Input Size':>15} {'Output Size':>15} {'Amplification':>15}"
     )
-    print("-" * 73)
+    logger.info("-" * 73)
     for result in all_results:
         X_shape = result["X_shape"]
         O_shape = result["output_shape"]
         in_spatial = f"{X_shape[2]}×{X_shape[3]}"
         out_spatial = f"{O_shape[2]}×{O_shape[3]}"
         amp = result["spatial_amplification"]
-        print(
+        logger.info(
             f"{result['test_name']:<25} {in_spatial:>15} {out_spatial:>15} {amp:>14.2f}x"
         )
 
     # Summary Table 3: Bottleneck Analysis
-    print(f"\n-- Bottleneck Analysis --")
-    print(f"{'Test Name':<25} {'Bottleneck':>15} {'AI (ops/byte)':>18}")
-    print("-" * 62)
+    logger.info("\n-- Bottleneck Analysis --")
+    logger.info(f"{'Test Name':<25} {'Bottleneck':>15} {'AI (ops/byte)':>18}")
+    logger.info("-" * 62)
     for result in all_results:
         bottleneck = result["bottleneck"]
         ai = result["arithmetic_intensity"]
-        print(f"{result['test_name']:<25} {bottleneck:>15} {ai:>18.4f}")
+        logger.info(
+            f"{result['test_name']:<25} {bottleneck:>15} {ai:>18.4f}"
+        )
 
     # Summary Table 4: Memory Footprint
-    print(f"\n-- Memory Footprint Analysis --")
-    print(f"{'Test Name':<25} {'Peak Memory (KB)':>20} {'Mem Amp':>12} {'Groups':>10}")
-    print("-" * 70)
+    logger.info("\n-- Memory Footprint Analysis --")
+    logger.info(
+        f"{'Test Name':<25} {'Peak Memory (KB)':>20} {'Mem Amp':>12} {'Groups':>10}"
+    )
+    logger.info("-" * 70)
     for result in all_results:
         peak_kb = result["peak_memory"] / 1024
         mem_amp = result["memory_amplification"]
         groups = result["groups"]
-        print(
+        logger.info(
             f"{result['test_name']:<25} {peak_kb:>20.2f} {mem_amp:>11.2f}x {groups:>10}"
         )
 
-    print(f"\n{'='*80}")
-    print("Memory validation complete!")
-    print(f"{'='*80}\n")
+    logger.info("\n%s", "=" * 80)
+    logger.info("Memory validation complete!")
+    logger.info("%s\n", "=" * 80)
 
     # Create summary for pytest output
     summary_lines = [
@@ -1145,12 +1177,12 @@ def test_conv_transpose2d_memory_validation(capsys, request):
             terminalreporter.write_sep("=", "", bold=True)
     except Exception:
         with capsys.disabled():
-            print("\n" + "=" * 80)
-            print("CONVTRANSPOSE2D MEMORY VALIDATION RESULTS")
-            print("=" * 80)
+            logger.info("\n" + "=" * 80)
+            logger.info("CONVTRANSPOSE2D MEMORY VALIDATION RESULTS")
+            logger.info("=" * 80)
             for line in summary_lines:
-                print(line)
-            print("=" * 80 + "\n")
+                logger.info(line)
+            logger.info("=" * 80 + "\n")
 
     # Final assertion
     assert len(all_results) == len(

@@ -12,7 +12,6 @@ from pathlib import Path
 import pytest
 from ttsim.ops import SimTensor
 
-
 class ConvAndBatchnormTester(tests.common.SimOpTester):
     def __init__(self, name: str, cfgentry: dict):
         super().__init__(name, cfgentry)

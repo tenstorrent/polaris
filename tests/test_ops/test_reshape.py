@@ -2,11 +2,42 @@
 # SPDX-FileCopyrightText: (C) 2025 Tenstorrent AI ULC
 # SPDX-License-Identifier: Apache-2.0
 import pytest
+import os
+import sys
+import logging
+from loguru import logger
+
+# Silence the ttsim-related log messages
+try:
+    from loguru import logger as _loguru_logger
+
+    _loguru_logger.disable("ttsim")
+except ImportError:
+    pass
 
 import numpy as np
 from ttsim.ops.op import SimOp
-from ttsim.ops.tensor import make_tensor
+from ttsim.ops.tensor import make_tensor, SimTensor
 import ttsim.front.functional.op as F
+
+try:
+    from ttsim.config import get_arspec_from_yaml
+    from ttsim.back.device import Device
+
+    HAS_DEVICE_BACKEND = True
+    DEVICE_BACKEND_IMPORT_ERROR = None
+except ImportError as e:
+    get_arspec_from_yaml = None  # type: ignore[assignment]
+    Device = None  # type: ignore[assignment]
+    HAS_DEVICE_BACKEND = False
+    DEVICE_BACKEND_IMPORT_ERROR = e
+
+RESHAPE_MEMORY_SKIP = pytest.mark.skipif(
+    not HAS_DEVICE_BACKEND,
+    reason="ttsim config/device backend not available for reshape memory validation",
+)
+
+polaris_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
 from ttsim.ops.desc.data_compute import compute_reshape
 
 
@@ -102,21 +133,21 @@ def test_reshape():
         for x in o_tensors:
             x.op_out = [op_name]
 
-        op_perf = op_obj.get_perf_counts(i_tensors, o_tensors)
+        op_obj.get_perf_counts(i_tensors, o_tensors)
 
         inf_shape = o_tensors[0].shape
         ref_shape = ref_impl(input_shape, target_shape, allowzero)
         ref_shape = list(ref_shape)
 
         if inf_shape == ref_shape:
-            print(f"TEST[{tno:3d}] {tmsg:{msgw}s} PASS")
+            logger.debug(f"TEST[{tno:3d}] {tmsg:{msgw}s} PASS")
         else:
-            print("INPUTS:")
+            logger.debug("INPUTS:")
             for x in i_tensors:
-                print("\t", x)
-            print("OUTPUTS:")
+                logger.debug("\t", x)
+            logger.debug("OUTPUTS:")
             for x in o_tensors:
-                print("\t", x)
+                logger.debug("\t", x)
             assert (
                 False
             ), f"TEST[{tno:3d}] {tmsg:{msgw}s} FAIL {inf_shape} != {ref_shape}"
@@ -189,7 +220,7 @@ def test_reshape_numerical():
             err_msg=f"[{tmsg}] numerical mismatch",
         )
 
-        print(f"  {tmsg:<{msgw}} -- OK")
+        logger.debug(f"  {tmsg:<{msgw}} -- OK")
 
 
 # --------------------------------------------------------------------------
@@ -234,7 +265,7 @@ def test_reshape_edge_cases():
             computed, expected, rtol=1e-5, atol=1e-7, err_msg=f"[{tmsg}] mismatch"
         )
 
-        print(f"  {tmsg:<{msgw}} -- OK")
+        logger.debug(f"  {tmsg:<{msgw}} -- OK")
 
 
 # --------------------------------------------------------------------------
@@ -319,7 +350,7 @@ def test_reshape_precision():
             err_msg=f"[{tmsg}] precision mismatch",
         )
 
-        print(f"  {tmsg:<{msgw}} -- OK")
+        logger.debug(f"  {tmsg:<{msgw}} -- OK")
 
 
 # --------------------------------------------------------------------------
@@ -347,7 +378,7 @@ def test_reshape_preserves_total_elements():
             computed.size == data.size
         ), f"Element count changed: {computed.size} vs {data.size}"
 
-    print("  Total elements preserved -- OK")
+    logger.debug("  Total elements preserved -- OK")
 
 
 @pytest.mark.unit
@@ -366,7 +397,7 @@ def test_reshape_preserves_data_order():
             err_msg=f"Data order changed for target {target}",
         )
 
-    print("  Data order preserved (C-order) -- OK")
+    logger.debug("  Data order preserved (C-order) -- OK")
 
 
 @pytest.mark.unit
@@ -383,7 +414,7 @@ def test_reshape_identity():
         )
         assert o_tensors[0].shape == list(data.shape)
 
-    print("  Identity reshape = no-op -- OK")
+    logger.debug("  Identity reshape = no-op -- OK")
 
 
 @pytest.mark.unit
@@ -412,7 +443,7 @@ def test_reshape_roundtrip():
             err_msg=f"Roundtrip failed: {shape_a} -> {shape_b} -> {shape_a}",
         )
 
-    print("  Reshape roundtrip = identity -- OK")
+    logger.debug("  Reshape roundtrip = identity -- OK")
 
 
 @pytest.mark.unit
@@ -437,7 +468,7 @@ def test_reshape_inferred_dim():
             o_tensors[0].shape == expected_shape
         ), f"Inferred shape {o_tensors[0].shape} != expected {expected_shape} for target {target}"
 
-    print("  -1 dim inference correct -- OK")
+    logger.debug("  -1 dim inference correct -- OK")
 
 
 @pytest.mark.unit
@@ -455,4 +486,131 @@ def test_reshape_constant_input():
         4,
     ], f"Shape should be [6,4], got {o_tensors[0].shape}"
 
-    print("  Constant input -> constant output -- OK")
+    logger.debug("  Constant input -> constant output -- OK")
+
+
+def calculate_reshape_memory_stats(input_shape, target_shape, dtype="float32"):
+    """Calculate memory and compute statistics for a reshape operation"""
+    # Get device configuration
+    config_path = os.path.join(polaris_root, "config", "tt_wh.yaml")
+    ipgroups, packages = get_arspec_from_yaml(config_path)
+    device = Device(packages["n150"])
+
+    # Create input tensors (X and shape)
+    np_dtype = getattr(np, dtype)
+    data_X = np.random.randn(*input_shape).astype(np_dtype)
+    shape_arr = np.array(target_shape, dtype=np.int64)
+    i_tensors = [F._from_data("X", data_X), F._from_data("shape", shape_arr)]
+
+    o_tensors = [make_tensor("Y")]
+
+    # Create operation
+    op_info = {
+        "optype": "Reshape",
+        "name": "reshape_mem_test",
+        "attrs": {},
+    }
+    op_obj = SimOp(op_info)
+
+    # Set op references
+    for x in i_tensors:
+        x.op_in = [op_info["name"]]
+    for x in o_tensors:
+        x.op_out = [op_info["name"]]
+
+    # Get performance counts
+    op_obj.get_perf_counts(i_tensors, o_tensors)
+
+    # Calculate statistics
+    perf_stats = op_obj.perf_stats
+    actual_instructions = perf_stats.get("instrs", {})
+    ops = (
+        sum(actual_instructions.values())
+        if isinstance(actual_instructions, dict)
+        else np.prod(input_shape)
+    )
+    input_bytes = perf_stats["inBytes"]
+    output_bytes = perf_stats["outBytes"]
+    total_memory = input_bytes + output_bytes
+
+    # Calculate intensities
+    arithmetic_intensity = ops / total_memory if total_memory > 0 else 0
+    mem_bw_bytes_per_cycle = (
+        device.simconfig_obj.peak_bandwidth(freq_units="GHz")
+        * 1e9
+        / device.freq_MHz
+        / 1e6
+    )
+    compute_throughput = 1  # 1 op per cycle for reshape
+    compute_cycles = ops / compute_throughput
+    memory_cycles = total_memory / mem_bw_bytes_per_cycle
+
+    bottleneck = "compute-bound" if compute_cycles > memory_cycles else "memory-bound"
+
+    return {
+        "input_shape": input_shape,
+        "target_shape": target_shape,
+        "input_bytes": input_bytes,
+        "output_bytes": output_bytes,
+        "total_memory": total_memory,
+        "ops": ops,
+        "arithmetic_intensity": arithmetic_intensity,
+        "bottleneck": bottleneck,
+        "device": device,
+    }
+
+@RESHAPE_MEMORY_SKIP
+def test_reshape_memory_validation():
+    """Memory validation test for reshape operation"""
+    logger.info("\n" + "=" * 80)
+    logger.info("RESHAPE MEMORY VALIDATION TEST")
+    logger.info("=" * 80)
+
+    # Test configurations (input_shape, target_shape)
+    test_configs = [
+        ([32], [8, 4]),
+        ([64, 64], [4096]),
+        ([32, 32, 32], [1024, 32]),
+        ([16, 16, 16, 16], [256, 256]),
+        ([1, 224, 224, 3], [1, 150528]),
+        ([8, 128, 128, 64], [8, 16384, 64]),
+        ([4, 56, 56, 256], [4, 3136, 256]),
+    ]
+
+    results = []
+    for input_shape, target_shape in test_configs:
+        stats = calculate_reshape_memory_stats(input_shape, target_shape)
+        results.append(stats)
+
+    # Print device info once
+    device = results[0]["device"]
+    logger.debug(f"\nDevice: {device.devname}")
+    logger.debug(f"  Name: {device.name}")
+    logger.debug(f"  Frequency: {device.freq_MHz} MHz")
+    logger.debug(f"  Memory Frequency: {device.memfreq_MHz} MHz")
+    logger.debug("")
+
+    # Print results for each configuration
+    for stats in results:
+        logger.debug(
+            f"Input Shape: {stats['input_shape']} -> Target Shape: {stats['target_shape']}"
+        )
+        logger.debug(f"  Memory: {stats['total_memory']/1e6:.4f} MB")
+        logger.debug(f"  Operations: {stats['ops']:.0f}")
+        logger.debug(
+            f"  Arithmetic Intensity: {stats['arithmetic_intensity']:.6f} ops/byte"
+        )
+        logger.debug(f"  Bottleneck: {stats['bottleneck']}")
+        logger.debug("")
+
+    # Summary statistics
+    memory_bound = sum(1 for r in results if r["bottleneck"] == "memory-bound")
+    compute_bound = sum(1 for r in results if r["bottleneck"] == "compute-bound")
+
+    logger.info("=" * 80)
+    logger.info("SUMMARY")
+    logger.info("=" * 80)
+    logger.info(f"Total configurations tested: {len(results)}")
+    logger.info(f"Memory-bound: {memory_bound}")
+    logger.info(f"Compute-bound: {compute_bound}")
+    logger.info("=" * 80)

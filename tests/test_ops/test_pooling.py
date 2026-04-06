@@ -7,6 +7,7 @@ import onnx
 from onnx import helper, TensorProto
 
 import numpy as np
+from loguru import logger
 from ttsim.ops.op import SimOp
 from ttsim.ops.tensor import make_tensor
 import ttsim.front.functional.op as F
@@ -156,7 +157,7 @@ test_cases = [
 
 def check_pooltype(pooltype):
     msgw = max([len(x["name"]) for x in test_cases])  # type: ignore
-    print()
+    logger.info("")
     for tno, trec in enumerate(test_cases):
         tname = trec["name"]  # type: ignore
         op_name = f"{tname}_{tno}"
@@ -204,7 +205,7 @@ def check_pooltype(pooltype):
         assert (
             YShape == o_tensors[0].shape
         ), f"SIMPLE TEST[{tno:3d}] {tname:{msgw}s}  {pooltype}: TTSIM {YShape} != {o_tensors[0].shape}"
-        print(f"SIMPLE TEST[{tno:3d}] {tname:{msgw}s} {pooltype} PASS")
+        logger.debug(f"SIMPLE TEST[{tno:3d}] {tname:{msgw}s} {pooltype} PASS")
 
 
 @pytest.mark.unit

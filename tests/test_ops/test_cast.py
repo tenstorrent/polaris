@@ -5,6 +5,7 @@ import os
 import sys
 import pytest
 import numpy as np
+from loguru import logger
 from ttsim.ops.op import SimOp
 from ttsim.ops.tensor import make_tensor
 from ttsim.ops.tensor import SimTensor
@@ -153,7 +154,7 @@ def test_cast_numerical():
             # Check dtype
             if computed_output.dtype != to_dtype:
                 dtype_match = False
-                print(
+                logger.debug(
                     f"\n  Dtype mismatch: got {computed_output.dtype}, expected {to_dtype}"
                 )
 
@@ -172,24 +173,28 @@ def test_cast_numerical():
                         - ref_output.astype(np.float64)
                     )
                 )
-                print(f"\n  Max difference: {max_diff}")
+                logger.debug(f"\n  Max difference: {max_diff}")
         except Exception as e:
             numerical_match = f"Error: {e}"
-            print(f"\n  Numerical validation error: {e}")
+            logger.debug(f"\n  Numerical validation error: {e}")
 
         # Report results
         if shape_match and numerical_match == True and dtype_match:
-            print(f"TEST[{tno:3d}] {tmsg:{msgw}s} PASS [Shape ✓, Numerical ✓, Dtype ✓]")
+            logger.debug(
+                f"TEST[{tno:3d}] {tmsg:{msgw}s} PASS [Shape ✓, Numerical ✓, Dtype ✓]"
+            )
         elif shape_match:
             status = []
             if numerical_match != True:
                 status.append(f"Numerical: {numerical_match}")
             if not dtype_match:
                 status.append("Dtype: ✗")
-            print(f"TEST[{tno:3d}] {tmsg:{msgw}s} PARTIAL [{', '.join(status)}]")
+            logger.debug(
+                f"TEST[{tno:3d}] {tmsg:{msgw}s} PARTIAL [{', '.join(status)}]"
+            )
         else:
-            print(f"\nTEST[{tno:3d}] {tmsg:{msgw}s} FAIL")
-            print(
+            logger.debug(f"\nTEST[{tno:3d}] {tmsg:{msgw}s} FAIL")
+            logger.debug(
                 f"  Shape match: {shape_match} (got {inf_shape}, expected {ref_shape})"
             )
 
@@ -267,13 +272,17 @@ def test_cast_precision():
             dtype_match = computed_output.dtype == expected_output.dtype
 
             if match and dtype_match:
-                print(f"PRECISION TEST[{tno}] {tmsg:{msgw}s} PASS")
+                logger.debug(f"PRECISION TEST[{tno}] {tmsg:{msgw}s} PASS")
             else:
-                print(f"\nPRECISION TEST[{tno}] {tmsg:{msgw}s} FAIL")
-                print(f"  Expected: {expected_output} (dtype: {expected_output.dtype})")
-                print(f"  Got:      {computed_output} (dtype: {computed_output.dtype})")
+                logger.debug(f"\nPRECISION TEST[{tno}] {tmsg:{msgw}s} FAIL")
+                logger.debug(
+                    f"  Expected: {expected_output} (dtype: {expected_output.dtype})"
+                )
+                logger.debug(
+                    f"  Got:      {computed_output} (dtype: {computed_output.dtype})"
+                )
         except Exception as e:
-            print(f"PRECISION TEST[{tno}] {tmsg:{msgw}s} ERROR: {e}")
+            logger.debug(f"PRECISION TEST[{tno}] {tmsg:{msgw}s} ERROR: {e}")
 
 
 # Edge cases
@@ -378,16 +387,16 @@ def test_cast_edge_cases():
                 match = np.allclose(computed_output, ref_output, rtol=1e-5, atol=1e-6)
 
             if match:
-                print(f"EDGE TEST[{tno}] {tmsg:{msgw}s} PASS - {description}")
+                logger.debug(f"EDGE TEST[{tno}] {tmsg:{msgw}s} PASS - {description}")
             else:
-                print(f"\nEDGE TEST[{tno}] {tmsg:{msgw}s} FAIL")
-                print(f"  {description}")
+                logger.debug(f"\nEDGE TEST[{tno}] {tmsg:{msgw}s} FAIL")
+                logger.debug(f"  {description}")
                 if test_data.size <= 10:
-                    print(f"  Input:  {test_data.flatten()}")
-                    print(f"  Output: {computed_output.flatten()}")
-                    print(f"  Ref:    {ref_output.flatten()}")
+                    logger.debug(f"  Input:  {test_data.flatten()}")
+                    logger.debug(f"  Output: {computed_output.flatten()}")
+                    logger.debug(f"  Ref:    {ref_output.flatten()}")
         except Exception as e:
-            print(f"EDGE TEST[{tno}] {tmsg:{msgw}s} ERROR: {e}")
+            logger.debug(f"EDGE TEST[{tno}] {tmsg:{msgw}s} ERROR: {e}")
 
 
 def calculate_cast_memory_stats(shape, ops_per_elem=1):
@@ -449,23 +458,23 @@ def test_cast_memory_validation(capsys, request):
         {"shape": [16, 16, 16, 16], "name": "4d_tensor"},
     ]
 
-    print("\n" + "=" * 80)
-    print("CAST OPERATION - MEMORY VALIDATION TEST")
-    print("=" * 80)
+    logger.info("\n" + "=" * 80)
+    logger.info("CAST OPERATION - MEMORY VALIDATION TEST")
+    logger.info("=" * 80)
 
     # Device info (WITHOUT bandwidth line)
-    print(f"\nDevice: {device.devname} ({device.name})")
-    print(f"Device frequency: {device.freq_MHz} MHz")
-    print(f"Memory frequency: {device.memfreq_MHz} MHz")
+    logger.info(f"\nDevice: {device.devname} ({device.name})")
+    logger.info(f"Device frequency: {device.freq_MHz} MHz")
+    logger.info(f"Memory frequency: {device.memfreq_MHz} MHz")
 
-    print("\nTest Configuration:")
-    print(f"  Precision: fp16 (2 bytes per element)")
-    print(f"  Operations: Type conversion (~1 op per element)")
-    print(f"  Memory pattern: Read input + Write output")
+    logger.info("\nTest Configuration:")
+    logger.info("  Precision: fp16 (2 bytes per element)")
+    logger.info("  Operations: Type conversion (~1 op per element)")
+    logger.info("  Memory pattern: Read input + Write output")
 
-    print("\n" + "-" * 80)
-    print("TEST RESULTS:")
-    print("-" * 80)
+    logger.info("\n" + "-" * 80)
+    logger.info("TEST RESULTS:")
+    logger.info("-" * 80)
 
     results = []
 
@@ -538,20 +547,22 @@ def test_cast_memory_validation(capsys, request):
         )
 
         # Print test result
-        print(f"\n[{test_name}] Shape: {shape}")
-        print(f"  Instructions executed: {num_instructions:,}")
-        print(f"  Input bytes:  {input_bytes:,}")
-        print(f"  Output bytes: {output_bytes:,}")
-        print(f"  Total data moved: {total_bytes:,} bytes ({total_bytes/1024:.2f} KB)")
-        print(f"  Arithmetic intensity: {arithmetic_intensity:.3f} ops/byte")
-        print(f"  Compute cycles: {compute_cycles:,.0f}")
-        print(f"  Memory cycles:  {memory_cycles:,.0f}")
-        print(f"  Bottleneck: {bottleneck}")
+        logger.debug(f"\n[{test_name}] Shape: {shape}")
+        logger.debug(f"  Instructions executed: {num_instructions:,}")
+        logger.debug(f"  Input bytes:  {input_bytes:,}")
+        logger.debug(f"  Output bytes: {output_bytes:,}")
+        logger.debug(
+            f"  Total data moved: {total_bytes:,} bytes ({total_bytes/1024:.2f} KB)"
+        )
+        logger.debug(f"  Arithmetic intensity: {arithmetic_intensity:.3f} ops/byte")
+        logger.debug(f"  Compute cycles: {compute_cycles:,.0f}")
+        logger.debug(f"  Memory cycles:  {memory_cycles:,.0f}")
+        logger.debug(f"  Bottleneck: {bottleneck}")
 
     # Summary
-    print("\n" + "=" * 80)
-    print("SUMMARY")
-    print("=" * 80)
+    logger.info("\n" + "=" * 80)
+    logger.info("SUMMARY")
+    logger.info("=" * 80)
 
     total_instructions = sum(r["instructions"] for r in results)
     total_bytes = sum(r["total_bytes"] for r in results)
@@ -562,14 +573,18 @@ def test_cast_memory_validation(capsys, request):
     memory_bound_count = sum(1 for r in results if r["bottleneck"] == "MEMORY")
     compute_bound_count = sum(1 for r in results if r["bottleneck"] == "COMPUTE")
 
-    print(f"\nTotal tests: {len(results)}")
-    print(f"Total instructions: {total_instructions:,}")
-    print(f"Total data moved: {total_bytes:,} bytes ({total_bytes/1024/1024:.2f} MB)")
-    print(f"Average arithmetic intensity: {avg_arithmetic_intensity:.3f} ops/byte")
-    print(f"\nBottleneck distribution:")
-    print(f"  Memory-bound: {memory_bound_count}/{len(results)}")
-    print(f"  Compute-bound: {compute_bound_count}/{len(results)}")
-    print("\n" + "=" * 80)
+    logger.info(f"\nTotal tests: {len(results)}")
+    logger.info(f"Total instructions: {total_instructions:,}")
+    logger.info(
+        f"Total data moved: {total_bytes:,} bytes ({total_bytes/1024/1024:.2f} MB)"
+    )
+    logger.info(
+        f"Average arithmetic intensity: {avg_arithmetic_intensity:.3f} ops/byte"
+    )
+    logger.info("\nBottleneck distribution:")
+    logger.info(f"  Memory-bound: {memory_bound_count}/{len(results)}")
+    logger.info(f"  Compute-bound: {compute_bound_count}/{len(results)}")
+    logger.info("\n" + "=" * 80)
 
     # All tests pass if we got here
     assert True

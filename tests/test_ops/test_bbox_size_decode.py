@@ -6,6 +6,7 @@
 import numpy as np
 import pytest
 import warnings
+from loguru import logger
 
 from ttsim.ops.desc.data_compute import compute_bbox_size_decode
 
@@ -264,10 +265,10 @@ def test_bbox_size_decode():
             err_msg=f"{name}: Numerical mismatch",
         )
 
-        print(f"  {name}: PASS [Shape ✓, Numerical ✓]")
+        logger.debug(f"  {name}: PASS [Shape ✓, Numerical ✓]")
         passed += 1
 
-    print(f"\nBbox Size Decode Tests: {passed}/{total} passed")
+    logger.info(f"\nBbox Size Decode Tests: {passed}/{total} passed")
     assert passed == total, f"Only {passed}/{total} tests passed"
 
 
@@ -284,13 +285,13 @@ def test_bbox_size_decode_errors():
         def __init__(self):
             self.attrs = {}
 
-    print("\nTesting Bbox Size Decode Edge Cases:")
+    logger.info("\nTesting Bbox Size Decode Edge Cases:")
 
     # Suppress warnings for zero/negative anchor tests
     warnings.filterwarnings("ignore", category=RuntimeWarning)
 
     # Test 1: Zero anchors (should produce zeros)
-    print("  Test 1: Zero anchors")
+    logger.debug("  Test 1: Zero anchors")
     bs, na, ny, nx = 1, 3, 8, 8
     wh_sigmoid = np.random.rand(bs, na, ny, nx, 2).astype(np.float32)
     anchor_grid = np.zeros((1, na, 1, 1, 2), dtype=np.float32)
@@ -301,10 +302,10 @@ def test_bbox_size_decode_errors():
     assert result1.shape == expected1.shape
     np.testing.assert_allclose(result1, expected1, rtol=1e-5, atol=1e-7)
     assert np.all(result1 == 0.0), "Zero anchors should produce all zeros"
-    print("    PASS (zero anchors produce zeros)")
+    logger.debug("    PASS (zero anchors produce zeros)")
 
     # Test 2: Negative anchors
-    print("  Test 2: Negative anchors")
+    logger.debug("  Test 2: Negative anchors")
     bs, na, ny, nx = 1, 3, 8, 8
     wh_sigmoid = np.random.rand(bs, na, ny, nx, 2).astype(np.float32)
     anchor_grid = (
@@ -319,10 +320,10 @@ def test_bbox_size_decode_errors():
     assert result2.shape == expected2.shape
     np.testing.assert_allclose(result2, expected2, rtol=1e-5, atol=1e-7)
     # Negative anchors should produce negative dimensions
-    print("    PASS (negative anchors handled correctly)")
+    logger.debug("    PASS (negative anchors handled correctly)")
 
     # Test 3: Very large anchors
-    print("  Test 3: Very large anchors")
+    logger.debug("  Test 3: Very large anchors")
     bs, na, ny, nx = 1, 3, 8, 8
     wh_sigmoid = np.random.rand(bs, na, ny, nx, 2).astype(np.float32)
     anchor_grid = (
@@ -336,10 +337,10 @@ def test_bbox_size_decode_errors():
     expected3 = ref_impl_bbox_size_decode(wh_sigmoid, anchor_grid)
     assert result3.shape == expected3.shape
     np.testing.assert_allclose(result3, expected3, rtol=1e-5, atol=1e-7)
-    print("    PASS (very large anchors handled correctly)")
+    logger.debug("    PASS (very large anchors handled correctly)")
 
     # Test 4: All zeros (sigmoid=0, anchor=0)
-    print("  Test 4: All zeros")
+    logger.debug("  Test 4: All zeros")
     bs, na, ny, nx = 1, 3, 8, 8
     wh_sigmoid = np.zeros((bs, na, ny, nx, 2), dtype=np.float32)
     anchor_grid = np.zeros((1, na, 1, 1, 2), dtype=np.float32)
@@ -350,10 +351,10 @@ def test_bbox_size_decode_errors():
     assert result4.shape == expected4.shape
     np.testing.assert_allclose(result4, expected4, rtol=1e-5, atol=1e-7)
     assert np.all(result4 == 0.0), "All zeros should produce zero output"
-    print("    PASS (all zeros produces zero output)")
+    logger.debug("    PASS (all zeros produces zero output)")
 
     # Test 5: Sigmoid = 0 with non-zero anchors (minimum box size)
-    print("  Test 5: Sigmoid = 0 (minimum box size)")
+    logger.debug("  Test 5: Sigmoid = 0 (minimum box size)")
     bs, na, ny, nx = 1, 3, 8, 8
     wh_sigmoid = np.zeros((bs, na, ny, nx, 2), dtype=np.float32)
     anchor_grid = (
@@ -369,10 +370,10 @@ def test_bbox_size_decode_errors():
     np.testing.assert_allclose(result5, expected5, rtol=1e-5, atol=1e-7)
     # Formula: ((0 * 2.0) ** 2) * anchor = 0
     assert np.all(result5 == 0.0), "Sigmoid=0 should produce zero output"
-    print("    PASS (sigmoid=0 produces minimum size)")
+    logger.debug("    PASS (sigmoid=0 produces minimum size)")
 
     # Test 6: Sigmoid = 1 (maximum size in this range)
-    print("  Test 6: Sigmoid = 1 (maximum box size)")
+    logger.debug("  Test 6: Sigmoid = 1 (maximum box size)")
     bs, na, ny, nx = 1, 3, 8, 8
     wh_sigmoid = np.ones((bs, na, ny, nx, 2), dtype=np.float32)
     anchor_grid = (
@@ -398,10 +399,10 @@ def test_bbox_size_decode_errors():
     assert np.allclose(
         result6[0, 2, 0, 0], expected_max_per_anchor[0, 2, 0, 0]
     ), "Third anchor should be 4x"
-    print("    PASS (sigmoid=1 produces 4x anchor size)")
+    logger.debug("    PASS (sigmoid=1 produces 4x anchor size)")
 
     # Test 7: Single cell with extreme values
-    print("  Test 7: Single cell with extreme values")
+    logger.debug("  Test 7: Single cell with extreme values")
     bs, na, ny, nx = 1, 1, 1, 1
     wh_sigmoid = np.array([[[[[1.0, 1.0]]]]], dtype=np.float32)
     anchor_grid = np.array([[[[[5000.0, 5000.0]]]]], dtype=np.float32)
@@ -411,10 +412,10 @@ def test_bbox_size_decode_errors():
     expected7 = ref_impl_bbox_size_decode(wh_sigmoid, anchor_grid)
     assert result7.shape == expected7.shape
     np.testing.assert_allclose(result7, expected7, rtol=1e-5, atol=1e-7)
-    print("    PASS (single cell with extreme values)")
+    logger.debug("    PASS (single cell with extreme values)")
 
     # Test 8: Very small anchors (fractional)
-    print("  Test 8: Very small anchors (fractional)")
+    logger.debug("  Test 8: Very small anchors (fractional)")
     bs, na, ny, nx = 1, 3, 8, 8
     wh_sigmoid = np.random.rand(bs, na, ny, nx, 2).astype(np.float32)
     anchor_grid = (
@@ -428,9 +429,9 @@ def test_bbox_size_decode_errors():
     expected8 = ref_impl_bbox_size_decode(wh_sigmoid, anchor_grid)
     assert result8.shape == expected8.shape
     np.testing.assert_allclose(result8, expected8, rtol=1e-5, atol=1e-7)
-    print("    PASS (small fractional anchors)")
+    logger.debug("    PASS (small fractional anchors)")
 
-    print("\nAll edge case tests passed!")
+    logger.info("\nAll edge case tests passed!")
 
 
 @pytest.mark.unit
@@ -446,10 +447,10 @@ def test_bbox_size_decode_precision():
         def __init__(self):
             self.attrs = {}
 
-    print("\nTesting Bbox Size Decode Precision (Known Outputs):")
+    logger.info("\nTesting Bbox Size Decode Precision (Known Outputs):")
 
     # Test 1: sigmoid=0.5, anchor=100 -> ((0.5*2)^2)*100 = 1*100 = 100
-    print("  Test 1: sigmoid=0.5, anchor=100")
+    logger.debug("  Test 1: sigmoid=0.5, anchor=100")
     bs, na, ny, nx = 1, 1, 1, 1
     wh_sigmoid = np.array([[[[[0.5, 0.5]]]]], dtype=np.float32)
     anchor_grid = np.array([[[[[100.0, 100.0]]]]], dtype=np.float32)
@@ -458,10 +459,10 @@ def test_bbox_size_decode_precision():
     result1 = compute_bbox_size_decode(iTList1, op1)
     expected1 = np.array([[[[[100.0, 100.0]]]]], dtype=np.float32)
     np.testing.assert_allclose(result1, expected1, rtol=1e-6, atol=1e-7)
-    print(f"    Result: {result1[0,0,0,0]} (expected [100.0, 100.0]) ✓")
+    logger.debug(f"    Result: {result1[0,0,0,0]} (expected [100.0, 100.0]) ✓")
 
     # Test 2: sigmoid=0, anchor=100 -> ((0*2)^2)*100 = 0
-    print("  Test 2: sigmoid=0, anchor=100")
+    logger.debug("  Test 2: sigmoid=0, anchor=100")
     bs, na, ny, nx = 1, 1, 1, 1
     wh_sigmoid = np.array([[[[[0.0, 0.0]]]]], dtype=np.float32)
     anchor_grid = np.array([[[[[100.0, 100.0]]]]], dtype=np.float32)
@@ -470,10 +471,10 @@ def test_bbox_size_decode_precision():
     result2 = compute_bbox_size_decode(iTList2, op2)
     expected2 = np.array([[[[[0.0, 0.0]]]]], dtype=np.float32)
     np.testing.assert_allclose(result2, expected2, rtol=1e-6, atol=1e-7)
-    print(f"    Result: {result2[0,0,0,0]} (expected [0.0, 0.0]) ✓")
+    logger.debug(f"    Result: {result2[0,0,0,0]} (expected [0.0, 0.0]) ✓")
 
     # Test 3: sigmoid=1, anchor=100 -> ((1*2)^2)*100 = 4*100 = 400
-    print("  Test 3: sigmoid=1, anchor=100")
+    logger.debug("  Test 3: sigmoid=1, anchor=100")
     bs, na, ny, nx = 1, 1, 1, 1
     wh_sigmoid = np.array([[[[[1.0, 1.0]]]]], dtype=np.float32)
     anchor_grid = np.array([[[[[100.0, 100.0]]]]], dtype=np.float32)
@@ -482,10 +483,10 @@ def test_bbox_size_decode_precision():
     result3 = compute_bbox_size_decode(iTList3, op3)
     expected3 = np.array([[[[[400.0, 400.0]]]]], dtype=np.float32)
     np.testing.assert_allclose(result3, expected3, rtol=1e-6, atol=1e-7)
-    print(f"    Result: {result3[0,0,0,0]} (expected [400.0, 400.0]) ✓")
+    logger.debug(f"    Result: {result3[0,0,0,0]} (expected [400.0, 400.0]) ✓")
 
     # Test 4: sigmoid=0.25, anchor=64 -> ((0.25*2)^2)*64 = 0.25*64 = 16
-    print("  Test 4: sigmoid=0.25, anchor=64")
+    logger.debug("  Test 4: sigmoid=0.25, anchor=64")
     bs, na, ny, nx = 1, 1, 1, 1
     wh_sigmoid = np.array([[[[[0.25, 0.25]]]]], dtype=np.float32)
     anchor_grid = np.array([[[[[64.0, 64.0]]]]], dtype=np.float32)
@@ -494,10 +495,10 @@ def test_bbox_size_decode_precision():
     result4 = compute_bbox_size_decode(iTList4, op4)
     expected4 = np.array([[[[[16.0, 16.0]]]]], dtype=np.float32)
     np.testing.assert_allclose(result4, expected4, rtol=1e-6, atol=1e-7)
-    print(f"    Result: {result4[0,0,0,0]} (expected [16.0, 16.0]) ✓")
+    logger.debug(f"    Result: {result4[0,0,0,0]} (expected [16.0, 16.0]) ✓")
 
     # Test 5: sigmoid=0.75, anchor=80 -> ((0.75*2)^2)*80 = 2.25*80 = 180
-    print("  Test 5: sigmoid=0.75, anchor=80")
+    logger.debug("  Test 5: sigmoid=0.75, anchor=80")
     bs, na, ny, nx = 1, 1, 1, 1
     wh_sigmoid = np.array([[[[[0.75, 0.75]]]]], dtype=np.float32)
     anchor_grid = np.array([[[[[80.0, 80.0]]]]], dtype=np.float32)
@@ -506,11 +507,11 @@ def test_bbox_size_decode_precision():
     result5 = compute_bbox_size_decode(iTList5, op5)
     expected5 = np.array([[[[[180.0, 180.0]]]]], dtype=np.float32)
     np.testing.assert_allclose(result5, expected5, rtol=1e-6, atol=1e-7)
-    print(f"    Result: {result5[0,0,0,0]} (expected [180.0, 180.0]) ✓")
+    logger.debug(f"    Result: {result5[0,0,0,0]} (expected [180.0, 180.0]) ✓")
 
     # Test 6: Different width and height
     # w: (0.5*2)^2 * 100 = 100, h: (0.25*2)^2 * 50 = 12.5
-    print("  Test 6: Different width and height")
+    logger.debug("  Test 6: Different width and height")
     bs, na, ny, nx = 1, 1, 1, 1
     wh_sigmoid = np.array([[[[[0.5, 0.25]]]]], dtype=np.float32)
     anchor_grid = np.array([[[[[100.0, 50.0]]]]], dtype=np.float32)
@@ -519,10 +520,10 @@ def test_bbox_size_decode_precision():
     result6 = compute_bbox_size_decode(iTList6, op6)
     expected6 = np.array([[[[[100.0, 12.5]]]]], dtype=np.float32)
     np.testing.assert_allclose(result6, expected6, rtol=1e-6, atol=1e-7)
-    print(f"    Result: {result6[0,0,0,0]} (expected [100.0, 12.5]) ✓")
+    logger.debug(f"    Result: {result6[0,0,0,0]} (expected [100.0, 12.5]) ✓")
 
     # Test 7: Multiple anchors with different sizes
-    print("  Test 7: Three anchors with known values")
+    logger.debug("  Test 7: Three anchors with known values")
     bs, na, ny, nx = 1, 3, 1, 1
     # Create sigmoid values properly shaped: [bs, na, ny, nx, 2]
     wh_sigmoid = np.zeros((bs, na, ny, nx, 2), dtype=np.float32)
@@ -545,11 +546,11 @@ def test_bbox_size_decode_precision():
     )
     np.testing.assert_allclose(result7[0, 1, 0, 0], [16.0, 180.0], rtol=1e-6, atol=1e-7)
     np.testing.assert_allclose(result7[0, 2, 0, 0], [800.0, 0.0], rtol=1e-6, atol=1e-7)
-    print(f"    Anchor 0: {result7[0,0,0,0]} ✓")
-    print(f"    Anchor 1: {result7[0,1,0,0]} ✓")
-    print(f"    Anchor 2: {result7[0,2,0,0]} ✓")
+    logger.debug(f"    Anchor 0: {result7[0,0,0,0]} ✓")
+    logger.debug(f"    Anchor 1: {result7[0,1,0,0]} ✓")
+    logger.debug(f"    Anchor 2: {result7[0,2,0,0]} ✓")
 
-    print("\nAll precision tests passed!")
+    logger.info("\nAll precision tests passed!")
 
 
 @pytest.mark.unit
@@ -565,10 +566,10 @@ def test_bbox_size_decode_properties():
         def __init__(self):
             self.attrs = {}
 
-    print("\nTesting Bbox Size Decode Properties:")
+    logger.info("\nTesting Bbox Size Decode Properties:")
 
     # Property 1: Output is always non-negative (for positive anchors)
-    print("  Property 1: Non-negative output for positive anchors")
+    logger.debug("  Property 1: Non-negative output for positive anchors")
     bs, na, ny, nx = 2, 3, 13, 13
     wh_sigmoid = np.random.rand(bs, na, ny, nx, 2).astype(np.float32)
     anchor_grid = np.abs(np.random.rand(1, na, 1, 1, 2).astype(np.float32) * 200)
@@ -576,11 +577,11 @@ def test_bbox_size_decode_properties():
         [MockTensor(wh_sigmoid), MockTensor(anchor_grid)], MockOp()
     )
     assert np.all(result >= 0), "Output should be non-negative for positive anchors"
-    print(f"    All outputs non-negative ✓")
+    logger.debug(f"    All outputs non-negative ✓")
 
     # Property 2: Linear scaling with anchor size
     # Doubling anchor should double output
-    print("  Property 2: Linear scaling with anchor size")
+    logger.debug("  Property 2: Linear scaling with anchor size")
     bs, na, ny, nx = 1, 3, 10, 10
     wh_sigmoid = np.random.rand(bs, na, ny, nx, 2).astype(np.float32)
 
@@ -600,11 +601,11 @@ def test_bbox_size_decode_properties():
 
     # result2 should be result1 * 2
     np.testing.assert_allclose(result2, result1 * 2.0, rtol=1e-5, atol=1e-7)
-    print(f"    Doubling anchor doubles output ✓")
+    logger.debug(f"    Doubling anchor doubles output ✓")
 
     # Property 3: Quadratic scaling with sigmoid
     # sigmoid=0.5 -> scale=1x, sigmoid=1.0 -> scale=4x
-    print("  Property 3: Quadratic scaling with sigmoid")
+    logger.debug("  Property 3: Quadratic scaling with sigmoid")
     bs, na, ny, nx = 1, 3, 8, 8
     anchor_grid = (
         np.array([[[[[100.0, 100.0], [150.0, 150.0], [200.0, 200.0]]]]])
@@ -625,10 +626,10 @@ def test_bbox_size_decode_properties():
     # sigmoid=0.5: ((0.5*2)^2) = 1, sigmoid=1.0: ((1*2)^2) = 4
     # So result2 should be result1 * 4
     np.testing.assert_allclose(result2, result1 * 4.0, rtol=1e-5, atol=1e-7)
-    print(f"    Quadratic relationship verified ✓")
+    logger.debug(f"    Quadratic relationship verified ✓")
 
     # Property 4: Maximum is 4x anchor (when sigmoid=1)
-    print("  Property 4: Maximum output is 4x anchor")
+    logger.debug("  Property 4: Maximum output is 4x anchor")
     bs, na, ny, nx = 1, 3, 10, 10
     wh_sigmoid = np.ones((bs, na, ny, nx, 2), dtype=np.float32)
     anchor_grid = (
@@ -645,10 +646,10 @@ def test_bbox_size_decode_properties():
         assert np.allclose(
             result[0, a, :, :, :], expected_for_anchor
         ), f"Anchor {a} should be 4x"
-    print(f"    Maximum is 4x anchor ✓")
+    logger.debug(f"    Maximum is 4x anchor ✓")
 
     # Property 5: Shape preservation across batch and anchor dimensions
-    print("  Property 5: Shape preservation")
+    logger.debug("  Property 5: Shape preservation")
     test_shapes = [
         (1, 1, 8, 8),
         (2, 3, 13, 13),
@@ -669,9 +670,9 @@ def test_bbox_size_decode_properties():
             nx,
             2,
         ), f"Shape mismatch for {(bs, na, ny, nx)}"
-    print(f"    All shapes preserved correctly ✓")
+    logger.debug(f"    All shapes preserved correctly ✓")
 
-    print("\nAll property tests passed!")
+    logger.info("\nAll property tests passed!")
 
 
 if __name__ == "__main__":

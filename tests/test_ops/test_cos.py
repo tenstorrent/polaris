@@ -7,6 +7,7 @@ import numpy as np
 import pytest
 import os
 from pathlib import Path
+from loguru import logger
 
 from ttsim.ops.op import SimOp
 from ttsim.ops.tensor import make_tensor
@@ -430,24 +431,25 @@ def test_cos_memory_validation(capsys, request):
         device_pkg = packages["n150"]  # Use Wormhole n150 device
         device = Device(device_pkg)
 
-        print(f"\n{'='*60}")
-        print("Cos Operation Memory Validation")
-        print(f"{'='*60}\n")
-        print(f"Device: Wormhole (n150)")
-        print(f"Device frequency: {device.freq_MHz} MHz")
-        print(f"Memory frequency: {device.memfreq_MHz} MHz")
-        print(
-            f"Peak bandwidth: {device.simconfig_obj.peak_bandwidth(freq_units='GHz'):.2f} GB/s"
+        logger.info("\n%s", "=" * 60)
+        logger.info("Cos Operation Memory Validation")
+        logger.info("%s\n", "=" * 60)
+        logger.info("Device: Wormhole (n150)")
+        logger.info(f"Device frequency: {device.freq_MHz} MHz")
+        logger.info(f"Memory frequency: {device.memfreq_MHz} MHz")
+        logger.info(
+            "Peak bandwidth: %.2f GB/s",
+            device.simconfig_obj.peak_bandwidth(freq_units="GHz"),
         )
     except Exception as e:
-        print(f"\nWarning: Could not load device config: {e}")
-        print("Skipping memory validation test")
+        logger.info(f"\nWarning: Could not load device config: {e}")
+        logger.info("Skipping memory validation test")
         pytest.skip(f"Could not load device config: {e}")
         return
 
-    print(f"\n{'='*60}")
-    print("Running Memory Validation Tests")
-    print(f"{'='*60}\n")
+    logger.info("\n%s", "=" * 60)
+    logger.info("Running Memory Validation Tests")
+    logger.info("%s\n", "=" * 60)
 
     all_results = []
 
@@ -456,8 +458,8 @@ def test_cos_memory_validation(capsys, request):
         shape = test_case["shape"]
         description = test_case["description"]
 
-        print(f"\n-- Test: {test_name} --")
-        print(f"Shape: {shape}")
+        logger.debug(f"\n-- Test: {test_name} --")
+        logger.debug(f"Shape: {shape}")
 
         # Generate test data (use values in valid range for cos)
         np.random.seed(42)
@@ -549,29 +551,33 @@ def test_cos_memory_validation(capsys, request):
         bottleneck = "COMPUTE" if compute_cycles >= memory_cycles else "MEMORY"
 
         # Print detailed breakdown
-        print(f"\n  -- Instructions & Operations --")
-        print(f"  Instructions executed: {instructions_executed:,} (cos)")
-        print(f"  Input elements:        {input_elems:,}")
-        print(f"  Output elements:       {output_elems:,}")
-        print(f"  Expected instructions: ~{input_elems:,} (1 cos per element)")
+        logger.debug("\n  -- Instructions & Operations --")
+        logger.debug(f"  Instructions executed: {instructions_executed:,} (cos)")
+        logger.debug(f"  Input elements:        {input_elems:,}")
+        logger.debug(f"  Output elements:       {output_elems:,}")
+        logger.debug(
+            f"  Expected instructions: ~{input_elems:,} (1 cos per element)"
+        )
         instruction_ratio = actual_cos / input_elems if input_elems > 0 else 0
-        print(f"  Instruction ratio:     {instruction_ratio:.2f} (✓ 1 cos per element)")
+        logger.debug(
+            f"  Instruction ratio:     {instruction_ratio:.2f} (✓ 1 cos per element)"
+        )
 
-        print(f"\n  -- Data Movement --")
-        print(
+        logger.debug("\n  -- Data Movement --")
+        logger.debug(
             f"  Input bytes:      {actual_in_bytes:,} bytes ({actual_in_bytes/1024:.2f} KB)"
         )
-        print(
+        logger.debug(
             f"  Output bytes:     {actual_out_bytes:,} bytes ({actual_out_bytes/1024:.2f} KB)"
         )
-        print(
+        logger.debug(
             f"  Total data moved: {total_data_movement:,} bytes ({total_data_movement/1024:.2f} KB)"
         )
 
-        print(f"\n  -- Memory Metrics --")
-        print(f"  Arithmetic intensity:  {arithmetic_intensity:.4f} ops/byte")
+        logger.debug("\n  -- Memory Metrics --")
+        logger.debug(f"  Arithmetic intensity:  {arithmetic_intensity:.4f} ops/byte")
         expected_ai = input_elems / total_data_movement
-        print(f"  Expected intensity:    {expected_ai:.4f} ops/byte")
+        logger.debug(f"  Expected intensity:    {expected_ai:.4f} ops/byte")
         np.testing.assert_allclose(
             arithmetic_intensity,
             expected_ai,
@@ -579,16 +585,16 @@ def test_cos_memory_validation(capsys, request):
             atol=1e-6,
             err_msg=f"Arithmetic intensity mismatch",
         )
-        print(f"  ✓ Arithmetic intensity within expected range")
+        logger.debug("  ✓ Arithmetic intensity within expected range")
 
-        print(f"\n  -- Execution Cycles --")
-        print(f"  Compute cycles:   {compute_cycles:,}")
-        print(f"  Memory cycles:    {memory_cycles:,}")
-        print(f"    Read cycles:    {mem_rd_cycles:,}")
-        print(f"    Write cycles:   {mem_wr_cycles:,}")
-        print(f"  Ideal cycles:     {total_cycles:,}")
-        print(f"  Bottleneck:       {bottleneck}")
-        print(f"  ✓ Bottleneck analysis: {bottleneck} for unary operation")
+        logger.debug("\n  -- Execution Cycles --")
+        logger.debug(f"  Compute cycles:   {compute_cycles:,}")
+        logger.debug(f"  Memory cycles:    {memory_cycles:,}")
+        logger.debug(f"    Read cycles:    {mem_rd_cycles:,}")
+        logger.debug(f"    Write cycles:   {mem_wr_cycles:,}")
+        logger.debug(f"  Ideal cycles:     {total_cycles:,}")
+        logger.debug(f"  Bottleneck:       {bottleneck}")
+        logger.debug(f"  ✓ Bottleneck analysis: {bottleneck} for unary operation")
 
         # Store results for summary
         all_results.append(
@@ -606,36 +612,36 @@ def test_cos_memory_validation(capsys, request):
             }
         )
 
-        print(f"\n  ✓ Test PASSED")
+        logger.debug("\n  ✓ Test PASSED")
 
     # Summary
-    print(f"\n{'='*60}")
-    print("Memory Validation Summary")
-    print(f"{'='*60}\n")
-    print(f"Total tests run: {len(all_results)}")
-    print(f"All tests passed: ✓")
+    logger.info("\n%s", "=" * 60)
+    logger.info("Memory Validation Summary")
+    logger.info("%s\n", "=" * 60)
+    logger.info(f"Total tests run: {len(all_results)}")
+    logger.info("All tests passed: ✓")
 
     # Compare arithmetic intensity across tests
-    print(f"\n-- Arithmetic Intensity Comparison --")
+    logger.info("\n-- Arithmetic Intensity Comparison --")
     for result in all_results:
         ai = result["arithmetic_intensity"]
-        print(f"{result['test_name']:30s}: {ai:.4f} ops/byte")
+        logger.info(f"{result['test_name']:30s}: {ai:.4f} ops/byte")
 
     # Element count analysis
-    print(f"\n-- Element Count Analysis --")
+    logger.info("\n-- Element Count Analysis --")
     for result in all_results:
         elems = result["cos_instructions"]
-        print(f"{result['test_name']:30s}: {elems:,} elements")
+        logger.info(f"{result['test_name']:30s}: {elems:,} elements")
 
     # Bottleneck analysis
-    print(f"\n-- Bottleneck Analysis --")
+    logger.info("\n-- Bottleneck Analysis --")
     for result in all_results:
         bottleneck = result["bottleneck"]
-        print(f"{result['test_name']:30s}: {bottleneck}")
+        logger.info(f"{result['test_name']:30s}: {bottleneck}")
 
-    print(f"\n{'='*60}")
-    print("Memory validation complete!")
-    print(f"{'='*60}\n")
+    logger.info("\n%s", "=" * 60)
+    logger.info("Memory validation complete!")
+    logger.info("%s\n", "=" * 60)
 
     # Create a summary that will be displayed in pytest output
     summary_lines = [
@@ -683,12 +689,12 @@ def test_cos_memory_validation(capsys, request):
     except Exception:
         # Fallback: disable capture and print directly
         with capsys.disabled():
-            print("\n" + "=" * 70)
-            print("COS MEMORY VALIDATION RESULTS")
-            print("=" * 70)
+            logger.info("\n" + "=" * 70)
+            logger.info("COS MEMORY VALIDATION RESULTS")
+            logger.info("=" * 70)
             for line in summary_lines:
-                print(line)
-            print("=" * 70 + "\n")
+                logger.info(line)
+            logger.info("=" * 70 + "\n")
 
     # Final assertion
     assert len(all_results) == len(

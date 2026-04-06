@@ -6,6 +6,7 @@
 import numpy as np
 import pytest
 from pathlib import Path
+from loguru import logger
 
 from ttsim.ops.op import SimOp
 from ttsim.ops.tensor import make_tensor
@@ -432,9 +433,9 @@ def test_scatter_nd_memory_validation(capsys, request):
     if not MEMORY_TEST_AVAILABLE:
         pytest.skip("Device config not available for memory estimation")
 
-    print("\n" + "=" * 80)
-    print("ScatterND Operation Memory Validation")
-    print("=" * 80)
+    logger.info("\n" + "=" * 80)
+    logger.info("ScatterND Operation Memory Validation")
+    logger.info("=" * 80)
 
     # Load device configuration once
     polaris_root = Path(__file__).parent.parent.parent
@@ -444,10 +445,11 @@ def test_scatter_nd_memory_validation(capsys, request):
         device_pkg = packages["n150"]
         device = Device(device_pkg)
 
-        print(f"\nDevice: {device.devname} ({device.name})")
-        print(f"Frequency: {device.freq_MHz} MHz")
-        print(
-            f"Peak Bandwidth: {device.simconfig_obj.peak_bandwidth(freq_units='GHz'):.2f} GB/s"
+        logger.info(f"\nDevice: {device.devname} ({device.name})")
+        logger.info(f"Frequency: {device.freq_MHz} MHz")
+        logger.info(
+            "Peak Bandwidth: "
+            f"{device.simconfig_obj.peak_bandwidth(freq_units='GHz'):.2f} GB/s"
         )
     except Exception as e:
         pytest.skip(f"Could not load device config: {e}")
@@ -491,9 +493,9 @@ def test_scatter_nd_memory_validation(capsys, request):
         },
     ]
 
-    print(f"\n{'='*80}")
-    print("Running Memory Validation Tests")
-    print(f"{'='*80}\n")
+    logger.info(f"\n{'='*80}")
+    logger.info("Running Memory Validation Tests")
+    logger.info(f"{'='*80}\n")
 
     all_results = []
 
@@ -503,9 +505,9 @@ def test_scatter_nd_memory_validation(capsys, request):
         indices = test_case["indices"]
         updates = test_case["updates"]
 
-        print(f"\n-- Test: {test_name} --")
-        print(f"Description: {test_case['description']}")
-        print(f"Data shape: {data_shape}, Num updates: {len(indices)}")
+        logger.info(f"\n-- Test: {test_name} --")
+        logger.info(f"Description: {test_case['description']}")
+        logger.info(f"Data shape: {data_shape}, Num updates: {len(indices)}")
 
         # Create tensors
         data_arr = np.zeros(data_shape, dtype=np.float32)
@@ -543,7 +545,7 @@ def test_scatter_nd_memory_validation(capsys, request):
         assert out_t.shape == list(
             data_shape
         ), f"Output shape {out_t.shape} != data shape {data_shape}"
-        print(f"Output shape: {out_t.shape}")
+        logger.debug(f"Output shape: {out_t.shape}")
 
         # Extract performance stats directly
         perf_stats = op.perf_stats
@@ -584,27 +586,35 @@ def test_scatter_nd_memory_validation(capsys, request):
         # Bottleneck
         bottleneck = "COMPUTE" if compute_cycles >= memory_cycles else "MEMORY"
 
-        print(f"\n  -- Instructions & Operations --")
-        print(f"  Instructions executed: {total_instructions:,}")
-        print(f"  Instruction types:     {dict(actual_instrs)}")
-        print(f"  Data elements:         {data_elements:,}")
-        print(f"  Index elements:        {idx_elements:,}")
-        print(f"  Update elements:       {upd_elements:,}")
-        print(f"  Output elements:       {output_elements:,}")
-        print(f"  Scatter points:        {len(indices):,}")
+        logger.debug("\n  -- Instructions & Operations --")
+        logger.debug(f"  Instructions executed: {total_instructions:,}")
+        logger.debug(f"  Instruction types:     {dict(actual_instrs)}")
+        logger.debug(f"  Data elements:         {data_elements:,}")
+        logger.debug(f"  Index elements:        {idx_elements:,}")
+        logger.debug(f"  Update elements:       {upd_elements:,}")
+        logger.debug(f"  Output elements:       {output_elements:,}")
+        logger.debug(f"  Scatter points:        {len(indices):,}")
 
         # Validate: 'mov' instructions should match output elements (1 per element)
         assert (
             abs(total_instructions - output_elements) <= output_elements * 0.1
         ), f"Instruction mismatch: {total_instructions} vs expected ~{output_elements}"
-        print(f"  ✓ Instruction count validates (1 'mov' per output element)")
+        logger.debug("  ✓ Instruction count validates (1 'mov' per output element)")
 
-        print(f"\n  -- Data Movement --")
-        print(f"  Input bytes:      {input_bytes:,} ({input_bytes/1024:.2f} KB)")
-        print(f"  Indices bytes:    {indices_bytes:,} ({indices_bytes/1024:.2f} KB)")
-        print(f"  Updates bytes:    {updates_bytes:,} ({updates_bytes/1024:.2f} KB)")
-        print(f"  Output bytes:     {output_bytes:,} ({output_bytes/1024:.2f} KB)")
-        print(
+        logger.debug("\n  -- Data Movement --")
+        logger.debug(
+            f"  Input bytes:      {input_bytes:,} ({input_bytes/1024:.2f} KB)"
+        )
+        logger.debug(
+            f"  Indices bytes:    {indices_bytes:,} ({indices_bytes/1024:.2f} KB)"
+        )
+        logger.debug(
+            f"  Updates bytes:    {updates_bytes:,} ({updates_bytes/1024:.2f} KB)"
+        )
+        logger.debug(
+            f"  Output bytes:     {output_bytes:,} ({output_bytes/1024:.2f} KB)"
+        )
+        logger.debug(
             f"  Total data moved: {total_data_moved:,} ({total_data_moved/1024:.2f} KB)"
         )
 
@@ -612,37 +622,41 @@ def test_scatter_nd_memory_validation(capsys, request):
         assert (
             abs(output_bytes - input_bytes) <= 1
         ), f"Input/Output bytes should be equal for ScatterND"
-        print(f"  ✓ Input/Output bytes equal (sparse update operation)")
+        logger.debug("  ✓ Input/Output bytes equal (sparse update operation)")
 
-        print(f"\n  -- Memory Metrics --")
-        print(f"  Arithmetic intensity:  {arithmetic_intensity:.4f} ops/byte")
-        print(
-            f"  Bytes per element:     {output_bytes/output_elements if output_elements > 0 else 0:.1f}"
+        logger.debug("\n  -- Memory Metrics --")
+        logger.debug(
+            f"  Arithmetic intensity:  {arithmetic_intensity:.4f} ops/byte"
         )
-        print(
-            f"  Update sparsity:       {(len(indices) / output_elements * 100):.2f}% (updates/total)"
+        logger.debug(
+            "  Bytes per element:     "
+            f"{output_bytes/output_elements if output_elements > 0 else 0:.1f}"
+        )
+        logger.debug(
+            "  Update sparsity:       "
+            f"{(len(indices) / output_elements * 100):.2f}% (updates/total)"
         )
 
         # ScatterND is memory-bound (minimal compute)
         assert (
             arithmetic_intensity < 1.0
         ), f"Arithmetic intensity too high for memory-bound ScatterND: {arithmetic_intensity}"
-        print(f"  ✓ Low arithmetic intensity (memory-bound operation)")
+        logger.debug("  ✓ Low arithmetic intensity (memory-bound operation)")
 
-        print(f"\n  -- Execution Cycles --")
-        print(f"  Compute cycles:   {compute_cycles:,}")
-        print(f"  Memory cycles:    {memory_cycles:,}")
-        print(f"    Read cycles:    {mem_rd_cycles:,}")
-        print(f"    Write cycles:   {mem_wr_cycles:,}")
-        print(f"  Ideal cycles:     {ideal_cycles:,}")
-        print(f"  Bottleneck:       {bottleneck}")
+        logger.debug("\n  -- Execution Cycles --")
+        logger.debug(f"  Compute cycles:   {compute_cycles:,}")
+        logger.debug(f"  Memory cycles:    {memory_cycles:,}")
+        logger.debug(f"    Read cycles:    {mem_rd_cycles:,}")
+        logger.debug(f"    Write cycles:   {mem_wr_cycles:,}")
+        logger.debug(f"  Ideal cycles:     {ideal_cycles:,}")
+        logger.debug(f"  Bottleneck:       {bottleneck}")
 
         # Validate: ScatterND should be memory-bound for typical cases
         if output_elements > 1000:
             assert (
                 bottleneck == "MEMORY"
             ), f"Expected MEMORY bottleneck, got {bottleneck}"
-            print(f"  ✓ Memory-bound as expected")
+            logger.debug("  ✓ Memory-bound as expected")
 
         # Store results
         all_results.append(
@@ -664,27 +678,29 @@ def test_scatter_nd_memory_validation(capsys, request):
             }
         )
 
-        print(f"\n  ✓ Test PASSED")
+        logger.info("\n  ✓ Test PASSED")
 
     # Summary
-    print(f"\n{'='*80}")
-    print("Memory Validation Summary")
-    print(f"{'='*80}\n")
-    print(f"Total tests: {len(all_results)}/{len(test_cases)} PASSED ✓")
+    logger.info(f"\n{'='*80}")
+    logger.info("Memory Validation Summary")
+    logger.info(f"{'='*80}\n")
+    logger.info(f"Total tests: {len(all_results)}/{len(test_cases)} PASSED ✓")
 
     # Arithmetic Intensity Comparison
-    print(f"\n-- Arithmetic Intensity Comparison --")
-    print(f"{'Test Name':<30s} {'Ops/Byte':<12s} {'Data Moved':<15s}")
-    print("-" * 60)
+    logger.info("\n-- Arithmetic Intensity Comparison --")
+    logger.info(f"{'Test Name':<30s} {'Ops/Byte':<12s} {'Data Moved':<15s}")
+    logger.info("-" * 60)
     for result in all_results:
-        print(
+        logger.info(
             f"{result['test_name']:<30s} {result['arithmetic_intensity']:<12.4f} {result['total_data_moved']/1024:>10.1f} KB"
         )
 
     # Scatter Pattern Analysis
-    print(f"\n-- Scatter Pattern Analysis --")
-    print(f"{'Test Name':<30s} {'Data Shape':<20s} {'Updates':<12s} {'Sparsity':<12s}")
-    print("-" * 75)
+    logger.info("\n-- Scatter Pattern Analysis --")
+    logger.info(
+        f"{'Test Name':<30s} {'Data Shape':<20s} {'Updates':<12s} {'Sparsity':<12s}"
+    )
+    logger.info("-" * 75)
     for result in all_results:
         shape_str = "x".join(map(str, result["data_shape"]))
         sparsity = (
@@ -692,24 +708,24 @@ def test_scatter_nd_memory_validation(capsys, request):
             if result["data_elements"] > 0
             else 0
         )
-        print(
+        logger.info(
             f"{result['test_name']:<30s} {shape_str:<20s} {result['num_updates']:>10,} {sparsity:>10.2f}%"
         )
 
     # Bottleneck Analysis
-    print(f"\n-- Bottleneck Analysis --")
-    print(
+    logger.info("\n-- Bottleneck Analysis --")
+    logger.info(
         f"{'Test Name':<30s} {'Bottleneck':<15s} {'Compute Cycles':<18s} {'Memory Cycles':<15s}"
     )
-    print("-" * 80)
+    logger.info("-" * 80)
     for result in all_results:
-        print(
+        logger.info(
             f"{result['test_name']:<30s} {result['bottleneck']:<15s} {result['compute_cycles']:>15,} {result['memory_cycles']:>15,}"
         )
 
-    print(f"\n{'='*80}")
-    print("Memory validation complete!")
-    print(f"{'='*80}\n")
+    logger.info(f"\n{'='*80}")
+    logger.info("Memory validation complete!")
+    logger.info(f"{'='*80}\n")
 
     # Create pytest summary
     summary_lines = [
@@ -755,12 +771,12 @@ def test_scatter_nd_memory_validation(capsys, request):
     except Exception:
         # Fallback: disable capture and print directly
         with capsys.disabled():
-            print("\n" + "=" * 70)
-            print("SCATTERND MEMORY VALIDATION RESULTS")
-            print("=" * 70)
+            logger.info("\n" + "=" * 70)
+            logger.info("SCATTERND MEMORY VALIDATION RESULTS")
+            logger.info("=" * 70)
             for line in summary_lines:
-                print(line)
-            print("=" * 70 + "\n")
+                logger.info(line)
+            logger.info("=" * 70 + "\n")
 
     # Final assertion
     assert len(all_results) == len(

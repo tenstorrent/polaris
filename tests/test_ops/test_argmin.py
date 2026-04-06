@@ -14,6 +14,7 @@ import pytest
 import os
 from pathlib import Path
 import numpy as np
+from loguru import logger
 
 from ttsim.ops.op import SimOp
 from ttsim.ops.tensor import make_tensor
@@ -507,9 +508,9 @@ def test_argmin_memory_validation(capsys, request):
     if not MEMORY_TEST_AVAILABLE:
         pytest.skip("Device config not available for memory estimation")
 
-    print("\n" + "=" * 60)
-    print("ArgMin Operation Memory Validation")
-    print("=" * 60)
+    logger.info("\n" + "=" * 60)
+    logger.info("ArgMin Operation Memory Validation")
+    logger.info("=" * 60)
 
     # Load device configuration
     config_path = Path(polaris_root) / "config" / "tt_wh.yaml"
@@ -518,14 +519,14 @@ def test_argmin_memory_validation(capsys, request):
         device_pkg = packages["n150"]
         device = Device(device_pkg)
 
-        print(f"\nDevice: {device.devname} ({device.name})")
-        print(f"Device frequency: {device.freq_MHz} MHz")
-        print(f"Memory frequency: {device.memfreq_MHz} MHz")
-        print(
+        logger.info(f"\nDevice: {device.devname} ({device.name})")
+        logger.info(f"Device frequency: {device.freq_MHz} MHz")
+        logger.info(f"Memory frequency: {device.memfreq_MHz} MHz")
+        logger.info(
             f"Peak bandwidth: {device.simconfig_obj.peak_bandwidth(freq_units='GHz'):.2f} GB/s"
         )
     except Exception as e:
-        print(f"\nWarning: Could not load device config: {e}")
+        logger.info(f"\nWarning: Could not load device config: {e}")
         pytest.skip(f"Could not load device config: {e}")
         return
 
@@ -561,9 +562,9 @@ def test_argmin_memory_validation(capsys, request):
         },
     ]
 
-    print(f"\n{'='*60}")
-    print("Running Memory Validation Tests")
-    print(f"{'='*60}\n")
+    logger.info(f"\n{'='*60}")
+    logger.info("Running Memory Validation Tests")
+    logger.info(f"{'='*60}\n")
 
     all_results = []
 
@@ -573,11 +574,11 @@ def test_argmin_memory_validation(capsys, request):
         axis = test_case["axis"]
         keepdims = test_case["keepdims"]
 
-        print(f"\n-- Test: {test_name} --")
-        print(f"Description: {test_case['description']}")
-        print(f"Input shape: {shape}")
-        print(f"ArgMin axis: {axis}")
-        print(f"Keep dims: {keepdims}")
+        logger.info(f"\n-- Test: {test_name} --")
+        logger.debug(f"Description: {test_case['description']}")
+        logger.debug(f"Input shape: {shape}")
+        logger.debug(f"ArgMin axis: {axis}")
+        logger.debug(f"Keep dims: {keepdims}")
 
         # Generate test data
         np.random.seed(42)
@@ -613,14 +614,16 @@ def test_argmin_memory_validation(capsys, request):
             input_elems = np.prod(shape)
             reduction_size = shape[axis]
 
-            print(f"Output shape: {output_shape}")
-            print(f"Reduction size: {reduction_size}")
+            logger.debug(f"Output shape: {output_shape}")
+            logger.debug(f"Reduction size: {reduction_size}")
 
-            print(f"\n  -- Instructions & Operations --")
-            print(f"  Instructions executed: {mem_stats['instructions_executed']:,}")
-            print(f"  Input elements:        {input_elems:,}")
-            print(f"  Output elements:       {output_elems:,}")
-            print(
+            logger.debug("\n  -- Instructions & Operations --")
+            logger.debug(
+                f"  Instructions executed: {mem_stats['instructions_executed']:,}"
+            )
+            logger.debug(f"  Input elements:        {input_elems:,}")
+            logger.debug(f"  Output elements:       {output_elems:,}")
+            logger.debug(
                 f"  Expected instructions: ~{input_elems:,} (cmp for all input elements)"
             )
 
@@ -632,7 +635,7 @@ def test_argmin_memory_validation(capsys, request):
             assert (
                 0.8 <= instruction_ratio <= 1.5
             ), f"Instruction count mismatch: {mem_stats['instructions_executed']} vs expected ~{input_elems}"
-            print(
+            logger.debug(
                 f"  Instruction ratio:     {instruction_ratio:.2f} (instructions per input elem, ✓ within expected range)"
             )
 
@@ -641,18 +644,18 @@ def test_argmin_memory_validation(capsys, request):
                 if output_elems > 0
                 else 0
             )
-            print(
+            logger.debug(
                 f"  Ops per output elem:   {ops_per_output:.1f} (equals reduction size: {reduction_size})"
             )
 
-            print(f"\n  -- Data Movement --")
-            print(
+            logger.debug("\n  -- Data Movement --")
+            logger.debug(
                 f"  Input bytes:      {mem_stats['input_bytes']:,} bytes ({mem_stats['input_bytes']/1024:.2f} KB)"
             )
-            print(
+            logger.debug(
                 f"  Output bytes:     {mem_stats['output_bytes']:,} bytes ({mem_stats['output_bytes']/1024:.2f} KB)"
             )
-            print(
+            logger.debug(
                 f"  Total data moved: {mem_stats['total_data_moved']:,} bytes ({mem_stats['total_data_moved']/1024:.2f} KB)"
             )
 
@@ -668,34 +671,42 @@ def test_argmin_memory_validation(capsys, request):
             assert (
                 actual_bytes_per_elem == 8
             ), f"ArgMin output should be int64 (8 bytes), got {actual_bytes_per_elem}"
-            print(
+            logger.debug(
                 f"  Output precision: {detected_precision} ({int(actual_bytes_per_elem)} bytes/element, ✓ correct for ArgMin)"
             )
 
-            print(f"\n  -- Memory Metrics --")
-            print(
+            logger.debug("\n  -- Memory Metrics --")
+            logger.debug(
                 f"  Arithmetic intensity:  {mem_stats['arithmetic_intensity']:.4f} ops/byte"
             )
-            print(f"  Read/Write ratio:      {mem_stats['read_write_ratio']:.2f}")
-            print(f"  Bytes per cycle:       {mem_stats['bytes_per_cycle']:.2f}")
+            logger.debug(
+                f"  Read/Write ratio:      {mem_stats['read_write_ratio']:.2f}"
+            )
+            logger.debug(
+                f"  Bytes per cycle:       {mem_stats['bytes_per_cycle']:.2f}"
+            )
 
             if reduction_size > 16:
-                print(
+                logger.debug(
                     f"  Note: Large reduction size ({reduction_size}) increases arithmetic intensity"
                 )
 
-            print(f"\n  -- Execution Cycles --")
-            print(f"  Compute cycles:   {mem_stats['compute_cycles']:,}")
-            print(f"  Memory cycles:    {mem_stats['memory_cycles']:,}")
-            print(f"    Read cycles:    {mem_stats['mem_rd_cycles']:,}")
-            print(f"    Write cycles:   {mem_stats['mem_wr_cycles']:,}")
-            print(f"  Ideal cycles:     {mem_stats['ideal_cycles']:,}")
-            print(f"  Bottleneck:       {mem_stats['bottleneck']}")
+            logger.debug("\n  -- Execution Cycles --")
+            logger.debug(f"  Compute cycles:   {mem_stats['compute_cycles']:,}")
+            logger.debug(f"  Memory cycles:    {mem_stats['memory_cycles']:,}")
+            logger.debug(f"    Read cycles:    {mem_stats['mem_rd_cycles']:,}")
+            logger.debug(f"    Write cycles:   {mem_stats['mem_wr_cycles']:,}")
+            logger.debug(f"  Ideal cycles:     {mem_stats['ideal_cycles']:,}")
+            logger.debug(f"  Bottleneck:       {mem_stats['bottleneck']}")
 
             if mem_stats["bottleneck"] == "COMPUTE":
-                print(f"  ✓ Compute-bound operation (reduction size={reduction_size})")
+                logger.debug(
+                    f"  ✓ Compute-bound operation (reduction size={reduction_size})"
+                )
             else:
-                print(f"  ✓ Memory-bound operation (reduction size={reduction_size})")
+                logger.debug(
+                    f"  ✓ Memory-bound operation (reduction size={reduction_size})"
+                )
 
             all_results.append(
                 {
@@ -708,35 +719,35 @@ def test_argmin_memory_validation(capsys, request):
                     "stats": mem_stats,
                 }
             )
-            print(f"\n  ✓ Test PASSED")
+            logger.debug("\n  ✓ Test PASSED")
         else:
-            print(f"\n  ✗ Test FAILED: Could not calculate memory stats")
+            logger.info("\n  ✗ Test FAILED: Could not calculate memory stats")
             assert False, "Failed to calculate memory stats"
 
     # Summary
-    print(f"\n{'='*60}")
-    print("Memory Validation Summary")
-    print(f"{'='*60}\n")
-    print(f"Total tests run: {len(all_results)}")
-    print(f"All tests passed: ✓")
+    logger.info(f"\n{'='*60}")
+    logger.info("Memory Validation Summary")
+    logger.info(f"{'='*60}\n")
+    logger.info(f"Total tests run: {len(all_results)}")
+    logger.info("All tests passed: ✓")
 
-    print(f"\n-- Arithmetic Intensity Comparison --")
+    logger.info("\n-- Arithmetic Intensity Comparison --")
     for result in all_results:
         ai = result["stats"]["arithmetic_intensity"]
-        print(
+        logger.debug(
             f"{result['test_name']:30s}: {ai:.4f} ops/byte (reduction size: {result['reduction_size']})"
         )
 
-    print(f"\n-- Bottleneck Analysis --")
+    logger.info("\n-- Bottleneck Analysis --")
     for result in all_results:
         bottleneck = result["stats"]["bottleneck"]
-        print(
+        logger.debug(
             f"{result['test_name']:30s}: {bottleneck:10s} (axis={result['axis']}, reduction={result['reduction_size']})"
         )
 
-    print(f"\n{'='*60}")
-    print("Memory validation complete!")
-    print(f"{'='*60}\n")
+    logger.info(f"\n{'='*60}")
+    logger.info("Memory validation complete!")
+    logger.info(f"{'='*60}\n")
 
     # Summary for pytest output
     summary_lines = [
@@ -785,12 +796,12 @@ def test_argmin_memory_validation(capsys, request):
             terminalreporter.write_sep("=", "", bold=True)
     except Exception:
         with capsys.disabled():
-            print("\n" + "=" * 70)
-            print("ARGMIN MEMORY VALIDATION RESULTS")
-            print("=" * 70)
+            logger.info("\n" + "=" * 70)
+            logger.info("ARGMIN MEMORY VALIDATION RESULTS")
+            logger.info("=" * 70)
             for line in summary_lines:
-                print(line)
-            print("=" * 70 + "\n")
+                logger.info(line)
+            logger.info("=" * 70 + "\n")
 
     assert len(all_results) == len(
         test_cases

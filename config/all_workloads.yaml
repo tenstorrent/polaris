@@ -120,6 +120,16 @@ workloads:
       detr_1024x1024 : { img_height: 1024, img_width: 1024 }
 
   - api: TTSIM
+    name: BEVFormer
+    basedir: workloads/BEVFormer/ttsim_models
+    module : BEVFormer@bevformer.py
+    params : {num_cams: 6, img_channels: 3, embed_dims: 256, num_classes: 10, bs: 1}
+    instances:
+      bevformer_tiny   : { img_height: 256, img_width: 256, bev_h: 25, bev_w: 25, num_query: 300 }
+      bevformer_small  : { img_height: 512, img_width: 512, bev_h: 50, bev_w: 50, num_query: 900 }
+      bevformer_base   : { img_height: 900, img_width: 1600, bev_h: 200, bev_w: 200, num_query: 900 }
+
+  - api: TTSIM
     name: UNet
     basedir: workloads/UNet
     module : UNet@unet_model.py

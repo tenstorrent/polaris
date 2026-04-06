@@ -4,6 +4,7 @@
 import pytest
 
 import numpy as np
+from loguru import logger
 from ttsim.ops.op import SimOp
 from ttsim.ops.tensor import make_tensor
 import ttsim.front.functional.op as F
@@ -46,14 +47,14 @@ def test_reductions():
             ref_shape = i_tensors[0].shape
 
             if inf_shape == ref_shape:
-                print(f"TEST[{tno:3d}] {op_name} PASS")
+                logger.debug(f"TEST[{tno:3d}] {op_name} PASS")
             else:
-                print("INPUTS:")
+                logger.debug("INPUTS:")
                 for x in i_tensors:
-                    print("\t", x)
-                print("OUTPUTS:")
+                    logger.debug(f"\t{x}")
+                logger.debug("OUTPUTS:")
                 for x in o_tensors:
-                    print("\t", x)
+                    logger.debug(f"\t{x}")
                 assert (
                     False
                 ), f"TEST[{tno:3d}] {op_name} FAIL {inf_shape} != {ref_shape}"

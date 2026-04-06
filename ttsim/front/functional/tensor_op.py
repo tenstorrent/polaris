@@ -546,7 +546,33 @@ def interpolate(self, **kwargs):
     if scale_factor is not None:
         resize_scale_factor = scale_factor
     elif size is not None:
-        resize_scale_factor = size
+        if isinstance(size, int):
+            size_tuple = (size, size)
+        else:
+            size_tuple = tuple(size)
+
+        if len(size_tuple) != 2:
+            raise ValueError(
+                f"interpolate(size={size}) currently supports 2D (H, W) only; "
+                "use scale_factor for other spatial ranks."
+            )
+
+        input_h = self.shape[-2]
+        input_w = self.shape[-1]
+
+        # Guard against dynamic/unknown or non-positive spatial dims
+        if (
+            input_h is None
+            or input_w is None
+            or input_h <= 0
+            or input_w <= 0
+        ):
+            raise ValueError(
+                f"interpolate(size={size}) requires known positive input spatial dims, "
+                f"got input shape {self.shape}. Use scale_factor instead when spatial dims are dynamic."
+            )
+
+        resize_scale_factor = (size_tuple[0] / input_h, size_tuple[1] / input_w)
     else:
         raise ValueError(f"Need to specify either scale_factor={scale_factor} or size={size}")
 

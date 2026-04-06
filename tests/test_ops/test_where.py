@@ -7,6 +7,7 @@ import numpy as np
 import pytest
 import os
 from pathlib import Path
+from loguru import logger
 
 from ttsim.ops.op import SimOp
 from ttsim.ops.tensor import make_tensor
@@ -361,9 +362,9 @@ def test_where_memory_validation(capsys, request):
     if not MEMORY_TEST_AVAILABLE:
         pytest.skip("Device config not available for memory estimation")
 
-    print("\n" + "=" * 80)
-    print("Where Operation Memory Validation")
-    print("=" * 80)
+    logger.info("\n" + "=" * 80)
+    logger.info("Where Operation Memory Validation")
+    logger.info("=" * 80)
 
     # Load device configuration once
     config_path = Path(polaris_root) / "config" / "tt_wh.yaml"
@@ -372,9 +373,9 @@ def test_where_memory_validation(capsys, request):
         device_pkg = packages["n150"]
         device = Device(device_pkg)
 
-        print(f"\nDevice: {device.devname} ({device.name})")
-        print(f"Frequency: {device.freq_MHz} MHz")
-        print(
+        logger.info(f"\nDevice: {device.devname} ({device.name})")
+        logger.info(f"Frequency: {device.freq_MHz} MHz")
+        logger.info(
             f"Peak Bandwidth: {device.simconfig_obj.peak_bandwidth(freq_units='GHz'):.2f} GB/s"
         )
     except Exception as e:
@@ -396,9 +397,9 @@ def test_where_memory_validation(capsys, request):
         },
     ]
 
-    print(f"\n{'='*80}")
-    print("Running Memory Validation Tests")
-    print(f"{'='*80}\n")
+    logger.info(f"\n{'='*80}")
+    logger.info("Running Memory Validation Tests")
+    logger.info(f"{'='*80}\n")
 
     all_results = []
 
@@ -406,9 +407,9 @@ def test_where_memory_validation(capsys, request):
         test_name = test_case["name"]
         shape = test_case["shape"]
 
-        print(f"\n-- Test: {test_name} --")
-        print(f"Description: {test_case['description']}")
-        print(f"Shape: {shape}")
+        logger.debug(f"\n-- Test: {test_name} --")
+        logger.debug(f"Description: {test_case['description']}")
+        logger.debug(f"Shape: {shape}")
 
         # Generate test data
         np.random.seed(42)
@@ -484,11 +485,11 @@ def test_where_memory_validation(capsys, request):
         # Bottleneck
         bottleneck = "COMPUTE" if compute_cycles >= memory_cycles else "MEMORY"
 
-        print(f"\n  -- Instructions & Operations --")
-        print(f"  Instructions executed: {total_instructions:,}")
-        print(f"  Instruction types:     {dict(actual_instrs)}")
-        print(f"  Output elements:       {output_elems:,}")
-        print(
+        logger.debug("\n  -- Instructions & Operations --")
+        logger.debug(f"  Instructions executed: {total_instructions:,}")
+        logger.debug(f"  Instruction types:     {dict(actual_instrs)}")
+        logger.debug(f"  Output elements:       {output_elems:,}")
+        logger.debug(
             f"  Expected instructions: ~{2*output_elems:,} (1 cmp + 1 mov per element)"
         )
 
@@ -497,44 +498,48 @@ def test_where_memory_validation(capsys, request):
         assert (
             1.5 <= instruction_ratio <= 2.5
         ), f"Instruction mismatch: {total_instructions} vs expected ~{2*output_elems}"
-        print(f"  ✓ Instruction count validates (2 per element: cmp + mov)")
+        logger.debug("  ✓ Instruction count validates (2 per element: cmp + mov)")
 
-        print(f"\n  -- Data Movement --")
-        print(f"  Input bytes:      {input_bytes:,} ({input_bytes/1024:.2f} KB)")
-        print(f"  Output bytes:     {output_bytes:,} ({output_bytes/1024:.2f} KB)")
-        print(
+        logger.debug("\n  -- Data Movement --")
+        logger.debug(
+            f"  Input bytes:      {input_bytes:,} ({input_bytes/1024:.2f} KB)"
+        )
+        logger.debug(
+            f"  Output bytes:     {output_bytes:,} ({output_bytes/1024:.2f} KB)"
+        )
+        logger.debug(
             f"  Total data moved: {total_data_moved:,} ({total_data_moved/1024:.2f} KB)"
         )
 
         # Where reads 3 tensors (condition, X, Y) and writes 1 output
         assert output_bytes > 0, "Output bytes should be positive"
-        print(f"  ✓ Reads 3 inputs (condition, X, Y), writes 1 output")
+        logger.debug("  ✓ Reads 3 inputs (condition, X, Y), writes 1 output")
 
-        print(f"\n  -- Memory Metrics --")
-        print(f"  Arithmetic intensity:  {arithmetic_intensity:.4f} ops/byte")
-        print(
+        logger.debug("\n  -- Memory Metrics --")
+        logger.debug(f"  Arithmetic intensity:  {arithmetic_intensity:.4f} ops/byte")
+        logger.debug(
             f"  Bytes per element:     {output_bytes/output_elems if output_elems > 0 else 0:.1f}"
         )
 
         assert (
             arithmetic_intensity < 1.0
         ), f"Arithmetic intensity too high for memory-bound op: {arithmetic_intensity}"
-        print(f"  ✓ Low arithmetic intensity (memory-bound operation)")
+        logger.debug("  ✓ Low arithmetic intensity (memory-bound operation)")
 
-        print(f"\n  -- Execution Cycles --")
-        print(f"  Compute cycles:   {compute_cycles:,}")
-        print(f"  Memory cycles:    {memory_cycles:,}")
-        print(f"    Read cycles:    {mem_rd_cycles:,}")
-        print(f"    Write cycles:   {mem_wr_cycles:,}")
-        print(f"  Ideal cycles:     {ideal_cycles:,}")
-        print(f"  Bottleneck:       {bottleneck}")
+        logger.debug("\n  -- Execution Cycles --")
+        logger.debug(f"  Compute cycles:   {compute_cycles:,}")
+        logger.debug(f"  Memory cycles:    {memory_cycles:,}")
+        logger.debug(f"    Read cycles:    {mem_rd_cycles:,}")
+        logger.debug(f"    Write cycles:   {mem_wr_cycles:,}")
+        logger.debug(f"  Ideal cycles:     {ideal_cycles:,}")
+        logger.debug(f"  Bottleneck:       {bottleneck}")
 
         # Validate: where should be memory-bound for large tensors
         if output_elems > 1000:
             assert (
                 bottleneck == "MEMORY"
             ), f"Expected MEMORY bottleneck, got {bottleneck}"
-            print(f"  ✓ Memory-bound as expected")
+            logger.debug("  ✓ Memory-bound as expected")
 
         # Store results
         all_results.append(
@@ -552,48 +557,50 @@ def test_where_memory_validation(capsys, request):
             }
         )
 
-        print(f"\n  ✓ Test PASSED")
+        logger.debug("\n  ✓ Test PASSED")
 
     # Summary
-    print(f"\n{'='*80}")
-    print("Memory Validation Summary")
-    print(f"{'='*80}\n")
-    print(f"Total tests: {len(all_results)}/{len(test_cases)} PASSED ✓")
+    logger.info(f"\n{'='*80}")
+    logger.info("Memory Validation Summary")
+    logger.info(f"{'='*80}\n")
+    logger.info(f"Total tests: {len(all_results)}/{len(test_cases)} PASSED ✓")
 
     # Arithmetic Intensity Comparison
-    print(f"\n-- Arithmetic Intensity Comparison --")
-    print(f"{'Test Name':<30s} {'Ops/Byte':<12s} {'Data Moved':<15s}")
-    print("-" * 60)
+    logger.info("\n-- Arithmetic Intensity Comparison --")
+    logger.info(f"{'Test Name':<30s} {'Ops/Byte':<12s} {'Data Moved':<15s}")
+    logger.info("-" * 60)
     for result in all_results:
-        print(
+        logger.info(
             f"{result['test_name']:<30s} {result['arithmetic_intensity']:<12.4f} {result['total_data_moved']/1024:>10.1f} KB"
         )
 
     # Element Count Comparison
-    print(f"\n-- Element Count & Instructions --")
-    print(f"{'Test Name':<30s} {'Elements':<15s} {'Instructions':<15s} {'Ratio':<10s}")
-    print("-" * 75)
+    logger.info("\n-- Element Count & Instructions --")
+    logger.info(
+        f"{'Test Name':<30s} {'Elements':<15s} {'Instructions':<15s} {'Ratio':<10s}"
+    )
+    logger.info("-" * 75)
     for result in all_results:
         elems = np.prod(result["shape"])
         ratio = result["instructions"] / elems if elems > 0 else 0
-        print(
+        logger.info(
             f"{result['test_name']:<30s} {elems:>12,}   {result['instructions']:>12,}   {ratio:>8.2f}"
         )
 
     # Bottleneck Analysis
-    print(f"\n-- Bottleneck Analysis --")
-    print(
+    logger.info("\n-- Bottleneck Analysis --")
+    logger.info(
         f"{'Test Name':<30s} {'Bottleneck':<15s} {'Compute Cycles':<18s} {'Memory Cycles':<15s}"
     )
-    print("-" * 80)
+    logger.info("-" * 80)
     for result in all_results:
-        print(
+        logger.info(
             f"{result['test_name']:<30s} {result['bottleneck']:<15s} {result['compute_cycles']:>15,} {result['memory_cycles']:>15,}"
         )
 
-    print(f"\n{'='*80}")
-    print("Memory validation complete!")
-    print(f"{'='*80}\n")
+    logger.info(f"\n{'='*80}")
+    logger.info("Memory validation complete!")
+    logger.info(f"{'='*80}\n")
 
     # Create pytest summary
     summary_lines = [
@@ -632,12 +639,12 @@ def test_where_memory_validation(capsys, request):
             terminalreporter.write_sep("=", "", bold=True)
     except Exception:
         with capsys.disabled():
-            print("\n" + "=" * 70)
-            print("WHERE MEMORY VALIDATION RESULTS")
-            print("=" * 70)
+            logger.info("\n" + "=" * 70)
+            logger.info("WHERE MEMORY VALIDATION RESULTS")
+            logger.info("=" * 70)
             for line in summary_lines:
-                print(line)
-            print("=" * 70 + "\n")
+                logger.info(line)
+            logger.info("=" * 70 + "\n")
 
     assert len(all_results) == len(
         test_cases

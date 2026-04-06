@@ -4,6 +4,7 @@
 import pytest
 
 import numpy as np
+from loguru import logger
 from ttsim.ops.op import SimOp
 from ttsim.ops.tensor import make_tensor
 import ttsim.front.functional.op as F
@@ -69,14 +70,14 @@ def test_pad():
         ref_shape = ref_impl(input_shape, pads)
 
         if inf_shape == ref_shape and inf_shape == expected_shape:
-            print(f"TEST[{tno:3d}] {tmsg:{msgw}s} PASS")
+            logger.debug(f"TEST[{tno:3d}] {tmsg:{msgw}s} PASS")
         else:
-            print("INPUTS:")
+            logger.debug("INPUTS:")
             for x in i_tensors:
-                print("\t", x)
-            print("OUTPUTS:")
+                logger.debug(f"\t{x}")
+            logger.debug("OUTPUTS:")
             for x in o_tensors:
-                print("\t", x)
+                logger.debug(f"\t{x}")
             assert (
                 False
             ), f"TEST[{tno:3d}] {tmsg:{msgw}s} FAIL {inf_shape} != {ref_shape} (expected {expected_shape})"
@@ -118,4 +119,6 @@ def test_pad_errors():
         # These should raise exceptions during shape inference
         with pytest.raises((ValueError, AssertionError)):
             op_obj.get_perf_counts(i_tensors, o_tensors)
-            print(f"TEST[{tno:3d}] {tmsg:{msgw}s} PASS (raised exception as expected)")
+            logger.debug(
+                f"TEST[{tno:3d}] {tmsg:{msgw}s} PASS (raised exception as expected)"
+            )
