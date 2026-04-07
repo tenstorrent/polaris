@@ -61,6 +61,12 @@ def parse_args() -> argparse.Namespace:
         action='store_true',
         help='Strip all leading 1s from shapes instead of collapsing to single 1 (more lenient matching for broadcast dimensions)'
     )
+    parser.add_argument(
+        '--filter-optype',
+        type=str,
+        default=None,
+        help='Filter to only compare layers with this operation type (case-insensitive)'
+    )
     return parser.parse_args()
 
 
@@ -165,6 +171,42 @@ def parse_shape(shape_str: str) -> List[int]:
         return [int(p.strip()) for p in parts if p.strip()]
     except ValueError:
         return []
+
+
+def validate_mul_compatibility(
+    polaris_inputs: List[str],
+    profiler_inputs: List[str],
+    strip_leading_ones: bool = False
+) -> Tuple[bool, str]:
+    """
+    Special validation for mul operations with different input representations.
+    
+    If polaris has more inputs than profiler, ignore additional polaris inputs
+    (they may be constants or parameters not tracked in profiler).
+    
+    Args:
+        polaris_inputs: Polaris input tensor shapes
+        profiler_inputs: Profiler input tensor shapes
+        strip_leading_ones: Whether to strip leading 1s
+    
+    Returns:
+        (valid: bool, details: str)
+    """
+    # If lengths match, use standard comparison
+    if len(polaris_inputs) == len(profiler_inputs):
+        return compare_tensor_shapes(polaris_inputs, profiler_inputs, strip_leading_ones)
+    
+    # If polaris has more inputs, compare only the first profiler_count inputs
+    if len(polaris_inputs) > len(profiler_inputs):
+        polaris_subset = polaris_inputs[:len(profiler_inputs)]
+        match, details = compare_tensor_shapes(polaris_subset, profiler_inputs, strip_leading_ones)
+        if match:
+            return True, f"mul compatible: using first {len(profiler_inputs)} of {len(polaris_inputs)} polaris inputs"
+        else:
+            return False, details
+    
+    # If profiler has more inputs, this is unexpected
+    return False, f"profiler has more inputs ({len(profiler_inputs)}) than polaris ({len(polaris_inputs)})"
 
 
 def validate_reshape_compatibility(
@@ -364,6 +406,17 @@ def compare_layers(
                 p_layer['optype']
             )
             
+            # Special handling for mul if input counts don't match
+            if not input_match and normalize_optype(p_layer['optype']) == 'mul':
+                mul_valid, mul_details = validate_mul_compatibility(
+                    p_layer.get('input_tensors', []),
+                    f_layer.get('input_tensors', []),
+                    strip_leading_ones
+                )
+                if mul_valid:
+                    input_match = True
+                    input_details = mul_details
+            
             # Special handling for reshape if standard comparison fails
             if normalize_optype(p_layer['optype']) == 'reshape' and (not input_match or not output_match):
                 reshape_valid, reshape_details = validate_reshape_compatibility(
@@ -481,6 +534,28 @@ def main() -> int:
         return 1
     
     print(f"Loaded {len(polaris_layers)} polaris layers, {len(profiler_layers)} profiler layers")
+    
+    # Filter by optype if requested
+    if args.filter_optype:
+        filter_optype_norm = normalize_optype(args.filter_optype)
+        polaris_layers_orig = polaris_layers
+        profiler_layers_orig = profiler_layers
+        
+        polaris_layers = [
+            layer for layer in polaris_layers
+            if normalize_optype(layer['optype']) == filter_optype_norm
+        ]
+        profiler_layers = [
+            layer for layer in profiler_layers
+            if normalize_optype(layer['optype']) == filter_optype_norm
+        ]
+        
+        print(f"Filtered to {len(polaris_layers)} polaris layers, {len(profiler_layers)} profiler layers with optype='{args.filter_optype}'")
+        
+        if len(polaris_layers) == 0 and len(profiler_layers) == 0:
+            print(f"Warning: No layers found with optype='{args.filter_optype}'")
+            return 0
+    
     print()
     
     # Compare layers

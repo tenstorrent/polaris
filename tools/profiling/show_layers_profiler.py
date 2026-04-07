@@ -5,6 +5,7 @@
 import sys
 import argparse
 import csv
+import re
 import yaml
 from typing import Any, Dict, List, Optional
 
@@ -56,6 +57,26 @@ def layers_profiler(input_file: str) -> List[Dict[str, Any]]:
                     bot = attributes['binary_op_type']
                     if isinstance(bot, str):
                         row['OP CODE'] = bot.replace("BinaryOpType::", "")
+            if 'Unary' in row['OP CODE']:
+                attrs_cell = (row.get('ATTRIBUTES') or '').strip()
+                attributes = None
+                if attrs_cell:
+                    try:
+                        attributes = yaml.safe_load(attrs_cell.replace(";", ","))
+                    except yaml.YAMLError:
+                        attributes = None
+                if isinstance(attributes, dict):
+                    # Try direct unary_op_type field first
+                    if 'unary_op_type' in attributes:
+                        uot = attributes['unary_op_type']
+                        if isinstance(uot, str):
+                            row['OP CODE'] = uot.replace("UnaryOpType::", "")
+                    # Otherwise, try to extract from op_chain field
+                    elif 'op_chain' in attributes:
+                        op_chain = str(attributes['op_chain'])
+                        match = re.search(r'UnaryOpType::(\w+)', op_chain)
+                        if match:
+                            row['OP CODE'] = match.group(1)
             filtered_row = {
                 'seqno': int(row['GLOBAL CALL COUNT']),
                 'optype': row['OP CODE'].lower(),
