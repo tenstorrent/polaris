@@ -120,13 +120,16 @@ def cast_sinf(iTList, oTList, op, **kwargs):
         1: np.dtype(np.float32),
         2: np.dtype(np.uint8),
         3: np.dtype(np.int8),
+        4: np.dtype(np.uint16),
         5: np.dtype(np.int16),
         6: np.dtype(np.int32),
         7: np.dtype(np.int64),
+        9: np.dtype(np.bool_),
         10: np.dtype(np.float16),
         11: np.dtype(np.float64),
         12: np.dtype(np.uint32),
         13: np.dtype(np.uint64),
+        16: np.dtype(np.float16),  # Placeholder for bfloat16; adjust as needed
     }
 
     # Set output dtype based on 'to' attribute
