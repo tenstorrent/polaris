@@ -42,6 +42,12 @@ if not IS_POLARIS:
     from tests.ttnn.utils_for_testing import assert_with_pcc   # type: ignore[import] # noqa F401, E402
 
 if IS_POLARIS:
+    # TODO: Replace hardcoded config_dict with a downloaded config.json file or
+    # use huggingface_hub (no torch dependency) to fetch it at runtime, e.g.:
+    #   from huggingface_hub import hf_hub_download
+    #   path = hf_hub_download("google/vit-base-patch16-224", "config.json")
+    #   config_dict = json.load(open(path))
+    # This avoids staleness and scales to multiple models.
     config_dict = {
       "architectures": ["ViTForImageClassification"  ],
       "attention_probs_dropout_prob": 0.0,
