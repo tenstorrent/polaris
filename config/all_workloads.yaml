@@ -312,3 +312,60 @@ workloads:
     instances:
       vit_b16: { bs: 1, model_name: vit-b16 }
       vit_base_224x224: { bs: 1, model_name: vit-b16 }
+
+  - api: TTNN
+    name: vitoptim_patch_embeddings
+    basedir: workloads/ttnn/vit
+    module : run_vit_patch_embeddings@run_ttnn_optimized_sharded_vit_wh.py
+    instances:
+      vitoptim_b16_patch_embeddings: { bs: 1, model_name: vitoptim-b16-patch-embeddings }
+
+  - api: TTNN
+    name: vitoptim_embeddings
+    basedir: workloads/ttnn/vit
+    module : run_vit_embeddings@run_ttnn_optimized_sharded_vit_wh.py
+    instances:
+      vitoptim_b16_embeddings: { bs: 1, model_name: vitoptim-b16-embeddings }
+
+  - api: TTNN
+    name: vitoptim_attention
+    basedir: workloads/ttnn/vit
+    module : run_vit_attention@run_ttnn_optimized_sharded_vit_wh.py
+    instances:
+      vitoptim_b16_attention: { bs: 1, model_name: vitoptim-b16-attention }
+
+  - api: TTNN
+    name: vitoptim_intermediate
+    basedir: workloads/ttnn/vit
+    module : run_vit_intermediate@run_ttnn_optimized_sharded_vit_wh.py
+    instances:
+      vitoptim_b16_intermediate: { bs: 1, model_name: vitoptim-b16-intermediate }
+
+  - api: TTNN
+    name: vitoptim_output
+    basedir: workloads/ttnn/vit
+    module : run_vit_output@run_ttnn_optimized_sharded_vit_wh.py
+    instances:
+      vitoptim_b16_output: { bs: 1, model_name: vitoptim-b16-output }
+
+  - api: TTNN
+    name: vitoptim_layer
+    basedir: workloads/ttnn/vit
+    module : run_vit_layer@run_ttnn_optimized_sharded_vit_wh.py
+    instances:
+      vitoptim_b16_layer: { bs: 1, model_name: vitoptim-b16-layer }
+
+  - api: TTNN
+    name: vitoptim_encoder
+    basedir: workloads/ttnn/vit
+    module : run_vit_encoder@run_ttnn_optimized_sharded_vit_wh.py
+    instances:
+      vitoptim_b16_encoder: { bs: 1, model_name: vitoptim-b16-encoder }
+
+  - api: TTNN
+    name: vitoptim
+    basedir: workloads/ttnn/vit
+    module : run_vit@run_ttnn_optimized_sharded_vit_wh.py
+    instances:
+      vitoptim_b16: { bs: 1, model_name: vitoptim-b16 }
+      vitoptim_base_224x224: { bs: 1, model_name: vitoptim-b16 }
