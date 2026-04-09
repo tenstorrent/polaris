@@ -302,6 +302,107 @@ class OperationTracker:
             'from_shape': from_shape,
             'to_shape': to_shape
         })
+
+    def track_interleaved_to_sharded(self, input_shape, element_size=2):
+        total_bytes = 1
+        for d in input_shape:
+            total_bytes *= d
+        total_bytes *= element_size
+        self.memory_reads.append({'op': 'interleaved_to_sharded_read', 'bytes': total_bytes})
+        self.memory_writes.append({'op': 'interleaved_to_sharded_write', 'bytes': total_bytes})
+        self.data_movements.append({
+            'op': 'interleaved_to_sharded_movement',
+            'from': 'interleaved', 'to': 'sharded', 'bytes': total_bytes,
+        })
+        self.memory_operations.append({
+            'op': 'interleaved_to_sharded',
+            'shape': list(input_shape),
+            'total_bytes_read': total_bytes,
+            'total_bytes_written': total_bytes,
+        })
+
+    def track_sharded_to_interleaved(self, input_shape, element_size=2):
+        total_bytes = 1
+        for d in input_shape:
+            total_bytes *= d
+        total_bytes *= element_size
+        self.memory_reads.append({'op': 'sharded_to_interleaved_read', 'bytes': total_bytes})
+        self.memory_writes.append({'op': 'sharded_to_interleaved_write', 'bytes': total_bytes})
+        self.data_movements.append({
+            'op': 'sharded_to_interleaved_movement',
+            'from': 'sharded', 'to': 'interleaved', 'bytes': total_bytes,
+        })
+        self.memory_operations.append({
+            'op': 'sharded_to_interleaved',
+            'shape': list(input_shape),
+            'total_bytes_read': total_bytes,
+            'total_bytes_written': total_bytes,
+        })
+
+    def track_reshard(self, input_shape, element_size=2):
+        total_bytes = 1
+        for d in input_shape:
+            total_bytes *= d
+        total_bytes *= element_size
+        self.memory_reads.append({'op': 'reshard_read', 'bytes': total_bytes})
+        self.memory_writes.append({'op': 'reshard_write', 'bytes': total_bytes})
+        self.data_movements.append({
+            'op': 'reshard_movement',
+            'from': 'sharded', 'to': 'sharded', 'bytes': total_bytes,
+        })
+        self.memory_operations.append({
+            'op': 'reshard',
+            'shape': list(input_shape),
+            'total_bytes_read': total_bytes,
+            'total_bytes_written': total_bytes,
+        })
+
+    def track_nlp_create_qkv_heads(self, input_shape, q_shape, k_shape, v_shape, element_size=2):
+        in_bytes = 1
+        for d in input_shape:
+            in_bytes *= d
+        in_bytes *= element_size
+        out_bytes = 0
+        for s in (q_shape, k_shape, v_shape):
+            b = element_size
+            for d in s:
+                b *= d
+            out_bytes += b
+        self.memory_reads.append({'op': 'nlp_create_qkv_heads_read', 'bytes': in_bytes})
+        self.memory_writes.append({'op': 'nlp_create_qkv_heads_write', 'bytes': out_bytes})
+        self.data_movements.append({
+            'op': 'nlp_create_qkv_heads_movement',
+            'from': 'fused_qkv', 'to': 'split_qkv', 'bytes': out_bytes,
+        })
+        self.memory_operations.append({
+            'op': 'nlp_create_qkv_heads',
+            'input_shape': list(input_shape),
+            'q_shape': list(q_shape),
+            'k_shape': list(k_shape),
+            'v_shape': list(v_shape),
+            'total_bytes_read': in_bytes,
+            'total_bytes_written': out_bytes,
+        })
+
+    def track_nlp_concat_heads(self, input_shape, output_shape, element_size=2):
+        total_bytes = 1
+        for d in input_shape:
+            total_bytes *= d
+        total_bytes *= element_size
+        self.memory_reads.append({'op': 'nlp_concat_heads_read', 'bytes': total_bytes})
+        self.memory_writes.append({'op': 'nlp_concat_heads_write', 'bytes': total_bytes})
+        self.data_movements.append({
+            'op': 'nlp_concat_heads_movement',
+            'from': 'split_heads', 'to': 'concat_heads', 'bytes': total_bytes,
+        })
+        self.memory_operations.append({
+            'op': 'nlp_concat_heads',
+            'input_shape': list(input_shape),
+            'output_shape': list(output_shape),
+            'total_bytes_read': total_bytes,
+            'total_bytes_written': total_bytes,
+        })
+
     def get_summary(self):
         """Get summary of all tracked operations."""
         total_memory_read_bytes = sum(op.get('bytes', 0) for op in self.memory_reads)
@@ -2102,3 +2203,411 @@ def tilize_with_zero_padding(input_tensor, memory_config=None, output_dtype=None
         input_tensor, padded_shape, pad_value, memory_config, output_dtype,
         use_multicore, sub_core_grids
     )
+
+
+# =============================================================================
+# Shard layout operator shims + SimOp graph builders
+# =============================================================================
+
+def interleaved_to_sharded_op(input_tensor, memory_config=None, element_size=2):
+    """Create an InterleavedToSharded SimOp (tracking-only; no execution)."""
+    assert input_tensor.device is not None, "interleaved_to_sharded_op requires input_tensor on device"
+    op_name = generate_new_op_name()
+    out_shape = input_tensor.logical_shape()
+    out_tensor = Tensor(
+        name=op_name + '.out',
+        shape=out_shape._shape,
+        dtype=input_tensor.dtype,
+        layout=input_tensor.get_layout(),
+        padded_shape=input_tensor.padded_shape()._shape,
+        op_out=[op_name],
+        device=input_tensor.device,
+    )
+    input_tensor.op_in.append(op_name)
+    opinfo = {
+        'name': op_name,
+        'optype': 'InterleavedToSharded',
+        'inList': [input_tensor.name],
+        'outList': [out_tensor.name],
+        'attrs': {'element_size': element_size},
+    }
+    opobj = SimOp(opinfo)
+    opobj.get_perf_counts([input_tensor], [out_tensor])
+    opobj.update_tensor_counts([input_tensor], [out_tensor])
+    input_tensor.device.add_op(opobj)
+    return out_tensor
+
+
+def interleaved_to_sharded(input_tensor, memory_config=None, output_dtype=None):
+    """Convert tensor from interleaved to sharded memory layout.
+
+    Supports two calling conventions (matching tt-metal):
+      1. interleaved_to_sharded(tensor, memory_config)
+      2. interleaved_to_sharded(tensor, grid, shard_shape, strategy, ...)
+    Both resolve to the same code path.
+    """
+    mode = get_execution_mode()
+    should_track = (mode == ExecutionMode.TRACK_ONLY or mode == ExecutionMode.EXECUTE_AND_TRACK)
+    should_execute = (mode == ExecutionMode.EXECUTE or mode == ExecutionMode.EXECUTE_AND_TRACK)
+
+    if should_track:
+        elem_sz = input_tensor.element_size() if hasattr(input_tensor, 'element_size') else 2
+        _tracker.track_interleaved_to_sharded(
+            input_tensor.logical_shape()._shape,
+            element_size=elem_sz,
+        )
+
+    output_data = None
+    if should_execute and hasattr(input_tensor, 'has_data') and input_tensor.has_data():
+        output_data = input_tensor.get_data()
+
+    return type(input_tensor)(
+        shape=input_tensor.logical_shape(),
+        dtype=output_dtype or input_tensor.dtype,
+        layout=input_tensor.get_layout(),
+        memory_config=memory_config or input_tensor.memory_config(),
+        padded_shape=input_tensor.padded_shape(),
+        device=input_tensor.device,
+        data=output_data,
+    )
+
+
+def sharded_to_interleaved_op(input_tensor, memory_config=None, element_size=2):
+    """Create a ShardedToInterleaved SimOp (tracking-only; no execution)."""
+    assert input_tensor.device is not None, "sharded_to_interleaved_op requires input_tensor on device"
+    op_name = generate_new_op_name()
+    out_shape = input_tensor.logical_shape()
+    out_tensor = Tensor(
+        name=op_name + '.out',
+        shape=out_shape._shape,
+        dtype=input_tensor.dtype,
+        layout=input_tensor.get_layout(),
+        padded_shape=input_tensor.padded_shape()._shape,
+        op_out=[op_name],
+        device=input_tensor.device,
+    )
+    input_tensor.op_in.append(op_name)
+    opinfo = {
+        'name': op_name,
+        'optype': 'ShardedToInterleaved',
+        'inList': [input_tensor.name],
+        'outList': [out_tensor.name],
+        'attrs': {'element_size': element_size},
+    }
+    opobj = SimOp(opinfo)
+    opobj.get_perf_counts([input_tensor], [out_tensor])
+    opobj.update_tensor_counts([input_tensor], [out_tensor])
+    input_tensor.device.add_op(opobj)
+    return out_tensor
+
+
+def sharded_to_interleaved(input_tensor, memory_config=None, output_dtype=None):
+    """Convert tensor from sharded to interleaved memory layout."""
+    mode = get_execution_mode()
+    should_track = (mode == ExecutionMode.TRACK_ONLY or mode == ExecutionMode.EXECUTE_AND_TRACK)
+    should_execute = (mode == ExecutionMode.EXECUTE or mode == ExecutionMode.EXECUTE_AND_TRACK)
+
+    if should_track:
+        elem_sz = input_tensor.element_size() if hasattr(input_tensor, 'element_size') else 2
+        _tracker.track_sharded_to_interleaved(
+            input_tensor.logical_shape()._shape,
+            element_size=elem_sz,
+        )
+
+    output_data = None
+    if should_execute and hasattr(input_tensor, 'has_data') and input_tensor.has_data():
+        output_data = input_tensor.get_data()
+
+    return type(input_tensor)(
+        shape=input_tensor.logical_shape(),
+        dtype=output_dtype or input_tensor.dtype,
+        layout=input_tensor.get_layout(),
+        memory_config=memory_config or input_tensor.memory_config(),
+        padded_shape=input_tensor.padded_shape(),
+        device=input_tensor.device,
+        data=output_data,
+    )
+
+
+def reshard_op(input_tensor, memory_config=None, element_size=2):
+    """Create a Reshard SimOp (tracking-only; no execution)."""
+    assert input_tensor.device is not None, "reshard_op requires input_tensor on device"
+    op_name = generate_new_op_name()
+    out_shape = input_tensor.logical_shape()
+    out_tensor = Tensor(
+        name=op_name + '.out',
+        shape=out_shape._shape,
+        dtype=input_tensor.dtype,
+        layout=input_tensor.get_layout(),
+        padded_shape=input_tensor.padded_shape()._shape,
+        op_out=[op_name],
+        device=input_tensor.device,
+    )
+    input_tensor.op_in.append(op_name)
+    opinfo = {
+        'name': op_name,
+        'optype': 'Reshard',
+        'inList': [input_tensor.name],
+        'outList': [out_tensor.name],
+        'attrs': {'element_size': element_size},
+    }
+    opobj = SimOp(opinfo)
+    opobj.get_perf_counts([input_tensor], [out_tensor])
+    opobj.update_tensor_counts([input_tensor], [out_tensor])
+    input_tensor.device.add_op(opobj)
+    return out_tensor
+
+
+def reshard(input_tensor, memory_config, output_tensor=None):
+    """Change shard layout of an already-sharded tensor."""
+    mode = get_execution_mode()
+    should_track = (mode == ExecutionMode.TRACK_ONLY or mode == ExecutionMode.EXECUTE_AND_TRACK)
+    should_execute = (mode == ExecutionMode.EXECUTE or mode == ExecutionMode.EXECUTE_AND_TRACK)
+
+    if should_track:
+        elem_sz = input_tensor.element_size() if hasattr(input_tensor, 'element_size') else 2
+        _tracker.track_reshard(
+            input_tensor.logical_shape()._shape,
+            element_size=elem_sz,
+        )
+
+    output_data = None
+    if should_execute and hasattr(input_tensor, 'has_data') and input_tensor.has_data():
+        output_data = input_tensor.get_data()
+
+    if output_tensor is not None:
+        return output_tensor
+
+    return type(input_tensor)(
+        shape=input_tensor.logical_shape(),
+        dtype=input_tensor.dtype,
+        layout=input_tensor.get_layout(),
+        memory_config=memory_config,
+        padded_shape=input_tensor.padded_shape(),
+        device=input_tensor.device,
+        data=output_data,
+    )
+
+
+# =============================================================================
+# Transformer head operator shims + SimOp graph builders
+# =============================================================================
+
+def nlp_concat_heads_op(input_tensor, memory_config=None, element_size=2):
+    """Create an NLPConcatHeads SimOp (tracking-only; no execution).
+
+    Input: [B, num_heads, S, head_dim] -> Output: [B, S, num_heads*head_dim]
+    """
+    assert input_tensor.device is not None, "nlp_concat_heads_op requires input_tensor on device"
+    in_shape = input_tensor.logical_shape()._shape
+    assert len(in_shape) == 4, f"NLPConcatHeads expects rank-4 input, got {len(in_shape)}"
+    B, num_heads, S, head_dim = in_shape
+    out_shape_list = [B, S, num_heads * head_dim]
+
+    op_name = generate_new_op_name()
+    out_tensor = Tensor(
+        name=op_name + '.out',
+        shape=out_shape_list,
+        dtype=input_tensor.dtype,
+        layout=input_tensor.get_layout(),
+        op_out=[op_name],
+        device=input_tensor.device,
+    )
+    input_tensor.op_in.append(op_name)
+    opinfo = {
+        'name': op_name,
+        'optype': 'NLPConcatHeads',
+        'inList': [input_tensor.name],
+        'outList': [out_tensor.name],
+        'attrs': {'element_size': element_size},
+    }
+    opobj = SimOp(opinfo)
+    opobj.get_perf_counts([input_tensor], [out_tensor])
+    opobj.update_tensor_counts([input_tensor], [out_tensor])
+    input_tensor.device.add_op(opobj)
+    return out_tensor
+
+
+def nlp_concat_heads(input_tensor, memory_config=None):
+    """Concatenate attention heads: [B, num_heads, S, head_dim] -> [B, S, num_heads*head_dim]."""
+    in_shape = input_tensor.logical_shape()._shape
+    assert len(in_shape) == 4, f"NLPConcatHeads expects rank-4 input, got {len(in_shape)}"
+    B, num_heads, S, head_dim = in_shape
+    out_shape_list = [B, S, num_heads * head_dim]
+
+    mode = get_execution_mode()
+    should_track = (mode == ExecutionMode.TRACK_ONLY or mode == ExecutionMode.EXECUTE_AND_TRACK)
+    should_execute = (mode == ExecutionMode.EXECUTE or mode == ExecutionMode.EXECUTE_AND_TRACK)
+
+    if should_track:
+        elem_sz = input_tensor.element_size() if hasattr(input_tensor, 'element_size') else 2
+        _tracker.track_nlp_concat_heads(
+            in_shape, out_shape_list,
+            element_size=elem_sz,
+        )
+
+    output_data = None
+    if should_execute and hasattr(input_tensor, 'has_data') and input_tensor.has_data():
+        import numpy as _np
+        data = input_tensor.get_data()
+        arr = _np.array(data).reshape(in_shape)
+        arr = arr.transpose(0, 2, 1, 3).reshape(out_shape_list)
+        output_data = arr.flatten().tolist()
+
+    return type(input_tensor)(
+        shape=Shape(out_shape_list),
+        dtype=input_tensor.dtype,
+        layout=input_tensor.get_layout(),
+        memory_config=memory_config or input_tensor.memory_config(),
+        device=input_tensor.device,
+        data=output_data,
+    )
+
+
+def nlp_create_qkv_heads_op(input_tensor, kv_input_tensor=None, *,
+                              num_heads, num_kv_heads=None,
+                              transpose_k_heads=False, memory_config=None,
+                              element_size=2):
+    """Create an NLPCreateQKVHeads SimOp with 3 outputs (tracking-only; no execution).
+
+    Input: [B, S, (num_heads + 2*num_kv_heads) * head_dim]
+    Outputs: Q=[B, num_heads, S, head_dim], K=[B, num_kv_heads, S, head_dim], V=same as K
+    """
+    assert input_tensor.device is not None, "nlp_create_qkv_heads_op requires input_tensor on device"
+    if num_kv_heads is None:
+        num_kv_heads = num_heads
+
+    in_shape = input_tensor.logical_shape()._shape
+    if kv_input_tensor is not None:
+        head_dim = in_shape[-1] // num_heads
+    else:
+        head_dim = in_shape[-1] // (num_heads + 2 * num_kv_heads)
+
+    B = in_shape[0] if len(in_shape) >= 3 else 1
+    S = in_shape[-2] if len(in_shape) >= 2 else in_shape[0]
+    q_shape = [B, num_heads, S, head_dim]
+    k_shape = [B, num_kv_heads, S, head_dim]
+    v_shape = [B, num_kv_heads, S, head_dim]
+
+    op_name = generate_new_op_name()
+    q_tensor = Tensor(
+        name=f"{op_name}.out.0", shape=q_shape, dtype=input_tensor.dtype,
+        layout=input_tensor.get_layout(), op_out=[op_name], device=input_tensor.device,
+    )
+    k_tensor = Tensor(
+        name=f"{op_name}.out.1", shape=k_shape, dtype=input_tensor.dtype,
+        layout=input_tensor.get_layout(), op_out=[op_name], device=input_tensor.device,
+    )
+    v_tensor = Tensor(
+        name=f"{op_name}.out.2", shape=v_shape, dtype=input_tensor.dtype,
+        layout=input_tensor.get_layout(), op_out=[op_name], device=input_tensor.device,
+    )
+
+    input_tensor.op_in.append(op_name)
+    in_list = [input_tensor.name]
+    in_tensors = [input_tensor]
+    if kv_input_tensor is not None:
+        kv_input_tensor.op_in.append(op_name)
+        in_list.append(kv_input_tensor.name)
+        in_tensors.append(kv_input_tensor)
+
+    opinfo = {
+        'name': op_name,
+        'optype': 'NLPCreateQKVHeads',
+        'inList': in_list,
+        'outList': [q_tensor.name, k_tensor.name, v_tensor.name],
+        'attrs': {
+            'num_heads': num_heads,
+            'num_kv_heads': num_kv_heads,
+            'head_dim': head_dim,
+            'transpose_k_heads': transpose_k_heads,
+            'element_size': element_size,
+        },
+    }
+    opobj = SimOp(opinfo)
+    out_tensors = [q_tensor, k_tensor, v_tensor]
+    opobj.get_perf_counts(in_tensors, out_tensors)
+    opobj.update_tensor_counts(in_tensors, out_tensors)
+    input_tensor.device.add_op(opobj)
+    return q_tensor, k_tensor, v_tensor
+
+
+def nlp_create_qkv_heads(input_tensor, kv_input_tensor=None, *,
+                           num_heads, num_kv_heads=None,
+                           transpose_k_heads=False, memory_config=None):
+    """Split fused QKV tensor into separate Q, K, V head tensors.
+
+    Input: [B, S, (num_heads + 2*num_kv_heads) * head_dim]
+    Returns: (Q, K, V) where Q=[B, num_heads, S, head_dim], K=V=[B, num_kv_heads, S, head_dim]
+    """
+    if num_kv_heads is None:
+        num_kv_heads = num_heads
+
+    in_shape = input_tensor.logical_shape()._shape
+    if kv_input_tensor is not None:
+        head_dim = in_shape[-1] // num_heads
+    else:
+        head_dim = in_shape[-1] // (num_heads + 2 * num_kv_heads)
+
+    B = in_shape[0] if len(in_shape) >= 3 else 1
+    S = in_shape[-2] if len(in_shape) >= 2 else in_shape[0]
+    q_shape = [B, num_heads, S, head_dim]
+    k_shape = [B, num_kv_heads, S, head_dim]
+    v_shape = [B, num_kv_heads, S, head_dim]
+
+    mode = get_execution_mode()
+    should_track = (mode == ExecutionMode.TRACK_ONLY or mode == ExecutionMode.EXECUTE_AND_TRACK)
+    should_execute = (mode == ExecutionMode.EXECUTE or mode == ExecutionMode.EXECUTE_AND_TRACK)
+
+    if should_track:
+        elem_sz = input_tensor.element_size() if hasattr(input_tensor, 'element_size') else 2
+        _tracker.track_nlp_create_qkv_heads(
+            in_shape, q_shape, k_shape, v_shape,
+            element_size=elem_sz,
+        )
+
+    q_data = k_data = v_data = None
+    if should_execute and hasattr(input_tensor, 'has_data') and input_tensor.has_data():
+        import numpy as _np
+        data = input_tensor.get_data()
+        if kv_input_tensor is not None:
+            q_arr_3d = _np.array(data).reshape(B, S, num_heads * head_dim)
+            q_arr = q_arr_3d.reshape(B, S, num_heads, head_dim).transpose(0, 2, 1, 3)
+            q_data = q_arr.flatten().tolist()
+            if hasattr(kv_input_tensor, 'has_data') and kv_input_tensor.has_data():
+                kv_data = _np.array(kv_input_tensor.get_data()).reshape(B, S, 2 * num_kv_heads * head_dim)
+                k_arr = kv_data[:, :, :num_kv_heads * head_dim].reshape(B, S, num_kv_heads, head_dim).transpose(0, 2, 1, 3)
+                v_arr = kv_data[:, :, num_kv_heads * head_dim:].reshape(B, S, num_kv_heads, head_dim).transpose(0, 2, 1, 3)
+                k_data = k_arr.flatten().tolist()
+                v_data = v_arr.flatten().tolist()
+        else:
+            fused_arr = _np.array(data).reshape(B, S, -1)
+            q_end = num_heads * head_dim
+            k_end = q_end + num_kv_heads * head_dim
+            q_arr = fused_arr[:, :, :q_end].reshape(B, S, num_heads, head_dim).transpose(0, 2, 1, 3)
+            k_arr = fused_arr[:, :, q_end:k_end].reshape(B, S, num_kv_heads, head_dim).transpose(0, 2, 1, 3)
+            v_arr = fused_arr[:, :, k_end:].reshape(B, S, num_kv_heads, head_dim).transpose(0, 2, 1, 3)
+            q_data = q_arr.flatten().tolist()
+            k_data = k_arr.flatten().tolist()
+            v_data = v_arr.flatten().tolist()
+
+    TensorType = type(input_tensor)
+    q = TensorType(
+        shape=Shape(q_shape), dtype=input_tensor.dtype,
+        layout=input_tensor.get_layout(),
+        memory_config=memory_config or input_tensor.memory_config(),
+        device=input_tensor.device, data=q_data,
+    )
+    k = TensorType(
+        shape=Shape(k_shape), dtype=input_tensor.dtype,
+        layout=input_tensor.get_layout(),
+        memory_config=memory_config or input_tensor.memory_config(),
+        device=input_tensor.device, data=k_data,
+    )
+    v = TensorType(
+        shape=Shape(v_shape), dtype=input_tensor.dtype,
+        layout=input_tensor.get_layout(),
+        memory_config=memory_config or input_tensor.memory_config(),
+        device=input_tensor.device, data=v_data,
+    )
+    return q, k, v

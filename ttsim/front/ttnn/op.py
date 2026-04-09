@@ -385,11 +385,6 @@ def where_pp(args, kwargs_dict):
     return (mask_tensor, input_tensor, value_tensor), kwargs_dict
 
 
-def sharded_to_interleaved(input_tensor, memory_config=None):
-    require_ttnn_tensor(input_tensor, "ttnn.sharded_to_interleaved input")
-    return input_tensor  # No actual conversion, just returning the input tensor
-
-
 def rms_norm(
     input_tensor,
     weight_tensor=None,
@@ -594,6 +589,22 @@ class experimental:
 
     def all_gather_matmul(self, *args, **kwargs):
         pass
+
+    @staticmethod
+    def nlp_create_qkv_heads(input_tensor, kv_input_tensor=None, *,
+                              num_heads, num_kv_heads=None,
+                              transpose_k_heads=False, memory_config=None):
+        from .ttnn_shim import nlp_create_qkv_heads as _nlp_create_qkv_heads
+        return _nlp_create_qkv_heads(
+            input_tensor, kv_input_tensor,
+            num_heads=num_heads, num_kv_heads=num_kv_heads,
+            transpose_k_heads=transpose_k_heads, memory_config=memory_config,
+        )
+
+    @staticmethod
+    def nlp_concat_heads(input_tensor, memory_config=None):
+        from .ttnn_shim import nlp_concat_heads as _nlp_concat_heads
+        return _nlp_concat_heads(input_tensor, memory_config=memory_config)
 
 
 def all_gather(*args, **kwargs):

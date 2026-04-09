@@ -4,7 +4,7 @@
 
 from .device import open_device, close_device, ARCH, num_cores_to_corerangeset, create_sharded_memory_config, ReadDeviceProfiler
 from .device import USE_DEFAULT_DEVICE, resolve_device, set_default_device, get_default_device
-from .device import interleaved_to_sharded
+from .ttnn_shim import interleaved_to_sharded, sharded_to_interleaved, reshard
 from .tensor import (
     Tensor,
     _rand,

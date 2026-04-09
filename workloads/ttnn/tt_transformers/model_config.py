@@ -97,6 +97,7 @@ class ModelArgs:
         self.dummy_weights = True
         self.cluster_shape = [1,1]
         self.use_qk_fused = False
+        self.use_fused_qkv_op = True
         self.query_pre_attn_scalar = None
         self.is_galaxy = False
         self.is_distributed_norm = False

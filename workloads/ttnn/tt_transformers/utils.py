@@ -11,14 +11,14 @@ from ttsim.front.ttnn.tensor import DataType, Tensor, Layout
 sys.path.append(os.path.join(os.path.dirname(__file__), '../../..'))
 import ttsim.front.ttnn as ttnn
 
-def nlp_create_qkv_heads(
+def _nlp_create_qkv_heads_decomposed(
     xqkv_fused,
     num_heads=1,
     num_kv_heads=1,
     transpose_k_heads=False,
     memory_config=None,
-    ):
-    # Assume xqkv_fused.shape = [batch, seq_len, 3 * num_heads * head_dim]
+):
+    """Original decomposed implementation: explicit Tensor + reshape + permute per head."""
     [batch, seq_groups, seq_len, fused_dim] = xqkv_fused.shape
     head_dim = fused_dim // (num_heads + 2 * num_kv_heads)
     q_end = num_heads * head_dim
@@ -50,10 +50,36 @@ def nlp_create_qkv_heads(
         # is expanding K/V heads for multi-query attention, not transposing. 
         # The parameter name is misleading and should be renamed to something like
         # expand_kv_heads or the logic should be corrected.
+
         k = k.repeat(1, num_heads // num_kv_heads, 1, 1)
         v = v.repeat(1, num_heads // num_kv_heads, 1, 1)
 
     return q, k, v
+
+
+def nlp_create_qkv_heads(
+    xqkv_fused,
+    num_heads=1,
+    num_kv_heads=1,
+    transpose_k_heads=False,
+    memory_config=None,
+    fused=True,
+):
+    if fused:
+        return ttnn.experimental.nlp_create_qkv_heads(
+            xqkv_fused,
+            num_heads=num_heads,
+            num_kv_heads=num_kv_heads,
+            transpose_k_heads=transpose_k_heads,
+            memory_config=memory_config,
+        )
+    return _nlp_create_qkv_heads_decomposed(
+        xqkv_fused,
+        num_heads=num_heads,
+        num_kv_heads=num_kv_heads,
+        transpose_k_heads=transpose_k_heads,
+        memory_config=memory_config,
+    )
 
 def nlp_create_qkv_heads_decode(
     xqkv_fused,
@@ -212,10 +238,8 @@ def scaled_dot_product_attention(
 
     return output
 
-def nlp_concat_heads(attn_output_1QSD, memory_config=None):
-    """
-    Concatenates attention output heads into a single tensor.
-
+def _nlp_concat_heads_decomposed(attn_output_1QSD, memory_config=None):
+    """Original decomposed implementation: permute + reshape.
     Args:
         attn_output_1QSD: Tensor of shape [batch, num_heads, seq_len, head_dim]
         memory_config: Optional memory configuration
@@ -224,11 +248,16 @@ def nlp_concat_heads(attn_output_1QSD, memory_config=None):
         Tensor of shape [batch, seq_len, num_heads * head_dim]
     """
     batch, num_heads, seq_len, head_dim = attn_output_1QSD.shape
-    # Permute to [batch, seq_len, num_heads, head_dim]
     permuted = ttnn.permute(attn_output_1QSD, (0, 2, 1, 3))
     # Reshape to [batch, seq_len, num_heads * head_dim]
     output = ttnn.reshape(permuted, (batch, seq_len, num_heads * head_dim))
     return output
+
+
+def nlp_concat_heads(attn_output_1QSD, memory_config=None, fused=True):
+    if fused:
+        return ttnn.experimental.nlp_concat_heads(attn_output_1QSD, memory_config=memory_config)
+    return _nlp_concat_heads_decomposed(attn_output_1QSD, memory_config=memory_config)
 
 def nlp_concat_heads_decode(
     attn_output_11BH,
