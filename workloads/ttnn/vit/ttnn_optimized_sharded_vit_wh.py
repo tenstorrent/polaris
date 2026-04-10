@@ -6,8 +6,6 @@ import os
 import sys
 sys.path.append(os.path.join(os.path.dirname(__file__), '../../..'))
 import ttsim.front.ttnn as ttnn
-from ttsim.front.ttnn.ttnn_shim import permute_op
-from ttsim.front.ttnn.tensor import Tensor, DataType
 from loguru import logger
 
 _LAYOUT_OPERATOR_TODO_KEYS: set[str] = set()
@@ -46,19 +44,19 @@ def vit_patch_embeddings(config, pixel_values, *, parameters, unittest_check=Fal
     if unittest_check:
         parameters = parameters.vit.embeddings.patch_embeddings
 
-    patch_embedding_output = ttnn.matmul(pixel_values, parameters.projection.weight)
+    # ttnn.linear emits a single fused MatMul SimOp (matmul + bias), matching
+    # HW's MatmulDeviceOperation.  Previously decomposed as matmul → add.
+    patch_embedding_output = ttnn.linear(
+        pixel_values, parameters.projection.weight,
+        bias=parameters.projection.bias,
+    )
     _warn_layout_operator_todo_once(
-        "opt_vit_patch_proj_matmul_layout",
-        "matmul should set output layout metadata; remove explicit TILE assignment (patch projection).",
+        "opt_vit_patch_proj_linear_layout",
+        "linear should set output layout metadata; remove explicit TILE assignment (patch projection).",
     )
     patch_embedding_output.layout = ttnn.TILE_LAYOUT
-    logger.debug('matmul patch_embedding shape {} = pixel_values shape {} @ projection.weight shape {}',
+    logger.debug('linear patch_embedding shape {} = pixel_values shape {} @ projection.weight shape {}',
                  patch_embedding_output.shape, pixel_values.shape, parameters.projection.weight.shape)
-    patch_embedding_output = patch_embedding_output + parameters.projection.bias
-    _warn_layout_operator_todo_once(
-        "opt_vit_patch_matmul_add_tolayout",
-        "matmul/add should set output layout; remove explicit to_layout.",
-    )
 
     patch_embedding_output = ttnn.to_layout(patch_embedding_output, layout=ttnn.ROW_MAJOR_LAYOUT)
     patch_embedding_output = ttnn.reshape(patch_embedding_output, (batch_size, patch_count_all, patch_size_sq_trpl))
@@ -105,46 +103,28 @@ def vit_attention(
     batch_size = hidden_states.shape[0]
     seq_len = hidden_states.shape[1]
 
-    # Fused QKV projection: matmul + bias
-    query_key_value = hidden_states @ parameters.attention.query_key_value.weight
+    # Fused QKV projection — single MatMul SimOp (matmul + bias), matching HW.
+    query_key_value = ttnn.linear(
+        hidden_states, parameters.attention.query_key_value.weight,
+        bias=parameters.attention.query_key_value.bias,
+    )
     _warn_layout_operator_todo_once(
-        "opt_vit_attn_qkv_matmul_layout",
-        "matmul should set output layout; remove explicit TILE assignment (QKV projection).",
+        "opt_vit_attn_qkv_linear_layout",
+        "linear should set output layout; remove explicit TILE assignment (QKV projection).",
     )
     query_key_value.layout = ttnn.TILE_LAYOUT
-    logger.debug('matmul qkv shape {} = hidden_states shape {} @ qkv.weight shape {}',
+    logger.debug('linear qkv shape {} = hidden_states shape {} @ qkv.weight shape {}',
                  query_key_value.shape, hidden_states.shape, parameters.attention.query_key_value.weight.shape)
-    query_key_value = query_key_value + parameters.attention.query_key_value.bias
-    query_key_value.layout = ttnn.TILE_LAYOUT
 
-    # Split QKV into separate Q, K, V tensors and reshape to head-major layout
-    q = Tensor(shape=[batch_size, seq_len, hidden_size], device=query_key_value.device,
-               dtype=DataType.from_numpy(query_key_value.dtype))
-    k = Tensor(shape=[batch_size, seq_len, hidden_size], device=query_key_value.device,
-               dtype=DataType.from_numpy(query_key_value.dtype))
-    v = Tensor(shape=[batch_size, seq_len, hidden_size], device=query_key_value.device,
-               dtype=DataType.from_numpy(query_key_value.dtype))
-
-    # Q: [B, S, D] -> [B, S, heads, hd] -> [B, heads, S, hd]
-    q = ttnn.to_layout(ttnn.reshape(q, (batch_size, seq_len, num_heads, head_size)),
-                       layout=ttnn.TILE_LAYOUT)
-    q = permute_op(q, (0, 2, 1, 3))
-    q.layout = ttnn.TILE_LAYOUT
-
-    # K: [B, S, D] -> [B, S, heads, hd] -> [B, heads, S, hd] -> [B, heads, hd, S]
-    k = ttnn.to_layout(ttnn.reshape(k, (batch_size, seq_len, num_heads, head_size)),
-                       layout=ttnn.TILE_LAYOUT)
-    k = permute_op(k, (0, 2, 1, 3))
-    k.layout = ttnn.TILE_LAYOUT
-    # HW split_query_key_value_and_split_heads returns K transposed
-    k = permute_op(k, (0, 1, 3, 2))
-    k.layout = ttnn.TILE_LAYOUT
-
-    # V: [B, S, D] -> [B, S, heads, hd] -> [B, heads, S, hd]
-    v = ttnn.to_layout(ttnn.reshape(v, (batch_size, seq_len, num_heads, head_size)),
-                       layout=ttnn.TILE_LAYOUT)
-    v = permute_op(v, (0, 2, 1, 3))
-    v.layout = ttnn.TILE_LAYOUT
+    # Single NLPCreateQKVHeads op replaces the previous decomposed sequence of
+    # 3×(Tensor → reshape → permute) + extra permute for K transpose.
+    # HW's split_query_key_value_and_split_heads maps to this single op.
+    q, k, v = ttnn.experimental.nlp_create_qkv_heads(
+        query_key_value,
+        num_heads=num_heads,
+        transpose_k_heads=True,
+    )
+    logger.debug('nlp_create_qkv_heads: q {} k {} v {}', q.shape, k.shape, v.shape)
 
     # Q @ K^T
     attention_scores = q @ k
@@ -179,24 +159,23 @@ def vit_attention(
     logger.debug('matmul context_layer shape {} = attention_probs shape {} @ v shape {}',
                  context_layer.shape, attention_probs.shape, v.shape)
 
-    # Concatenate heads: [B, heads, S, hd] -> [B, S, heads, hd] -> [B, S, D]
-    context_layer = permute_op(context_layer, (0, 2, 1, 3))
+    # Single NLPConcatHeads op replaces the previous decomposed permute → reshape.
+    # HW's concatenate_heads maps to this single op.
+    context_layer = ttnn.experimental.nlp_concat_heads(context_layer)
     context_layer.layout = ttnn.TILE_LAYOUT
-    context_layer = ttnn.to_layout(context_layer, ttnn.ROW_MAJOR_LAYOUT)
-    context_layer = ttnn.reshape(context_layer, (batch_size, seq_len, hidden_size))
-    context_layer = ttnn.to_layout(context_layer, ttnn.TILE_LAYOUT)
 
-    # Output dense projection: matmul + bias
-    self_output = context_layer @ parameters.output.dense.weight
+    # Output dense projection — fused matmul + bias, matching HW.
+    self_output = ttnn.linear(
+        context_layer, parameters.output.dense.weight,
+        bias=parameters.output.dense.bias,
+    )
     _warn_layout_operator_todo_once(
-        "opt_vit_attn_output_dense_matmul_layout",
-        "matmul should set output layout; remove explicit assignment (attention output dense).",
+        "opt_vit_attn_output_dense_linear_layout",
+        "linear should set output layout; remove explicit assignment (attention output dense).",
     )
     self_output.layout = ttnn.TILE_LAYOUT
-    logger.debug('matmul self_output shape {} = context_layer shape {} @ output.dense.weight shape {}',
+    logger.debug('linear self_output shape {} = context_layer shape {} @ output.dense.weight shape {}',
                  self_output.shape, context_layer.shape, parameters.output.dense.weight.shape)
-    self_output = self_output + parameters.output.dense.bias
-    self_output.layout = ttnn.TILE_LAYOUT
 
     return self_output
 
@@ -207,14 +186,15 @@ def vit_intermediate(
     *,
     parameters,
 ):
-    output = hidden_states @ parameters.dense.weight
-    logger.debug('matmul output shape {} = hidden_states shape {} @ weight shape {}',
+    # Fused matmul + bias + GELU as a single MatMul SimOp.  HW's
+    # ff1_matmul_program_config has fused_activation=(GELU, True).
+    output = ttnn.linear(
+        hidden_states, parameters.dense.weight,
+        bias=parameters.dense.bias,
+        activation="gelu",
+    )
+    logger.debug('linear(+gelu) output shape {} = hidden_states shape {} @ weight shape {}',
                  output.shape, hidden_states.shape, parameters.dense.weight.shape)
-    output.layout = hidden_states.layout
-    output = output + parameters.dense.bias
-    output.layout = hidden_states.layout
-    # HW ff1_matmul_program_config has fused_activation=(GELU, True); decompose here
-    output = ttnn.gelu(output)
     output.layout = hidden_states.layout
     return output
 
@@ -226,11 +206,13 @@ def vit_output(
     *,
     parameters,
 ):
-    output = hidden_states @ parameters.dense.weight
-    logger.debug('matmul output shape {} = hidden_states shape {} @ weight shape {}',
+    # Fused matmul + bias as a single MatMul SimOp, matching HW.
+    output = ttnn.linear(
+        hidden_states, parameters.dense.weight,
+        bias=parameters.dense.bias,
+    )
+    logger.debug('linear output shape {} = hidden_states shape {} @ weight shape {}',
                  output.shape, hidden_states.shape, parameters.dense.weight.shape)
-    output.layout = hidden_states.layout
-    output = output + parameters.dense.bias
     output.layout = ttnn.TILE_LAYOUT
     _warn_layout_operator_todo_once(
         "opt_vit_output_residual_add_layout",
@@ -348,12 +330,13 @@ def vit(
     )
     output.layout = ttnn.TILE_LAYOUT
 
-    # Classifier
-    classifier_output = output @ parameters.classifier.weight
-    logger.debug('matmul classifier_output shape {} = output shape {} @ classifier.weight shape {}',
+    # Classifier — fused matmul + bias, matching HW.
+    classifier_output = ttnn.linear(
+        output, parameters.classifier.weight,
+        bias=parameters.classifier.bias,
+    )
+    logger.debug('linear classifier_output shape {} = output shape {} @ classifier.weight shape {}',
                  classifier_output.shape, output.shape, parameters.classifier.weight.shape)
-    classifier_output.layout = output.layout
-    classifier_output = classifier_output + parameters.classifier.bias
     classifier_output.layout = output.layout
 
     return classifier_output

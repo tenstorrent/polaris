@@ -296,7 +296,9 @@ def nlp_create_qkv_heads_sinf(iTList, oTList, op, **kwargs):
 
     Input: [B, S, (num_heads + 2*num_kv_heads) * head_dim] (fused QKV)
     Optional second input: [B, S, 2*num_kv_heads * head_dim] (separate KV)
-    Outputs: Q=[B, num_heads, S, head_dim], K=[B, num_kv_heads, S, head_dim], V=[B, num_kv_heads, S, head_dim]
+    Outputs: Q=[B, num_heads, S, head_dim],
+             K=[B, num_kv_heads, head_dim, S] if transpose_k_heads else [B, num_kv_heads, S, head_dim],
+             V=[B, num_kv_heads, S, head_dim]
     """
     assert 1 <= len(iTList) <= 2 and len(oTList) == 3
     X = iTList[0]
@@ -308,6 +310,8 @@ def nlp_create_qkv_heads_sinf(iTList, oTList, op, **kwargs):
     num_heads = op.attrs.get('num_heads', 1)
     num_kv_heads = op.attrs.get('num_kv_heads', num_heads)
     head_dim = op.attrs.get('head_dim', None)
+    # HW returns K pre-transposed when this attr is set; propagate to shape.
+    transpose_k = op.attrs.get('transpose_k_heads', False)
 
     if len(iTList) == 2:
         B = in_shape[0] if len(in_shape) >= 3 else 1
@@ -321,7 +325,7 @@ def nlp_create_qkv_heads_sinf(iTList, oTList, op, **kwargs):
             head_dim = in_shape[-1] // (num_heads + 2 * num_kv_heads)
 
     q_shape = [B, num_heads, S, head_dim]
-    k_shape = [B, num_kv_heads, S, head_dim]
+    k_shape = [B, num_kv_heads, head_dim, S] if transpose_k else [B, num_kv_heads, S, head_dim]
     v_shape = [B, num_kv_heads, S, head_dim]
 
     oTList[0].shape = q_shape

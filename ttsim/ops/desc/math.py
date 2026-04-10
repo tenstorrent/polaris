@@ -629,16 +629,34 @@ def matmul_shape_inf(iTList, oTList, op, **kwargs):
 
     # NUMERICAL COMPUTATION (if data available)
     if A.data is not None and B.data is not None:
-        oTList[0].data = compute_matmul(iTList, op)
+        result = compute_matmul(iTList, op)
+        # When ttnn.linear fuses bias as a 3rd input, add it after matmul.
+        # Bias shapes are always [1, out_features] (see make_info() in the
+        # workload runners), so numpy broadcasting against the matmul result
+        # [B, S, out_features] is well-defined and matches linear-layer
+        # semantics.  Incompatible shapes would raise a numpy ValueError,
+        # never silently produce wrong results.
+        if len(iTList) > 2 and iTList[2].data is not None:
+            result = result + iTList[2].data
+        oTList[0].data = result
     else:
         oTList[0].data = None
 
+    # Accumulate input stats across all inputs.  Plain matmul has 2 inputs;
+    # ttnn.linear fuses bias as a 3rd input on the same MatMul SimOp (see
+    # op.py linear()).  Summing over iTList ensures the bias tensor's memory
+    # footprint is reflected in inElems/inBytes.
+    in_elems = sum(t.nelems() for t in iTList)
+    in_bytes = sum(t.nbytes(op.precision) for t in iTList)
+    instrs: dict = {"mac": oTList[0].nelems() * reduced_dim}
+    if len(iTList) > 2:
+        instrs["add"] = oTList[0].nelems()
     op.perf_stats = {
-        "inElems": iTList[0].nelems() + iTList[1].nelems(),
+        "inElems": in_elems,
         "outElems": oTList[0].nelems(),
-        "inBytes": iTList[0].nbytes(op.precision) + iTList[1].nbytes(op.precision),
+        "inBytes": in_bytes,
         "outBytes": oTList[0].nbytes(op.precision),
-        "instrs": {"mac": oTList[0].nelems() * reduced_dim},
+        "instrs": instrs,
     }
     return
 
@@ -1166,6 +1184,8 @@ def register_math_ops():
             True,
             True,
         ],
+        # max_input=3 (was 2): ttnn.linear fuses bias as a 3rd input on the
+        # same MatMul SimOp, so the op must accept 2 or 3 inputs.
         [
             "MatMul",
             "ARITY_2->1",
@@ -1173,7 +1193,7 @@ def register_math_ops():
             "COMMON",
             13,
             13,
-            2,
+            3,
             2,
             1,
             1,

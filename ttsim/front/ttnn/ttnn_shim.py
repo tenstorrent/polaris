@@ -2430,6 +2430,13 @@ def nlp_concat_heads_op(input_tensor, memory_config=None, element_size=2):
 
 def nlp_concat_heads(input_tensor, memory_config=None):
     """Concatenate attention heads: [B, num_heads, S, head_dim] -> [B, S, num_heads*head_dim]."""
+    # When a device is present, delegate to the SimOp-based _op variant so that
+    # the operation appears in the device graph (matching HW profiler traces).
+    # The tracker-only path below is used for lightweight shape-tracking without
+    # a device graph.
+    if input_tensor.device is not None:
+        return nlp_concat_heads_op(input_tensor, memory_config=memory_config)
+
     in_shape = input_tensor.logical_shape()._shape
     assert len(in_shape) == 4, f"NLPConcatHeads expects rank-4 input, got {len(in_shape)}"
     B, num_heads, S, head_dim = in_shape
@@ -2471,7 +2478,9 @@ def nlp_create_qkv_heads_op(input_tensor, kv_input_tensor=None, *,
     """Create an NLPCreateQKVHeads SimOp with 3 outputs (tracking-only; no execution).
 
     Input: [B, S, (num_heads + 2*num_kv_heads) * head_dim]
-    Outputs: Q=[B, num_heads, S, head_dim], K=[B, num_kv_heads, S, head_dim], V=same as K
+    Outputs: Q=[B, num_heads, S, head_dim],
+             K=[B, num_kv_heads, head_dim, S] if transpose_k_heads else [B, num_kv_heads, S, head_dim],
+             V=[B, num_kv_heads, S, head_dim]
     """
     assert input_tensor.device is not None, "nlp_create_qkv_heads_op requires input_tensor on device"
     if num_kv_heads is None:
@@ -2486,7 +2495,9 @@ def nlp_create_qkv_heads_op(input_tensor, kv_input_tensor=None, *,
     B = in_shape[0] if len(in_shape) >= 3 else 1
     S = in_shape[-2] if len(in_shape) >= 2 else in_shape[0]
     q_shape = [B, num_heads, S, head_dim]
-    k_shape = [B, num_kv_heads, S, head_dim]
+    # HW returns K pre-transposed ([B, heads, head_dim, S]) when
+    # transpose_k_heads=True so Q @ K needs no extra Transpose op.
+    k_shape = [B, num_kv_heads, head_dim, S] if transpose_k_heads else [B, num_kv_heads, S, head_dim]
     v_shape = [B, num_kv_heads, S, head_dim]
 
     op_name = generate_new_op_name()
@@ -2538,8 +2549,19 @@ def nlp_create_qkv_heads(input_tensor, kv_input_tensor=None, *,
     """Split fused QKV tensor into separate Q, K, V head tensors.
 
     Input: [B, S, (num_heads + 2*num_kv_heads) * head_dim]
-    Returns: (Q, K, V) where Q=[B, num_heads, S, head_dim], K=V=[B, num_kv_heads, S, head_dim]
+    Returns: (Q, K, V) where Q=[B, num_heads, S, head_dim],
+             K=[B, num_kv_heads, head_dim, S] if transpose_k_heads else [B, num_kv_heads, S, head_dim],
+             V=[B, num_kv_heads, S, head_dim]
     """
+    # When a device is present, delegate to the SimOp-based _op variant so that
+    # the operation appears in the device graph (matching HW profiler traces).
+    if input_tensor.device is not None:
+        return nlp_create_qkv_heads_op(
+            input_tensor, kv_input_tensor,
+            num_heads=num_heads, num_kv_heads=num_kv_heads,
+            transpose_k_heads=transpose_k_heads, memory_config=memory_config,
+        )
+
     if num_kv_heads is None:
         num_kv_heads = num_heads
 
@@ -2552,7 +2574,7 @@ def nlp_create_qkv_heads(input_tensor, kv_input_tensor=None, *,
     B = in_shape[0] if len(in_shape) >= 3 else 1
     S = in_shape[-2] if len(in_shape) >= 2 else in_shape[0]
     q_shape = [B, num_heads, S, head_dim]
-    k_shape = [B, num_kv_heads, S, head_dim]
+    k_shape = [B, num_kv_heads, head_dim, S] if transpose_k_heads else [B, num_kv_heads, S, head_dim]
     v_shape = [B, num_kv_heads, S, head_dim]
 
     mode = get_execution_mode()
@@ -2566,6 +2588,14 @@ def nlp_create_qkv_heads(input_tensor, kv_input_tensor=None, *,
             element_size=elem_sz,
         )
 
+    # NOTE: This data-computation block is currently unreachable.  Every Tensor
+    # is constructed with a device (enforced by Tensor.__init__ → resolve_device),
+    # and when device is present the early return at the top of this function
+    # delegates to nlp_create_qkv_heads_op (SimOp-only, no data processing).
+    # The block is retained for completeness should a device-less Tensor path
+    # be introduced in the future.  If kv_input_tensor is provided but lacks
+    # data, q_data would be set while k_data/v_data remain None — an
+    # inconsistency that is harmless only because this path is dead code.
     q_data = k_data = v_data = None
     if should_execute and hasattr(input_tensor, 'has_data') and input_tensor.has_data():
         import numpy as _np
@@ -2578,6 +2608,9 @@ def nlp_create_qkv_heads(input_tensor, kv_input_tensor=None, *,
                 kv_data = _np.array(kv_input_tensor.get_data()).reshape(B, S, 2 * num_kv_heads * head_dim)
                 k_arr = kv_data[:, :, :num_kv_heads * head_dim].reshape(B, S, num_kv_heads, head_dim).transpose(0, 2, 1, 3)
                 v_arr = kv_data[:, :, num_kv_heads * head_dim:].reshape(B, S, num_kv_heads, head_dim).transpose(0, 2, 1, 3)
+                # Physically transpose K data to match shape [B, heads, head_dim, S]
+                if transpose_k_heads:
+                    k_arr = k_arr.transpose(0, 1, 3, 2)
                 k_data = k_arr.flatten().tolist()
                 v_data = v_arr.flatten().tolist()
         else:
@@ -2587,6 +2620,9 @@ def nlp_create_qkv_heads(input_tensor, kv_input_tensor=None, *,
             q_arr = fused_arr[:, :, :q_end].reshape(B, S, num_heads, head_dim).transpose(0, 2, 1, 3)
             k_arr = fused_arr[:, :, q_end:k_end].reshape(B, S, num_kv_heads, head_dim).transpose(0, 2, 1, 3)
             v_arr = fused_arr[:, :, k_end:].reshape(B, S, num_kv_heads, head_dim).transpose(0, 2, 1, 3)
+            # Physically transpose K data to match shape [B, heads, head_dim, S]
+            if transpose_k_heads:
+                k_arr = k_arr.transpose(0, 1, 3, 2)
             q_data = q_arr.flatten().tolist()
             k_data = k_arr.flatten().tolist()
             v_data = v_arr.flatten().tolist()

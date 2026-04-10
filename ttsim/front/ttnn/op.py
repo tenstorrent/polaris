@@ -594,6 +594,7 @@ class experimental:
     def nlp_create_qkv_heads(input_tensor, kv_input_tensor=None, *,
                               num_heads, num_kv_heads=None,
                               transpose_k_heads=False, memory_config=None):
+        """Delegate to ttnn_shim; mirrors HW's single-op QKV head split."""
         from .ttnn_shim import nlp_create_qkv_heads as _nlp_create_qkv_heads
         return _nlp_create_qkv_heads(
             input_tensor, kv_input_tensor,
@@ -603,6 +604,7 @@ class experimental:
 
     @staticmethod
     def nlp_concat_heads(input_tensor, memory_config=None):
+        """Delegate to ttnn_shim; mirrors HW's single-op head concatenation."""
         from .ttnn_shim import nlp_concat_heads as _nlp_concat_heads
         return _nlp_concat_heads(input_tensor, memory_config=memory_config)
 
@@ -731,46 +733,49 @@ def silu(x):
 
 # Multi-operator functions
 def linear(*args, **kwargs):
+    """Fused linear: emits a single MatMul SimOp with optional bias (3rd input)
+    and optional fused activation, matching HW's MatmulDeviceOperation.
+
+    Previous implementation decomposed linear into separate matmul → add → activation
+    SimOps.  HW's MatmulDeviceOperation fuses all three into one kernel, so the
+    decomposed graph produced extra ops that did not appear in profiler traces.
+    Emitting a single MatMul SimOp (with bias as an optional 3rd input and activation
+    as an attribute) keeps the POLARIS op graph 1-to-1 with HW profiler output.
+    """
     assert len(args) == 2, f"linear args #-inputs({len(args)}) != 2"
     A = require_ttnn_tensor(args[0], "ttnn.linear input")
     B = require_ttnn_tensor(args[1], "ttnn.linear weight")
-    bias = kwargs.get("bias", None)
+    bias_tensor = kwargs.get("bias", None)
     act = kwargs.get("activation", None)
-    # t_A         = kwargs.get('transpose_a',            False)
-    # t_B         = kwargs.get('transpose_b',            False)
-    dtype = kwargs.get("dtype", None)
-    # otile       = kwargs.get('output_tile',            None)
-    # opt_otensor = kwargs.get('optional_output_tensor', None)
-    core_grid = kwargs.get("core_grid", None)
-    # mem_cfg     = kwargs.get('memory_config',          MemoryConfig.DRAM)
-    # pgm_cfg     = kwargs.get('program_config',         None)
-    ckrnl_cfg = kwargs.get("compute_kernel_config", None)
 
-    not_impl_attrs = {
-        "transpose_a": False,
-        "transpose_b": False,
-        #'dtype'                 : None,
-        "output_tile": None,
-        "optional_output_tensor": None,
-        #'core_grid'             : None,
-        #'memory_config'         : MemoryConfig.DRAM,
-        "program_config": None,
-        # 'compute_kernel_config' : None,
-    }
+    device = A.device if hasattr(A, 'device') and A.device else (
+        B.device if hasattr(B, 'device') else None)
 
-    for aname, adefval in not_impl_attrs.items():
-        if aname in kwargs:
-            assert (
-                kwargs[aname] == adefval
-            ), f"linear.attrib: {aname} = {kwargs[aname]} not implemented yet!!"
-
-    C = matmul(A, B)
-    if bias is not None:
-        bias = require_ttnn_tensor(bias, "ttnn.linear bias")
-        C = add(C, bias)
+    op_name = generate_new_op_name()
+    attrs = {}
     if act is not None:
-        act_op = { 'relu': relu, 'gelu': gelu, 'silu': silu }[act]
-        C = act_op(C)
+        attrs["fused_activation"] = act
+    opinfo = {'name': op_name, 'optype': 'MatMul', 'inList': [], 'attrs': attrs}
+    C = Tensor(name=op_name + ".out", op_out=[op_name], device=device)
+
+    input_tensors = []
+    for x in [A, B]:
+        x.op_in.append(op_name)
+        opinfo["inList"].append(x.name)
+        input_tensors.append(x)
+
+    if bias_tensor is not None:
+        bias_tensor = require_ttnn_tensor(bias_tensor, "ttnn.linear bias")
+        bias_tensor.op_in.append(op_name)
+        opinfo["inList"].append(bias_tensor.name)
+        input_tensors.append(bias_tensor)
+
+    opinfo["outList"] = [C.name]
+    opobj = SimOp(opinfo)
+    opobj.get_perf_counts(input_tensors, [C])
+    opobj.update_tensor_counts(input_tensors, [C])
+    if device is not None:
+        device.add_op(opobj)
     return C
 
 

@@ -18,41 +18,60 @@ def _nlp_create_qkv_heads_decomposed(
     transpose_k_heads=False,
     memory_config=None,
 ):
-    """Original decomposed implementation: explicit Tensor + reshape + permute per head."""
-    [batch, seq_groups, seq_len, fused_dim] = xqkv_fused.shape
+    """Decomposed QKV head split: explicit Tensor + reshape + permute per head.
+
+    This is the legacy fallback used when ``fused=False`` (the production path
+    uses ``ttnn.experimental.nlp_create_qkv_heads`` via ``fused=True``).
+
+    Accepts 3-D ``[batch, seq_len, fused_dim]`` or 4-D
+    ``[batch, seq_groups, seq_len, fused_dim]`` inputs.  A 4-D input is
+    normalized to 3-D by folding ``seq_groups * seq_len`` into a single
+    sequence dimension ``S``.  This avoids the reshape volume mismatch that
+    would otherwise occur when ``seq_groups != 1`` — the downstream reshape
+    targets ``(batch, S, heads, head_dim)`` and the element count must equal
+    ``batch * S * fused_dim``.
+    """
+    # Normalize to 3-D [batch, S, fused_dim] regardless of input rank.
+    # Callers (e.g. attention.py) may pass 4-D tensors where the second axis
+    # represents sequence groups; folding it into S keeps the reshape chain
+    # volume-consistent for any seq_groups value.
+    dims = xqkv_fused.shape
+    if len(dims) == 4:
+        batch, seq_groups, seq_len, fused_dim = dims
+        S = seq_groups * seq_len
+    elif len(dims) == 3:
+        batch, S, fused_dim = dims
+    else:
+        raise ValueError(f"Expected 3-D or 4-D input, got {len(dims)}-D: {list(dims)}")
+
     head_dim = fused_dim // (num_heads + 2 * num_kv_heads)
     q_end = num_heads * head_dim
     k_end = q_end + num_kv_heads * head_dim
 
-    # Split Q, K, V
-    # slicing to use instead of new Tensor creation
-    # q = xqkv_fused[:, :, :q_end]
-    # k = xqkv_fused[:, :, q_end:k_end]
-    # v = xqkv_fused[:, :, k_end:]
-    q_shape = [batch, seq_groups, seq_len, q_end]
-    q = Tensor(shape=q_shape, device=xqkv_fused.device, dtype=DataType.from_numpy(xqkv_fused.dtype))  # Simulate tensor creation
-    k_shape = [batch, seq_groups, seq_len, k_end - q_end]
-    k = Tensor(shape=k_shape, device=xqkv_fused.device, dtype=DataType.from_numpy(xqkv_fused.dtype))  # Simulate tensor creation
-    v_shape = [batch, seq_groups, seq_len, fused_dim - k_end]
-    v = Tensor(shape=v_shape, device=xqkv_fused.device, dtype=DataType.from_numpy(xqkv_fused.dtype))  # Simulate tensor creation
+    # Simulate slicing Q, K, V from the fused projection — all as 3-D
+    # [batch, S, slice_dim] so that the subsequent reshape is safe.
+    q = Tensor(shape=[batch, S, q_end], device=xqkv_fused.device,
+               dtype=DataType.from_numpy(xqkv_fused.dtype))
+    k = Tensor(shape=[batch, S, k_end - q_end], device=xqkv_fused.device,
+               dtype=DataType.from_numpy(xqkv_fused.dtype))
+    v = Tensor(shape=[batch, S, fused_dim - k_end], device=xqkv_fused.device,
+               dtype=DataType.from_numpy(xqkv_fused.dtype))
 
-    # Reshape Q: [batch, seq_len, num_heads * head_dim] -> [batch, num_heads, seq_len, head_dim]
-    q = ttnn.permute(ttnn.reshape(q, (batch, seq_len, num_heads, head_dim)), (0, 2, 1, 3))
-
-    # Reshape K, V: [batch, seq_len, num_kv_heads * head_dim] -> [batch, num_kv_heads, seq_len, head_dim]
-    k = ttnn.permute(ttnn.reshape(k, (batch, seq_len, num_kv_heads, head_dim)), (0, 2, 1, 3))
-    v = ttnn.permute(ttnn.reshape(v, (batch, seq_len, num_kv_heads, head_dim)), (0, 2, 1, 3))
+    # [batch, S, heads*head_dim] -> [batch, heads, S, head_dim]
+    q = ttnn.permute(ttnn.reshape(q, (batch, S, num_heads, head_dim)), (0, 2, 1, 3))
+    k = ttnn.permute(ttnn.reshape(k, (batch, S, num_kv_heads, head_dim)), (0, 2, 1, 3))
+    v = ttnn.permute(ttnn.reshape(v, (batch, S, num_kv_heads, head_dim)), (0, 2, 1, 3))
 
     if transpose_k_heads:
-        # For multi-query attention, expand K/V to match Q heads
-        # TODO: Review Suggestion
-        # The parameter is named transpose_k_heads but the operation being performed
-        # is expanding K/V heads for multi-query attention, not transposing. 
-        # The parameter name is misleading and should be renamed to something like
-        # expand_kv_heads or the logic should be corrected.
+        # Transpose K: [B, heads, S, head_dim] -> [B, heads, head_dim, S]
+        # so that Q @ K works without an extra Transpose op, matching the
+        # fused path (ttnn.experimental.nlp_create_qkv_heads).
+        k = ttnn.permute(k, (0, 1, 3, 2))
 
-        k = k.repeat(1, num_heads // num_kv_heads, 1, 1)
-        v = v.repeat(1, num_heads // num_kv_heads, 1, 1)
+        # For GQA (num_kv_heads < num_heads): expand KV heads to match Q.
+        if num_kv_heads < num_heads:
+            k = k.repeat(1, num_heads // num_kv_heads, 1, 1)
+            v = v.repeat(1, num_heads // num_kv_heads, 1, 1)
 
     return q, k, v
 

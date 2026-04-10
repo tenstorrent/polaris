@@ -53,7 +53,7 @@ op_rsrc_spec:
              Identity, If, IsNaN,
              LayerNormalization, LeakyRelu, Log,
              Max, MaxPool, Mean, Min, Mish, Mul,
-             Neg, NonMaxSuppression, NonZero,
+             Neg, NLPConcatHeads, NLPCreateQKVHeads, NonMaxSuppression, NonZero, # NLP*: transformer head ops from ttnn_shim
              Pad, Permute, Pow,
              QuantizeLinear,
              Reciprocal, ReduceMax, ReduceMean, ReduceMin, ReduceProd, ReduceSum, Relu, Reshape, Resize,
