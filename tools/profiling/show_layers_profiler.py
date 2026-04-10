@@ -83,12 +83,13 @@ def layers_profiler(input_file: str) -> List[Dict[str, Any]]:
                 'input_tensors': [expand_tensor_string(row, 0, 'INPUT')],
                 'output_tensors': [expand_tensor_string(row, 0, 'OUTPUT')]
             }
-            s = expand_tensor_string(row, 1, 'INPUT')
-            if s:
-                filtered_row['input_tensors'].append(s)
-            s = expand_tensor_string(row, 2, 'INPUT')
-            if s:
-                filtered_row['input_tensors'].append(s)
+            for idx in (1, 2):
+                s = expand_tensor_string(row, idx, 'INPUT')
+                if s:
+                    filtered_row['input_tensors'].append(s)
+                s = expand_tensor_string(row, idx, 'OUTPUT')
+                if s:
+                    filtered_row['output_tensors'].append(s)
             rows.append(filtered_row)
     return rows
 

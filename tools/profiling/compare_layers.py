@@ -18,6 +18,11 @@ DEFAULT_MAX_SEARCH_DISTANCE = 10
 OPTYPE_NORMALIZATION = {
     'layernormalization': 'layernorm',
     'reshapeview': 'reshape',
+    'nlpcreateqkvheads': 'createqkvheads',
+    'add': 'binary',
+    'binaryng': 'binary',
+    'mul': 'binary',
+    'sub': 'binary',
 }
 
 # Import layer extraction functions
@@ -60,6 +65,12 @@ def parse_args() -> argparse.Namespace:
         '--strip-leading-ones',
         action='store_true',
         help='Strip all leading 1s from shapes instead of collapsing to single 1 (more lenient matching for broadcast dimensions)'
+    )
+    parser.add_argument(
+        '--strip-singleton-dims',
+        action='store_true',
+        help='Strip all singleton (=1) dimensions from shapes regardless of position '
+             '(handles HW seq_groups=1 convention)'
     )
     parser.add_argument(
         '--filter-optype',
@@ -111,26 +122,37 @@ def detect_file_type(filepath: str) -> Optional[str]:
         return None
 
 
-def normalize_shape(shape_list: List[int], strip_leading_ones: bool = False) -> List[int]:
+def normalize_shape(
+    shape_list: List[int],
+    strip_leading_ones: bool = False,
+    strip_singleton_dims: bool = False,
+) -> List[int]:
     """
-    Normalize shape by handling leading 1s.
+    Normalize shape by handling 1-valued dimensions.
     
     Args:
         shape_list: List of dimension sizes
         strip_leading_ones: If True, strip all leading 1s; if False, collapse to single 1
+        strip_singleton_dims: If True, strip ALL 1-valued dims regardless of position
+                              (handles HW conventions like seq_groups=1)
     
-    Examples (strip_leading_ones=False, default):
-        [1, 1, 1, 224, 224] -> [1, 224, 224]
-        [2, 3, 1, 1, 5] -> [2, 3, 1, 1, 5]
-        [1] -> [1]
+    Examples (strip_singleton_dims=True):
+        [8, 1, 197, 768] -> [8, 197, 768]
+        [1, 8, 197, 768] -> [8, 197, 768]
+        [1, 1, 1] -> [1]
     
     Examples (strip_leading_ones=True):
         [1, 1, 1024, 768] -> [1024, 768]
-        [1024, 768] -> [1024, 768]
-        [1, 1, 1] -> [1]
+    
+    Examples (default):
+        [1, 1, 1, 224, 224] -> [1, 224, 224]
     """
     if not shape_list:
         return []
+    
+    if strip_singleton_dims:
+        result = [d for d in shape_list if d != 1]
+        return result if result else [1]
     
     # Find how many leading 1s we have
     leading_ones = 0
@@ -173,47 +195,58 @@ def parse_shape(shape_str: str) -> List[int]:
         return []
 
 
-def validate_mul_compatibility(
+def validate_binary_compatibility(
     polaris_inputs: List[str],
     profiler_inputs: List[str],
-    strip_leading_ones: bool = False
+    strip_leading_ones: bool = False,
+    strip_singleton_dims: bool = False,
 ) -> Tuple[bool, str]:
     """
-    Special validation for mul operations with different input representations.
+    Special validation for binary operations (add/mul/sub) with different
+    input representations.
     
-    If polaris has more inputs than profiler, ignore additional polaris inputs
-    (they may be constants or parameters not tracked in profiler).
+    Handles two common cases:
+    1. Polaris has more inputs than profiler — compare only the overlapping prefix.
+    2. Polaris has fewer inputs (e.g., scalar operand not tracked as tensor) —
+       compare the available inputs and accept the match if they agree.
     
-    Args:
-        polaris_inputs: Polaris input tensor shapes
-        profiler_inputs: Profiler input tensor shapes
-        strip_leading_ones: Whether to strip leading 1s
-    
-    Returns:
-        (valid: bool, details: str)
+    Within each pair, shapes are also accepted if one is broadcast-compatible
+    with the other (e.g., scalar [1] or empty vs full shape).
     """
-    # If lengths match, use standard comparison
-    if len(polaris_inputs) == len(profiler_inputs):
-        return compare_tensor_shapes(polaris_inputs, profiler_inputs, strip_leading_ones)
-    
-    # If polaris has more inputs, compare only the first profiler_count inputs
-    if len(polaris_inputs) > len(profiler_inputs):
-        polaris_subset = polaris_inputs[:len(profiler_inputs)]
-        match, details = compare_tensor_shapes(polaris_subset, profiler_inputs, strip_leading_ones)
+    # Filter out empty strings (untracked scalar operands)
+    p_nonempty = [s for s in polaris_inputs if s.strip()]
+    f_nonempty = [s for s in profiler_inputs if s.strip()]
+
+    # If lengths match, standard comparison
+    if len(p_nonempty) == len(f_nonempty):
+        return compare_tensor_shapes(p_nonempty, f_nonempty, strip_leading_ones,
+                                     strip_singleton_dims=strip_singleton_dims)
+
+    # Compare overlapping prefix
+    overlap = min(len(p_nonempty), len(f_nonempty))
+    if overlap > 0:
+        match, details = compare_tensor_shapes(
+            p_nonempty[:overlap], f_nonempty[:overlap],
+            strip_leading_ones, strip_singleton_dims=strip_singleton_dims)
         if match:
-            return True, f"mul compatible: using first {len(profiler_inputs)} of {len(polaris_inputs)} polaris inputs"
-        else:
-            return False, details
-    
-    # If profiler has more inputs, this is unexpected
-    return False, f"profiler has more inputs ({len(profiler_inputs)}) than polaris ({len(polaris_inputs)})"
+            return True, (f"binary compatible: matched {overlap} of "
+                          f"{len(polaris_inputs)} polaris / {len(profiler_inputs)} profiler inputs")
+        return False, details
+
+    # One side has no trackable inputs — accept if the other side is all scalars
+    if overlap == 0 and (len(p_nonempty) == 0 or len(f_nonempty) == 0):
+        return True, "binary compatible: one side has only scalar/untracked operands"
+
+    return False, (f"binary input count mismatch: "
+                   f"{len(polaris_inputs)} polaris vs {len(profiler_inputs)} profiler")
 
 
 def validate_reshape_compatibility(
     polaris_inputs: List[str],
     polaris_outputs: List[str],
     profiler_outputs: List[str],
-    strip_leading_ones: bool = False
+    strip_leading_ones: bool = False,
+    strip_singleton_dims: bool = False,
 ) -> Tuple[bool, str]:
     """
     Special validation for reshape operations with different representations.
@@ -229,6 +262,7 @@ def validate_reshape_compatibility(
         polaris_outputs: Polaris output tensor shapes
         profiler_outputs: Profiler output tensor shapes
         strip_leading_ones: Whether to strip leading 1s
+        strip_singleton_dims: Whether to strip all singleton dims
     
     Returns:
         (valid: bool, details: str)
@@ -243,7 +277,8 @@ def validate_reshape_compatibility(
     pol_input2_parsed = parse_shape(polaris_inputs[1]) if len(polaris_inputs) > 1 else []
     
     # Normalize profiler output
-    prof_out_normalized = normalize_shape(prof_out_parsed, strip_leading_ones)
+    prof_out_normalized = normalize_shape(prof_out_parsed, strip_leading_ones,
+                                          strip_singleton_dims=strip_singleton_dims)
     
     # Check if second polaris input is 1-D
     if len(pol_input2_parsed) != 1:
@@ -271,7 +306,8 @@ def compare_tensor_shapes(
     polaris_shapes: List[str],
     profiler_shapes: List[str],
     strip_leading_ones: bool = False,
-    optype: Optional[str] = None
+    optype: Optional[str] = None,
+    strip_singleton_dims: bool = False,
 ) -> Tuple[bool, str]:
     """
     Compare two lists of tensor shapes.
@@ -281,16 +317,19 @@ def compare_tensor_shapes(
         profiler_shapes: List of shape strings from profiler
         strip_leading_ones: If True, strip all leading 1s for more lenient matching
         optype: Operation type for special case handling (e.g., reshape)
+        strip_singleton_dims: If True, strip all singleton dims from shapes
     
     Returns:
         (match: bool, details: str) - True if shapes match, details about mismatch
     """
     # Parse and normalize all shapes
     polaris_normalized = [
-        normalize_shape(parse_shape(s), strip_leading_ones) for s in polaris_shapes
+        normalize_shape(parse_shape(s), strip_leading_ones,
+                        strip_singleton_dims=strip_singleton_dims) for s in polaris_shapes
     ]
     profiler_normalized = [
-        normalize_shape(parse_shape(s), strip_leading_ones) for s in profiler_shapes
+        normalize_shape(parse_shape(s), strip_leading_ones,
+                        strip_singleton_dims=strip_singleton_dims) for s in profiler_shapes
     ]
     
     # Check counts
@@ -352,7 +391,8 @@ def compare_layers(
     polaris_layers: List[Dict[str, Any]],
     profiler_layers: List[Dict[str, Any]],
     max_search_distance: int = DEFAULT_MAX_SEARCH_DISTANCE,
-    strip_leading_ones: bool = False
+    strip_leading_ones: bool = False,
+    strip_singleton_dims: bool = False,
 ) -> ComparisonStats:
     """
     Compare two layer sequences and print results.
@@ -397,25 +437,29 @@ def compare_layers(
                 p_layer.get('input_tensors', []),
                 f_layer.get('input_tensors', []),
                 strip_leading_ones,
-                p_layer['optype']
+                p_layer['optype'],
+                strip_singleton_dims=strip_singleton_dims,
             )
             output_match, output_details = compare_tensor_shapes(
                 p_layer.get('output_tensors', []),
                 f_layer.get('output_tensors', []),
                 strip_leading_ones,
-                p_layer['optype']
+                p_layer['optype'],
+                strip_singleton_dims=strip_singleton_dims,
             )
             
-            # Special handling for mul if input counts don't match
-            if not input_match and normalize_optype(p_layer['optype']) == 'mul':
-                mul_valid, mul_details = validate_mul_compatibility(
+            # Special handling for binary ops (add/mul/sub) if input counts
+            # or shapes don't match — one side may use scalar/untracked operands
+            if not input_match and normalize_optype(p_layer['optype']) in ('binary', 'mul', 'add', 'sub'):
+                bin_valid, bin_details = validate_binary_compatibility(
                     p_layer.get('input_tensors', []),
                     f_layer.get('input_tensors', []),
-                    strip_leading_ones
+                    strip_leading_ones,
+                    strip_singleton_dims=strip_singleton_dims,
                 )
-                if mul_valid:
+                if bin_valid:
                     input_match = True
-                    input_details = mul_details
+                    input_details = bin_details
             
             # Special handling for reshape if standard comparison fails
             if normalize_optype(p_layer['optype']) == 'reshape' and (not input_match or not output_match):
@@ -423,7 +467,8 @@ def compare_layers(
                     p_layer.get('input_tensors', []),
                     p_layer.get('output_tensors', []),
                     f_layer.get('output_tensors', []),
-                    strip_leading_ones
+                    strip_leading_ones,
+                    strip_singleton_dims=strip_singleton_dims,
                 )
                 if reshape_valid:
                     # Accept reshape as valid - inputs may differ but outputs are compatible
@@ -559,7 +604,8 @@ def main() -> int:
     print()
     
     # Compare layers
-    stats = compare_layers(polaris_layers, profiler_layers, args.max_search_distance, args.strip_leading_ones)
+    stats = compare_layers(polaris_layers, profiler_layers, args.max_search_distance,
+                           args.strip_leading_ones, args.strip_singleton_dims)
     
     # Print summary
     print_summary(stats)
