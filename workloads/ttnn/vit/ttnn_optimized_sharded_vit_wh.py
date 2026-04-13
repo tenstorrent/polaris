@@ -25,15 +25,18 @@ _warn_layout_operator_todo_once(
 
 
 def vit_patch_embeddings(config, pixel_values, *, parameters, unittest_check=False):
-    batch_size, img_h, img_w, img_c = pixel_values.shape  # permuted input NHWC
-    patch_size = config.patch_size
-    patch_count = img_h // patch_size  # 14
+    ndims = len(pixel_values.shape)
+    if ndims == 4:
+        batch_size, img_h, img_w_over_patch, fold_c = pixel_values.shape
+        patch_size = config.patch_size
+        patch_count = img_h // patch_size  # 14
+    else:
+        raise ValueError(f"Expected 4D input, got {ndims}D: {pixel_values.shape}")
     patch_size_sq_trpl = int(patch_size * patch_size * 3)  # 768
     patch_count_all = int(patch_count * patch_count)  # 196
     stride_h = patch_size
     stride_w = 1
 
-    pixel_values = ttnn.reshape(pixel_values, (batch_size, img_h, img_w // patch_size, 4 * patch_size))
     pixel_values = ttnn.fold(pixel_values, stride_h, stride_w)
     _warn_layout_operator_todo_once(
         "opt_vit_patch_fold_tolayout",
@@ -59,7 +62,11 @@ def vit_patch_embeddings(config, pixel_values, *, parameters, unittest_check=Fal
                  patch_embedding_output.shape, pixel_values.shape, parameters.projection.weight.shape)
 
     patch_embedding_output = ttnn.to_layout(patch_embedding_output, layout=ttnn.ROW_MAJOR_LAYOUT)
-    patch_embedding_output = ttnn.reshape(patch_embedding_output, (batch_size, patch_count_all, patch_size_sq_trpl))
+
+    # Host-side view change (no SimOp) to recover [B, patches, hidden] from
+    # the flattened fold shape [1,1,B*patches,hidden], matching HW's implicit
+    # reshape between Untilize and Concat.
+    patch_embedding_output.set_shape([batch_size, patch_count_all, patch_size_sq_trpl])
 
     return patch_embedding_output
 
@@ -77,11 +84,10 @@ def vit_embeddings(
     patch_embeddings = vit_patch_embeddings(config, pixel_values, parameters=parameters.patch_embeddings)
     cls_token.layout = ttnn.ROW_MAJOR_LAYOUT
     embedding_output = ttnn.concat(cls_token, patch_embeddings, axis=1)
-    _warn_layout_operator_todo_once(
-        "opt_vit_embeddings_concat_layout",
-        "concat should set output layout metadata; remove explicit TILE assignment (embeddings).",
-    )
-    embedding_output.layout = ttnn.TILE_LAYOUT
+
+    # Explicit tilize after concat matches HW's TilizeWithValPadding (F:7168).
+    embedding_output = ttnn.to_layout(embedding_output, layout=ttnn.TILE_LAYOUT)
+
     embedding_output = embedding_output + position_embeddings
     _warn_layout_operator_todo_once(
         "opt_vit_embeddings_add_layout",

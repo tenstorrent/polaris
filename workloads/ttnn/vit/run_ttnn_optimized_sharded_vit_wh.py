@@ -30,7 +30,6 @@ else:
     import workloads.ttnn.vit.ttnn_optimized_sharded_vit_wh as ttnn_optimized_sharded_vit
     from ttsim.front.ttnn.device import set_default_device
     from ttsim.front.ttnn.tensor import ttnn_random
-    from ttsim.front.ttnn.ttnn_shim import permute_op
     torch_random = ttnn_random  # type: ignore[no-redef]
 
 if not IS_POLARIS:
@@ -273,12 +272,15 @@ def test_vit_patch_embeddings(
         patch_count_all = patch_count * patch_count
         hidden = config.hidden_size
 
-        torch_pixel_values = torch_random(
-            (batch_size, image_channels, image_size, image_size), -1, 1, dtype=torch.bfloat16
+        # Create pixel values already in the post-reshape shape [B, H, W/patch, 4*patch]
+        # to avoid emitting host-side Permute/Pad/Reshape SimOps that don't exist on HW.
+        pixel_values = ttnn.from_torch(
+            torch_random(
+                (batch_size, image_size, image_size // patch_size, 4 * patch_size),
+                -1, 1, dtype=torch.bfloat16,
+            ),
+            dtype=ttnn.bfloat16, layout=ttnn.ROW_MAJOR_LAYOUT,
         )
-        pixel_values = permute_op(torch_pixel_values, [0, 2, 3, 1])
-        pixel_values = ttnn.pad(pixel_values, [0, 1, 0, 0, 0, 0, 0, 0], value=0)
-        pixel_values = ttnn.from_torch(pixel_values, dtype=ttnn.bfloat16, layout=ttnn.ROW_MAJOR_LAYOUT)
 
         parameters = polaris_parameters_vit_patch_embeddings()
         output = ttnn_optimized_sharded_vit.vit_patch_embeddings(
@@ -380,12 +382,15 @@ def test_vit_embeddings(
         sequence_len = 1 + (image_size // patch_size) ** 2
         hidden = config.hidden_size
 
-        torch_pixel_values = torch_random(
-            (batch_size, image_channels, image_size, image_size), -1, 1, dtype=torch.bfloat16
+        # Create pixel values already in the post-reshape shape [B, H, W/patch, 4*patch]
+        # to avoid emitting host-side Permute/Pad/Reshape SimOps that don't exist on HW.
+        pixel_values = ttnn.from_torch(
+            torch_random(
+                (batch_size, image_size, image_size // patch_size, 4 * patch_size),
+                -1, 1, dtype=torch.bfloat16,
+            ),
+            dtype=ttnn.bfloat16, layout=ttnn.ROW_MAJOR_LAYOUT,
         )
-        pixel_values = permute_op(torch_pixel_values, [0, 2, 3, 1])
-        pixel_values = ttnn.pad(pixel_values, [0, 1, 0, 0, 0, 0, 0, 0], value=0)
-        pixel_values = ttnn.from_torch(pixel_values, dtype=ttnn.bfloat16, layout=ttnn.ROW_MAJOR_LAYOUT)
 
         torch_cls_token = torch_random((batch_size, 1, hidden), -0.1, 0.1, dtype=torch.bfloat16)
         torch_position_embeddings = torch_random(
@@ -855,15 +860,19 @@ def test_vit(
         assert_with_pcc(torch_output, output[0, 0, :1000], 0.879)
     else:
         config = config_obj
+        patch_size = config_dict["patch_size"]
         num_labels = 1152
-        sequence_len = 1 + (image_size // config_dict["patch_size"]) ** 2
+        sequence_len = 1 + (image_size // patch_size) ** 2
 
-        torch_pixel_values = torch_random(
-            (batch_size, image_channels, image_size, image_size), -1, 1, dtype=torch.bfloat16
+        # Create pixel values already in the post-reshape shape [B, H, W/patch, 4*patch]
+        # to avoid emitting host-side Permute/Pad/Reshape SimOps that don't exist on HW.
+        pixel_values = ttnn.from_torch(
+            torch_random(
+                (batch_size, image_size, image_size // patch_size, 4 * patch_size),
+                -1, 1, dtype=torch.bfloat16,
+            ),
+            dtype=ttnn.bfloat16, layout=ttnn.ROW_MAJOR_LAYOUT,
         )
-        pixel_values = permute_op(torch_pixel_values, [0, 2, 3, 1])
-        pixel_values = ttnn.pad(pixel_values, [0, 1, 0, 0, 0, 0, 0, 0], value=0)
-        pixel_values = ttnn.from_torch(pixel_values, dtype=ttnn.bfloat16, layout=ttnn.ROW_MAJOR_LAYOUT)
 
         torch_cls_token = torch_random((batch_size, 1, config.hidden_size), -0.1, 0.1, dtype=torch.bfloat16)
         torch_position_embeddings = torch_random(
