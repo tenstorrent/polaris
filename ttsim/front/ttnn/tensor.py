@@ -334,8 +334,9 @@ class Tensor(SimTensor):
     def get_data(self):
         return self.data
 
-    def to(self, dt):
-        self.dtype = dt.to_numpy
+    def to(self, *args, **kwargs):
+        if len(args) == 1 and not kwargs and isinstance(args[0], DataType):
+            self.dtype = args[0].to_numpy
         return self
 
     def set_shape(self, newshape):

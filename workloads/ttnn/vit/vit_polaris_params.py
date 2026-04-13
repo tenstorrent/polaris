@@ -1,0 +1,186 @@
+#!/usr/bin/env python
+# SPDX-FileCopyrightText: (C) 2025 Tenstorrent AI ULC
+# SPDX-License-Identifier: Apache-2.0
+
+"""Synthetic parameter trees and config for Polaris-side ViT (optimized sharded).
+
+Shared by ``run_ttnn_optimized_sharded_vit_wh.py`` and
+``vit_test_infra_polaris.py`` so that parameter shapes stay in sync.
+"""
+
+import types
+
+import ttsim.front.ttnn as ttnn
+
+# TODO: Replace hardcoded config_dict with a downloaded config.json file or
+# use huggingface_hub (no torch dependency) to fetch it at runtime, e.g.:
+#   from huggingface_hub import hf_hub_download
+#   path = hf_hub_download("google/vit-base-patch16-224", "config.json")
+#   config_dict = json.load(open(path))
+# This avoids staleness and scales to multiple models.
+config_dict = {
+    "architectures": ["ViTForImageClassification"],
+    "attention_probs_dropout_prob": 0.0,
+    "encoder_stride": 16,
+    "hidden_act": "gelu",
+    "hidden_dropout_prob": 0.0,
+    "hidden_size": 768,
+    "id2label": {},
+    "image_size": 224,
+    "initializer_range": 0.02,
+    "intermediate_size": 3072,
+    "label2id": {},
+    "layer_norm_eps": 1e-12,
+    "model_type": "vit",
+    "num_attention_heads": 12,
+    "num_channels": 3,
+    "num_hidden_layers": 12,
+    "patch_size": 16,
+    "pooler_act": "tanh",
+    "pooler_output_size": 768,
+    "qkv_bias": True,
+    "transformers_version": "4.53.0",
+}
+
+config_obj = types.SimpleNamespace(**config_dict)
+config_obj.core_grid = ttnn.CoreGrid(
+    [ttnn.CoreRange(ttnn.CoreCoord(0, 0), ttnn.CoreCoord(7, 7))]
+)
+
+
+def make_info(weight_shape, bias_shape):
+    return types.SimpleNamespace(**{
+        "weight": ttnn.Tensor(shape=weight_shape, dtype=ttnn.DataType.BFLOAT16, layout=ttnn.TILE_LAYOUT),
+        "bias": ttnn.Tensor(shape=bias_shape, dtype=ttnn.DataType.BFLOAT16, layout=ttnn.TILE_LAYOUT),
+    })
+
+
+# ---------------------------------------------------------------------------
+# Synthetic parameter tree builders for the optimized sharded ViT.
+# These mirror the parameter tree produced by preprocess_model_parameters
+# with custom_preprocessor on the HuggingFace ViT model.
+# Key difference from functional ViT: fused QKV weights and double
+# attention.attention nesting.
+# ---------------------------------------------------------------------------
+
+
+def _polaris_vit_embeddings_patch_parameters():
+    """Embeddings.patch_embeddings subtree (projection only)."""
+    hidden = config_dict["hidden_size"]
+    return types.SimpleNamespace(
+        patch_embeddings=types.SimpleNamespace(
+            projection=make_info(
+                weight_shape=ttnn.Shape([1024, hidden]),
+                bias_shape=ttnn.Shape([1, hidden]),
+            )
+        )
+    )
+
+
+def polaris_parameters_vit_patch_embeddings():
+    """Full parameters root for vit_patch_embeddings(..., unittest_check=True)."""
+    return types.SimpleNamespace(
+        vit=types.SimpleNamespace(embeddings=_polaris_vit_embeddings_patch_parameters())
+    )
+
+
+class Parameters_attention_optimized:
+    """ViTAttention parameter tree with fused QKV (optimized sharded variant).
+
+    Tree structure matches vit_attention() access paths:
+      parameters.attention.query_key_value.weight  [2304, 768]
+      parameters.attention.query_key_value.bias     [1, 2304]
+      parameters.output.dense.weight                [768, 768]
+      parameters.output.dense.bias                  [1, 768]
+    """
+    def __init__(self):
+        hidden = config_dict["hidden_size"]
+        qkv = make_info(
+            weight_shape=ttnn.Shape([hidden, hidden * 3]),
+            bias_shape=ttnn.Shape([1, hidden * 3]),
+        )
+        dense = make_info(
+            weight_shape=ttnn.Shape([hidden, hidden]),
+            bias_shape=ttnn.Shape([1, hidden]),
+        )
+        self.attention = types.SimpleNamespace(query_key_value=qkv)
+        self.output = types.SimpleNamespace(dense=dense)
+
+
+class Parameters_dense_intermediate:
+    def __init__(self):
+        hidden = config_dict["hidden_size"]
+        intermediate = config_dict["intermediate_size"]
+        self.dense = make_info(
+            weight_shape=ttnn.Shape([hidden, intermediate]),
+            bias_shape=ttnn.Shape([1, intermediate]),
+        )
+
+
+class Parameters_dense_output:
+    def __init__(self):
+        hidden = config_dict["hidden_size"]
+        intermediate = config_dict["intermediate_size"]
+        self.dense = make_info(
+            weight_shape=ttnn.Shape([intermediate, hidden]),
+            bias_shape=ttnn.Shape([1, hidden]),
+        )
+
+
+def _polaris_vit_encoder_layer_parameters():
+    """Single ViT encoder block parameters matching the optimized sharded model.
+
+    Full layer tree:
+      layer.layernorm_before.{weight,bias}
+      layer.layernorm_after.{weight,bias}
+      layer.attention.attention.query_key_value.{weight,bias}  (double attention!)
+      layer.attention.output.dense.{weight,bias}
+      layer.intermediate.dense.{weight,bias}
+      layer.output.dense.{weight,bias}
+    """
+    hidden = config_dict["hidden_size"]
+    attn = Parameters_attention_optimized()
+    return types.SimpleNamespace(
+        layernorm_before=make_info(
+            weight_shape=ttnn.Shape([1, hidden]),
+            bias_shape=ttnn.Shape([1, hidden]),
+        ),
+        layernorm_after=make_info(
+            weight_shape=ttnn.Shape([1, hidden]),
+            bias_shape=ttnn.Shape([1, hidden]),
+        ),
+        attention=attn,
+        intermediate=Parameters_dense_intermediate(),
+        output=Parameters_dense_output(),
+    )
+
+
+def polaris_parameters_vit_encoder():
+    """Encoder-only parameters for vit_encoder (stack of transformer blocks)."""
+    num_layers = config_dict["num_hidden_layers"]
+    return types.SimpleNamespace(
+        layer=[_polaris_vit_encoder_layer_parameters() for _ in range(num_layers)]
+    )
+
+
+def polaris_vit_parameters(*, num_labels: int = 1152):
+    """Full ViT parameter tree for POLARIS.
+    Note: classifier is padded from 1000 to 1152 for tile alignment."""
+    hidden = config_dict["hidden_size"]
+
+    embeddings = _polaris_vit_embeddings_patch_parameters()
+    encoder = polaris_parameters_vit_encoder()
+    layernorm = make_info(
+        weight_shape=ttnn.Shape([1, hidden]),
+        bias_shape=ttnn.Shape([1, hidden]),
+    )
+    vit_ns = types.SimpleNamespace(
+        embeddings=embeddings,
+        encoder=encoder,
+        layernorm=layernorm,
+    )
+    classifier = make_info(
+        weight_shape=ttnn.Shape([hidden, num_labels]),
+        bias_shape=ttnn.Shape([1, num_labels]),
+    )
+    return types.SimpleNamespace(vit=vit_ns, classifier=classifier)
