@@ -10,6 +10,6 @@ wlmapspec: config/wl2archmapping.yaml
 filterwlg: TTNN
 filterarch: n150
 datatype: bf16
-filterwl: vitoptim_patch_embeddings,vitoptim_embeddings,vitoptim_attention,vitoptim_intermediate,vitoptim_output,vitoptim_layer,vitoptim_encoder,vitoptim
+filterwl: vitoptim_patch_embeddings,vitoptim_embeddings,vitoptim_attention,vitoptim_intermediate,vitoptim_output,vitoptim_layer,vitoptim_encoder,vitoptim,vitoptim_device_perf
 dump_stats_csv: true
 log_level: debug
