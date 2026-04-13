@@ -180,23 +180,42 @@ class HLMStats:
 
         return
 
+    @staticmethod
+    def _tensor_attrs_dict(tensor) -> dict:
+        """Return a dict of layout/memory/dtype for a single tensor."""
+        layout = getattr(tensor, 'layout', None)
+        layout_str = layout.name if layout is not None else None
+        mem = tensor.memory_config() if callable(getattr(tensor, 'memory_config', None)) else None
+        mem_str = str(mem) if mem is not None else None
+        if hasattr(tensor.dtype, 'name'):
+            dtype_str = tensor.dtype.name.lower()
+        elif isinstance(tensor.dtype, str):
+            dtype_str = tensor.dtype.lower()
+        else:
+            dtype_str = str(tensor.dtype).lower()
+        return {'layout': layout_str, 'memory': mem_str, 'dtype': dtype_str}
+
     def _extract_tensor_info(self, op):
         """Extract tensor information (name and shape) for input, output, and weight tensors.
 
-        Returns a dict with three keys (all strings in format: name[dim1xdim2]:precision;name2[dim1xdim2]:precision):
-        - input_tensors: String representation of input tensors
-        - output_tensors: String representation of output tensors
-        - weight_tensors: String representation of weight/parameter tensors
+        Returns a dict with four keys:
+        - input_tensors: String representation (name[dim1xdim2]:precision;…)
+        - output_tensors: String representation
+        - weight_tensors: String representation
+        - tensor_attributes: JSON-serializable dict with per-tensor layout/memory/dtype
         """
         input_parts = []
         output_parts = []
         weight_parts = []
+        input_attrs = []
+        output_attrs = []
 
         # Process input tensors
         for tensor_name in op.inList:
             if tensor_name in self.wlgraph._tensors:
                 tensor = self.wlgraph._tensors[tensor_name]
                 input_parts.append(format_tensor_for_stats(tensor))
+                input_attrs.append(self._tensor_attrs_dict(tensor))
 
                 # If tensor is a parameter/weight, also add to weight_tensors
                 if tensor.is_param:
@@ -212,6 +231,7 @@ class HLMStats:
             if tensor_name in self.wlgraph._tensors:
                 tensor = self.wlgraph._tensors[tensor_name]
                 output_parts.append(format_tensor_for_stats(tensor))
+                output_attrs.append(self._tensor_attrs_dict(tensor))
             else:
                 WARNING(
                     f"Tensor '{tensor_name}' not found in workload graph tensors for op '{op.name}'.",
@@ -221,7 +241,8 @@ class HLMStats:
         return {
             'input_tensors': ';'.join(input_parts),
             'output_tensors': ';'.join(output_parts),
-            'weight_tensors': ';'.join(weight_parts)
+            'weight_tensors': ';'.join(weight_parts),
+            'tensor_attributes': json.dumps({'inputs': input_attrs, 'outputs': output_attrs}),
         }
 
     def dump_stats(self, dfreq):
@@ -258,6 +279,7 @@ class HLMStats:
                     'input_tensors'    : tensor_info['input_tensors'],
                     'output_tensors'   : tensor_info['output_tensors'],
                     'weight_tensors'   : tensor_info['weight_tensors'],
+                    'tensor_attributes': tensor_info['tensor_attributes'],
                     'domain'           : op.domain,
                     'opclass'          : op.opclass_str,
                     'removed'          : op.removed_in_optimization,

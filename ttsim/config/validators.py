@@ -183,6 +183,10 @@ class TTSimHLWlDevRunOpCSVPerfStats(BaseModel, extra='forbid'):
     weight_tensors: str = Field(
         description = 'String representation of weight tensors: name[dim1xdim2]:precision;name2[dim1xdim2]:precision'
     )
+    tensor_attributes: str = Field(
+        default = '{}',
+        description = 'JSON-serialized dict with per-tensor layout, memory, and dtype attributes'
+    )
     domain: TypeDomain = Field(
         description = '???' # TODO: P1 What is this?
     )
@@ -297,6 +301,7 @@ class TTSimHLWlDevRunOperatorPerfStats(BaseModel, extra='forbid'):
     input_tensors: str
     output_tensors: str
     weight_tensors: str
+    tensor_attributes: str = '{}'
     domain: TypeDomain
     opclass: TypeOpClass
     removed: bool
