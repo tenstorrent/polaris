@@ -7,7 +7,7 @@ import argparse
 import csv
 import re
 import yaml
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description='Show layers from profiler CSV')
@@ -26,6 +26,21 @@ def expand_tensor_string(row: Dict[str, Any], input_index: int, in_or_out: str='
         value = tmpvalue.split('[')[1].replace(']', '')
         normalized_fields.append(value)
     return 'x'.join(normalized_fields)
+
+
+def expand_tensor_dims(
+    row: Dict[str, Any], input_index: int, in_or_out: str = 'INPUT',
+) -> List[Tuple[int, int]]:
+    """Return ``[(pad, logical), ...]`` for each non-empty dimension of a tensor slot."""
+    dims: List[Tuple[int, int]] = []
+    for d in ['W', 'Z', 'Y', 'X']:
+        cell = row[f'{in_or_out}_{input_index}_{d}_PAD[LOGICAL]']
+        if cell == '':
+            continue
+        pad_str, rest = cell.split('[', 1)
+        logical_str = rest.rstrip(']')
+        dims.append((int(pad_str), int(logical_str)))
+    return dims
 
 
 def expand_tensor_attrs(row: Dict[str, Any], input_index: int, in_or_out: str = 'INPUT') -> Optional[Dict[str, str]]:
@@ -98,6 +113,8 @@ def layers_profiler(input_file: str) -> List[Dict[str, Any]]:
                 'optype': row['OP CODE'].lower(),
                 'input_tensors': [expand_tensor_string(row, 0, 'INPUT')],
                 'output_tensors': [expand_tensor_string(row, 0, 'OUTPUT')],
+                'input_pad_logical': [expand_tensor_dims(row, 0, 'INPUT')],
+                'output_pad_logical': [expand_tensor_dims(row, 0, 'OUTPUT')],
                 'input_dtypes': [],
                 'input_layouts': [],
                 'input_memories': [],
@@ -120,6 +137,8 @@ def layers_profiler(input_file: str) -> List[Dict[str, Any]]:
                 s = expand_tensor_string(row, idx, 'INPUT')
                 if s:
                     filtered_row['input_tensors'].append(s)
+                    filtered_row['input_pad_logical'].append(
+                        expand_tensor_dims(row, idx, 'INPUT'))
                     a = expand_tensor_attrs(row, idx, 'INPUT')
                     if a:
                         filtered_row['input_dtypes'].append(a['dtype'])
@@ -128,12 +147,55 @@ def layers_profiler(input_file: str) -> List[Dict[str, Any]]:
                 s = expand_tensor_string(row, idx, 'OUTPUT')
                 if s:
                     filtered_row['output_tensors'].append(s)
+                    filtered_row['output_pad_logical'].append(
+                        expand_tensor_dims(row, idx, 'OUTPUT'))
                     a = expand_tensor_attrs(row, idx, 'OUTPUT')
                     if a:
                         filtered_row['output_dtypes'].append(a['dtype'])
                         filtered_row['output_layouts'].append(a['layout'])
                         filtered_row['output_memories'].append(a['memory'])
             rows.append(filtered_row)
+
+    # Post-process: correct ops where the profiler conflates PAD and LOGICAL
+    # shapes (PAD == LOGICAL) by inheriting the true LOGICAL value from the
+    # predecessor's output when available.
+    for i in range(1, len(rows)):
+        layer = rows[i]
+        prev = rows[i - 1]
+        for io in ('input', 'output'):
+            pl_key = f'{io}_pad_logical'
+            tens_key = f'{io}_tensors'
+            for slot_idx, dims in enumerate(layer[pl_key]):
+                corrected = False
+                for dim_idx, (pad, logical) in enumerate(dims):
+                    if pad != logical or pad == 0:
+                        continue
+                    # Search predecessor output slot 0 for a dimension with
+                    # the same PAD but a different (correct) LOGICAL value.
+                    # Check same position first, then any position (handles
+                    # transposed outputs like K^T in CreateQKVHeads).
+                    prev_out = prev['output_pad_logical']
+                    if not prev_out:
+                        continue
+                    prev_dims = prev_out[0]
+                    match_logical: Optional[int] = None
+                    if dim_idx < len(prev_dims):
+                        pp, pl = prev_dims[dim_idx]
+                        if pp == pad and pl != logical:
+                            match_logical = pl
+                    if match_logical is None:
+                        for pp, pl in prev_dims:
+                            if pp == pad and pl != logical:
+                                match_logical = pl
+                                break
+                    if match_logical is not None:
+                        dims[dim_idx] = (pad, match_logical)
+                        corrected = True
+                if corrected:
+                    layer[tens_key][slot_idx] = 'x'.join(
+                        str(lg) for _, lg in dims
+                    )
+
     return rows
 
 
