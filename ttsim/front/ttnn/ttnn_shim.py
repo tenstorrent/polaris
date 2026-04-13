@@ -2029,17 +2029,25 @@ def to_layout(tensor, layout, dtype=None, memory_config=None, sub_core_grids=Non
                 # Check for height sharded tensors (if memory_layout is set)
                 mem_config = tensor.memory_config()
                 if hasattr(mem_config, 'memory_layout') and mem_config.memory_layout == "HEIGHT_SHARDED":
-                    # Use pad + tilize for height sharded
-                    # Not using tilize_op / tilize_with_val_padding_op: this path is pad-then-tilize (two ops); there is no layout Pad op, and we do not create an intermediate padded tensor in track-only mode.
                     padding = [[0, 0], [0, 0]]
                     if len(logical_shape) >= 2:
                         padding.append([0, padded_output_shape[-2] - logical_shape[-2]])
                         padding.append([0, padded_output_shape[-1] - logical_shape[-1]])
                     else:
                         padding = [[0, 0], [0, 0]]
+                    pad_value = 0.0 if tensor.dtype in [DataType.BFLOAT16, DataType.FLOAT32] else 0
                     if should_execute:
                         padded_tensor = pad(tensor, padding, 0, output_memory_config)
                         return tilize(padded_tensor, output_memory_config, dtype, True, False, sub_core_grids)
+                    elif should_track and tensor.device is not None and isinstance(tensor, Tensor):
+                        logger.debug(
+                            "to_layout: choosing tilize_with_val_padding_op (height-sharded device tensor, padding change, ROW_MAJOR->TILE; padded_output_shape={})",
+                            padded_output_shape._shape,
+                        )
+                        return tilize_with_val_padding_op(
+                            tensor, padded_output_shape._shape, pad_value,
+                            use_multicore=True, element_size=2, memory_config=output_memory_config,
+                        )
                     else:
                         if should_track:
                             _tracker.track_to_layout(tensor.get_layout(), layout)

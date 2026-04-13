@@ -29,6 +29,7 @@ from .types import TILE_HEIGHT, TILE_WIDTH
 from .core   import CoreCoord, CoreRange, CoreRangeSet, CoreGrid
 from .op     import *
 from .ttnn_shim import to_layout, permute, ttnn_reshape as reshape
+from .ttnn_shim import untilize_with_unpadding, tilize_with_val_padding
 from ttsim.ops.tensor import Shape
 
 
@@ -93,5 +94,3 @@ def prepare_conv_bias(bias_tensor, input_memory_config, input_layout, input_dtyp
 def deallocate(x): pass
 def reallocate(x): return x
 
-def untilize_with_unpadding(x, *args, **kwargs): return x
-def tilize_with_val_padding(x, *args, **kwargs): return x
