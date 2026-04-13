@@ -25,6 +25,24 @@ OPTYPE_NORMALIZATION = {
     'sub': 'binary',
 }
 
+# Layout normalization: both sides → canonical short form
+LAYOUT_NORMALIZATION = {
+    'tile_layout': 'TILE',
+    'tile': 'TILE',
+    'row_major_layout': 'ROW_MAJOR',
+    'row_major': 'ROW_MAJOR',
+}
+
+# Dtype normalization: numpy names → HW canonical names
+DTYPE_NORMALIZATION = {
+    'float16': 'BFLOAT16',
+    'bfloat16': 'BFLOAT16',
+    'float32': 'FLOAT32',
+    'bfloat8_b': 'BFLOAT8_B',
+    'int64': 'INT64',
+    'int32': 'INT32',
+}
+
 # Import layer extraction functions
 try:
     from show_layers_polaris import layers_polaris
@@ -43,6 +61,7 @@ class ComparisonStats:
     shape_mismatches: int = 0
     input_shape_mismatches: int = 0
     output_shape_mismatches: int = 0
+    attr_mismatches: int = 0
     unmatched_polaris: int = 0
     unmatched_profiler: int = 0
     ambiguous: int = 0
@@ -77,6 +96,11 @@ def parse_args() -> argparse.Namespace:
         type=str,
         default=None,
         help='Filter to only compare layers with this operation type (case-insensitive)'
+    )
+    parser.add_argument(
+        '--ignore-attrs',
+        action='store_true',
+        help='Skip tensor attribute comparison (dtype, layout, memory); compare shapes only'
     )
     return parser.parse_args()
 
@@ -149,11 +173,11 @@ def normalize_shape(
     """
     if not shape_list:
         return []
-    
+
     if strip_singleton_dims:
         result = [d for d in shape_list if d != 1]
         return result if result else [1]
-    
+
     # Find how many leading 1s we have
     leading_ones = 0
     for dim in shape_list:
@@ -161,11 +185,11 @@ def normalize_shape(
             leading_ones += 1
         else:
             break
-    
+
     # If all are 1s, keep just one
     if leading_ones == len(shape_list):
         return [1]
-    
+
     # Handle leading 1s based on strategy
     if leading_ones > 0:
         if strip_leading_ones:
@@ -174,7 +198,7 @@ def normalize_shape(
         elif leading_ones > 1:
             # Collapse multiple leading 1s to a single 1
             return [1] + shape_list[leading_ones:]
-    
+
     return shape_list
 
 
@@ -187,7 +211,7 @@ def parse_shape(shape_str: str) -> List[int]:
     """
     if not shape_str or shape_str.strip() == '':
         return []
-    
+
     try:
         parts = shape_str.split('x')
         return [int(p.strip()) for p in parts if p.strip()]
@@ -270,32 +294,32 @@ def validate_reshape_compatibility(
     # Check if polaris has 2 inputs
     if len(polaris_inputs) != 2:
         return False, "polaris doesn't have 2 inputs"
-    
+
     # Parse shapes
     pol_out_parsed = parse_shape(polaris_outputs[0]) if polaris_outputs else []
     prof_out_parsed = parse_shape(profiler_outputs[0]) if profiler_outputs else []
     pol_input2_parsed = parse_shape(polaris_inputs[1]) if len(polaris_inputs) > 1 else []
-    
+
     # Normalize profiler output
     prof_out_normalized = normalize_shape(prof_out_parsed, strip_leading_ones,
                                           strip_singleton_dims=strip_singleton_dims)
-    
+
     # Check if second polaris input is 1-D
     if len(pol_input2_parsed) != 1:
         return False, f"polaris second input not 1-D: {pol_input2_parsed}"
-    
+
     # Check if profiler output is 2-D after normalization
     if len(prof_out_normalized) != 2:
         return False, f"profiler output not 2-D after normalization: {prof_out_normalized}"
-    
+
     # Check if polaris output has at least 3 dimensions
     if len(pol_out_parsed) < 3:
         return False, f"polaris output has < 3 dims: {pol_out_parsed}"
-    
+
     # Calculate product of first 3 dimensions of polaris output
     pol_first_three_product = pol_out_parsed[0] * pol_out_parsed[1] * pol_out_parsed[2]
     prof_first_dim = prof_out_normalized[0]
-    
+
     if pol_first_three_product == prof_first_dim:
         return True, f"reshape compatible: pol {pol_out_parsed[:3]} product={pol_first_three_product} matches prof first dim={prof_first_dim}"
     else:
@@ -331,7 +355,7 @@ def compare_tensor_shapes(
         normalize_shape(parse_shape(s), strip_leading_ones,
                         strip_singleton_dims=strip_singleton_dims) for s in profiler_shapes
     ]
-    
+
     # Check counts
     if len(polaris_normalized) != len(profiler_normalized):
         # Special case for reshape: polaris may have 2 inputs (data + target_shape)
@@ -341,15 +365,66 @@ def compare_tensor_shapes(
             pass
         else:
             return False, f"count mismatch: {len(polaris_normalized)} vs {len(profiler_normalized)}"
-    
+
     # Compare each tensor
     for i, (p_shape, f_shape) in enumerate(zip(polaris_normalized, profiler_normalized)):
         if p_shape != f_shape:
             p_str = 'x'.join(map(str, p_shape)) if p_shape else 'empty'
             f_str = 'x'.join(map(str, f_shape)) if f_shape else 'empty'
             return False, f"tensor {i}: {p_str} vs {f_str}"
-    
+
     return True, ""
+
+
+def _normalize_attr(value: Optional[str], table: dict) -> Optional[str]:
+    """Normalize a single attribute value using the given lookup table."""
+    if value is None:
+        return None
+    return table.get(value.lower().strip(), value.upper().strip())
+
+
+def compare_tensor_attributes(
+    p_layer: Dict[str, Any],
+    f_layer: Dict[str, Any],
+    direction: str = 'input',
+) -> Tuple[bool, str]:
+    """Compare dtype, layout, and memory for input or output tensors.
+
+    Returns (match, details).  Attributes that are None/empty on either
+    side are silently skipped (not penalized).
+    """
+    p_dtypes = p_layer.get(f'{direction}_dtypes', [])
+    f_dtypes = f_layer.get(f'{direction}_dtypes', [])
+    p_layouts = p_layer.get(f'{direction}_layouts', [])
+    f_layouts = f_layer.get(f'{direction}_layouts', [])
+    p_mems = p_layer.get(f'{direction}_memories', [])
+    f_mems = f_layer.get(f'{direction}_memories', [])
+
+    mismatches = []
+    n = min(len(p_dtypes), len(f_dtypes))
+    for i in range(n):
+        pd = _normalize_attr(p_dtypes[i], DTYPE_NORMALIZATION)
+        fd = _normalize_attr(f_dtypes[i], DTYPE_NORMALIZATION)
+        if pd and fd and pd != fd:
+            mismatches.append(f"tensor {i} dtype: {pd} vs {fd}")
+
+    n = min(len(p_layouts), len(f_layouts))
+    for i in range(n):
+        pl = _normalize_attr(p_layouts[i], LAYOUT_NORMALIZATION)
+        fl = _normalize_attr(f_layouts[i], LAYOUT_NORMALIZATION)
+        if pl and fl and pl != fl:
+            mismatches.append(f"tensor {i} layout: {pl} vs {fl}")
+
+    n = min(len(p_mems), len(f_mems))
+    for i in range(n):
+        pm = p_mems[i]
+        fm = f_mems[i]
+        if pm and fm and pm != fm:
+            mismatches.append(f"tensor {i} memory: {pm} vs {fm}")
+
+    if mismatches:
+        return False, '; '.join(mismatches)
+    return True, ''
 
 
 def find_next_match(
@@ -373,7 +448,7 @@ def find_next_match(
     end_idx = len(layers)
     if max_distance is not None:
         end_idx = min(end_idx, start_idx + max_distance)
-    
+
     for i in range(start_idx, end_idx):
         if normalize_optype(layers[i]['optype']) == target_optype:
             return i
@@ -393,6 +468,7 @@ def compare_layers(
     max_search_distance: int = DEFAULT_MAX_SEARCH_DISTANCE,
     strip_leading_ones: bool = False,
     strip_singleton_dims: bool = False,
+    ignore_attrs: bool = False,
 ) -> ComparisonStats:
     """
     Compare two layer sequences and print results.
@@ -403,7 +479,7 @@ def compare_layers(
     stats = ComparisonStats()
     ndx_polaris = 0
     ndx_profiler = 0
-    
+
     while ndx_polaris < len(polaris_layers) or ndx_profiler < len(profiler_layers):
         # Case 3: One sequence exhausted
         if ndx_polaris >= len(polaris_layers):
@@ -413,7 +489,7 @@ def compare_layers(
             stats.unmatched_profiler += 1
             ndx_profiler += 1
             continue
-        
+
         if ndx_profiler >= len(profiler_layers):
             # Polaris has remaining entries
             layer = polaris_layers[ndx_polaris]
@@ -421,15 +497,15 @@ def compare_layers(
             stats.unmatched_polaris += 1
             ndx_polaris += 1
             continue
-        
+
         # Get current layers
         p_layer = polaris_layers[ndx_polaris]
         f_layer = profiler_layers[ndx_profiler]
-        
+
         # Normalize optypes for comparison
         p_optype_norm = normalize_optype(p_layer['optype'])
         f_optype_norm = normalize_optype(f_layer['optype'])
-        
+
         # Case 1: optypes match (after normalization)
         if p_optype_norm == f_optype_norm:
             # Compare shapes
@@ -447,7 +523,7 @@ def compare_layers(
                 p_layer['optype'],
                 strip_singleton_dims=strip_singleton_dims,
             )
-            
+
             # Special handling for binary ops (add/mul/sub) if input counts
             # or shapes don't match — one side may use scalar/untracked operands
             if not input_match and normalize_optype(p_layer['optype']) in ('binary', 'mul', 'add', 'sub'):
@@ -460,7 +536,7 @@ def compare_layers(
                 if bin_valid:
                     input_match = True
                     input_details = bin_details
-            
+
             # Special handling for reshape if standard comparison fails
             if normalize_optype(p_layer['optype']) == 'reshape' and (not input_match or not output_match):
                 reshape_valid, reshape_details = validate_reshape_compatibility(
@@ -475,15 +551,31 @@ def compare_layers(
                     input_match = True
                     output_match = True
                     output_details = reshape_details
-            
-            if input_match and output_match:
-                # Perfect match
+
+            # Attribute comparison (dtype, layout, memory)
+            attr_ok = True
+            attr_details_parts = []
+            if input_match and output_match and not ignore_attrs:
+                in_attr_ok, in_attr_det = compare_tensor_attributes(p_layer, f_layer, 'input')
+                out_attr_ok, out_attr_det = compare_tensor_attributes(p_layer, f_layer, 'output')
+                if not in_attr_ok:
+                    attr_ok = False
+                    attr_details_parts.append(f"input attrs: {in_attr_det}")
+                if not out_attr_ok:
+                    attr_ok = False
+                    attr_details_parts.append(f"output attrs: {out_attr_det}")
+
+            if input_match and output_match and attr_ok:
                 print(f"✓ [P:{p_layer['seqno']}] [F:{f_layer['seqno']}] {p_layer['optype']}  "
                       f"in: {format_shapes(p_layer.get('input_tensors', []))} | "
                       f"out: {format_shapes(p_layer.get('output_tensors', []))}")
                 stats.total_matches += 1
+            elif input_match and output_match and not attr_ok:
+                print(f"✗ attr [P:{p_layer['seqno']}] [F:{f_layer['seqno']}] {p_layer['optype']}")
+                for part in attr_details_parts:
+                    print(f"  {part}")
+                stats.attr_mismatches += 1
             else:
-                # Shape mismatch
                 print(f"✗ shape [P:{p_layer['seqno']}] [F:{f_layer['seqno']}] {p_layer['optype']}")
                 if not input_match:
                     print(f"  input: polaris={format_shapes(p_layer.get('input_tensors', []))} "
@@ -494,23 +586,23 @@ def compare_layers(
                           f"profiler={format_shapes(f_layer.get('output_tensors', []))} ({output_details})")
                     stats.output_shape_mismatches += 1
                 stats.shape_mismatches += 1
-            
+
             ndx_polaris += 1
             ndx_profiler += 1
             continue
-        
+
         # Case 2: optypes don't match - search forward in profiler only (polaris is pivot)
         profiler_match_idx = find_next_match(
             profiler_layers, ndx_profiler + 1, p_optype_norm, max_search_distance
         )
-        
+
         # If found in profiler, skip profiler entries to get there
         if profiler_match_idx is not None:
             for i in range(ndx_profiler, profiler_match_idx):
                 layer = profiler_layers[i]
                 print(f"⊘ [F:{layer['seqno']}] {layer['optype']} (skipped in polaris)")
                 stats.unmatched_profiler += 1
-            
+
             # Move profiler to matched position, polaris stays to compare
             ndx_profiler = profiler_match_idx
             # Continue to compare at this position (will be handled in next iteration)
@@ -519,7 +611,7 @@ def compare_layers(
             print(f"✗ name [P:{p_layer['seqno']}] --- {p_layer['optype']} (not in profiler)")
             stats.name_mismatches += 1
             ndx_polaris += 1
-    
+
     return stats
 
 
@@ -530,6 +622,7 @@ def print_summary(stats: ComparisonStats) -> None:
     print(f"Name mismatches: {stats.name_mismatches}")
     print(f"Shape mismatches: {stats.shape_mismatches} "
           f"({stats.input_shape_mismatches} input, {stats.output_shape_mismatches} output)")
+    print(f"Attribute mismatches: {stats.attr_mismatches}")
     print(f"Unmatched entries: {stats.unmatched_polaris + stats.unmatched_profiler} "
           f"({stats.unmatched_polaris} polaris, {stats.unmatched_profiler} profiler)")
     print(f"Ambiguous: {stats.ambiguous}")
@@ -538,38 +631,38 @@ def print_summary(stats: ComparisonStats) -> None:
 def main() -> int:
     """Main entry point."""
     args = parse_args()
-    
+
     # Validate arguments
     if not Path(args.file1).exists():
         print(f"Error: File not found: {args.file1}", file=sys.stderr)
         return 1
-    
+
     if not Path(args.file2).exists():
         print(f"Error: File not found: {args.file2}", file=sys.stderr)
         return 1
-    
+
     # Detect file types
     type1 = detect_file_type(args.file1)
     type2 = detect_file_type(args.file2)
-    
+
     if type1 is None or type2 is None:
         print("Error: Could not determine file types. Expected CSV files with "
               "'archname' (polaris) or 'OP CODE' (profiler) columns.", file=sys.stderr)
         return 1
-    
+
     if type1 == type2:
         print(f"Error: Both files appear to be {type1} CSVs. "
               f"Expected one polaris and one profiler CSV.", file=sys.stderr)
         return 1
-    
+
     # Assign files based on type
     polaris_file = args.file1 if type1 == 'polaris' else args.file2
     profiler_file = args.file1 if type1 == 'profiler' else args.file2
-    
+
     print(f"Polaris CSV: {polaris_file}")
     print(f"Profiler CSV: {profiler_file}")
     print()
-    
+
     # Extract layers
     try:
         polaris_layers = layers_polaris(polaris_file)
@@ -577,15 +670,15 @@ def main() -> int:
     except Exception as e:
         print(f"Error extracting layers: {e}", file=sys.stderr)
         return 1
-    
+
     print(f"Loaded {len(polaris_layers)} polaris layers, {len(profiler_layers)} profiler layers")
-    
+
     # Filter by optype if requested
     if args.filter_optype:
         filter_optype_norm = normalize_optype(args.filter_optype)
         polaris_layers_orig = polaris_layers
         profiler_layers_orig = profiler_layers
-        
+
         polaris_layers = [
             layer for layer in polaris_layers
             if normalize_optype(layer['optype']) == filter_optype_norm
@@ -594,22 +687,23 @@ def main() -> int:
             layer for layer in profiler_layers
             if normalize_optype(layer['optype']) == filter_optype_norm
         ]
-        
+
         print(f"Filtered to {len(polaris_layers)} polaris layers, {len(profiler_layers)} profiler layers with optype='{args.filter_optype}'")
-        
+
         if len(polaris_layers) == 0 and len(profiler_layers) == 0:
             print(f"Warning: No layers found with optype='{args.filter_optype}'")
             return 0
-    
+
     print()
-    
+
     # Compare layers
     stats = compare_layers(polaris_layers, profiler_layers, args.max_search_distance,
-                           args.strip_leading_ones, args.strip_singleton_dims)
-    
+                           args.strip_leading_ones, args.strip_singleton_dims,
+                           ignore_attrs=args.ignore_attrs)
+
     # Print summary
     print_summary(stats)
-    
+
     return 0
 
 

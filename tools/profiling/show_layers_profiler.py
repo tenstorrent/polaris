@@ -28,6 +28,22 @@ def expand_tensor_string(row: Dict[str, Any], input_index: int, in_or_out: str='
     return 'x'.join(normalized_fields)
 
 
+def expand_tensor_attrs(row: Dict[str, Any], input_index: int, in_or_out: str = 'INPUT') -> Optional[Dict[str, str]]:
+    """Extract layout, datatype, and memory for a single tensor slot.
+
+    Returns None when the slot is empty (no shape data).
+    """
+    prefix = f'{in_or_out}_{input_index}'
+    layout = (row.get(f'{prefix}_LAYOUT') or '').strip()
+    dtype = (row.get(f'{prefix}_DATATYPE') or '').strip()
+    memory_raw = (row.get(f'{prefix}_MEMORY') or '').strip()
+    if not layout and not dtype and not memory_raw:
+        return None
+    # Strip device prefix (e.g. "DEV_1_L1_INTERLEAVED" -> "L1_INTERLEAVED")
+    memory = re.sub(r'^DEV_\d+_', '', memory_raw) if memory_raw else ''
+    return {'layout': layout, 'dtype': dtype, 'memory': memory}
+
+
 def normalize_tensor_string(col: str,tensor_string: str) -> str:
     if 'tensors' not in col:
         return tensor_string
@@ -77,19 +93,46 @@ def layers_profiler(input_file: str) -> List[Dict[str, Any]]:
                         match = re.search(r'UnaryOpType::(\w+)', op_chain)
                         if match:
                             row['OP CODE'] = match.group(1)
-            filtered_row = {
+            filtered_row: Dict[str, Any] = {
                 'seqno': int(row['GLOBAL CALL COUNT']),
                 'optype': row['OP CODE'].lower(),
                 'input_tensors': [expand_tensor_string(row, 0, 'INPUT')],
-                'output_tensors': [expand_tensor_string(row, 0, 'OUTPUT')]
+                'output_tensors': [expand_tensor_string(row, 0, 'OUTPUT')],
+                'input_dtypes': [],
+                'input_layouts': [],
+                'input_memories': [],
+                'output_dtypes': [],
+                'output_layouts': [],
+                'output_memories': [],
             }
+            # Slot 0 attrs
+            a0_in = expand_tensor_attrs(row, 0, 'INPUT')
+            if a0_in:
+                filtered_row['input_dtypes'].append(a0_in['dtype'])
+                filtered_row['input_layouts'].append(a0_in['layout'])
+                filtered_row['input_memories'].append(a0_in['memory'])
+            a0_out = expand_tensor_attrs(row, 0, 'OUTPUT')
+            if a0_out:
+                filtered_row['output_dtypes'].append(a0_out['dtype'])
+                filtered_row['output_layouts'].append(a0_out['layout'])
+                filtered_row['output_memories'].append(a0_out['memory'])
             for idx in (1, 2):
                 s = expand_tensor_string(row, idx, 'INPUT')
                 if s:
                     filtered_row['input_tensors'].append(s)
+                    a = expand_tensor_attrs(row, idx, 'INPUT')
+                    if a:
+                        filtered_row['input_dtypes'].append(a['dtype'])
+                        filtered_row['input_layouts'].append(a['layout'])
+                        filtered_row['input_memories'].append(a['memory'])
                 s = expand_tensor_string(row, idx, 'OUTPUT')
                 if s:
                     filtered_row['output_tensors'].append(s)
+                    a = expand_tensor_attrs(row, idx, 'OUTPUT')
+                    if a:
+                        filtered_row['output_dtypes'].append(a['dtype'])
+                        filtered_row['output_layouts'].append(a['layout'])
+                        filtered_row['output_memories'].append(a['memory'])
             rows.append(filtered_row)
     return rows
 

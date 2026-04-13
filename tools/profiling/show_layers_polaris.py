@@ -5,6 +5,7 @@
 import sys
 import argparse
 import csv
+import json
 from typing import Any, Dict, List
 
 
@@ -16,23 +17,41 @@ def parse_args() -> argparse.Namespace:
 COLUMNS_OF_INTEREST = ['opnum', 'optype', 'input_tensors', 'output_tensors']
 
 
+def _parse_tensor_fields(tensor_string: str):
+    """Parse a semicolon-separated tensor string into parallel lists of shapes and dtypes.
+
+    Each segment has the format ``name[dim1xdim2]:dtype``.
+    Returns (shapes: list[str], dtypes: list[str]).
+    """
+    shapes = []
+    dtypes = []
+    for field in tensor_string.split(';'):
+        if not field.strip():
+            continue
+        before_colon, _, dtype_part = field.rpartition(':')
+        shape_part = before_colon.split('[')[1].replace(']', '') if '[' in before_colon else ''
+        shapes.append(shape_part)
+        dtypes.append(dtype_part.strip())
+    return shapes, dtypes
+
+
 def normalize_tensor_string(col: str, tensor_string: str) -> List[str]:
     if 'tensors' not in col:
         return [tensor_string]
-    fields = tensor_string.split(';')
-    normalized_fields = []
-    for field in fields:
-        tmp = field.split(':')[0].split('[')[1].replace(']', '')
-        normalized_fields.append(tmp)
-    return normalized_fields
+    shapes, _ = _parse_tensor_fields(tensor_string)
+    return shapes
 
 
 def layers_polaris(input_file: str) -> List[Dict[str, Any]]:
     rows = []
     with open(input_file, 'r') as f:
         reader = csv.DictReader(f)
+        has_tensor_attributes = None
         for row in reader:
-            filtered_row = {}
+            if has_tensor_attributes is None:
+                has_tensor_attributes = 'tensor_attributes' in row
+
+            filtered_row: Dict[str, Any] = {}
             for col in COLUMNS_OF_INTEREST:
                 s = normalize_tensor_string(col, row[col])
                 if col == 'opnum':
@@ -42,6 +61,34 @@ def layers_polaris(input_file: str) -> List[Dict[str, Any]]:
                 else:
                     if s is not None:
                         filtered_row[col] = s
+
+            # Extract dtypes from existing tensor strings
+            _, in_dtypes = _parse_tensor_fields(row['input_tensors'])
+            _, out_dtypes = _parse_tensor_fields(row['output_tensors'])
+            filtered_row['input_dtypes'] = in_dtypes
+            filtered_row['output_dtypes'] = out_dtypes
+
+            # Extract layout and memory from tensor_attributes column (if present)
+            if has_tensor_attributes:
+                ta_raw = row.get('tensor_attributes', '{}')
+                try:
+                    ta = json.loads(ta_raw)
+                except (json.JSONDecodeError, TypeError):
+                    ta = {}
+                in_attrs = ta.get('inputs', [])
+                out_attrs = ta.get('outputs', [])
+                filtered_row['input_layouts'] = [a.get('layout') for a in in_attrs]
+                filtered_row['input_memories'] = [a.get('memory') for a in in_attrs]
+                filtered_row['output_layouts'] = [a.get('layout') for a in out_attrs]
+                filtered_row['output_memories'] = [a.get('memory') for a in out_attrs]
+            else:
+                n_in = len(filtered_row.get('input_tensors', []))
+                n_out = len(filtered_row.get('output_tensors', []))
+                filtered_row['input_layouts'] = [None] * n_in
+                filtered_row['input_memories'] = [None] * n_in
+                filtered_row['output_layouts'] = [None] * n_out
+                filtered_row['output_memories'] = [None] * n_out
+
             rows.append(filtered_row)
     return rows
 
