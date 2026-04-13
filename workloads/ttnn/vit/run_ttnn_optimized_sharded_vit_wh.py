@@ -72,6 +72,9 @@ if IS_POLARIS:
     }
 
     config_obj = types.SimpleNamespace(**config_dict)
+    config_obj.core_grid = ttnn.CoreGrid(
+        [ttnn.CoreRange(ttnn.CoreCoord(0, 0), ttnn.CoreCoord(7, 7))]
+    )
 
     def make_info(weight_shape, bias_shape):
         return types.SimpleNamespace(**{

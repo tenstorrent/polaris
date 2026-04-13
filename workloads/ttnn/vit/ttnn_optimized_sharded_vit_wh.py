@@ -38,6 +38,7 @@ def vit_patch_embeddings(config, pixel_values, *, parameters, unittest_check=Fal
     stride_w = 1
 
     pixel_values = ttnn.fold(pixel_values, stride_h, stride_w)
+    pixel_values = ttnn.sharded_to_interleaved(pixel_values, ttnn.L1_MEMORY_CONFIG)
     _warn_layout_operator_todo_once(
         "opt_vit_patch_fold_tolayout",
         "fold (and preceding ops) should set output layout; remove explicit to_layout.",
@@ -95,6 +96,16 @@ def vit_embeddings(
     )
     embedding_output.layout = ttnn.TILE_LAYOUT
 
+    embedding_output = ttnn.interleaved_to_sharded(
+        embedding_output,
+        ttnn.create_sharded_memory_config(
+            embedding_output.shape,
+            core_grid=config.core_grid,
+            strategy=ttnn.ShardStrategy.BLOCK,
+            orientation=ttnn.ShardOrientation.ROW_MAJOR,
+        ),
+    )
+
     return embedding_output
 
 
@@ -121,6 +132,16 @@ def vit_attention(
     query_key_value.layout = ttnn.TILE_LAYOUT
     logger.debug('linear qkv shape {} = hidden_states shape {} @ qkv.weight shape {}',
                  query_key_value.shape, hidden_states.shape, parameters.attention.query_key_value.weight.shape)
+
+    query_key_value = ttnn.reshard(
+        query_key_value,
+        ttnn.create_sharded_memory_config(
+            query_key_value.shape,
+            core_grid=config.core_grid,
+            strategy=ttnn.ShardStrategy.BLOCK,
+            orientation=ttnn.ShardOrientation.ROW_MAJOR,
+        ),
+    )
 
     # Single NLPCreateQKVHeads op replaces the previous decomposed sequence of
     # 3×(Tensor → reshape → permute) + extra permute for K transpose.
@@ -169,6 +190,16 @@ def vit_attention(
     # HW's concatenate_heads maps to this single op.
     context_layer = ttnn.experimental.nlp_concat_heads(context_layer)
     context_layer.layout = ttnn.TILE_LAYOUT
+
+    context_layer = ttnn.reshard(
+        context_layer,
+        ttnn.create_sharded_memory_config(
+            context_layer.shape,
+            core_grid=config.core_grid,
+            strategy=ttnn.ShardStrategy.BLOCK,
+            orientation=ttnn.ShardOrientation.ROW_MAJOR,
+        ),
+    )
 
     # Output dense projection — fused matmul + bias, matching HW.
     self_output = ttnn.linear(
@@ -335,6 +366,16 @@ def vit(
         "layer_norm should set output layout metadata; remove explicit TILE assignment (final norm).",
     )
     output.layout = ttnn.TILE_LAYOUT
+
+    output = ttnn.reshard(
+        output,
+        ttnn.create_sharded_memory_config(
+            output.shape,
+            core_grid=config.core_grid,
+            strategy=ttnn.ShardStrategy.BLOCK,
+            orientation=ttnn.ShardOrientation.ROW_MAJOR,
+        ),
+    )
 
     # Classifier — fused matmul + bias, matching HW.
     classifier_output = ttnn.linear(
