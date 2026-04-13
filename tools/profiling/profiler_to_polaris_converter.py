@@ -142,12 +142,6 @@ def format_tensor_string(name: str, dims: list, datatype: str) -> str:
 
 def map_optype_to_polaris(opcode: str, attrs: dict) -> str:
     """Map profiler operation types to Polaris STATS format."""
-    # Check for binary operation type in attributes
-    if attrs and 'binary_op_type' in attrs:
-        binary_type = str(attrs['binary_op_type']).replace('BinaryOpType::', '')
-        return binary_type
-    
-    # Standard mapping
     optype_mapping = {
         'Matmul': 'MatMul',
         'ADD': 'Add',
@@ -161,6 +155,11 @@ def map_optype_to_polaris(opcode: str, attrs: dict) -> str:
         'Tilize': 'Tilize',
         'UntilizeWithUnpadding': 'UntilizeWithUnpadding',
     }
+    # New convention: BinaryNgDeviceOperation with binary_op_type in attrs.
+    # Old convention: bare 'ADD'/'MUL' as opcode. Both normalize via optype_mapping.
+    if attrs and 'binary_op_type' in attrs:
+        binary_type = str(attrs['binary_op_type']).replace('BinaryOpType::', '')
+        return optype_mapping.get(binary_type, binary_type)
     return optype_mapping.get(opcode, opcode)
 
 

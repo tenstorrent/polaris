@@ -177,6 +177,7 @@ def _map_profiler_opcode_to_polaris_optype(opcode: str, attrs: dict[str, Any]) -
             'Permute': 'PermuteDeviceOperation',
             'Softmax': 'SoftmaxDeviceOperation',
             'LayerNorm': 'LayerNormalization',
+            'CreateQKVHeads': 'NLPCreateQKVHeads',
         }
         lookup = stem_to_lookup.get(stem, stem)
         return map_optype_to_polaris(lookup, attrs)
