@@ -2,7 +2,7 @@
 # SPDX-FileCopyrightText: (C) 2025 Tenstorrent AI ULC
 # SPDX-License-Identifier: Apache-2.0
 
-"""Device to_layout(TILE->ROW_MAJOR) with padding change: single UntilizeWithValUnpadding SimOp."""
+"""Device to_layout(TILE->ROW_MAJOR) with padding change: single UntilizeWithUnpadding SimOp."""
 
 import pytest
 
@@ -28,7 +28,7 @@ def test_to_layout_padding_change_emits_only_untilize_with_val_unpadding():
         out = to_layout(inp, layout=Layout.ROW_MAJOR_LAYOUT)
         assert out.logical_shape().as_list() == [1, 3, 30, 30]
         seq = [op.optype for op in device.ops.values()]
-        assert seq[-1] == "UntilizeWithValUnpadding"
+        assert seq[-1] == "UntilizeWithUnpadding"
         assert "Reshape" not in seq
     finally:
         set_execution_mode(ExecutionMode.TRACK_ONLY)
@@ -51,7 +51,7 @@ def test_to_layout_execute_and_track_padding_change_emits_only_untilize_with_val
         out = to_layout(inp, layout=Layout.ROW_MAJOR_LAYOUT)
         assert out.logical_shape().as_list() == [1, 3, 30, 30]
         seq = [op.optype for op in device.ops.values()]
-        assert seq[-1] == "UntilizeWithValUnpadding"
+        assert seq[-1] == "UntilizeWithUnpadding"
         assert "Reshape" not in seq
     finally:
         set_execution_mode(ExecutionMode.TRACK_ONLY)

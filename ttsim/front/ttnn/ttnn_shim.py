@@ -1574,7 +1574,7 @@ def ttnn_reshape(tensor, shape, arg3=None, memory_config=None, sub_core_grids=No
     """
     Graph-aware reshape for ``ttsim.front.ttnn``.
 
-    * **TILE** tensors on device (with buffer): records **Untilize** / **UntilizeWithValUnpadding** then
+    * **TILE** tensors on device (with buffer): records **Untilize** / **UntilizeWithUnpadding** then
       **TilizeWithValPadding** (tile-native reshape on hardware), not a standalone **Reshape** op.
     * **ROW_MAJOR** on device + track: uses **Reshape** SimOp (``op.reshape``).
     * Otherwise: same as :func:`reshape` (metadata / host / execute-only).
@@ -1751,7 +1751,7 @@ def ttnn_reshape(tensor, shape, arg3=None, memory_config=None, sub_core_grids=No
 def untilize_with_unpadding_op(input_tensor, output_shape,
                                 use_multicore=True, use_pack_untilize=True, element_size=2, memory_config=None):
     """
-    Create an UntilizeWithValUnpadding SimOp and output tensor (tracking-only; no execution).
+    Create an UntilizeWithUnpadding SimOp and output tensor (tracking-only; no execution).
     (Python name ``untilize_with_unpadding_op`` is historical; optype matches hardware naming.)
     output_shape is the logical output shape (list or tuple); stored in op attrs.
     """
@@ -1772,7 +1772,7 @@ def untilize_with_unpadding_op(input_tensor, output_shape,
     input_tensor.op_in.append(op_name)
     opinfo = {
         'name': op_name,
-        'optype': 'UntilizeWithValUnpadding',
+        'optype': 'UntilizeWithUnpadding',
         'inList': [input_tensor.name],
         'outList': [out_tensor.name],
         'attrs': {
@@ -2001,7 +2001,7 @@ def to_layout(tensor, layout, dtype=None, memory_config=None, sub_core_grids=Non
                         tensor.logical_shape()._shape,
                         output_shape._shape,
                     )
-                    # Single UntilizeWithValUnpadding SimOp; logical shape is final ROW_MAJOR (no Reshape op).
+                    # Single UntilizeWithUnpadding SimOp; logical shape is final ROW_MAJOR (no Reshape op).
                     return untilize_with_unpadding_op(
                         tensor,
                         output_shape._shape,

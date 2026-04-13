@@ -66,7 +66,7 @@ def test_polaris_op_signature_tilize_padded_vs_logical() -> None:
 def test_polaris_op_signature_untilize_unpadding_uses_attrs() -> None:
     """When output_tensors wrongly show tile-padded size, attrs carry true logical output."""
     row = {
-        'optype': 'UntilizeWithValUnpadding',
+        'optype': 'UntilizeWithUnpadding',
         'input_tensors': 'input_0[8x224x32x64]:BFLOAT16',
         'output_tensors': 'output_0[8x224x32x64]:BFLOAT16',
         'attrs': "{'output_tensor_end': 'Shape([7, 223, 11, 63])'}",
@@ -106,22 +106,22 @@ def test_profiler_op_signature_tilize_prefers_output_padded_columns() -> None:
 
 
 @pytest.mark.unit
-def test_profiler_legacy_untilize_unpadding_opcode_maps_to_val_unpadding() -> None:
-    """Hardware CSV may still use ``UntilizeWithUnpadding``; mapping normalizes to Polaris name."""
+def test_profiler_untilize_unpadding_opcode_identity_mapping() -> None:
+    """``UntilizeWithUnpadding`` maps to itself (names now aligned between profiler and Polaris)."""
     from tools.profiling.profiler_polaris_opname_mapping import _map_profiler_opcode_to_polaris_optype
 
-    assert _map_profiler_opcode_to_polaris_optype('UntilizeWithUnpadding', {}) == 'UntilizeWithValUnpadding'
+    assert _map_profiler_opcode_to_polaris_optype('UntilizeWithUnpadding', {}) == 'UntilizeWithUnpadding'
     assert (
-        _map_profiler_opcode_to_polaris_optype('UntilizeWithValUnpaddingDeviceOperation', {})
-        == 'UntilizeWithValUnpadding'
+        _map_profiler_opcode_to_polaris_optype('UntilizeWithUnpaddingDeviceOperation', {})
+        == 'UntilizeWithUnpadding'
     )
 
 
 @pytest.mark.unit
 def test_profiler_op_signature_untilize_prefers_input_padded_columns() -> None:
-    """UntilizeWithValUnpadding: padded tile extent on input_0 when PADDED columns exist."""
+    """UntilizeWithUnpadding: padded tile extent on input_0 when PADDED columns exist."""
     row = {
-        'OP CODE': 'UntilizeWithValUnpadding',
+        'OP CODE': 'UntilizeWithUnpadding',
         'ATTRIBUTES': '',
         **_profiler_tensor_cols('INPUT', 0, 8, 224, 12, 64, tag='LOGICAL'),
         **_profiler_tensor_cols('INPUT', 0, 8, 224, 32, 64, tag='PADDED'),

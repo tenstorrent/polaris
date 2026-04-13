@@ -182,7 +182,7 @@ def test_shape_inference_function_errors():
         ("Tilize", {}),
         ("Untilize", {}),
         ("TilizeWithValPadding", {"output_padded_shape": [32, 32]}),
-        ("UntilizeWithValUnpadding", {"output_shape": [16, 16]}),
+        ("UntilizeWithUnpadding", {"output_shape": [16, 16]}),
     ],
 )
 def test_layout_ops_require_input_shape(optype, attrs):

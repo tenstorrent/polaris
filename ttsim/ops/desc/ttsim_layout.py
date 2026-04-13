@@ -4,7 +4,7 @@
 
 """
 Layout, shard, and transformer head op descriptors:
-  Tilize, Untilize, TilizeWithValPadding, UntilizeWithValUnpadding,
+  Tilize, Untilize, TilizeWithValPadding, UntilizeWithUnpadding,
   InterleavedToSharded, ShardedToInterleaved, Reshard,
   NLPConcatHeads, NLPCreateQKVHeads.
 Used by the TTNN front-end tracking-only operator APIs (*_op helpers) in ttnn_shim.
@@ -164,13 +164,13 @@ def tilize_with_val_padding_sinf(iTList, oTList, op, **kwargs):
     return
 
 
-def untilize_with_val_unpadding_sinf(iTList, oTList, op, **kwargs):
-    """Shape inference for UntilizeWithValUnpadding: 1 input, output shape from attrs."""
+def untilize_with_unpadding_sinf(iTList, oTList, op, **kwargs):
+    """Shape inference for UntilizeWithUnpadding: 1 input, output shape from attrs."""
     assert len(iTList) == 1 and len(oTList) == 1
     X = iTList[0]
     in_shape = require_shape_list(
         X.shape,
-        "UntilizeWithValUnpadding shape inference: input tensor shape must be known for element/byte accounting",
+        "UntilizeWithUnpadding shape inference: input tensor shape must be known for element/byte accounting",
     )
 
     # Output logical shape is given in attrs (unpadded/cropped size); input may be tile-padded, output is smaller.
@@ -354,7 +354,7 @@ def register_layout_ops():
         ['Tilize', 'ARITY_1->1', d, 'COMMON', 24, 21, 1, 1, 1, 1, tilize_sinf, True, True, True, True, True],
         ['Untilize', 'ARITY_1->1', d, 'COMMON', 24, 21, 1, 1, 1, 1, untilize_sinf, True, True, True, True, True],
         ['TilizeWithValPadding', 'ARITY_1->1', d, 'COMMON', 24, 21, 1, 1, 1, 1, tilize_with_val_padding_sinf, True, True, True, True, True],
-        ['UntilizeWithValUnpadding', 'ARITY_1->1', d, 'COMMON', 24, 21, 1, 1, 1, 1, untilize_with_val_unpadding_sinf, True, True, True, True, True],
+        ['UntilizeWithUnpadding', 'ARITY_1->1', d, 'COMMON', 24, 21, 1, 1, 1, 1, untilize_with_unpadding_sinf, True, True, True, True, True],
         ['InterleavedToSharded', 'ARITY_1->1', d, 'COMMON', 24, 21, 1, 1, 1, 1, interleaved_to_sharded_sinf, True, True, True, True, True],
         ['ShardedToInterleaved', 'ARITY_1->1', d, 'COMMON', 24, 21, 1, 1, 1, 1, sharded_to_interleaved_sinf, True, True, True, True, True],
         ['Reshard', 'ARITY_1->1', d, 'COMMON', 24, 21, 1, 1, 1, 1, reshard_sinf, True, True, True, True, True],
