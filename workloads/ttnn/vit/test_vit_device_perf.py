@@ -62,6 +62,7 @@ def test_vit_device_ops(
             f"Expected output shape {expected_output_shape}, but got {output.shape}"
         )
         logger.info(f"test_vit_device_ops: obtained expected output shape {expected_output_shape}")
+        return device
 
 
 def run_vit_device_ops(wlname: str, device: ttnn.device.Device, cfg: dict):
@@ -73,10 +74,23 @@ def run_vit_device_ops(wlname: str, device: ttnn.device.Device, cfg: dict):
 # ---------------------------------------------------------------------------
 
 def test_vit_perf_device(batch_size=8, expected_kernel_samples_per_sec=1560):
+    cols = ["DEVICE FW", "DEVICE KERNEL", "DEVICE BRISC KERNEL"]
+
     if IS_POLARIS:
-        logger.info(
-            "test_vit_perf_device: skipped on Polaris "
-            "(device profiling requires Tracy / HW runtime)"
+        from workloads.common.polaris_device_perf import (
+            run_device_perf_polaris,
+            prep_device_perf_report_polaris,
+        )
+
+        post_processed_results = run_device_perf_polaris(
+            test_fn=test_vit_device_ops,
+            batch_size=batch_size,
+            cols=cols,
+        )
+        prep_device_perf_report_polaris(
+            model_name=f"vit-{batch_size}",
+            batch_size=batch_size,
+            post_processed_results=post_processed_results,
         )
         return
 
@@ -84,7 +98,6 @@ def test_vit_perf_device(batch_size=8, expected_kernel_samples_per_sec=1560):
         f"pytest models/demos/vision/classification/vit/wormhole/tests/"
         f"test_vit_device_perf.py::test_vit_device_ops[{batch_size}-device_params0]"
     )
-    cols = ["DEVICE FW", "DEVICE KERNEL", "DEVICE BRISC KERNEL"]
 
     inference_time_key = "AVG DEVICE KERNEL SAMPLES/S"
     post_processed_results = run_device_perf(
@@ -130,12 +143,18 @@ def run_one(callback, wlname: str, cfg: dict):
 
 def standalone(test_name: str | None = None) -> None:
     """Run standalone device-perf ViT tests, or a single test by short name."""
+    all_names = _STANDALONE_VALID_SHORT_NAMES | {"device-perf"}
+
+    if test_name == "device-perf":
+        test_vit_perf_device()
+        return
+
     if test_name is None:
         for _short, fn, wlname in _STANDALONE_RUN_SPECS:
             run_one(fn, wlname, {})
         return
-    if test_name not in _STANDALONE_VALID_SHORT_NAMES:
-        valid = ", ".join(sorted(_STANDALONE_VALID_SHORT_NAMES))
+    if test_name not in all_names:
+        valid = ", ".join(sorted(all_names))
         logger.error(f"Unknown test {test_name}. Valid names: {valid}")
         sys.exit(1)
     for short, fn, wlname in _STANDALONE_RUN_SPECS:
