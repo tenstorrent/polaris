@@ -83,8 +83,25 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         '--strip-leading-ones',
         action='store_true',
-        help='Strip all leading 1s from shapes instead of collapsing to single 1 (more lenient matching for broadcast dimensions)'
+        default=True,
+        help='Strip all leading 1s from shapes (default: enabled). '
+             'Leading 1s are a batch-dimension convention difference between Polaris and HW. '
+             'Use --no-strip-leading-ones for strict matching.'
     )
+    parser.add_argument(
+        '--no-strip-leading-ones',
+        action='store_false',
+        dest='strip_leading_ones',
+        help='Disable stripping of leading 1s for strict shape matching'
+    )
+    # NOTE: --strip-singleton-dims is currently required for NLP fused ops
+    # (NLPCreateQKVHeads, NLPConcatHeads) because HW uses 4D shapes with a
+    # seq_groups=1 singleton dim (e.g. [B, 1, S, H]) while Polaris emits 3D
+    # shapes (e.g. [B, S, H]). Additionally, HW implicitly reinterprets the
+    # output of NLPConcatHeads from [B, 1, S, H] to [1, B, S, H] for
+    # downstream ops without an explicit reshape. Future work: update the
+    # Polaris shim to emit 4D shapes and model this implicit view change,
+    # which would allow removing this flag for those ops.
     parser.add_argument(
         '--strip-singleton-dims',
         action='store_true',

@@ -2258,12 +2258,12 @@ def interleaved_to_sharded(input_tensor, memory_config=None, output_dtype=None):
     should_track = (mode == ExecutionMode.TRACK_ONLY or mode == ExecutionMode.EXECUTE_AND_TRACK)
     should_execute = (mode == ExecutionMode.EXECUTE or mode == ExecutionMode.EXECUTE_AND_TRACK)
 
-    if should_track:
+    if should_track and input_tensor.device is not None and isinstance(input_tensor, Tensor):
         elem_sz = input_tensor.element_size() if hasattr(input_tensor, 'element_size') else 2
-        _tracker.track_interleaved_to_sharded(
-            input_tensor.logical_shape()._shape,
-            element_size=elem_sz,
-        )
+        out_tensor = interleaved_to_sharded_op(input_tensor, memory_config=memory_config, element_size=elem_sz)
+        if output_dtype is not None:
+            out_tensor.dtype = output_dtype
+        return out_tensor
 
     output_data = None
     if should_execute and hasattr(input_tensor, 'has_data') and input_tensor.has_data():
@@ -2315,12 +2315,12 @@ def sharded_to_interleaved(input_tensor, memory_config=None, output_dtype=None):
     should_track = (mode == ExecutionMode.TRACK_ONLY or mode == ExecutionMode.EXECUTE_AND_TRACK)
     should_execute = (mode == ExecutionMode.EXECUTE or mode == ExecutionMode.EXECUTE_AND_TRACK)
 
-    if should_track:
+    if should_track and input_tensor.device is not None and isinstance(input_tensor, Tensor):
         elem_sz = input_tensor.element_size() if hasattr(input_tensor, 'element_size') else 2
-        _tracker.track_sharded_to_interleaved(
-            input_tensor.logical_shape()._shape,
-            element_size=elem_sz,
-        )
+        out_tensor = sharded_to_interleaved_op(input_tensor, memory_config=memory_config, element_size=elem_sz)
+        if output_dtype is not None:
+            out_tensor.dtype = output_dtype
+        return out_tensor
 
     output_data = None
     if should_execute and hasattr(input_tensor, 'has_data') and input_tensor.has_data():
@@ -2372,12 +2372,9 @@ def reshard(input_tensor, memory_config, output_tensor=None):
     should_track = (mode == ExecutionMode.TRACK_ONLY or mode == ExecutionMode.EXECUTE_AND_TRACK)
     should_execute = (mode == ExecutionMode.EXECUTE or mode == ExecutionMode.EXECUTE_AND_TRACK)
 
-    if should_track:
+    if should_track and input_tensor.device is not None and isinstance(input_tensor, Tensor):
         elem_sz = input_tensor.element_size() if hasattr(input_tensor, 'element_size') else 2
-        _tracker.track_reshard(
-            input_tensor.logical_shape()._shape,
-            element_size=elem_sz,
-        )
+        return reshard_op(input_tensor, memory_config=memory_config, element_size=elem_sz)
 
     output_data = None
     if should_execute and hasattr(input_tensor, 'has_data') and input_tensor.has_data():
@@ -2405,6 +2402,13 @@ def nlp_concat_heads_op(input_tensor, memory_config=None, element_size=2):
     """Create an NLPConcatHeads SimOp (tracking-only; no execution).
 
     Input: [B, num_heads, S, head_dim] -> Output: [B, S, num_heads*head_dim]
+
+    NOTE: HW emits a 4D output [B, 1, S, num_heads*head_dim] with
+    seq_groups=1 in the Z position, then implicitly reinterprets it as
+    [1, B, S, H] (W=1, Z=batch) for downstream ops. Polaris currently
+    emits 3D [B, S, H]. The comparison tool (compare_layers.py
+    --strip-singleton-dims) normalizes this difference. Future work:
+    emit 4D shapes and model the implicit view change.
     """
     assert input_tensor.device is not None, "nlp_concat_heads_op requires input_tensor on device"
     in_shape = input_tensor.logical_shape()._shape
@@ -2489,6 +2493,14 @@ def nlp_create_qkv_heads_op(input_tensor, kv_input_tensor=None, *,
     Outputs: Q=[B, num_heads, S, head_dim],
              K=[B, num_kv_heads, head_dim, S] if transpose_k_heads else [B, num_kv_heads, S, head_dim],
              V=[B, num_kv_heads, S, head_dim]
+
+    NOTE: HW uses 4D WZYX shapes with a seq_groups=1 singleton dim:
+    input [B, 1, S, hidden], output [B, heads, S, head_dim]. Polaris currently
+    emits 3D shapes [B, S, hidden] for the input. The comparison tool
+    (compare_layers.py --strip-singleton-dims) normalizes this difference.
+    Future work: emit 4D shapes here and propagate the implicit view change
+    [B, 1, S, H] -> [1, B, S, H] that HW performs between NLPConcatHeads
+    and downstream ops (Reshard, MatMul).
     """
     assert input_tensor.device is not None, "nlp_create_qkv_heads_op requires input_tensor on device"
     if num_kv_heads is None:
