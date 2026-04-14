@@ -42,37 +42,7 @@ if not IS_POLARIS:
     from tests.ttnn.utils_for_testing import assert_with_pcc   # type: ignore[import] # noqa F401, E402
 
 if IS_POLARIS:
-    # TODO: Replace hardcoded config_dict with a downloaded config.json file or
-    # use huggingface_hub (no torch dependency) to fetch it at runtime, e.g.:
-    #   from huggingface_hub import hf_hub_download
-    #   path = hf_hub_download("google/vit-base-patch16-224", "config.json")
-    #   config_dict = json.load(open(path))
-    # This avoids staleness and scales to multiple models.
-    config_dict = {
-      "architectures": ["ViTForImageClassification"  ],
-      "attention_probs_dropout_prob": 0.0,
-      "encoder_stride": 16,
-      "hidden_act": "gelu",
-      "hidden_dropout_prob": 0.0,
-      "hidden_size": 768,
-      "id2label": {  },
-      "image_size": 224,
-      "initializer_range": 0.02,
-      "intermediate_size": 3072,
-      "label2id": {  },
-      "layer_norm_eps": 1e-12,
-      "model_type": "vit",
-      "num_attention_heads": 12,
-      "num_channels": 3,
-      "num_hidden_layers": 12,
-      "patch_size": 16,
-      "pooler_act": "tanh",
-      "pooler_output_size": 768,
-      "qkv_bias": True,
-      "transformers_version": "4.53.0"
-    }
-
-    config_obj = types.SimpleNamespace(**config_dict)
+    from workloads.ttnn.vit.vit_polaris_params import config_dict, config_obj  # noqa: E402
 
 
     def make_info(weight_shape, bias_shape):
