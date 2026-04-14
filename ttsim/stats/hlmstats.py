@@ -140,10 +140,19 @@ def save_data(model: BaseModel, filename, outputfmt: OutputFormat)->None:
         with open(filename, 'wb') as foutbin:
             pickle.dump(model, foutbin)
 
-def format_tensor_for_stats(tensor) -> str:
-    """Format a single tensor as name[dim1xdim2xdim3]:precision for stats output."""
+def format_tensor_for_stats(tensor, shape_override=None) -> str:
+    """Format a single tensor as name[dim1xdim2xdim3]:precision for stats output.
+
+    Args:
+        tensor: The tensor to format.
+        shape_override: If provided, use this shape instead of the live tensor.shape.
+            Used by _extract_tensor_info to pass frozen shapes from SimOp so that
+            post-op set_shape mutations don't corrupt recorded shapes.
+    """
     name = tensor.name
-    shape = shape_as_optional_list(tensor.shape) or []
+    shape = shape_as_optional_list(
+        shape_override if shape_override is not None else tensor.shape
+    ) or []
     # Get precision as string
     if hasattr(tensor.dtype, 'name'):
         precision = tensor.dtype.name.lower()
@@ -210,16 +219,22 @@ class HLMStats:
         input_attrs = []
         output_attrs = []
 
+        # Prefer frozen shapes from SimOp (captured at op execution time) over
+        # live tensor shapes which may have been mutated by later set_shape() calls.
+        frozen_in = getattr(op, '_frozen_input_shapes', [])
+        frozen_out = getattr(op, '_frozen_output_shapes', [])
+
         # Process input tensors
-        for tensor_name in op.inList:
+        for i, tensor_name in enumerate(op.inList):
             if tensor_name in self.wlgraph._tensors:
                 tensor = self.wlgraph._tensors[tensor_name]
-                input_parts.append(format_tensor_for_stats(tensor))
+                shape_ov = frozen_in[i] if i < len(frozen_in) else None
+                input_parts.append(format_tensor_for_stats(tensor, shape_override=shape_ov))
                 input_attrs.append(self._tensor_attrs_dict(tensor))
 
                 # If tensor is a parameter/weight, also add to weight_tensors
                 if tensor.is_param:
-                    weight_parts.append(format_tensor_for_stats(tensor))
+                    weight_parts.append(format_tensor_for_stats(tensor, shape_override=shape_ov))
             else:
                 WARNING(
                     f"Tensor '{tensor_name}' not found in workload graph tensors for op '{op.name}'.",
@@ -227,10 +242,11 @@ class HLMStats:
                 )
 
         # Process output tensors
-        for tensor_name in op.outList:
+        for i, tensor_name in enumerate(op.outList):
             if tensor_name in self.wlgraph._tensors:
                 tensor = self.wlgraph._tensors[tensor_name]
-                output_parts.append(format_tensor_for_stats(tensor))
+                shape_ov = frozen_out[i] if i < len(frozen_out) else None
+                output_parts.append(format_tensor_for_stats(tensor, shape_override=shape_ov))
                 output_attrs.append(self._tensor_attrs_dict(tensor))
             else:
                 WARNING(

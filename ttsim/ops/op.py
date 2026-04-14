@@ -35,6 +35,12 @@ class SimOp:
         # with input tensors dim/shape being well defined
         self.perf_stats: Union[dict, None]   = None
 
+        # Frozen shape snapshots: captured at the end of get_perf_counts() so that
+        # later tensor mutations (e.g. model-level set_shape) don't retroactively
+        # alter the shapes recorded in CSV output.  See docs/design/simop-shape-snapshot.md.
+        self._frozen_input_shapes: list[Any]  = []
+        self._frozen_output_shapes: list[Any] = []
+
         #These fields are set via execution of op of a device...
         self.precision               = None
         self.removed_in_optimization = False
@@ -90,6 +96,16 @@ class SimOp:
             # that would break the code. Hence the shapes are intercepted here,
             # and converted to Shape type through the set_shape() method.
             tmp.set_shape(tmp.shape)
+
+        # Snapshot tensor shapes now (post shape-inference, pre model mutations).
+        # CSV serialization reads these instead of the live tensor, so that
+        # subsequent set_shape() calls don't corrupt the op's recorded shapes.
+        self._frozen_input_shapes = [
+            list(t.shape) if t.shape is not None else None for t in inT
+        ]
+        self._frozen_output_shapes = [
+            list(t.shape) if t.shape is not None else None for t in outT
+        ]
 
         return self.perf_stats
 
