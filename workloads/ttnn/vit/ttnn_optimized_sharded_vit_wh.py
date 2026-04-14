@@ -43,16 +43,19 @@ def vit_patch_embeddings(config, pixel_values, *, parameters, unittest_check=Fal
         "opt_vit_patch_fold_tolayout",
         "fold (and preceding ops) should set output layout; remove explicit to_layout.",
     )
-    pixel_values = ttnn.to_layout(pixel_values, layout=ttnn.TILE_LAYOUT)
+    pixel_values = ttnn.to_layout(pixel_values, layout=ttnn.TILE_LAYOUT, dtype=ttnn.bfloat8_b)
 
     if unittest_check:
         parameters = parameters.vit.embeddings.patch_embeddings
 
     # ttnn.linear emits a single fused MatMul SimOp (matmul + bias), matching
     # HW's MatmulDeviceOperation.  Previously decomposed as matmul → add.
+    # output_dtype=bfloat16: on HW the patch projection matmul accumulates in
+    # BF16 (not activations_dtype), matching profiler OUT0=BFLOAT16.
     patch_embedding_output = ttnn.linear(
         pixel_values, parameters.projection.weight,
         bias=parameters.projection.bias,
+        output_dtype=ttnn.bfloat16,
     )
     _warn_layout_operator_todo_once(
         "opt_vit_patch_proj_linear_layout",

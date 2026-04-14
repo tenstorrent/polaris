@@ -61,9 +61,9 @@ class VitTestInfra:
         torch_position_embeddings = ttnn_random(
             (batch_size, sequence_len, hidden), -0.1, 0.1, dtype=torch.bfloat16,
         )
-        self.cls_token = ttnn.from_torch(torch_cls_token, layout=ttnn.ROW_MAJOR_LAYOUT)
+        self.cls_token = ttnn.from_torch(torch_cls_token, dtype=ttnn.bfloat16, layout=ttnn.ROW_MAJOR_LAYOUT)
         self.position_embeddings = ttnn.from_torch(
-            torch_position_embeddings, layout=ttnn.TILE_LAYOUT,
+            torch_position_embeddings, dtype=ttnn.bfloat8_b, layout=ttnn.TILE_LAYOUT,
         )
 
         # Pixel values already in post-reshape shape [B, H, W/patch, 4*patch]

@@ -250,8 +250,8 @@ def test_vit_embeddings(
         torch_position_embeddings = torch_random(
             (batch_size, sequence_len, hidden), -0.1, 0.1, dtype=torch.bfloat16
         )
-        cls_token = ttnn.from_torch(torch_cls_token, layout=ttnn.ROW_MAJOR_LAYOUT)
-        position_embeddings = ttnn.from_torch(torch_position_embeddings, layout=ttnn.TILE_LAYOUT)
+        cls_token = ttnn.from_torch(torch_cls_token, dtype=ttnn.bfloat16, layout=ttnn.ROW_MAJOR_LAYOUT)
+        position_embeddings = ttnn.from_torch(torch_position_embeddings, dtype=ttnn.bfloat8_b, layout=ttnn.TILE_LAYOUT)
 
         parameters = polaris_parameters_vit_patch_embeddings()
         output = ttnn_optimized_sharded_vit.vit_embeddings(
@@ -324,7 +324,7 @@ def test_vit_attention(device, model_name="google/vit-base-patch16-224",
         torch_hidden_states = torch_random(
             (batch_size, sequence_size, config.hidden_size), -0.1, 0.1, dtype=torch.bfloat16
         )
-        hidden_states = ttnn.from_torch(torch_hidden_states, layout=ttnn.TILE_LAYOUT)
+        hidden_states = ttnn.from_torch(torch_hidden_states, dtype=ttnn.bfloat8_b, layout=ttnn.TILE_LAYOUT)
         parameters = Parameters_attention_optimized()
 
         output = ttnn_optimized_sharded_vit.vit_attention(
@@ -380,7 +380,7 @@ def test_vit_intermediate(device, model_name="google/vit-base-patch16-224",
         torch_hidden_states = torch_random(
             (batch_size, sequence_size, config.hidden_size), -0.1, 0.1, dtype=torch.bfloat16
         )
-        hidden_states = ttnn.from_torch(torch_hidden_states, layout=ttnn.TILE_LAYOUT)
+        hidden_states = ttnn.from_torch(torch_hidden_states, dtype=ttnn.bfloat8_b, layout=ttnn.TILE_LAYOUT)
         parameters = Parameters_dense_intermediate()
 
         output = ttnn_optimized_sharded_vit.vit_intermediate(
@@ -454,9 +454,12 @@ def test_vit_output(device, model_name="google/vit-base-patch16-224",
         torch_intermediate = torch_random(
             (batch_size, sequence_size, config.intermediate_size), -0.1, 0.1, dtype=torch.bfloat16
         )
-        intermediate = ttnn.from_torch(torch_intermediate, layout=ttnn.TILE_LAYOUT)
-        residual = torch_random(
-            (batch_size, sequence_size, config.hidden_size), -0.1, 0.1, dtype=torch.bfloat16
+        intermediate = ttnn.from_torch(torch_intermediate, dtype=ttnn.bfloat8_b, layout=ttnn.TILE_LAYOUT)
+        residual = ttnn.from_torch(
+            torch_random(
+                (batch_size, sequence_size, config.hidden_size), -0.1, 0.1, dtype=torch.bfloat16
+            ),
+            dtype=ttnn.bfloat8_b, layout=ttnn.TILE_LAYOUT,
         )
         parameters = Parameters_dense_output()
 
@@ -536,7 +539,7 @@ def test_vit_layer(
         torch_hidden_states = torch_random(
             (batch_size, sequence_size, config.hidden_size), -1, 1, dtype=torch.bfloat16
         )
-        hidden_states = ttnn.from_torch(torch_hidden_states, layout=ttnn.TILE_LAYOUT)
+        hidden_states = ttnn.from_torch(torch_hidden_states, dtype=ttnn.bfloat8_b, layout=ttnn.TILE_LAYOUT)
         parameters = _polaris_vit_encoder_layer_parameters()
 
         output = ttnn_optimized_sharded_vit.vit_layer(
@@ -605,7 +608,7 @@ def test_vit_encoder(
         torch_hidden_states = torch_random(
             (batch_size, sequence_size, config.hidden_size), -0.1, 0.1, dtype=torch.bfloat16
         )
-        hidden_states = ttnn.from_torch(torch_hidden_states, dtype=ttnn.bfloat16, layout=ttnn.TILE_LAYOUT)
+        hidden_states = ttnn.from_torch(torch_hidden_states, dtype=ttnn.bfloat8_b, layout=ttnn.TILE_LAYOUT)
         parameters = polaris_parameters_vit_encoder()
 
         output = ttnn_optimized_sharded_vit.vit_encoder(
@@ -732,8 +735,8 @@ def test_vit(
         torch_position_embeddings = torch_random(
             (batch_size, sequence_len, config.hidden_size), -0.1, 0.1, dtype=torch.bfloat16
         )
-        cls_token = ttnn.from_torch(torch_cls_token, layout=ttnn.ROW_MAJOR_LAYOUT)
-        position_embeddings = ttnn.from_torch(torch_position_embeddings, layout=ttnn.TILE_LAYOUT)
+        cls_token = ttnn.from_torch(torch_cls_token, dtype=ttnn.bfloat16, layout=ttnn.ROW_MAJOR_LAYOUT)
+        position_embeddings = ttnn.from_torch(torch_position_embeddings, dtype=ttnn.bfloat8_b, layout=ttnn.TILE_LAYOUT)
 
         parameters = polaris_vit_parameters(num_labels=num_labels)
         output = ttnn_optimized_sharded_vit.vit(

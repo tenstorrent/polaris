@@ -26,11 +26,20 @@ config_obj.core_grid = ttnn.CoreGrid(
 )
 
 
-def make_info(weight_shape, bias_shape):
-    return types.SimpleNamespace(**{
-        "weight": ttnn.Tensor(shape=weight_shape, dtype=ttnn.DataType.BFLOAT16, layout=ttnn.TILE_LAYOUT),
-        "bias": ttnn.Tensor(shape=bias_shape, dtype=ttnn.DataType.BFLOAT16, layout=ttnn.TILE_LAYOUT),
-    })
+def make_info(weight_shape, bias_shape, *, report_dtype=None):
+    """Create a weight/bias namespace.
+
+    *report_dtype* overrides the DataType reported in stats/CSV without changing
+    the underlying numpy dtype used for byte-count calculations.  HW stores
+    linear (MatMul) weights as BFLOAT8_B but keeps LayerNorm gamma/beta as
+    BFLOAT16; callers pass ``report_dtype`` accordingly.
+    """
+    w = ttnn.Tensor(shape=weight_shape, dtype=ttnn.DataType.BFLOAT16, layout=ttnn.TILE_LAYOUT)
+    b = ttnn.Tensor(shape=bias_shape, dtype=ttnn.DataType.BFLOAT16, layout=ttnn.TILE_LAYOUT)
+    if report_dtype is not None:
+        w._ttnn_dtype = report_dtype
+        b._ttnn_dtype = report_dtype
+    return types.SimpleNamespace(weight=w, bias=b)
 
 
 # ---------------------------------------------------------------------------
@@ -50,6 +59,7 @@ def _polaris_vit_embeddings_patch_parameters():
             projection=make_info(
                 weight_shape=ttnn.Shape([1024, hidden]),
                 bias_shape=ttnn.Shape([1, hidden]),
+                report_dtype=ttnn.DataType.BFLOAT8_B,
             )
         )
     )
@@ -76,10 +86,12 @@ class Parameters_attention_optimized:
         qkv = make_info(
             weight_shape=ttnn.Shape([hidden, hidden * 3]),
             bias_shape=ttnn.Shape([1, hidden * 3]),
+            report_dtype=ttnn.DataType.BFLOAT8_B,
         )
         dense = make_info(
             weight_shape=ttnn.Shape([hidden, hidden]),
             bias_shape=ttnn.Shape([1, hidden]),
+            report_dtype=ttnn.DataType.BFLOAT8_B,
         )
         self.attention = types.SimpleNamespace(query_key_value=qkv)
         self.output = types.SimpleNamespace(dense=dense)
@@ -92,6 +104,7 @@ class Parameters_dense_intermediate:
         self.dense = make_info(
             weight_shape=ttnn.Shape([hidden, intermediate]),
             bias_shape=ttnn.Shape([1, intermediate]),
+            report_dtype=ttnn.DataType.BFLOAT8_B,
         )
 
 
@@ -102,6 +115,7 @@ class Parameters_dense_output:
         self.dense = make_info(
             weight_shape=ttnn.Shape([intermediate, hidden]),
             bias_shape=ttnn.Shape([1, hidden]),
+            report_dtype=ttnn.DataType.BFLOAT8_B,
         )
 
 
@@ -160,5 +174,6 @@ def polaris_vit_parameters(*, num_labels: int = 1152):
     classifier = make_info(
         weight_shape=ttnn.Shape([hidden, num_labels]),
         bias_shape=ttnn.Shape([1, num_labels]),
+        report_dtype=ttnn.DataType.BFLOAT8_B,
     )
     return types.SimpleNamespace(vit=vit_ns, classifier=classifier)
