@@ -37,6 +37,35 @@ def generate_new_op_name():
     return f"ttsim.ttnn.Op_{next(op_counter)}"
 
 
+_COMPACT_DTYPES = frozenset()  # populated after DataType import below
+
+
+def _propagate_ttnn_dtype(inputs: list[Tensor], outputs: list[Tensor]) -> None:
+    """Propagate _ttnn_dtype from inputs to unannotated outputs.
+
+    When inputs carry different DataTypes (e.g. BFLOAT16 + BFLOAT8_B), the more
+    compact type wins.  This mirrors HW behaviour where ``activations_dtype``
+    (typically BFLOAT8_B) dominates after the first conversion point.
+    """
+    candidates = [
+        getattr(t, "_ttnn_dtype", None)
+        for t in inputs
+        if getattr(t, "_ttnn_dtype", None) is not None
+    ]
+    if not candidates:
+        return
+
+    compact = [d for d in candidates if d in _COMPACT_DTYPES]
+    src = compact[0] if compact else candidates[0]
+
+    for o in outputs:
+        if getattr(o, "_ttnn_dtype", None) is None:
+            o._ttnn_dtype = src
+
+
+_COMPACT_DTYPES = frozenset({DataType.BFLOAT8_B, DataType.BFLOAT4_B})
+
+
 def single_output_immediate_op(optype, /, preprocess=None):
 
     def _impl(*args, **kwargs):
@@ -70,21 +99,26 @@ def single_output_immediate_op(optype, /, preprocess=None):
                 opinfo["inList"].append(x.name)
                 new_args.append(x)
             elif isinstance(x, (int, float)):
-                # print(f"FOUND not Tensor input in ttnn.op({optype}) : {type(x)}")
                 if optype in ["Add", "Sub", "Mul"]:
-                    # Scalar input's type is matched to the tensor input type
                     assert (
                         len(tensor_args) == 1
                     ), f"Only one tensor input supported for {optype} with scalar input"
-                    arg0_dtype = DataType.from_numpy(tensor_args[0].dtype)
+                    # On tt-metal, scalar operands in binary ops are NOT
+                    # represented as Tensors.  The scalar is stored in op
+                    # attributes and broadcast-filled into a compute buffer by
+                    # the kernel.  Mirror this by recording the value in attrs
+                    # rather than synthesising a tracked Tensor.
+                    opinfo["attrs"]["scalar"] = x
+                    # A temporary host-only tensor is still needed so that the
+                    # shape-inference function (bidir_bcast, which expects
+                    # exactly 2 inputs) can run.  It is deliberately excluded
+                    # from opinfo["inList"] so it never appears in the CSV.
                     tmp = Tensor(
-                        name=f"{op_name}.in.{i}",
-                        shape=[],
-                        dtype=arg0_dtype,
-                        device=device,
+                        name=f"{op_name}.scalar",
+                        shape=list(tensor_args[0].shape) if tensor_args[0].shape is not None else [1],
+                        dtype=DataType.from_numpy(tensor_args[0].dtype),
+                        device=None,
                     )
-                    tmp.op_in.append(op_name)
-                    opinfo["inList"].append(tmp.name)
                     new_args.append(tmp)
                 else:
                     logger.warning(
@@ -105,6 +139,7 @@ def single_output_immediate_op(optype, /, preprocess=None):
         perf_stats = opobj.get_perf_counts(new_args, [C])
         opobj.update_tensor_counts(new_args, [C])
 
+        _propagate_ttnn_dtype(tensor_args, [C])
         device.add_op(opobj)  # type: ignore[union-attr]
 
         return C
@@ -148,6 +183,7 @@ def multiple_output_immediate_op(optype, /, preprocess=None):
         # print(f"{optype}:: {perf_stats}")
         opobj.update_tensor_counts(new_args, out_tensors)
 
+        _propagate_ttnn_dtype(tensor_args, out_tensors)
         device.add_op(opobj)  # type: ignore[union-attr]
 
         return tuple(out_tensors)
@@ -774,6 +810,13 @@ def linear(*args, **kwargs):
     opobj = SimOp(opinfo)
     opobj.get_perf_counts(input_tensors, [C])
     opobj.update_tensor_counts(input_tensors, [C])
+
+    output_dtype = kwargs.get("output_dtype", None)
+    if output_dtype is not None and isinstance(output_dtype, DataType):
+        C._ttnn_dtype = output_dtype
+    else:
+        _propagate_ttnn_dtype(input_tensors, [C])
+
     if device is not None:
         device.add_op(opobj)
     return C
@@ -857,6 +900,7 @@ def fold(
         opobj = SimOp(opinfo)
         opobj.get_perf_counts([ttnn_tensor_like], [out_tensor])
         opobj.update_tensor_counts([ttnn_tensor_like], [out_tensor])
+        _propagate_ttnn_dtype([ttnn_tensor_like], [out_tensor])
         ttnn_tensor_like.device.add_op(opobj)
         reshaped2 = out_tensor
 

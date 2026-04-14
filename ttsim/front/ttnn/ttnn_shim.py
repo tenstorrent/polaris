@@ -23,7 +23,7 @@ from ttsim.ops.op import SimOp
 from .tensor import DataType, Layout, Shape
 from .types import TILE_HEIGHT, TILE_WIDTH, TILE_HW
 from .tensor import Tensor
-from .op import generate_new_op_name, reshape as ttnn_reshape_simop
+from .op import _propagate_ttnn_dtype, generate_new_op_name, reshape as ttnn_reshape_simop
 
 # Memory config placeholder
 class MemoryConfig:
@@ -1389,6 +1389,7 @@ def tilize_op(input_tensor, use_multicore=True, element_size=2, memory_config=No
     opobj = SimOp(opinfo)
     opobj.get_perf_counts([input_tensor], [out_tensor])
     opobj.update_tensor_counts([input_tensor], [out_tensor])
+    _propagate_ttnn_dtype([input_tensor], [out_tensor])
     input_tensor.device.add_op(opobj)
     return out_tensor
 
@@ -1425,6 +1426,7 @@ def untilize_op(input_tensor, use_multicore=True, use_pack_untilize=True, elemen
     opobj = SimOp(opinfo)
     opobj.get_perf_counts([input_tensor], [out_tensor])
     opobj.update_tensor_counts([input_tensor], [out_tensor])
+    _propagate_ttnn_dtype([input_tensor], [out_tensor])
     input_tensor.device.add_op(opobj)
     return out_tensor
 
@@ -1475,6 +1477,7 @@ def tilize_with_val_padding_op(input_tensor, output_padded_shape, pad_value,
     opobj = SimOp(opinfo)
     opobj.get_perf_counts([input_tensor], [out_tensor])
     opobj.update_tensor_counts([input_tensor], [out_tensor])
+    _propagate_ttnn_dtype([input_tensor], [out_tensor])
     input_tensor.device.add_op(opobj)
     return out_tensor
 
@@ -1785,6 +1788,7 @@ def untilize_with_unpadding_op(input_tensor, output_shape,
     opobj = SimOp(opinfo)
     opobj.get_perf_counts([input_tensor], [out_tensor])
     opobj.update_tensor_counts([input_tensor], [out_tensor])
+    _propagate_ttnn_dtype([input_tensor], [out_tensor])
     input_tensor.device.add_op(opobj)
     return out_tensor
 
@@ -1830,6 +1834,7 @@ def permute_op(input_tensor, dims, memory_config=None):
     opobj = SimOp(opinfo)
     opobj.get_perf_counts([input_tensor], [out_tensor])
     opobj.update_tensor_counts([input_tensor], [out_tensor])
+    _propagate_ttnn_dtype([input_tensor], [out_tensor])
     input_tensor.device.add_op(opobj)
     return out_tensor
 
@@ -1954,7 +1959,10 @@ def to_layout(tensor, layout, dtype=None, memory_config=None, sub_core_grids=Non
                     logger.debug(
                         "to_layout: choosing tilize_op (device tensor, no padding change, ROW_MAJOR->TILE; logical_shape already tile-aligned)"
                     )
-                    return tilize_op(tensor, use_multicore=True, element_size=2, memory_config=output_memory_config)
+                    out = tilize_op(tensor, use_multicore=True, element_size=2, memory_config=output_memory_config)
+                    if dtype is not None and isinstance(dtype, DataType):
+                        out._ttnn_dtype = dtype
+                    return out
                 else:
                     # Not using tilize_op: input is not a ttsim Tensor (e.g. TensorProxy) or has no device; preserve API with tracker + manual tensor.
                     if should_track:
@@ -2242,6 +2250,7 @@ def interleaved_to_sharded_op(input_tensor, memory_config=None, element_size=2):
     opobj = SimOp(opinfo)
     opobj.get_perf_counts([input_tensor], [out_tensor])
     opobj.update_tensor_counts([input_tensor], [out_tensor])
+    _propagate_ttnn_dtype([input_tensor], [out_tensor])
     input_tensor.device.add_op(opobj)
     return out_tensor
 
@@ -2305,6 +2314,7 @@ def sharded_to_interleaved_op(input_tensor, memory_config=None, element_size=2):
     opobj = SimOp(opinfo)
     opobj.get_perf_counts([input_tensor], [out_tensor])
     opobj.update_tensor_counts([input_tensor], [out_tensor])
+    _propagate_ttnn_dtype([input_tensor], [out_tensor])
     input_tensor.device.add_op(opobj)
     return out_tensor
 
@@ -2362,6 +2372,7 @@ def reshard_op(input_tensor, memory_config=None, element_size=2):
     opobj = SimOp(opinfo)
     opobj.get_perf_counts([input_tensor], [out_tensor])
     opobj.update_tensor_counts([input_tensor], [out_tensor])
+    _propagate_ttnn_dtype([input_tensor], [out_tensor])
     input_tensor.device.add_op(opobj)
     return out_tensor
 
@@ -2436,6 +2447,7 @@ def nlp_concat_heads_op(input_tensor, memory_config=None, element_size=2):
     opobj = SimOp(opinfo)
     opobj.get_perf_counts([input_tensor], [out_tensor])
     opobj.update_tensor_counts([input_tensor], [out_tensor])
+    _propagate_ttnn_dtype([input_tensor], [out_tensor])
     input_tensor.device.add_op(opobj)
     return out_tensor
 
@@ -2559,6 +2571,7 @@ def nlp_create_qkv_heads_op(input_tensor, kv_input_tensor=None, *,
     out_tensors = [q_tensor, k_tensor, v_tensor]
     opobj.get_perf_counts(in_tensors, out_tensors)
     opobj.update_tensor_counts(in_tensors, out_tensors)
+    _propagate_ttnn_dtype(in_tensors, out_tensors)
     input_tensor.device.add_op(opobj)
     return q_tensor, k_tensor, v_tensor
 

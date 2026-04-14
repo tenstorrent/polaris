@@ -167,9 +167,13 @@ class Tensor(SimTensor):
         if kwargs['device'] is not None and not isinstance(kwargs['device'], Device):
             raise TypeError(f"Error: Tensor Creation -- attribute device={kwargs['device']} should be of type Device or None")
 
-        # NOTE: Convert DataType enum to np.dtype for compatibility with downstream operations
-        # that expect np.dtype (e.g., typesize in ops/tensor.py).
+        # NumPy has no native bfloat8/bfloat4 types, so DataType.BFLOAT8_B and
+        # BFLOAT4_B both map to np.float32 via to_numpy -- making them
+        # indistinguishable from FLOAT32.  We preserve the original DataType
+        # enum so that stats/CSV output can report the true ttnn dtype.
+        self._ttnn_dtype: DataType | None = None
         if 'dtype' in kwargs and isinstance(kwargs['dtype'], DataType):
+            self._ttnn_dtype = kwargs['dtype']
             kwargs['dtype'] = kwargs['dtype'].to_numpy
 
         if "name" not in kwargs:
@@ -725,6 +729,8 @@ def typecast(input_tensor, dtype):
 def from_torch(torch_tensor_like, **kwargs):
     for k, v in kwargs.items():
         if hasattr(torch_tensor_like, k):
+            if k == "dtype" and isinstance(v, DataType):
+                torch_tensor_like._ttnn_dtype = v
             setattr(torch_tensor_like, k, v.to_numpy if k == "dtype" else v)
 
     if "device" in kwargs:

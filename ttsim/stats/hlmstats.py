@@ -153,8 +153,13 @@ def format_tensor_for_stats(tensor, shape_override=None) -> str:
     shape = shape_as_optional_list(
         shape_override if shape_override is not None else tensor.shape
     ) or []
-    # Get precision as string
-    if hasattr(tensor.dtype, 'name'):
+    # Prefer the original ttnn DataType name (e.g. "bfloat8_b") over the
+    # numpy dtype name (e.g. "float32") because multiple ttnn types collapse
+    # to the same numpy dtype (BFLOAT8_B, BFLOAT4_B, FLOAT32 -> np.float32).
+    ttnn_dtype = getattr(tensor, '_ttnn_dtype', None)
+    if ttnn_dtype is not None:
+        precision = ttnn_dtype.name.lower()
+    elif hasattr(tensor.dtype, 'name'):
         precision = tensor.dtype.name.lower()
     elif isinstance(tensor.dtype, str):
         precision = tensor.dtype.lower()
@@ -196,7 +201,10 @@ class HLMStats:
         layout_str = layout.name if layout is not None else None
         mem = tensor.memory_config() if callable(getattr(tensor, 'memory_config', None)) else None
         mem_str = str(mem) if mem is not None else None
-        if hasattr(tensor.dtype, 'name'):
+        ttnn_dtype = getattr(tensor, '_ttnn_dtype', None)
+        if ttnn_dtype is not None:
+            dtype_str = ttnn_dtype.name.lower()
+        elif hasattr(tensor.dtype, 'name'):
             dtype_str = tensor.dtype.name.lower()
         elif isinstance(tensor.dtype, str):
             dtype_str = tensor.dtype.lower()
