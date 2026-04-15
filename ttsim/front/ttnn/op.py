@@ -822,39 +822,43 @@ def linear(*args, **kwargs):
     return C
 
 
-# fold:
-# takes an input tensor with shape (N, H, W, C) and transforms it to shape
-# (N, H//stride_h, W//stride_w, C*stride_h*stride_w) by reshaping and permuting
-# the spatial dimensions. This operation is commonly used as a preprocessing step
-# for convolution operations, similar to the im2col operation in other deep learning
-# frameworks, to reorganize input data in a format suitable for efficient matrix
-# multiplication on Tenstorrent hardware.
 def fold(
     ttnn_tensor_like,
     stride_h: int,
     stride_w: int,
     *,
     use_transpose_as_fold=False,
-    output_shape=None,  # ttnn.Shape
+    output_shape=None,  # ttnn.Shape  -- accepted for ttnn API compat, unused
     pad_c: int = 0,
     pad_h: int = 0,
     pad_w: int = 0,
-    grid_size=None,  # ttnn.CoreRangeSet
-    override_memory_config: MemoryConfig = None,  # type: ignore
+    grid_size=None,  # ttnn.CoreRangeSet  -- accepted for ttnn API compat, unused
+    override_memory_config: MemoryConfig = None,  # type: ignore  -- accepted for ttnn API compat, unused
 ):
+    """Fold: (N,H,W,C) → (N, H//stride_h, W//stride_w, C*stride_h*stride_w).
 
+    Reorganises spatial dimensions similarly to im2col, commonly used as a
+    preprocessing step for convolution on Tenstorrent hardware.
+
+    Two execution paths:
+      - ``use_transpose_as_fold=True``: decomposed into reshape/transpose ops,
+        always produces logical 4D output.
+      - ``use_transpose_as_fold=False`` (default): creates a first-class Fold
+        SimOp whose output shape depends on the input tensor's memory
+        configuration (see ``flatten_nd`` design comment below).
+    """
     ttnn_tensor_like = require_ttnn_tensor(ttnn_tensor_like, "ttnn.fold input")
     assert (
         ttnn_tensor_like.rank() == 4
-    ), f"fold input should be a rank-4 [N, H, W, C] tensor!!\n{ttnn_tensor_like}"
+    ), f"fold input should be a rank-4 [N, H, W, C] tensor: {ttnn_tensor_like}"
     N, H, W, C = ttnn_tensor_like.shape
 
     assert (
         isinstance(stride_h, int) and stride_h > 0 and stride_h <= H
-    ), f"stride_h({stride_h}) should be in [0, {H}]"
+    ), f"stride_h({stride_h}) should be in (0, {H}]"
     assert (
-        isinstance(stride_w, int) and stride_w > 0 and stride_w <= H
-    ), f"stride_w({stride_w}) should be in [0, {W}]"
+        isinstance(stride_w, int) and stride_w > 0 and stride_w <= W
+    ), f"stride_w({stride_w}) should be in (0, {W}]"
 
     if pad_h > 0:
         H += pad_h
@@ -875,12 +879,33 @@ def fold(
         # Fold as first-class SimOp (matches hardware Fold kernel naming vs reshape shortcut).
         assert ttnn_tensor_like.device is not None, "fold requires input tensor on device"
         op_name = generate_new_op_name()
+        # Design decision: flatten_nd is *computed* from the input tensor's
+        # layout and memory configuration rather than being a caller-supplied
+        # parameter.  This mirrors the tt-metal C++ implementation where
+        # prim::fold always produces [1,1,N*Hs*Ws,Cs] but the higher-level
+        # ttnn::fold conditionally reshapes back to [N,Hs,Ws,Cs] for tiled
+        # or DRAM-interleaved inputs (see fold.cpp / fold_device_op.cpp).
+        #
+        # The choice of `not (is_tiled or is_dram)` means:
+        #   - L1-sharded ROW_MAJOR → flatten_nd=True  (ViT, typical models)
+        #   - DRAM-interleaved     → flatten_nd=False  (preserve 4D)
+        #   - TILE_LAYOUT          → flatten_nd=False  (preserve 4D)
+        #   - Unknown/no memcfg    → flatten_nd=True   (safe HW default)
+        #
+        # This attr is forwarded to fold_sinf in tensor.py, which is
+        # frontend-agnostic; see the comment there for the default rationale.
+        is_tiled = getattr(ttnn_tensor_like, 'layout', None) == Layout.TILE_LAYOUT
+        # Tensor.memory_config() returns None when no config has been set
+        # (the common L1-sharded path); hasattr guards against non-Tensor inputs.
+        mc = ttnn_tensor_like.memory_config() if hasattr(ttnn_tensor_like, 'memory_config') else None
+        is_dram = (mc is MemoryConfig.DRAM) if mc is not None else False
         fold_attrs = {
             'stride_h': stride_h,
             'stride_w': stride_w,
             'pad_h': pad_h,
             'pad_w': pad_w,
             'pad_c': pad_c,
+            'flatten_nd': not (is_tiled or is_dram),
         }
         out_tensor = Tensor(
             name=op_name + '.out',

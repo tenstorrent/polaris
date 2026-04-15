@@ -23,6 +23,14 @@ OPTYPE_NORMALIZATION = {
     'binaryng': 'binary',
     'mul': 'binary',
     'sub': 'binary',
+    # HW emits "Tilize" when the tensor is already tile-aligned and
+    # "TilizeWithValPadding" when padding is needed.  Polaris's to_layout
+    # selects between them via requires_padding_change(); normalizing both
+    # to 'tilize' prevents spurious op-name mismatches when the fold output
+    # shape changes alignment (e.g. [1,1,1568,1024] is tile-aligned →
+    # Tilize, but [8,14,14,1024] would need padding → TilizeWithValPadding).
+    'tilize': 'tilize',
+    'tilizewithvalpadding': 'tilize',
 }
 
 # Layout normalization: both sides → canonical short form
