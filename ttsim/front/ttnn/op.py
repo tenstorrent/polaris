@@ -11,6 +11,7 @@ from loguru import logger
 from ttsim.ops.op import SimOp
 from ttsim.ops.tensor import Shape, require_shape_list
 
+from .buffer import BufferType, TensorMemoryLayout
 from .memory import MemoryConfig
 from .tensor import DataType, Layout, Tensor, require_ttnn_tensor, zeros
 
@@ -66,6 +67,25 @@ def _propagate_ttnn_dtype(inputs: list[Tensor], outputs: list[Tensor]) -> None:
 _COMPACT_DTYPES = frozenset({DataType.BFLOAT8_B, DataType.BFLOAT4_B})
 
 
+def _propagate_memory_config(inputs: list[Tensor], outputs: list[Tensor]) -> None:
+    """Propagate _memory_config from the first input that has one set.
+
+    On real tt-metal, op outputs inherit the memory placement of their
+    inputs unless the op explicitly changes it (e.g. to_memory_config).
+    """
+    src = None
+    for t in inputs:
+        mc = getattr(t, "_memory_config", None)
+        if mc is not None:
+            src = mc
+            break
+    if src is None:
+        return
+    for o in outputs:
+        if getattr(o, "_memory_config", None) is None:
+            o._memory_config = src
+
+
 def single_output_immediate_op(optype, /, preprocess=None):
 
     def _impl(*args, **kwargs):
@@ -103,22 +123,25 @@ def single_output_immediate_op(optype, /, preprocess=None):
                     assert (
                         len(tensor_args) == 1
                     ), f"Only one tensor input supported for {optype} with scalar input"
-                    # On tt-metal, scalar operands in binary ops are NOT
-                    # represented as Tensors.  The scalar is stored in op
-                    # attributes and broadcast-filled into a compute buffer by
-                    # the kernel.  Mirror this by recording the value in attrs
-                    # rather than synthesising a tracked Tensor.
                     opinfo["attrs"]["scalar"] = x
-                    # A temporary host-only tensor is still needed so that the
-                    # shape-inference function (bidir_bcast, which expects
-                    # exactly 2 inputs) can run.  It is deliberately excluded
-                    # from opinfo["inList"] so it never appears in the CSV.
+                    # On tt-metal, the scalar is broadcast-filled into a
+                    # full-shape tensor buffer.  The profiler records both
+                    # inputs, so include this broadcast tensor in inList to
+                    # produce an arity-2 LUT key matching the profiler.
                     tmp = Tensor(
                         name=f"{op_name}.scalar",
                         shape=list(tensor_args[0].shape) if tensor_args[0].shape is not None else [1],
                         dtype=DataType.from_numpy(tensor_args[0].dtype),
-                        device=None,
+                        layout=tensor_args[0].get_layout(),
+                        device=device,
                     )
+                    src_mc = getattr(tensor_args[0], "_memory_config", None)
+                    if src_mc is not None:
+                        tmp._memory_config = src_mc
+                    src_dt = getattr(tensor_args[0], "_ttnn_dtype", None)
+                    if src_dt is not None:
+                        tmp._ttnn_dtype = src_dt
+                    opinfo["inList"].append(tmp.name)
                     new_args.append(tmp)
                 else:
                     logger.warning(
@@ -140,6 +163,12 @@ def single_output_immediate_op(optype, /, preprocess=None):
         opobj.update_tensor_counts(new_args, [C])
 
         _propagate_ttnn_dtype(tensor_args, [C])
+        _propagate_memory_config(tensor_args, [C])
+
+        mem_cfg = kwargs.get("memory_config", None)
+        if mem_cfg is not None:
+            C._memory_config = mem_cfg
+
         device.add_op(opobj)  # type: ignore[union-attr]
 
         return C
@@ -184,6 +213,7 @@ def multiple_output_immediate_op(optype, /, preprocess=None):
         opobj.update_tensor_counts(new_args, out_tensors)
 
         _propagate_ttnn_dtype(tensor_args, out_tensors)
+        _propagate_memory_config(tensor_args, out_tensors)
         device.add_op(opobj)  # type: ignore[union-attr]
 
         return tuple(out_tensors)
@@ -795,6 +825,12 @@ def linear(*args, **kwargs):
     else:
         _propagate_ttnn_dtype(input_tensors, [C])
 
+    _propagate_memory_config(input_tensors, [C])
+
+    mem_cfg = kwargs.get("memory_config", None)
+    if mem_cfg is not None:
+        C._memory_config = mem_cfg
+
     if device is not None:
         device.add_op(opobj)
     return C
@@ -876,7 +912,7 @@ def fold(
         # Tensor.memory_config() returns None when no config has been set
         # (the common L1-sharded path); hasattr guards against non-Tensor inputs.
         mc = ttnn_tensor_like.memory_config() if hasattr(ttnn_tensor_like, 'memory_config') else None
-        is_dram = (mc is MemoryConfig.DRAM) if mc is not None else False
+        is_dram = (getattr(mc, 'buffer_type', None) is BufferType.DRAM) if mc is not None else False
         fold_attrs = {
             'stride_h': stride_h,
             'stride_w': stride_w,
@@ -904,6 +940,9 @@ def fold(
         opobj.get_perf_counts([ttnn_tensor_like], [out_tensor])
         opobj.update_tensor_counts([ttnn_tensor_like], [out_tensor])
         _propagate_ttnn_dtype([ttnn_tensor_like], [out_tensor])
+        out_tensor._memory_config = MemoryConfig(
+            TensorMemoryLayout.HEIGHT_SHARDED, BufferType.L1,
+        )
         ttnn_tensor_like.device.add_op(opobj)
         reshaped2 = out_tensor
 

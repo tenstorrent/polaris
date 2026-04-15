@@ -25,28 +25,11 @@ from .types import TILE_HEIGHT, TILE_WIDTH, TILE_HW
 from .tensor import Tensor
 from .op import _propagate_ttnn_dtype, generate_new_op_name, reshape as ttnn_reshape_simop
 
-# Memory config placeholder
-class MemoryConfig:
-    def __init__(self, memory_layout=None, buffer_type=None, shard_spec=None, nd_shard_spec=None):
-        self.memory_layout = memory_layout
-        self.buffer_type = buffer_type
-        self.shard_spec = shard_spec
-        self.nd_shard_spec = nd_shard_spec
+from .memory import MemoryConfig
+from .buffer import BufferType, TensorMemoryLayout
 
-    def is_sharded(self):
-        return self.shard_spec is not None or self.nd_shard_spec is not None
-
-    def __eq__(self, other):
-        if not isinstance(other, MemoryConfig):
-            return False
-        return (self.memory_layout == other.memory_layout and
-                self.buffer_type == other.buffer_type and
-                self.shard_spec == other.shard_spec and
-                self.nd_shard_spec == other.nd_shard_spec)
-
-# Default memory configs
-DRAM_MEMORY_CONFIG = MemoryConfig()
-L1_MEMORY_CONFIG = MemoryConfig()
+DRAM_MEMORY_CONFIG = MemoryConfig.DRAM
+L1_MEMORY_CONFIG = MemoryConfig.L1
 
 # Execution mode control
 class ExecutionMode:
@@ -1390,6 +1373,8 @@ def tilize_op(input_tensor, use_multicore=True, element_size=2, memory_config=No
     opobj.get_perf_counts([input_tensor], [out_tensor])
     opobj.update_tensor_counts([input_tensor], [out_tensor])
     _propagate_ttnn_dtype([input_tensor], [out_tensor])
+    if memory_config is not None:
+        out_tensor._memory_config = memory_config
     input_tensor.device.add_op(opobj)
     return out_tensor
 
@@ -1427,6 +1412,8 @@ def untilize_op(input_tensor, use_multicore=True, use_pack_untilize=True, elemen
     opobj.get_perf_counts([input_tensor], [out_tensor])
     opobj.update_tensor_counts([input_tensor], [out_tensor])
     _propagate_ttnn_dtype([input_tensor], [out_tensor])
+    if memory_config is not None:
+        out_tensor._memory_config = memory_config
     input_tensor.device.add_op(opobj)
     return out_tensor
 
@@ -1478,6 +1465,8 @@ def tilize_with_val_padding_op(input_tensor, output_padded_shape, pad_value,
     opobj.get_perf_counts([input_tensor], [out_tensor])
     opobj.update_tensor_counts([input_tensor], [out_tensor])
     _propagate_ttnn_dtype([input_tensor], [out_tensor])
+    if memory_config is not None:
+        out_tensor._memory_config = memory_config
     input_tensor.device.add_op(opobj)
     return out_tensor
 
@@ -2251,6 +2240,8 @@ def interleaved_to_sharded_op(input_tensor, memory_config=None, element_size=2):
     opobj.get_perf_counts([input_tensor], [out_tensor])
     opobj.update_tensor_counts([input_tensor], [out_tensor])
     _propagate_ttnn_dtype([input_tensor], [out_tensor])
+    if memory_config is not None:
+        out_tensor._memory_config = memory_config
     input_tensor.device.add_op(opobj)
     return out_tensor
 
@@ -2315,6 +2306,10 @@ def sharded_to_interleaved_op(input_tensor, memory_config=None, element_size=2):
     opobj.get_perf_counts([input_tensor], [out_tensor])
     opobj.update_tensor_counts([input_tensor], [out_tensor])
     _propagate_ttnn_dtype([input_tensor], [out_tensor])
+    if memory_config is not None:
+        out_tensor._memory_config = memory_config
+    else:
+        out_tensor._memory_config = L1_MEMORY_CONFIG
     input_tensor.device.add_op(opobj)
     return out_tensor
 
@@ -2373,6 +2368,8 @@ def reshard_op(input_tensor, memory_config=None, element_size=2):
     opobj.get_perf_counts([input_tensor], [out_tensor])
     opobj.update_tensor_counts([input_tensor], [out_tensor])
     _propagate_ttnn_dtype([input_tensor], [out_tensor])
+    if memory_config is not None:
+        out_tensor._memory_config = memory_config
     input_tensor.device.add_op(opobj)
     return out_tensor
 
@@ -2410,7 +2407,7 @@ def reshard(input_tensor, memory_config, output_tensor=None):
 # =============================================================================
 
 def nlp_concat_heads_op(input_tensor, memory_config=None, element_size=2):
-    """Create an NLPConcatHeads SimOp (tracking-only; no execution).
+    """Create a ConcatHeads SimOp (tracking-only; no execution).
 
     Input: [B, num_heads, S, head_dim] -> Output: [B, S, num_heads*head_dim]
 
@@ -2423,7 +2420,7 @@ def nlp_concat_heads_op(input_tensor, memory_config=None, element_size=2):
     """
     assert input_tensor.device is not None, "nlp_concat_heads_op requires input_tensor on device"
     in_shape = input_tensor.logical_shape()._shape
-    assert len(in_shape) == 4, f"NLPConcatHeads expects rank-4 input, got {len(in_shape)}"
+    assert len(in_shape) == 4, f"ConcatHeads expects rank-4 input, got {len(in_shape)}"
     B, num_heads, S, head_dim = in_shape
     out_shape_list = [B, S, num_heads * head_dim]
 
@@ -2439,7 +2436,7 @@ def nlp_concat_heads_op(input_tensor, memory_config=None, element_size=2):
     input_tensor.op_in.append(op_name)
     opinfo = {
         'name': op_name,
-        'optype': 'NLPConcatHeads',
+        'optype': 'ConcatHeads',
         'inList': [input_tensor.name],
         'outList': [out_tensor.name],
         'attrs': {'element_size': element_size},
@@ -2448,6 +2445,12 @@ def nlp_concat_heads_op(input_tensor, memory_config=None, element_size=2):
     opobj.get_perf_counts([input_tensor], [out_tensor])
     opobj.update_tensor_counts([input_tensor], [out_tensor])
     _propagate_ttnn_dtype([input_tensor], [out_tensor])
+
+    out_mc = memory_config if memory_config is not None else MemoryConfig(
+        TensorMemoryLayout.BLOCK_SHARDED, BufferType.L1,
+    )
+    out_tensor._memory_config = out_mc
+
     input_tensor.device.add_op(opobj)
     return out_tensor
 
@@ -2462,7 +2465,7 @@ def nlp_concat_heads(input_tensor, memory_config=None):
         return nlp_concat_heads_op(input_tensor, memory_config=memory_config)
 
     in_shape = input_tensor.logical_shape()._shape
-    assert len(in_shape) == 4, f"NLPConcatHeads expects rank-4 input, got {len(in_shape)}"
+    assert len(in_shape) == 4, f"ConcatHeads expects rank-4 input, got {len(in_shape)}"
     B, num_heads, S, head_dim = in_shape
     out_shape_list = [B, S, num_heads * head_dim]
 
@@ -2499,7 +2502,7 @@ def nlp_create_qkv_heads_op(input_tensor, kv_input_tensor=None, *,
                               num_heads, num_kv_heads=None,
                               transpose_k_heads=False, memory_config=None,
                               element_size=2):
-    """Create an NLPCreateQKVHeads SimOp with 3 outputs (tracking-only; no execution).
+    """Create a CreateQKVHeads SimOp with 3 outputs (tracking-only; no execution).
 
     Input: [B, S, (num_heads + 2*num_kv_heads) * head_dim]
     Outputs: Q=[B, num_heads, S, head_dim],
@@ -2511,7 +2514,7 @@ def nlp_create_qkv_heads_op(input_tensor, kv_input_tensor=None, *,
     emits 3D shapes [B, S, hidden] for the input. The comparison tool
     (compare_layers.py --strip-singleton-dims) normalizes this difference.
     Future work: emit 4D shapes here and propagate the implicit view change
-    [B, 1, S, H] -> [1, B, S, H] that HW performs between NLPConcatHeads
+    [B, 1, S, H] -> [1, B, S, H] that HW performs between ConcatHeads
     and downstream ops (Reshard, MatMul).
     """
     assert input_tensor.device is not None, "nlp_create_qkv_heads_op requires input_tensor on device"
@@ -2556,7 +2559,7 @@ def nlp_create_qkv_heads_op(input_tensor, kv_input_tensor=None, *,
 
     opinfo = {
         'name': op_name,
-        'optype': 'NLPCreateQKVHeads',
+        'optype': 'CreateQKVHeads',
         'inList': in_list,
         'outList': [q_tensor.name, k_tensor.name, v_tensor.name],
         'attrs': {
@@ -2572,6 +2575,13 @@ def nlp_create_qkv_heads_op(input_tensor, kv_input_tensor=None, *,
     opobj.get_perf_counts(in_tensors, out_tensors)
     opobj.update_tensor_counts(in_tensors, out_tensors)
     _propagate_ttnn_dtype(in_tensors, out_tensors)
+
+    out_mc = memory_config if memory_config is not None else MemoryConfig(
+        TensorMemoryLayout.HEIGHT_SHARDED, BufferType.L1,
+    )
+    for t in out_tensors:
+        t._memory_config = out_mc
+
     input_tensor.device.add_op(opobj)
     return q_tensor, k_tensor, v_tensor
 

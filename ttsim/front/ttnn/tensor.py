@@ -732,7 +732,8 @@ def from_torch(torch_tensor_like, **kwargs):
         if hasattr(torch_tensor_like, k):
             if k == "dtype" and isinstance(v, DataType):
                 torch_tensor_like._ttnn_dtype = v
-            setattr(torch_tensor_like, k, v.to_numpy if k == "dtype" else v)
+                v = v.to_numpy
+            setattr(torch_tensor_like, k, v)
 
     if "device" in kwargs:
         torch_tensor_like = to_device(torch_tensor_like, kwargs["device"])
@@ -754,5 +755,8 @@ def to_device(tt_tensor_like, device, memory_config=None):
 
     tt_tensor_like.device = device
     device.add_tensor(tt_tensor_like)
+
+    if memory_config is not None:
+        tt_tensor_like._memory_config = memory_config
 
     return tt_tensor_like

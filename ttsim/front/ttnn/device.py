@@ -154,8 +154,8 @@ def num_cores_to_corerangeset(*args, **kwargs):
     return (1,1) # dummy implementation
 
 def create_sharded_memory_config(*args, **kwargs):
-    from .memory import MemoryConfig
-    return MemoryConfig.L1
+    from .memory import create_sharded_memory_config as _create
+    return _create(*args, **kwargs)
 
 def ReadDeviceProfiler(device: Device):
     return
