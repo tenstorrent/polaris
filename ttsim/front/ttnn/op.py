@@ -383,35 +383,13 @@ def transpose_pp(args_list, kwargs_dict):
 
 
 def cat(tensors, dim=0):
-    """Concatenate a list of tensors along a specified dimension."""
-    if not tensors:
-        raise ValueError("Input list of tensors is empty")
+    """Concatenate a list of tensors along a specified dimension.
 
-    for i, t in enumerate(tensors):
-        require_ttnn_tensor(t, f"ttnn.cat tensors[{i}]")
-    first_tensor = tensors[0]
-    # Handle negative dimension
-    original_rank = len(first_tensor.shape)
-    if dim < 0:
-        dim += original_rank
-
-    # Validate dimension
-    if dim < 0 or dim >= original_rank:
-        raise ValueError(
-            f"Dimension {dim} is out of range for tensors of rank {original_rank}. "
-            f"Valid range is [-{original_rank}, {original_rank - 1}]"
-        )
-
-    # Calculate new shape
-    new_shape = list(first_tensor.shape)
-    new_shape[dim] = int(np.sum([tensor.shape[dim] for tensor in tensors]))
-
-    # Create the concatenated tensor
-    return Tensor(
-        shape=new_shape,
-        dtype=DataType.from_numpy(first_tensor.dtype.name),
-        device=first_tensor.device,
-    )
+    Delegates to ``concat`` (which emits a ``Concat`` SimOp) so that the
+    operation is visible in the device graph regardless of whether the
+    caller spells it ``ttnn.cat`` or ``ttnn.concat``.
+    """
+    return concat(*tensors, axis=dim)
 
 
 def where_pp(args, kwargs_dict):
