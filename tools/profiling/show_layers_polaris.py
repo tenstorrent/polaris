@@ -8,6 +8,11 @@ import csv
 import json
 from typing import Any, Dict, List
 
+try:
+    from op_canonical import normalize_polaris_optype
+except ImportError:
+    from .op_canonical import normalize_polaris_optype  # type: ignore
+
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description='Show layers from Polaris CSV')
@@ -57,7 +62,7 @@ def layers_polaris(input_file: str) -> List[Dict[str, Any]]:
                 if col == 'opnum':
                     filtered_row['seqno'] = int(s[0])
                 elif col == 'optype':
-                    filtered_row['optype'] = s[0].lower()
+                    filtered_row['optype'] = normalize_polaris_optype(s[0])
                 else:
                     if s is not None:
                         filtered_row[col] = s

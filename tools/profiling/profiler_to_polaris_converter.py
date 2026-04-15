@@ -13,6 +13,11 @@ mapping rules are implemented in this module (``map_optype_to_polaris``,
 import csv
 import sys
 import yaml
+
+try:
+    from op_canonical import normalize_profiler_opcode, canonical_to_stats_display
+except ImportError:
+    from .op_canonical import normalize_profiler_opcode, canonical_to_stats_display  # type: ignore
 import argparse
 import traceback
 import math
@@ -141,26 +146,13 @@ def format_tensor_string(name: str, dims: list, datatype: str) -> str:
 
 
 def map_optype_to_polaris(opcode: str, attrs: dict) -> str:
-    """Map profiler operation types to Polaris STATS format."""
-    optype_mapping = {
-        'Matmul': 'MatMul',
-        'ADD': 'Add',
-        'ReshapeDeviceOperation': 'Reshape',
-        'TransposeDeviceOperation': 'Transpose',
-        'PermuteDeviceOperation': 'Permute',
-        'MUL': 'Mul',
-        'SoftmaxDeviceOperation': 'Softmax',
-        'Untilize': 'Untilize',
-        'TilizeWithValPadding': 'TilizeWithValPadding',
-        'Tilize': 'Tilize',
-        'UntilizeWithUnpadding': 'UntilizeWithUnpadding',
-    }
-    # New convention: BinaryNgDeviceOperation with binary_op_type in attrs.
-    # Old convention: bare 'ADD'/'MUL' as opcode. Both normalize via optype_mapping.
-    if attrs and 'binary_op_type' in attrs:
-        binary_type = str(attrs['binary_op_type']).replace('BinaryOpType::', '')
-        return optype_mapping.get(binary_type, binary_type)
-    return optype_mapping.get(opcode, opcode)
+    """Map profiler operation types to Polaris STATS format (PascalCase).
+
+    Delegates to :func:`~tools.profiling.op_canonical.normalize_profiler_opcode`
+    for canonical resolution, then maps to the PascalCase STATS display name.
+    """
+    canonical = normalize_profiler_opcode(opcode, attrs)
+    return canonical_to_stats_display(canonical)
 
 
 def get_polaris_column_order() -> list[str]:

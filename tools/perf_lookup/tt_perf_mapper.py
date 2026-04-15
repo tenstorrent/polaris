@@ -47,6 +47,8 @@ import yaml
 from loguru import logger
 from scipy.optimize import curve_fit  # type: ignore[import-untyped]
 
+from tools.profiling.op_canonical import normalize_profiler_opcode
+
 from tools.perf_lookup.tt_perf_master_loader import load_existing_yaml
 from tools.perf_lookup.tt_perf_master_schema import (
     MASTER_CURVE_FAMILY_KEY,
@@ -188,238 +190,37 @@ def _single_mode_core_count_key(core_count: float, key_t: tuple) -> int:
     return int(x)
 
 
-# When Excel ``OP CODE`` is exactly this string, use ``ATTRIBUTES`` for the actual eltwise/unary op.
-EXCEL_OP_CODE_BINARY_NG_DEVICE = "BinaryNgDeviceOperation"
-EXCEL_OP_CODE_UNARY_DEVICE = "UnaryDeviceOperation"
 EXCEL_ATTRIBUTES_COLUMN = "ATTRIBUTES"
-
-# Optional: map exact Excel OP CODE string (after strip / decimal-free numeric key) -> polaris *layer type*.
-# Applied before profiler-base lookup. Use when the sheet encodes add vs mul (etc.) outside the class name.
-POLARIS_OP_CODE_ALIASES: dict[str, str] = {}
-
-# Profiler PascalCase *base* (trailing "DeviceOperation" removed) -> polaris layer type.
-# Use for names where prefix rules below would be wrong.
-PROFILER_BASE_TO_POLARIS_LAYER_TYPE: dict[str, str] = {}
-
-# First matching prefix wins (longer/specific names must appear before shorter shared prefixes).
-_POLARIS_LAYER_TYPE_PREFIX_RULES: tuple[tuple[str, str], ...] = (
-    ("Matmul", "matmul"),
-    ("BinaryNg", "eltwise"),
-    ("Multiply", "mul"),
-    ("Mul", "mul"),
-    ("Add", "add"),
-    ("Subtract", "subtract"),
-    ("Divide", "divide"),
-    ("Softmax", "softmax"),
-    ("LayerNorm", "layernormalization"),
-    ("RMSNorm", "rms_norm"),
-    ("UntilizeWithUnpadding", "untilizewithunpadding"),
-    ("Untilize", "untilize"),
-    ("TilizeWithValPadding", "tilizewithvalpadding"),
-    ("Tilize", "tilize"),
-    ("Reshape", "reshape"),
-    ("Transpose", "transpose"),
-    ("Permute", "permute"),
-    ("Concat", "concat"),
-    ("Split", "split"),
-    ("Embedding", "embedding"),
-    ("Reduce", "reduce"),
-    ("Pow", "pow"),
-    ("Exp", "exp"),
-    ("Sqrt", "sqrt"),
-    ("Relu", "relu"),
-    ("Gelu", "gelu"),
-    ("Binary", "eltwise"),
-    ("Fold", "fold"),
-)
-
-_UNKNOWN_PROFILER_BASES: set[str] = set()
-
-_BINARY_OP_TYPE_IN_ATTRIBUTES = re.compile(
-    r"binary_op_type['\"]?\s*:\s*['\"]BinaryOpType::(\w+)['\"]",
-    re.IGNORECASE,
-)
-
-# ``op_chain`` / attributes text may contain ``op_type=UnaryOpType::GELU`` (first match wins).
-_UNARY_OP_TYPE_IN_ATTRIBUTES = re.compile(
-    r"UnaryOpType::(\w+)",
-    re.IGNORECASE,
-)
-
-# ``BinaryOpType::ENUM`` suffix (uppercase key) -> Polaris layer type (same vocabulary as prefix rules).
-_BINARY_OP_ENUM_TO_POLARIS_LAYER_TYPE: dict[str, str] = {
-    "ADD": "add",
-    "MUL": "mul",
-    "MULTIPLY": "mul",
-    "SUB": "subtract",
-    "SUBTRACT": "subtract",
-    "DIV": "divide",
-    "DIVIDE": "divide",
-    "POW": "pow",
-    "EXP": "exp",
-    "SQRT": "sqrt",
-}
-
-# ``UnaryOpType::ENUM`` (uppercase key) -> Polaris layer type; extend as new ops appear in traces.
-_UNARY_OP_ENUM_TO_POLARIS_LAYER_TYPE: dict[str, str] = {
-    "GELU": "gelu",
-    "RELU": "relu",
-    "RELU6": "relu",
-    "EXP": "exp",
-    "SQRT": "sqrt",
-    "POW": "pow",
-    "LOG": "log",
-    "LOG2": "log2",
-    "LOG10": "log10",
-    "ABS": "abs",
-    "NEG": "neg",
-    "RECIP": "recip",
-    "RSQRT": "rsqrt",
-    "SIGMOID": "sigmoid",
-    "TANH": "tanh",
-    "SILU": "silu",
-    "COS": "cos",
-    "SIN": "sin",
-    "IDENTITY": "identity",
-}
 
 # PAD column suffix pattern: value like "224[224]" -> use 224
 PAD_PATTERN = re.compile(r"^\s*(\d+)\s*\[\s*(\d+)\s*\]\s*$")
 
 
-def _strip_device_operation_suffix(name: str) -> str:
-    if name.endswith("DeviceOperation"):
-        return name[: -len("DeviceOperation")]
-    return name
-
-
-def _profiler_base_to_polaris_layer_type(base: str) -> str:
-    """Map profiler class base name to a coarse Polaris layer type string."""
-    if not base:
-        return "other"
-    if base in PROFILER_BASE_TO_POLARIS_LAYER_TYPE:
-        return PROFILER_BASE_TO_POLARIS_LAYER_TYPE[base]
-    for prefix, layer_type in _POLARIS_LAYER_TYPE_PREFIX_RULES:
-        if base.startswith(prefix):
-            return layer_type
-    if base not in _UNKNOWN_PROFILER_BASES:
-        _UNKNOWN_PROFILER_BASES.add(base)
-        logger.warning(
-            "Unknown profiler OP base {!r} (after DeviceOperation strip); using polaris layer type {!r}",
-            base,
-            "other",
-        )
-    return "other"
-
-
-def excel_op_code_to_polaris_layer_type(raw) -> str:
-    """Map one Excel OP CODE cell to a Polaris-style *layer type* (not a unique layer name).
-
-    Order: whole-number numeric codes -> ``numeric`` unless ``POLARIS_OP_CODE_ALIASES`` supplies a type;
-    string cells -> optional alias; else strip trailing ``DeviceOperation`` and classify via
-    ``PROFILER_BASE_TO_POLARIS_LAYER_TYPE`` / prefix rules / ``other``.
-    """
-    if is_na(raw):
-        return ""
-    if isinstance(raw, bool):
-        s = str(raw).strip()
-    elif isinstance(raw, (int, np.integer)):
-        n = int(raw)
-        key = str(n)
-        if key in POLARIS_OP_CODE_ALIASES:
-            return POLARIS_OP_CODE_ALIASES[key]
-        return "numeric"
-    elif isinstance(raw, float):
-        if raw != raw:  # NaN
-            return ""
-        if raw.is_integer():
-            n = int(raw)
-            key = str(n)
-            if key in POLARIS_OP_CODE_ALIASES:
-                return POLARIS_OP_CODE_ALIASES[key]
-            return "numeric"
-        s = str(raw).strip()
-    else:
-        s = str(raw).strip()
-
+def _parse_attributes_cell(raw) -> dict | None:
+    """Parse an ``ATTRIBUTES`` cell into a dict, or ``None``."""
+    if raw is None or is_na(raw):
+        return None
+    s = str(raw).strip()
     if not s:
-        return s
-    if s in POLARIS_OP_CODE_ALIASES:
-        return POLARIS_OP_CODE_ALIASES[s]
-    base = _strip_device_operation_suffix(s)
-    return _profiler_base_to_polaris_layer_type(base)
-
-
-def _binary_ng_attributes_to_polaris_layer_type(attr_raw) -> str | None:
-    """Parse ``ATTRIBUTES`` cell for ``BinaryOpType::…`` and map to a Polaris layer type, or ``None``."""
-    if attr_raw is None or is_na(attr_raw):
         return None
-    m = _BINARY_OP_TYPE_IN_ATTRIBUTES.search(str(attr_raw))
-    if not m:
+    try:
+        parsed = yaml.safe_load(s.replace(";", ","))
+    except yaml.YAMLError:
         return None
-    enum = m.group(1).upper()
-    return _BINARY_OP_ENUM_TO_POLARIS_LAYER_TYPE.get(enum)
-
-
-def _unary_attributes_to_polaris_layer_type(attr_raw) -> str | None:
-    """Parse ``ATTRIBUTES`` for ``UnaryOpType::…`` (e.g. inside ``op_chain``) → Polaris layer type, or ``None``."""
-    if attr_raw is None or is_na(attr_raw):
-        return None
-    m = _UNARY_OP_TYPE_IN_ATTRIBUTES.search(str(attr_raw))
-    if not m:
-        return None
-    enum = m.group(1).upper()
-    return _UNARY_OP_ENUM_TO_POLARIS_LAYER_TYPE.get(enum)
-
-
-def _row_to_polaris_layer_type(row: Mapping[str, Any]) -> str:
-    """Per-row ``OP CODE`` → Polaris type; ``BinaryNg*`` / ``Unary*`` use ``ATTRIBUTES`` when parseable."""
-    cell = row.get("OP CODE")
-    if is_na(cell):
-        return ""
-    if isinstance(cell, str) and cell.strip() == EXCEL_OP_CODE_BINARY_NG_DEVICE:
-        if EXCEL_ATTRIBUTES_COLUMN not in row:
-            logger.warning(
-                "OP CODE is {!r} but column {!r} is missing; classifying from OP CODE only.",
-                EXCEL_OP_CODE_BINARY_NG_DEVICE,
-                EXCEL_ATTRIBUTES_COLUMN,
-            )
-            return excel_op_code_to_polaris_layer_type(cell)
-        t = _binary_ng_attributes_to_polaris_layer_type(row.get(EXCEL_ATTRIBUTES_COLUMN))
-        if t is not None:
-            return t
-        logger.warning(
-            "OP CODE is {!r} but {!r} has no known binary_op_type; classifying from OP CODE only.",
-            EXCEL_OP_CODE_BINARY_NG_DEVICE,
-            EXCEL_ATTRIBUTES_COLUMN,
-        )
-        return excel_op_code_to_polaris_layer_type(cell)
-    if isinstance(cell, str) and cell.strip() == EXCEL_OP_CODE_UNARY_DEVICE:
-        if EXCEL_ATTRIBUTES_COLUMN not in row:
-            logger.warning(
-                "OP CODE is {!r} but column {!r} is missing; classifying from OP CODE only.",
-                EXCEL_OP_CODE_UNARY_DEVICE,
-                EXCEL_ATTRIBUTES_COLUMN,
-            )
-            return excel_op_code_to_polaris_layer_type(cell)
-        t = _unary_attributes_to_polaris_layer_type(row.get(EXCEL_ATTRIBUTES_COLUMN))
-        if t is not None:
-            return t
-        logger.warning(
-            "OP CODE is {!r} but {!r} has no known UnaryOpType; classifying from OP CODE only.",
-            EXCEL_OP_CODE_UNARY_DEVICE,
-            EXCEL_ATTRIBUTES_COLUMN,
-        )
-        return excel_op_code_to_polaris_layer_type(cell)
-    return excel_op_code_to_polaris_layer_type(cell)
+    return parsed if isinstance(parsed, dict) else None
 
 
 def apply_polaris_layer_type_column(table: InputTable) -> None:
-    """In-place: replace ``OP CODE`` with Polaris layer *types* for downstream logic and YAML keys."""
+    """In-place: replace ``OP CODE`` with Polaris layer *types* for downstream logic and YAML keys.
+
+    Delegates to :func:`tools.profiling.op_canonical.normalize_profiler_opcode`.
+    """
     if "OP CODE" not in table.column_set:
         return
+    has_attrs = EXCEL_ATTRIBUTES_COLUMN in table.column_set
     for row in table.rows:
-        row["OP CODE"] = _row_to_polaris_layer_type(row)
+        attrs = _parse_attributes_cell(row.get(EXCEL_ATTRIBUTES_COLUMN)) if has_attrs else None
+        row["OP CODE"] = normalize_profiler_opcode(row.get("OP CODE", ""), attrs)
 
 
 def parse_input_spec(input_str: str) -> tuple[str | None, str]:

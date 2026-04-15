@@ -57,6 +57,7 @@ from tools.profiling.profiler_to_polaris_converter import (  # noqa: E402
     map_optype_to_polaris,
     parse_tensor_dimensions,
 )
+from tools.profiling.op_canonical import normalize_profiler_opcode  # noqa: E402
 
 
 def _parse_profiler_attributes(raw: str | None) -> dict[str, Any]:
@@ -166,22 +167,13 @@ def _normalize_profiler_row_keys(row: Mapping[str, Any]) -> dict[str, str]:
 
 
 def _map_profiler_opcode_to_polaris_optype(opcode: str, attrs: dict[str, Any]) -> str:
-    """Extend :func:`map_optype_to_polaris` for profiler / Excel opcodes (e.g. ``MatmulDeviceOperation``)."""
-    oc = (opcode or '').strip()
-    if oc == 'ReshapeViewDeviceOperation':
-        return 'Reshape'
-    if oc.endswith('DeviceOperation'):
-        stem = oc[: -len('DeviceOperation')]
-        # map_optype_to_polaris keys vary: some use *DeviceOperation*, some bare names.
-        stem_to_lookup: dict[str, str] = {
-            'Permute': 'PermuteDeviceOperation',
-            'Softmax': 'SoftmaxDeviceOperation',
-            'LayerNorm': 'LayerNormalization',
-            'CreateQKVHeads': 'NLPCreateQKVHeads',
-        }
-        lookup = stem_to_lookup.get(stem, stem)
-        return map_optype_to_polaris(lookup, attrs)
-    return map_optype_to_polaris(oc, attrs)
+    """Map profiler opcode to a Polaris STATS-style optype.
+
+    Delegates to :func:`~tools.profiling.op_canonical.normalize_profiler_opcode`
+    for canonical resolution, then uses :func:`map_optype_to_polaris` for
+    backwards-compatible PascalCase display names.
+    """
+    return map_optype_to_polaris(opcode, attrs)
 
 
 def profiler_op_index(row: Mapping[str, str]) -> int:

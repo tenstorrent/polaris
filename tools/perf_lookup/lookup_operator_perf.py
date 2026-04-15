@@ -23,7 +23,7 @@ Master lookup keys always use each tensor's **logical** ``shape`` (rank-4 WZYX a
 tile-padded extents; ``padded_shape`` is ignored for key construction.
 
 For ``reshape`` master keys, ``input_0`` logical WZYX follows tt-perf convention ``(1, 1, w*z*y, x)``
-from the tensor's rank-4 logical ``(w, z, y, x)`` (see :func:`_reshape_input0_lut_wzyx`).
+from the tensor's rank-4 logical ``(w, z, y, x)`` (see :func:`tools.profiling.shape_canonical.reshape_input0_wzyx`).
 
 For ``add``, after a 15-tuple miss, lookup may retry with a key that duplicates the full operand's
 WZYX on the broadcast operand when one side is exactly ``(1, 1, 1, X)`` and the other is a
@@ -45,6 +45,15 @@ if str(_REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(_REPO_ROOT))
 
 from tools.perf_lookup.tt_perf_master_loader import load_existing_yaml
+from tools.profiling.shape_canonical import (
+    coerce_shape_to_list,
+    promote_to_rank4,
+    reshape_input0_wzyx,
+    tensor_layout_str,
+    tensor_datatype,
+    tensor_memory_str,
+    precision_to_master_datatype,
+)
 from tools.perf_lookup.tt_perf_master_schema import (
     MASTER_CURVE_FAMILY_KEY,
     MASTER_CURVE_FAMILY_LINEAR,
@@ -278,122 +287,19 @@ def _op_code(op: Any) -> str:
     return str(getattr(op, "optype", "")).strip().lower()
 
 
-def _precision_to_master_datatype(precision: Any) -> str:
-    if precision is None:
-        return "BFLOAT16"
-    u = str(precision).upper().replace(" ", "")
-    if u in ("BF16",):
-        return "BFLOAT16"
-    if u in ("FP16",):
-        return "FLOAT16"
-    if u in ("FP32",):
-        return "FLOAT32"
-    return u
-
-
-def _storage_is_numpy_float16(dt: Any) -> bool:
-    """True when ``dt`` is ``numpy.float16`` (TTNN uses it as the container for logical BF16)."""
-    try:
-        import numpy as np
-
-        if isinstance(dt, np.dtype):
-            return dt == np.dtype(np.float16)
-    except ImportError:
-        pass
-    nm = getattr(dt, "name", None)
-    return isinstance(nm, str) and nm.lower() == "float16"
-
-
-def _tensor_layout_str(t: Any) -> str:
-    lay = getattr(t, "layout", None)
-    if lay is None:
-        return "TILE"
-    name = getattr(lay, "name", str(lay))
-    u = name.upper()
-    if "TILE" in u:
-        return "TILE"
-    if "ROW" in u:
-        return "ROW_MAJOR"
-    return "TILE"
-
-
-def _tensor_memory_str(t: Any) -> str:
-    mc = getattr(t, "memory_config", None)
-    if callable(mc):
-        try:
-            mc = mc()
-        except Exception:
-            mc = None
-    if mc is None:
-        mc = getattr(t, "_memory_config", None)
-    if mc is None:
-        return "DEV_1_DRAM_INTERLEAVED"
-    s = str(mc).upper().replace(" ", "_")
-    if "L1" in s:
-        return "DEV_1_L1"
-    return "DEV_1_DRAM_INTERLEAVED"
-
-
-def _tensor_datatype(t: Any, op_precision: Any) -> str:
-    dt = getattr(t, "dtype", None)
-    if dt is not None:
-        name = getattr(dt, "name", str(dt)).upper()
-        if "BFLOAT16" in name or name == "BFLOAT16":
-            return "BFLOAT16"
-        if "FLOAT32" in name or name in ("FLOAT32", "SINGLE"):
-            return "FLOAT32"
-        if "FLOAT16" in name or name == "FLOAT16":
-            # numpy float16 is TTNN's storage for logical BF16; keep IEEE FP16 only when op says fp16
-            if _storage_is_numpy_float16(dt):
-                if _precision_to_master_datatype(op_precision) == "FLOAT16":
-                    return "FLOAT16"
-                return "BFLOAT16"
-            return "FLOAT16"
-        if "INT32" in name:
-            return "INT32"
-    return _precision_to_master_datatype(op_precision)
-
-
-def _coerce_shape_like_to_list(shape_like: Any) -> list[int]:
-    """Normalize ``Shape``, sequence, or similar to a list of ints."""
-    if shape_like is None:
-        return []
-    if hasattr(shape_like, "view") and callable(getattr(shape_like, "view", None)):
-        return [int(x) for x in shape_like.view()]
-    if hasattr(shape_like, "_shape"):
-        return [int(x) for x in shape_like._shape]
-    return [int(x) for x in shape_like]
-
-
-def _logical_shape_list_for_lookup(tensor: Any) -> list[int]:
-    """Rank-N logical shape for LUT WZYX key construction (``tensor.shape`` only)."""
+def _shape_wzyx(tensor: Any) -> Tuple[int, int, int, int]:
+    """Rank-4 WZYX shape for LUT key construction."""
     raw = getattr(tensor, "shape", None)
     if raw is None:
         raise ValueError("tensor has no shape")
-    return _coerce_shape_like_to_list(raw)
-
-
-def _shape_wzyx(tensor: Any) -> Tuple[int, int, int, int]:
-    from ttsim.ops.tensor import Shape
-
-    raw_list = _logical_shape_list_for_lookup(tensor)
-    sh = Shape(raw_list)
-    v = sh.to_rank(4).view()
-    return (int(v[0]), int(v[1]), int(v[2]), int(v[3]))
-
-
-def _reshape_input0_lut_wzyx(w: int, z: int, y: int, x: int) -> Tuple[int, int, int, int]:
-    """
-    Master LUT convention for ``reshape`` ``input_0_*`` logical dims: ``(1, 1, w*z*y, x)``,
-    where ``(w, z, y, x)`` is the tensor's rank-4 logical shape (same basis as :func:`_shape_wzyx`).
-    """
-    return (1, 1, int(w) * int(z) * int(y), int(x))
+    raw_list = coerce_shape_to_list(raw)
+    return promote_to_rank4(raw_list)
 
 
 def _input0_wzyx_for_master_key(op: Any, tensor_0: Any) -> Tuple[int, int, int, int]:
     w, z, y, x = _shape_wzyx(tensor_0)
     if _op_code(op) == "reshape":
-        return _reshape_input0_lut_wzyx(w, z, y, x)
+        return reshape_input0_wzyx(w, z, y, x)
     return (w, z, y, x)
 
 
@@ -406,9 +312,9 @@ def build_master_key_tuple_8(op: Any, tensor_0: Any) -> Tuple[Any, ...]:
         z0,
         y0,
         x0,
-        _tensor_layout_str(tensor_0),
-        _tensor_datatype(tensor_0, getattr(op, "precision", None)),
-        _tensor_memory_str(tensor_0),
+        tensor_layout_str(tensor_0),
+        tensor_datatype(tensor_0, getattr(op, "precision", None)),
+        tensor_memory_str(tensor_0),
     )
 
 
@@ -426,16 +332,16 @@ def build_master_key_tuple_15(
         z0,
         y0,
         x0,
-        _tensor_layout_str(tensor_0),
-        _tensor_datatype(tensor_0, getattr(op, "precision", None)),
-        _tensor_memory_str(tensor_0),
+        tensor_layout_str(tensor_0),
+        tensor_datatype(tensor_0, getattr(op, "precision", None)),
+        tensor_memory_str(tensor_0),
         w1,
         z1,
         y1,
         x1,
-        _tensor_layout_str(tensor_1),
-        _tensor_datatype(tensor_1, getattr(op, "precision", None)),
-        _tensor_memory_str(tensor_1),
+        tensor_layout_str(tensor_1),
+        tensor_datatype(tensor_1, getattr(op, "precision", None)),
+        tensor_memory_str(tensor_1),
     )
 
 
@@ -456,23 +362,23 @@ def build_master_key_tuple_22(
         z0,
         y0,
         x0,
-        _tensor_layout_str(tensor_0),
-        _tensor_datatype(tensor_0, prec),
-        _tensor_memory_str(tensor_0),
+        tensor_layout_str(tensor_0),
+        tensor_datatype(tensor_0, prec),
+        tensor_memory_str(tensor_0),
         w1,
         z1,
         y1,
         x1,
-        _tensor_layout_str(tensor_1),
-        _tensor_datatype(tensor_1, prec),
-        _tensor_memory_str(tensor_1),
+        tensor_layout_str(tensor_1),
+        tensor_datatype(tensor_1, prec),
+        tensor_memory_str(tensor_1),
         w2,
         z2,
         y2,
         x2,
-        _tensor_layout_str(tensor_2),
-        _tensor_datatype(tensor_2, prec),
-        _tensor_memory_str(tensor_2),
+        tensor_layout_str(tensor_2),
+        tensor_datatype(tensor_2, prec),
+        tensor_memory_str(tensor_2),
     )
 
 
@@ -501,14 +407,14 @@ def build_master_key_tuple_15_add_broadcast_duplicate_full(
     full1 = not b1
     prec = getattr(op, "precision", None)
     lay0, dt0, mem0 = (
-        _tensor_layout_str(tensor_0),
-        _tensor_datatype(tensor_0, prec),
-        _tensor_memory_str(tensor_0),
+        tensor_layout_str(tensor_0),
+        tensor_datatype(tensor_0, prec),
+        tensor_memory_str(tensor_0),
     )
     lay1, dt1, mem1 = (
-        _tensor_layout_str(tensor_1),
-        _tensor_datatype(tensor_1, prec),
-        _tensor_memory_str(tensor_1),
+        tensor_layout_str(tensor_1),
+        tensor_datatype(tensor_1, prec),
+        tensor_memory_str(tensor_1),
     )
     if b1 and full0 and x1 == x0:
         wf, zf, yf, xf = w0, z0, y0, x0
