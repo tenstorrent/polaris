@@ -340,6 +340,7 @@ class Tensor(SimTensor):
 
     def to(self, *args, **kwargs):
         if len(args) == 1 and not kwargs and isinstance(args[0], DataType):
+            self._ttnn_dtype = args[0]
             self.dtype = args[0].to_numpy
         return self
 
