@@ -161,9 +161,9 @@ def test_legacy_bare_add_mul_still_works() -> None:
 
 
 @pytest.mark.unit
-def test_create_qkv_heads_maps_to_nlp_create_qkv_heads() -> None:
-    """CreateQKVHeadsDeviceOperation maps to NLPCreateQKVHeads via stem_to_lookup."""
+def test_create_qkv_heads_maps_to_create_qkv_heads() -> None:
+    """CreateQKVHeadsDeviceOperation maps to CreateQKVHeads via stem_to_lookup."""
     assert (
         _map_profiler_opcode_to_polaris_optype('CreateQKVHeadsDeviceOperation', {})
-        == 'NLPCreateQKVHeads'
+        == 'CreateQKVHeads'
     )

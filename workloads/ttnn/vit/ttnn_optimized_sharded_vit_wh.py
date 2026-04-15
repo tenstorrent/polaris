@@ -146,7 +146,7 @@ def vit_attention(
         ),
     )
 
-    # Single NLPCreateQKVHeads op replaces the previous decomposed sequence of
+    # Single CreateQKVHeads op replaces the previous decomposed sequence of
     # 3×(Tensor → reshape → permute) + extra permute for K transpose.
     # HW's split_query_key_value_and_split_heads maps to this single op.
     q, k, v = ttnn.experimental.nlp_create_qkv_heads(
@@ -189,7 +189,7 @@ def vit_attention(
     logger.debug('matmul context_layer shape {} = attention_probs shape {} @ v shape {}',
                  context_layer.shape, attention_probs.shape, v.shape)
 
-    # Single NLPConcatHeads op replaces the previous decomposed permute → reshape.
+    # Single ConcatHeads op replaces the previous decomposed permute → reshape.
     # HW's concatenate_heads maps to this single op.
     context_layer = ttnn.experimental.nlp_concat_heads(context_layer)
     context_layer.layout = ttnn.TILE_LAYOUT

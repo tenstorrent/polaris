@@ -300,8 +300,8 @@ def test_add_mul_sub_with_scalar_retain_precision():
             break
 
     assert add_op is not None, "Add operation not found"
-    assert len(add_op.inList) == 1, (
-        f"Scalar ops should have only the tensor in inList, got {add_op.inList}"
+    assert len(add_op.inList) == 2, (
+        f"Scalar ops should have the tensor and broadcast scalar in inList, got {add_op.inList}"
     )
     assert "scalar" in add_op.attrs, "Scalar value should be stored in op attrs"
     assert add_op.attrs["scalar"] == 5.0

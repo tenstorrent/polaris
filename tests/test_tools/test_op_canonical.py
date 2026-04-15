@@ -143,7 +143,7 @@ def test_empty_and_none():
     [
         ("LayerNormalization", "layernorm"),
         ("ReshapeView", "reshape"),
-        ("NLPCreateQKVHeads", "createqkvheads"),
+        ("CreateQKVHeads", "createqkvheads"),
         ("MatMul", "matmul"),
         ("Add", "add"),
         ("Softmax", "softmax"),
@@ -184,7 +184,7 @@ def test_to_comparison_group(canonical, expected):
         ("add", "Add"),
         ("mul", "Mul"),
         ("reshape", "Reshape"),
-        ("createqkvheads", "NLPCreateQKVHeads"),
+        ("createqkvheads", "CreateQKVHeads"),
     ],
 )
 def test_canonical_to_stats_display(canonical, expected):

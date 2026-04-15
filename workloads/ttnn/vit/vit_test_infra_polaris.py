@@ -13,6 +13,7 @@ import ttsim.front.ttnn.minitorch_shim as torch  # type: ignore[no-redef]
 
 from ttsim.front.ttnn.device import set_default_device
 from ttsim.front.ttnn.tensor import ttnn_random
+from ttsim.front.ttnn.buffer import BufferType, TensorMemoryLayout
 from ttsim.front.ttnn.memory import MemoryConfig
 
 import workloads.ttnn.vit.ttnn_optimized_sharded_vit_wh as ttnn_optimized_sharded_vit
@@ -80,7 +81,7 @@ class VitTestInfra:
         tt_inputs_host = ttnn.from_torch(
             torch_pixel_values, dtype=ttnn.bfloat16, layout=ttnn.ROW_MAJOR_LAYOUT,
         )
-        input_mem_config = MemoryConfig.L1
+        input_mem_config = MemoryConfig(TensorMemoryLayout.HEIGHT_SHARDED, BufferType.L1)
         return tt_inputs_host, input_mem_config
 
     def setup_dram_sharded_input(self, device, torch_input_tensor=None, mesh_mapper=None, mesh_composer=None):
