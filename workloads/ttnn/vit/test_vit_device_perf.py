@@ -69,6 +69,18 @@ def run_vit_device_ops(wlname: str, device: ttnn.device.Device, cfg: dict):
     return test_vit_device_ops(device)
 
 
+def run_vit_perf_device(wlname: str, device: ttnn.device.Device, cfg: dict):
+    """Workload-yaml entry point for analytical device perf reporting.
+
+    Builds the graph on the polproj-provided *device* (so polproj's back-end
+    pipeline can run its own stats), and also produces a standalone JSON perf
+    report via the Polaris analytical path.
+    """
+    batch_size = cfg.get("bs", 8)
+    test_vit_device_ops(device, batch_size=batch_size)
+    test_vit_perf_device(batch_size=batch_size)
+
+
 # ---------------------------------------------------------------------------
 # test_vit_perf_device — HW-only device profiling via Tracy
 # ---------------------------------------------------------------------------

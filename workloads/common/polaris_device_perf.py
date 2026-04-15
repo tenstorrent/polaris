@@ -19,6 +19,7 @@ from loguru import logger
 
 from ttsim.back.device import Device as BackendDevice
 from ttsim.config import get_arspec_from_yaml, get_wlmapspec_from_yaml
+from ttsim.config.wl2archmap import WL2ArchMap, WL2ArchTypeSpec
 
 
 _DEFAULT_ARCHSPEC = "config/tt_wh.yaml"
@@ -62,7 +63,10 @@ def run_device_perf_polaris(
     dev_obj = devspec[devname]
     be_device = BackendDevice(dev_obj)
 
-    wlmap = get_wlmapspec_from_yaml(wlmapspec)
+    if WL2ArchTypeSpec.has_instance():
+        wlmap = WL2ArchMap.from_yaml(wlmapspec)
+    else:
+        wlmap = get_wlmapspec_from_yaml(wlmapspec)
     be_device.execute_graph(wlgraph, wlmap)
 
     summary = be_device.get_exec_stats(wlgraph, batch_size)

@@ -376,3 +376,10 @@ workloads:
     module : run_vit_device_ops@test_vit_device_perf.py
     instances:
       vitoptim_b16_device_perf: { bs: 1, model_name: vitoptim-b16-device-perf }
+
+  - api: TTNN
+    name: vitoptim_perf_report
+    basedir: workloads/ttnn/vit
+    module : run_vit_perf_device@test_vit_device_perf.py
+    instances:
+      vitoptim_b16_perf_report: { bs: 8, model_name: vitoptim-b16-perf-report }
