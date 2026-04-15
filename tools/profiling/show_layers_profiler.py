@@ -97,9 +97,20 @@ def layers_profiler(input_file: str) -> List[Dict[str, Any]]:
             # has a tensor, we append None to preserve alignment.
             a0_in = expand_tensor_attrs(row, 0, 'INPUT')
             a0_out = expand_tensor_attrs(row, 0, 'OUTPUT')
+            # Duration: DEVICE KERNEL DURATION [ns] → ms
+            dur_ns_raw = (row.get('DEVICE KERNEL DURATION [ns]') or '').strip()
+            if dur_ns_raw:
+                try:
+                    dur_ms = float(dur_ns_raw) / 1_000_000.0
+                except ValueError:
+                    dur_ms = None
+            else:
+                dur_ms = None
+
             filtered_row: Dict[str, Any] = {
                 'seqno': int(row['GLOBAL CALL COUNT']),
                 'optype': optype,
+                'duration_ms': dur_ms,
                 'input_tensors': [expand_tensor_string(row, 0, 'INPUT')],
                 'output_tensors': [expand_tensor_string(row, 0, 'OUTPUT')],
                 'input_pad_logical': [expand_tensor_dims(row, 0, 'INPUT')],

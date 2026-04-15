@@ -94,6 +94,20 @@ def layers_polaris(input_file: str) -> List[Dict[str, Any]]:
                 filtered_row['output_layouts'] = [None] * n_out
                 filtered_row['output_memories'] = [None] * n_out
 
+            # Duration (msecs column → duration_ms)
+            msecs_raw = row.get('msecs', '').strip()
+            if msecs_raw and msecs_raw.upper() != 'NA':
+                try:
+                    filtered_row['duration_ms'] = float(msecs_raw)
+                except ValueError:
+                    filtered_row['duration_ms'] = None
+            else:
+                filtered_row['duration_ms'] = None
+
+            # LUT hit flag (uses_perf_lookup column)
+            lut_raw = row.get('uses_perf_lookup', '').strip().lower()
+            filtered_row['uses_perf_lookup'] = lut_raw in ('true', '1', 'yes')
+
             rows.append(filtered_row)
     return rows
 

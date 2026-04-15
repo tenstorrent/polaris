@@ -183,6 +183,25 @@ def reshape_input0_wzyx(w: int, z: int, y: int, x: int) -> Tuple[int, int, int, 
     return (1, 1, int(w) * int(z) * int(y), int(x))
 
 
+_TILE_SIZE = 32
+
+
+def createqkvheads_input0_wzyx(w: int, z: int, y: int, x: int) -> Tuple[int, int, int, int]:
+    """Master LUT convention for ``createqkvheads`` input_0 logical dims.
+
+    tt-metal records the input as ``[B, 1, tile_pad(S), H]`` where ``B``
+    occupies ``W`` and ``S`` is rounded up to a tile boundary.  The shim
+    promotes a 3-D ``[B, S, H]`` input to ``[1, B, S, H]``, so we swap
+    ``W`` and ``Z`` and tile-pad ``Y``.
+    """
+    batch = int(z) if int(w) == 1 else int(w)
+    seq_padded = int(y)
+    rem = seq_padded % _TILE_SIZE
+    if rem != 0:
+        seq_padded += _TILE_SIZE - rem
+    return (batch, 1, seq_padded, int(x))
+
+
 # ===================================================================
 # Shape comparison
 # ===================================================================
@@ -402,8 +421,21 @@ def tensor_layout_str(t: Any) -> str:
     return "TILE"
 
 
+_MEMORY_LAYOUT_SUFFIX = {
+    "INTERLEAVED": "INTERLEAVED",
+    "HEIGHT_SHARDED": "HEIGHT_SHARDED",
+    "BLOCK_SHARDED": "BLOCK_SHARDED",
+    "WIDTH_SHARDED": "WIDTH_SHARDED",
+}
+
+
 def tensor_memory_str(t: Any) -> str:
-    """Extract memory config string from a tensor object for LUT key."""
+    """Extract memory config string from a tensor object for LUT key.
+
+    Returns profiler-style strings like ``DEV_1_L1_BLOCK_SHARDED`` when
+    the tensor carries a rich ``MemoryConfig`` with ``buffer_type`` and
+    ``memory_layout`` attributes (matching real tt-metal).
+    """
     mc = getattr(t, "memory_config", None)
     if callable(mc):
         try:
@@ -414,19 +446,40 @@ def tensor_memory_str(t: Any) -> str:
         mc = getattr(t, "_memory_config", None)
     if mc is None:
         return "DEV_1_DRAM_INTERLEAVED"
+
+    buf = getattr(mc, "buffer_type", None)
+    mem_layout = getattr(mc, "memory_layout", None)
+
+    if buf is not None and mem_layout is not None:
+        buf_name = getattr(buf, "name", str(buf)).upper()
+        layout_name = getattr(mem_layout, "name", str(mem_layout)).upper()
+        suffix = _MEMORY_LAYOUT_SUFFIX.get(layout_name, "INTERLEAVED")
+        return f"DEV_1_{buf_name}_{suffix}"
+
     s = str(mc).upper().replace(" ", "_")
     if "L1" in s:
-        return "DEV_1_L1"
+        return "DEV_1_L1_INTERLEAVED"
     return "DEV_1_DRAM_INTERLEAVED"
+
+
+_KNOWN_TTNN_DTYPES = frozenset({
+    "BFLOAT16", "BFLOAT8_B", "BFLOAT4_B", "FLOAT32", "FLOAT16", "INT32",
+})
 
 
 def tensor_datatype(t: Any, op_precision: Any) -> str:
     """Extract datatype string from a tensor object for LUT key.
 
-    TTNN stores logical BF16 as ``numpy.float16``; this function
-    treats that storage as ``BFLOAT16`` unless *op_precision* indicates
-    IEEE FP16.
+    Prefers the TTNN logical dtype (``_ttnn_dtype``) when present, since
+    numpy storage loses information (e.g. BFLOAT8_B is stored as float32).
+    Falls back to ``t.dtype`` and then *op_precision*.
     """
+    ttnn_dt = getattr(t, "_ttnn_dtype", None)
+    if ttnn_dt is not None:
+        name = getattr(ttnn_dt, "name", str(ttnn_dt)).upper()
+        if name in _KNOWN_TTNN_DTYPES:
+            return name
+
     dt = getattr(t, "dtype", None)
     if dt is not None:
         name = getattr(dt, "name", str(dt)).upper()

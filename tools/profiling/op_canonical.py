@@ -126,8 +126,6 @@ _UNKNOWN_PROFILER_BASES: set[str] = set()
 POLARIS_SYNONYMS: Dict[str, str] = {
     "layernormalization": "layernorm",
     "reshapeview": "reshape",
-    "nlpcreateqkvheads": "createqkvheads",
-    "nlpconcatheads": "concatheads",
 }
 
 # ---------------------------------------------------------------------------
@@ -169,8 +167,8 @@ CANONICAL_TO_STATS_DISPLAY: Dict[str, str] = {
     "embedding": "Embedding",
     "reduce": "Reduce",
     "fold": "Fold",
-    "createqkvheads": "NLPCreateQKVHeads",
-    "concatheads": "NLPConcatHeads",
+    "createqkvheads": "CreateQKVHeads",
+    "concatheads": "ConcatHeads",
     "gelu": "Gelu",
     "relu": "Relu",
     "exp": "Exp",
