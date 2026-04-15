@@ -10,9 +10,9 @@ import pytest
 import ttsim.front.ttnn as ttnn
 from ttsim.front.ttnn.device import ARCH, Device
 from ttsim.front.ttnn.tensor import DataType, Layout, Tensor
-from ttsim.front.ttnn.ttnn_shim import (ExecutionMode, get_tracker, interleaved_to_sharded, interleaved_to_sharded_op,
+from ttsim.front.ttnn.ttnn_shim import (ExecutionMode, interleaved_to_sharded, interleaved_to_sharded_op,
                                         nlp_concat_heads, nlp_concat_heads_op, nlp_create_qkv_heads,
-                                        nlp_create_qkv_heads_op, reset_tracker, reshard, reshard_op, set_execution_mode,
+                                        nlp_create_qkv_heads_op, reshard, reshard_op, set_execution_mode,
                                         sharded_to_interleaved, sharded_to_interleaved_op)
 
 
@@ -55,24 +55,18 @@ def test_interleaved_to_sharded_op_requires_device():
 
 
 @pytest.mark.unit
-def test_interleaved_to_sharded_shim_tracks():
-    set_execution_mode(ExecutionMode.TRACK_ONLY)
-    try:
-        reset_tracker()
-        device = _make_device()
-        inp = Tensor(
-            name="i2s_track", shape=[2, 16, 32], dtype=DataType.BFLOAT16,
-            layout=Layout.ROW_MAJOR_LAYOUT, device=device,
-        )
-        out = interleaved_to_sharded(inp)
-        assert out.logical_shape().as_list() == [2, 16, 32]
-        summary = get_tracker().get_summary()
-        assert summary["data_movement_count"] >= 1
-        ops = [m for m in get_tracker().memory_operations if m["op"] == "interleaved_to_sharded"]
-        assert len(ops) == 1
-    finally:
-        set_execution_mode(ExecutionMode.TRACK_ONLY)
-        reset_tracker()
+def test_interleaved_to_sharded_shim_delegates_to_op():
+    """High-level shim delegates to _op when device is present, producing a SimOp."""
+    device = _make_device()
+    inp = Tensor(
+        name="i2s_track", shape=[2, 16, 32], dtype=DataType.BFLOAT16,
+        layout=Layout.ROW_MAJOR_LAYOUT, device=device,
+    )
+    out = interleaved_to_sharded(inp)
+    assert out.logical_shape().as_list() == [2, 16, 32]
+    ops = [op for op in device.ops.values() if op.optype == "InterleavedToSharded"]
+    assert len(ops) == 1
+    assert inp.name in ops[0].inList
 
 
 @pytest.mark.unit
@@ -109,22 +103,18 @@ def test_sharded_to_interleaved_op_shape_and_perf():
 
 
 @pytest.mark.unit
-def test_sharded_to_interleaved_shim_tracks():
-    set_execution_mode(ExecutionMode.TRACK_ONLY)
-    try:
-        reset_tracker()
-        device = _make_device()
-        inp = Tensor(
-            name="s2i_track", shape=[2, 16, 32], dtype=DataType.BFLOAT16,
-            layout=Layout.ROW_MAJOR_LAYOUT, device=device,
-        )
-        out = sharded_to_interleaved(inp)
-        assert out.logical_shape().as_list() == [2, 16, 32]
-        ops = [m for m in get_tracker().memory_operations if m["op"] == "sharded_to_interleaved"]
-        assert len(ops) == 1
-    finally:
-        set_execution_mode(ExecutionMode.TRACK_ONLY)
-        reset_tracker()
+def test_sharded_to_interleaved_shim_delegates_to_op():
+    """High-level shim delegates to _op when device is present, producing a SimOp."""
+    device = _make_device()
+    inp = Tensor(
+        name="s2i_track", shape=[2, 16, 32], dtype=DataType.BFLOAT16,
+        layout=Layout.ROW_MAJOR_LAYOUT, device=device,
+    )
+    out = sharded_to_interleaved(inp)
+    assert out.logical_shape().as_list() == [2, 16, 32]
+    ops = [op for op in device.ops.values() if op.optype == "ShardedToInterleaved"]
+    assert len(ops) == 1
+    assert inp.name in ops[0].inList
 
 
 @pytest.mark.unit
@@ -160,22 +150,18 @@ def test_reshard_op_shape_and_perf():
 
 
 @pytest.mark.unit
-def test_reshard_shim_tracks():
-    set_execution_mode(ExecutionMode.TRACK_ONLY)
-    try:
-        reset_tracker()
-        device = _make_device()
-        inp = Tensor(
-            name="rs_track", shape=[2, 16, 32], dtype=DataType.BFLOAT16,
-            layout=Layout.ROW_MAJOR_LAYOUT, device=device,
-        )
-        out = reshard(inp, memory_config=None)
-        assert out.logical_shape().as_list() == [2, 16, 32]
-        ops = [m for m in get_tracker().memory_operations if m["op"] == "reshard"]
-        assert len(ops) == 1
-    finally:
-        set_execution_mode(ExecutionMode.TRACK_ONLY)
-        reset_tracker()
+def test_reshard_shim_delegates_to_op():
+    """High-level shim delegates to _op when device is present, producing a SimOp."""
+    device = _make_device()
+    inp = Tensor(
+        name="rs_track", shape=[2, 16, 32], dtype=DataType.BFLOAT16,
+        layout=Layout.ROW_MAJOR_LAYOUT, device=device,
+    )
+    out = reshard(inp, memory_config=None)
+    assert out.logical_shape().as_list() == [2, 16, 32]
+    ops = [op for op in device.ops.values() if op.optype == "Reshard"]
+    assert len(ops) == 1
+    assert inp.name in ops[0].inList
 
 
 @pytest.mark.unit
@@ -212,35 +198,30 @@ def test_nlp_concat_heads_op_shape_and_perf():
 
 
 @pytest.mark.unit
-def test_nlp_concat_heads_shim_tracks():
-    set_execution_mode(ExecutionMode.TRACK_ONLY)
-    try:
-        reset_tracker()
-        device = _make_device()
-        inp = Tensor(
-            name="nch_track", shape=[1, 8, 128, 64], dtype=DataType.BFLOAT16,
-            layout=Layout.ROW_MAJOR_LAYOUT, device=device,
-        )
-        out = nlp_concat_heads(inp)
-        assert out.logical_shape().as_list() == [1, 128, 512]
-        ops = [m for m in get_tracker().memory_operations if m["op"] == "nlp_concat_heads"]
-        assert len(ops) == 1
-    finally:
-        set_execution_mode(ExecutionMode.TRACK_ONLY)
-        reset_tracker()
+def test_nlp_concat_heads_shim_delegates_to_op():
+    """High-level shim delegates to _op when device is present, producing a SimOp."""
+    device = _make_device()
+    inp = Tensor(
+        name="nch_track", shape=[1, 8, 128, 64], dtype=DataType.BFLOAT16,
+        layout=Layout.ROW_MAJOR_LAYOUT, device=device,
+    )
+    out = nlp_concat_heads(inp)
+    assert out.logical_shape().as_list() == [1, 128, 512]
+    ops = [op for op in device.ops.values() if op.optype == "NLPConcatHeads"]
+    assert len(ops) == 1
+    assert inp.name in ops[0].inList
 
 
 @pytest.mark.unit
 def test_nlp_concat_heads_execute_roundtrip():
+    """Data roundtrip without a device so the execute path computes actual values."""
     set_execution_mode(ExecutionMode.EXECUTE)
     try:
-        device = _make_device()
         B, H, S, D = 1, 2, 3, 4
         arr = np.arange(B * H * S * D, dtype=np.float32).reshape(B, H, S, D)
-        data = arr.flatten().tolist()
         inp = Tensor(
             name="nch_exec", shape=[B, H, S, D], dtype=DataType.FLOAT32,
-            layout=Layout.ROW_MAJOR_LAYOUT, device=device, data=data,
+            layout=Layout.ROW_MAJOR_LAYOUT, device=None, data=arr.flatten(),
         )
         out = nlp_concat_heads(inp)
         assert out.logical_shape().as_list() == [B, S, H * D]
@@ -297,45 +278,39 @@ def test_nlp_create_qkv_heads_op_shape_and_perf():
 
 
 @pytest.mark.unit
-def test_nlp_create_qkv_heads_shim_tracks():
-    set_execution_mode(ExecutionMode.TRACK_ONLY)
-    try:
-        reset_tracker()
-        device = _make_device()
-        num_heads = 4
-        num_kv_heads = 2
-        head_dim = 32
-        fused_dim = (num_heads + 2 * num_kv_heads) * head_dim
-        inp = Tensor(
-            name="qkv_track", shape=[1, 16, fused_dim], dtype=DataType.BFLOAT16,
-            layout=Layout.ROW_MAJOR_LAYOUT, device=device,
-        )
-        q, k, v = nlp_create_qkv_heads(
-            inp, num_heads=num_heads, num_kv_heads=num_kv_heads,
-        )
-        assert q.logical_shape().as_list() == [1, num_heads, 16, head_dim]
-        assert k.logical_shape().as_list() == [1, num_kv_heads, 16, head_dim]
-        assert v.logical_shape().as_list() == [1, num_kv_heads, 16, head_dim]
-        ops = [m for m in get_tracker().memory_operations if m["op"] == "nlp_create_qkv_heads"]
-        assert len(ops) == 1
-        assert ops[0]["q_shape"] == [1, num_heads, 16, head_dim]
-    finally:
-        set_execution_mode(ExecutionMode.TRACK_ONLY)
-        reset_tracker()
+def test_nlp_create_qkv_heads_shim_delegates_to_op():
+    """High-level shim delegates to _op when device is present, producing a SimOp."""
+    device = _make_device()
+    num_heads = 4
+    num_kv_heads = 2
+    head_dim = 32
+    fused_dim = (num_heads + 2 * num_kv_heads) * head_dim
+    inp = Tensor(
+        name="qkv_track", shape=[1, 16, fused_dim], dtype=DataType.BFLOAT16,
+        layout=Layout.ROW_MAJOR_LAYOUT, device=device,
+    )
+    q, k, v = nlp_create_qkv_heads(
+        inp, num_heads=num_heads, num_kv_heads=num_kv_heads,
+    )
+    assert q.logical_shape().as_list() == [1, num_heads, 16, head_dim]
+    assert k.logical_shape().as_list() == [1, num_kv_heads, 16, head_dim]
+    assert v.logical_shape().as_list() == [1, num_kv_heads, 16, head_dim]
+    ops = [op for op in device.ops.values() if op.optype == "NLPCreateQKVHeads"]
+    assert len(ops) == 1
+    assert len(ops[0].outList) == 3
 
 
 @pytest.mark.unit
 def test_nlp_create_qkv_heads_execute_roundtrip():
+    """Data roundtrip without a device so the execute path computes actual values."""
     set_execution_mode(ExecutionMode.EXECUTE)
     try:
-        device = _make_device()
         B, S, num_heads, num_kv_heads, head_dim = 1, 4, 2, 1, 3
         fused_dim = (num_heads + 2 * num_kv_heads) * head_dim
         arr = np.arange(B * S * fused_dim, dtype=np.float32).reshape(B, S, fused_dim)
-        data = arr.flatten().tolist()
         inp = Tensor(
             name="qkv_exec", shape=[B, S, fused_dim], dtype=DataType.FLOAT32,
-            layout=Layout.ROW_MAJOR_LAYOUT, device=device, data=data,
+            layout=Layout.ROW_MAJOR_LAYOUT, device=None, data=arr.flatten(),
         )
         q, k, v = nlp_create_qkv_heads(
             inp, num_heads=num_heads, num_kv_heads=num_kv_heads,
