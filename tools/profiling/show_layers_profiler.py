@@ -108,6 +108,13 @@ def layers_profiler(input_file: str) -> List[Dict[str, Any]]:
                         match = re.search(r'UnaryOpType::(\w+)', op_chain)
                         if match:
                             row['OP CODE'] = match.group(1)
+            # Attribute lists (dtypes, layouts, memories) must stay parallel
+            # with their tensor lists so that positional indexing in
+            # compare_tensor_attributes (compare_layers.py) compares the
+            # correct tensor slot.  When attrs are missing for a slot that
+            # has a tensor, we append None to preserve alignment.
+            a0_in = expand_tensor_attrs(row, 0, 'INPUT')
+            a0_out = expand_tensor_attrs(row, 0, 'OUTPUT')
             filtered_row: Dict[str, Any] = {
                 'seqno': int(row['GLOBAL CALL COUNT']),
                 'optype': row['OP CODE'].lower(),
@@ -115,24 +122,13 @@ def layers_profiler(input_file: str) -> List[Dict[str, Any]]:
                 'output_tensors': [expand_tensor_string(row, 0, 'OUTPUT')],
                 'input_pad_logical': [expand_tensor_dims(row, 0, 'INPUT')],
                 'output_pad_logical': [expand_tensor_dims(row, 0, 'OUTPUT')],
-                'input_dtypes': [],
-                'input_layouts': [],
-                'input_memories': [],
-                'output_dtypes': [],
-                'output_layouts': [],
-                'output_memories': [],
+                'input_dtypes': [a0_in['dtype'] if a0_in else None],
+                'input_layouts': [a0_in['layout'] if a0_in else None],
+                'input_memories': [a0_in['memory'] if a0_in else None],
+                'output_dtypes': [a0_out['dtype'] if a0_out else None],
+                'output_layouts': [a0_out['layout'] if a0_out else None],
+                'output_memories': [a0_out['memory'] if a0_out else None],
             }
-            # Slot 0 attrs
-            a0_in = expand_tensor_attrs(row, 0, 'INPUT')
-            if a0_in:
-                filtered_row['input_dtypes'].append(a0_in['dtype'])
-                filtered_row['input_layouts'].append(a0_in['layout'])
-                filtered_row['input_memories'].append(a0_in['memory'])
-            a0_out = expand_tensor_attrs(row, 0, 'OUTPUT')
-            if a0_out:
-                filtered_row['output_dtypes'].append(a0_out['dtype'])
-                filtered_row['output_layouts'].append(a0_out['layout'])
-                filtered_row['output_memories'].append(a0_out['memory'])
             for idx in (1, 2):
                 s = expand_tensor_string(row, idx, 'INPUT')
                 if s:
@@ -140,20 +136,18 @@ def layers_profiler(input_file: str) -> List[Dict[str, Any]]:
                     filtered_row['input_pad_logical'].append(
                         expand_tensor_dims(row, idx, 'INPUT'))
                     a = expand_tensor_attrs(row, idx, 'INPUT')
-                    if a:
-                        filtered_row['input_dtypes'].append(a['dtype'])
-                        filtered_row['input_layouts'].append(a['layout'])
-                        filtered_row['input_memories'].append(a['memory'])
+                    filtered_row['input_dtypes'].append(a['dtype'] if a else None)
+                    filtered_row['input_layouts'].append(a['layout'] if a else None)
+                    filtered_row['input_memories'].append(a['memory'] if a else None)
                 s = expand_tensor_string(row, idx, 'OUTPUT')
                 if s:
                     filtered_row['output_tensors'].append(s)
                     filtered_row['output_pad_logical'].append(
                         expand_tensor_dims(row, idx, 'OUTPUT'))
                     a = expand_tensor_attrs(row, idx, 'OUTPUT')
-                    if a:
-                        filtered_row['output_dtypes'].append(a['dtype'])
-                        filtered_row['output_layouts'].append(a['layout'])
-                        filtered_row['output_memories'].append(a['memory'])
+                    filtered_row['output_dtypes'].append(a['dtype'] if a else None)
+                    filtered_row['output_layouts'].append(a['layout'] if a else None)
+                    filtered_row['output_memories'].append(a['memory'] if a else None)
             rows.append(filtered_row)
 
     # Post-process: correct ops where the profiler conflates PAD and LOGICAL
