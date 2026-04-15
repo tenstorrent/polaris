@@ -47,6 +47,7 @@ if str(_REPO_ROOT) not in sys.path:
 from tools.perf_lookup.tt_perf_master_loader import load_existing_yaml
 from tools.profiling.shape_canonical import (
     coerce_shape_to_list,
+    createqkvheads_input0_wzyx,
     promote_to_rank4,
     reshape_input0_wzyx,
     tensor_layout_str,
@@ -284,7 +285,9 @@ def _build_stat_resolver(
 
 
 def _op_code(op: Any) -> str:
-    return str(getattr(op, "optype", "")).strip().lower()
+    from tools.profiling.op_canonical import normalize_polaris_optype
+
+    return normalize_polaris_optype(str(getattr(op, "optype", "")).strip())
 
 
 def _shape_wzyx(tensor: Any) -> Tuple[int, int, int, int]:
@@ -300,6 +303,8 @@ def _input0_wzyx_for_master_key(op: Any, tensor_0: Any) -> Tuple[int, int, int, 
     w, z, y, x = _shape_wzyx(tensor_0)
     if _op_code(op) == "reshape":
         return reshape_input0_wzyx(w, z, y, x)
+    if _op_code(op) == "createqkvheads":
+        return createqkvheads_input0_wzyx(w, z, y, x)
     return (w, z, y, x)
 
 

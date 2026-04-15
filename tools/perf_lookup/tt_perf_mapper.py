@@ -813,8 +813,23 @@ def build_master_dict(
         n_cores = len(core_counts)
         if mode == "single":
             if n_cores != 1:
-                continue
-            cc = float(core_counts[0])
+                cc_counts = defaultdict(int)
+                for e in entries:
+                    cc_counts[e[0]] += 1
+                cc = float(max(cc_counts, key=cc_counts.get))  # type: ignore[arg-type]
+                logger.warning(
+                    "key_tuple has {} distinct CORE COUNTs {} in single mode; "
+                    "using most frequent ({}, {} of {} rows); key_tuple={}",
+                    n_cores,
+                    core_counts,
+                    int(cc),
+                    cc_counts[cc],
+                    sum(cc_counts.values()),
+                    list(key_t),
+                )
+                entries = [e for e in entries if float(e[0]) == cc]
+            else:
+                cc = float(core_counts[0])
             core_key = _single_mode_core_count_key(cc, key_t)
             rep = next(e[1] for e in entries if float(e[0]) == cc)
             master[key_t] = {
