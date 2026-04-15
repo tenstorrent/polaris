@@ -1220,7 +1220,25 @@ def process_excel_to_master(
 
     apply_merged_ops_stat_aliases(table)
 
+    original_opcodes = [row.get("OP CODE", "") for row in table.rows]
     apply_polaris_layer_type_column(table)
+
+    other_ops: dict[str, int] = {}
+    for orig, row in zip(original_opcodes, table.rows):
+        if row.get("OP CODE") == "other":
+            key = str(orig).strip() if orig else "<blank>"
+            other_ops[key] = other_ops.get(key, 0) + 1
+    if other_ops:
+        detail = "; ".join(f"{name!r} ({n} row{'s' if n > 1 else ''})" for name, n in sorted(other_ops.items()))
+        logger.error(
+            "Refusing to build LUT: {} profiler OP CODE(s) mapped to 'other' "
+            "(unrecognized by op_canonical.py): {}. "
+            "Add prefix rules for these ops in tools/profiling/op_canonical.py "
+            "before re-running.",
+            len(other_ops),
+            detail,
+        )
+        return 1, {}, {}, excel_path
 
     try:
         core_col, duration_col, key_cols, stat_required, stat_cols = validate_columns(
