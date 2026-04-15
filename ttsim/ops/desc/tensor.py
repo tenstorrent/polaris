@@ -835,10 +835,10 @@ def permute_op_inf_func(iTList, oTList, op, **kwargs):
 
 
 def fold_sinf(iTList, oTList, op, **kwargs):
-    """Shape inference for Fold: 4D [N,H,W,C] -> [1,1,N*Hs*Ws,Cs].
+    """Shape inference for Fold: 4D [N,H,W,C] -> [N, H//sh, W//sw, C*sh*sw].
 
-    HW Fold flattens batch and spatial dims into a single row dimension,
-    producing ``[1, 1, N*H//sh*W//sw, C*sh*sw]``.
+    Must match the ``use_transpose_as_fold`` reference path in ``op.py``
+    which reshapes to ``(N, Hs, Ws, C*stride_h*stride_w)``.
     """
     assert len(iTList) == 1 and len(oTList) == 1
     X = iTList[0]
@@ -862,7 +862,7 @@ def fold_sinf(iTList, oTList, op, **kwargs):
     Hs = H // stride_h
     Ws = W // stride_w
     Cs = C * stride_h * stride_w
-    out_shape = [1, 1, N * Hs * Ws, Cs]
+    out_shape = [N, Hs, Ws, Cs]
     oTList[0].shape = out_shape
     oTList[0].dtype = X.dtype
     in_elems = X.nelems()
