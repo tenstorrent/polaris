@@ -12,6 +12,8 @@ import pathlib
 import types
 
 import ttsim.front.ttnn as ttnn
+from ttsim.front.ttnn.config import WormholeComputeKernelConfig
+from ttsim.front.ttnn.op import MathFidelity
 
 from workloads.common.hf_config import load_hf_config
 
@@ -24,6 +26,15 @@ config_obj = types.SimpleNamespace(**config_dict)
 config_obj.core_grid = ttnn.CoreGrid(
     [ttnn.CoreRange(ttnn.CoreCoord(0, 0), ttnn.CoreCoord(7, 7))]
 )
+config_obj.program_configs = {
+    "ln_compute_config": WormholeComputeKernelConfig(
+        math_fidelity=MathFidelity.HiFi2,
+        math_approx_mode=True,
+        fp32_dest_acc_en=False,
+        packer_l1_acc=True,
+    ),
+}
+
 
 
 def make_info(weight_shape, bias_shape, *, report_dtype=None):

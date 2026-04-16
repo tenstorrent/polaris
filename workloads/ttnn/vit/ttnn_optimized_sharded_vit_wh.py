@@ -284,6 +284,7 @@ def vit_layer(
         hidden_states,
         weight=parameters.layernorm_before.weight,
         bias=parameters.layernorm_before.bias,
+        compute_kernel_config=config.program_configs["ln_compute_config"],
     )
     _warn_layout_operator_todo_once(
         "opt_vit_layernorm_before_layout",
@@ -308,6 +309,7 @@ def vit_layer(
         multi_head_attention_output,
         weight=parameters.layernorm_after.weight,
         bias=parameters.layernorm_after.bias,
+        compute_kernel_config=config.program_configs["ln_compute_config"],
     )
     _warn_layout_operator_todo_once(
         "opt_vit_layernorm_after_layout",
