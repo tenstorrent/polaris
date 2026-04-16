@@ -5,12 +5,17 @@
 """Single source of truth for tensor shape parsing, normalization, and
 comparison, as well as layout / dtype / memory attribute normalization.
 
+Memory strings are compared via :func:`normalize_memory_tag` so Polaris
+``MemoryConfig`` repr and profiler short forms (e.g. ``L1_BLOCK_SHARDED``)
+match when semantically identical.
+
 All tools that compare or construct tensor shapes should import from
 here rather than maintaining their own parsing or normalization logic.
 """
 
 from __future__ import annotations
 
+import re
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 
@@ -54,6 +59,48 @@ def normalize_layout(value: Optional[str]) -> Optional[str]:
 def normalize_dtype(value: Optional[str]) -> Optional[str]:
     """Normalize a dtype string (e.g. ``bfloat16`` → ``BFLOAT16``)."""
     return normalize_attr(value, DTYPE_NORMALIZATION)
+
+
+# TensorMemoryLayout.name → suffix segment (matches profiler / ``tensor_memory_str``).
+_MEMORY_LAYOUT_SUFFIX: Dict[str, str] = {
+    "INTERLEAVED": "INTERLEAVED",
+    "HEIGHT_SHARDED": "HEIGHT_SHARDED",
+    "BLOCK_SHARDED": "BLOCK_SHARDED",
+    "WIDTH_SHARDED": "WIDTH_SHARDED",
+}
+
+
+def canonical_memory_tag_from_enums(buffer_name: str, layout_name: str) -> str:
+    """Build tag like ``L1_BLOCK_SHARDED`` or ``DRAM_INTERLEAVED`` from enum names."""
+    buf = buffer_name.strip().upper()
+    lay = layout_name.strip().upper()
+    suffix = _MEMORY_LAYOUT_SUFFIX.get(lay, "INTERLEAVED")
+    return f"{buf}_{suffix}"
+
+
+def normalize_memory_tag(value: Optional[str]) -> Optional[str]:
+    """Map Polaris ``MemoryConfig`` repr or profiler short strings to one canonical form.
+
+    Polaris CSV often stores ``str(MemoryConfig)`` (i.e. ``__repr__``). Profiler
+    CSV uses values like ``L1_BLOCK_SHARDED`` (sometimes prefixed with
+    ``DEV_1_`` before load). After normalization, semantically identical configs
+    compare equal.
+
+    Returns ``None`` for missing/empty *value*. Unknown non-``MemoryConfig``
+    strings are uppercased with spaces → underscores (legacy behavior).
+    """
+    if value is None:
+        return None
+    s = value.strip()
+    if not s:
+        return None
+    s = re.sub(r"^DEV_\d+_", "", s, flags=re.IGNORECASE)
+    if s.startswith("MemoryConfig("):
+        ml = re.search(r"TensorMemoryLayout\.(\w+)", s)
+        bt = re.search(r"BufferType\.(\w+)", s)
+        if ml and bt:
+            return canonical_memory_tag_from_enums(bt.group(1), ml.group(1))
+    return s.upper().replace(" ", "_")
 
 
 # ===================================================================
@@ -369,7 +416,9 @@ def compare_tensor_attributes(
     for i in range(n):
         pm = p_mems[i]
         fm = f_mems[i]
-        if pm and fm and pm != fm:
+        npm = normalize_memory_tag(pm)
+        nfm = normalize_memory_tag(fm)
+        if npm and nfm and npm != nfm:
             mismatches.append(f"tensor {i} memory: {pm} vs {fm}")
 
     if mismatches:
@@ -421,12 +470,14 @@ def tensor_layout_str(t: Any) -> str:
     return "TILE"
 
 
-_MEMORY_LAYOUT_SUFFIX = {
-    "INTERLEAVED": "INTERLEAVED",
-    "HEIGHT_SHARDED": "HEIGHT_SHARDED",
-    "BLOCK_SHARDED": "BLOCK_SHARDED",
-    "WIDTH_SHARDED": "WIDTH_SHARDED",
-}
+def _memory_config_obj_to_canonical_tag(mc: Any) -> Optional[str]:
+    buf = getattr(mc, "buffer_type", None)
+    mem_layout = getattr(mc, "memory_layout", None)
+    if buf is None or mem_layout is None:
+        return None
+    buf_name = getattr(buf, "name", str(buf))
+    layout_name = getattr(mem_layout, "name", str(mem_layout))
+    return canonical_memory_tag_from_enums(buf_name, layout_name)
 
 
 def tensor_memory_str(t: Any) -> str:
@@ -447,14 +498,9 @@ def tensor_memory_str(t: Any) -> str:
     if mc is None:
         return "DEV_1_DRAM_INTERLEAVED"
 
-    buf = getattr(mc, "buffer_type", None)
-    mem_layout = getattr(mc, "memory_layout", None)
-
-    if buf is not None and mem_layout is not None:
-        buf_name = getattr(buf, "name", str(buf)).upper()
-        layout_name = getattr(mem_layout, "name", str(mem_layout)).upper()
-        suffix = _MEMORY_LAYOUT_SUFFIX.get(layout_name, "INTERLEAVED")
-        return f"DEV_1_{buf_name}_{suffix}"
+    tag = _memory_config_obj_to_canonical_tag(mc)
+    if tag is not None:
+        return f"DEV_1_{tag}"
 
     s = str(mc).upper().replace(" ", "_")
     if "L1" in s:

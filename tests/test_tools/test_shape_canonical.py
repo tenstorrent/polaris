@@ -15,6 +15,7 @@ from tools.profiling.shape_canonical import (
     normalize_attr,
     normalize_dtype,
     normalize_layout,
+    normalize_memory_tag,
     normalize_shape,
     parse_shape_string,
     promote_to_rank4,
@@ -213,6 +214,56 @@ def test_validate_reshape_not_2_inputs():
     assert "polaris doesn't have 2 inputs" in details
 
 
+# ── normalize_memory_tag ────────────────────────────────────────────────
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    "polaris_repr,profiler_short",
+    [
+        (
+            "MemoryConfig(memory_layout=<TensorMemoryLayout.BLOCK_SHARDED: 4>, "
+            "buffer_type=<BufferType.L1: 2>)",
+            "L1_BLOCK_SHARDED",
+        ),
+        (
+            "MemoryConfig(memory_layout=<TensorMemoryLayout.INTERLEAVED: 1>, "
+            "buffer_type=<BufferType.DRAM: 1>)",
+            "DRAM_INTERLEAVED",
+        ),
+        ("DEV_1_L1_BLOCK_SHARDED", "L1_BLOCK_SHARDED"),
+        ("l1_block_sharded", "L1_BLOCK_SHARDED"),
+    ],
+)
+def test_normalize_memory_tag_polaris_repr_matches_profiler(polaris_repr, profiler_short):
+    assert normalize_memory_tag(polaris_repr) == normalize_memory_tag(profiler_short)
+
+
+@pytest.mark.unit
+def test_normalize_memory_tag_semantic_mismatch_still_differs():
+    """P3-style: different buffer/layout must not normalize to equality."""
+    dram = normalize_memory_tag(
+        "MemoryConfig(memory_layout=<TensorMemoryLayout.INTERLEAVED: 1>, "
+        "buffer_type=<BufferType.DRAM: 1>)"
+    )
+    l1_block = normalize_memory_tag(
+        "MemoryConfig(memory_layout=<TensorMemoryLayout.BLOCK_SHARDED: 4>, "
+        "buffer_type=<BufferType.L1: 2>)"
+    )
+    assert dram != l1_block
+
+
+@pytest.mark.unit
+def test_memory_config_str_matches_canonical_tag():
+    """New CSV exports use ``str(mc)`` → short profiler-style tag."""
+    from ttsim.front.ttnn.buffer import BufferType, TensorMemoryLayout
+    from ttsim.front.ttnn.memory import MemoryConfig
+
+    mc = MemoryConfig(TensorMemoryLayout.BLOCK_SHARDED, BufferType.L1)
+    assert str(mc) == "L1_BLOCK_SHARDED"
+    assert normalize_memory_tag(str(mc)) == normalize_memory_tag(repr(mc))
+
+
 # ── compare_tensor_attributes ───────────────────────────────────────────
 
 
@@ -222,6 +273,26 @@ def test_compare_tensor_attributes_match():
     f = {"input_dtypes": ["BFLOAT16"], "input_layouts": ["TILE"], "input_memories": ["DRAM"]}
     match, details = compare_tensor_attributes(p, f, "input")
     assert match is True
+
+
+@pytest.mark.unit
+def test_compare_tensor_attributes_memory_repr_vs_profiler_short():
+    p = {
+        "input_dtypes": ["bfloat16"],
+        "input_layouts": ["tile"],
+        "input_memories": [
+            "MemoryConfig(memory_layout=<TensorMemoryLayout.BLOCK_SHARDED: 4>, "
+            "buffer_type=<BufferType.L1: 2>)"
+        ],
+    }
+    f = {
+        "input_dtypes": ["BFLOAT16"],
+        "input_layouts": ["TILE"],
+        "input_memories": ["L1_BLOCK_SHARDED"],
+    }
+    match, details = compare_tensor_attributes(p, f, "input")
+    assert match is True
+    assert details == ""
 
 
 @pytest.mark.unit
