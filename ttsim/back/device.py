@@ -10,6 +10,7 @@ from typing import TYPE_CHECKING, Any, Optional
 from loguru import logger
 
 from ttsim.utils.types import get_bpe, get_sim_dtype
+from ttsim.utils.lfc import resolve_lfc_path
 from tools.perf_lookup.lookup_operator_perf import resolve_operator_lookup_core_count
 
 LOG     = logger
@@ -134,30 +135,43 @@ class Device:
         else:
             _hybrid_curve = bool(operator_lookup_hybrid_curve)
         if hasattr(simcfg_obj, 'operator_lookup_file') and simcfg_obj.operator_lookup_file:
-            lookup_file_path = Path(os.getcwd()) / simcfg_obj.operator_lookup_file
-            if lookup_file_path.exists():
+            lookup_file = simcfg_obj.operator_lookup_file
+            if lookup_file.startswith('lfc://'):
                 try:
-                    from tools.perf_lookup.lookup_operator_perf import OperatorPerfMap
-
-                    self.operator_perf_map = OperatorPerfMap(
-                        lookup_file_path,
-                        use_hybrid_curve=_hybrid_curve,
-                    )
-                    logger.info(
-                        "Loaded operator performance master lookup from {} (core_count={}, hybrid_curve={})",
-                        lookup_file_path,
-                        self._operator_lookup_core_count,
-                        _hybrid_curve,
-                    )
-                except Exception as e:
+                    lookup_file = resolve_lfc_path(lookup_file)
+                except (RuntimeError, ValueError) as e:
                     logger.warning(
-                        "Failed to load operator performance lookup from {}: {}",
-                        lookup_file_path,
+                        "Failed to resolve LFC path {}: {}. Continuing without operator performance lookup.",
+                        simcfg_obj.operator_lookup_file,
                         e,
                     )
-                    self.operator_perf_map = None
-            else:
-                logger.warning(f"Operator lookup file specified but not found: {lookup_file_path}")
+                    lookup_file = None
+            
+            if lookup_file:
+                lookup_file_path = Path(os.getcwd()) / lookup_file
+                if lookup_file_path.exists():
+                    try:
+                        from tools.perf_lookup.lookup_operator_perf import OperatorPerfMap
+
+                        self.operator_perf_map = OperatorPerfMap(
+                            lookup_file_path,
+                            use_hybrid_curve=_hybrid_curve,
+                        )
+                        logger.info(
+                            "Loaded operator performance master lookup from {} (core_count={}, hybrid_curve={})",
+                            lookup_file_path,
+                            self._operator_lookup_core_count,
+                            _hybrid_curve,
+                        )
+                    except Exception as e:
+                        logger.warning(
+                            "Failed to load operator performance lookup from {}: {}",
+                            lookup_file_path,
+                            e,
+                        )
+                        self.operator_perf_map = None
+                else:
+                    logger.warning(f"Operator lookup file specified but not found: {lookup_file_path}")
 
         return
 

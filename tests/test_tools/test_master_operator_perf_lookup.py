@@ -687,7 +687,7 @@ def test_operator_perf_map_loads_repo_sample():
     from tools.perf_lookup.lookup_operator_perf import OperatorPerfMap
 
     root = Path(__file__).resolve().parents[2]
-    yml = root / "__ext" / "perf_lookup" / "whb0_n150_lut.yaml"
+    yml = root / "__ext" / "hlm-lut" / "whb0_n150_lut.yaml"
     if not yml.is_file():
         pytest.skip(f"repo LUT not present: {yml}")
     m = OperatorPerfMap(yml)

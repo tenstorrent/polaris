@@ -93,4 +93,6 @@ Analytical pipe/mem utilization **> 1.0** checks are skipped when `uses_perf_loo
 
 ## Example file
 
-Use the same path as `operator_lookup_file` in package YAML (e.g. [__ext/perf_lookup/whb0_n150_lut.yaml](../../../__ext/perf_lookup/whb0_n150_lut.yaml)): unary `single` rows, binary ops, and matmul as `hybrid` (`single` + `curve`) per the normative format. Those LUT YAML files are not in Git; fetch them from LFC with `lfc_downloader.sh` as described in [OPERATOR_LUT_LFC.md](OPERATOR_LUT_LFC.md).
+Package YAML specifies `operator_lookup_file` using LFC paths: `lfc://hlm-lut/whb0_n150_lut.yaml`, which are automatically downloaded and cached to `__ext/hlm-lut/whb0_n150_lut.yaml`.
+
+Example LUT files contain unary `single` rows, binary ops, and matmul as `hybrid` (`single` + `curve`) per the normative format. Those LUT YAML files are not in Git and download automatically with `lfc://` paths, or can be fetched manually as described in [OPERATOR_LUT_LFC.md](OPERATOR_LUT_LFC.md).
