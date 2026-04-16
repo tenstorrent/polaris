@@ -38,9 +38,6 @@ def generate_new_op_name():
     return f"ttsim.ttnn.Op_{next(op_counter)}"
 
 
-_COMPACT_DTYPES = frozenset()  # populated after DataType import below
-
-
 def _propagate_ttnn_dtype(inputs: list[Tensor], outputs: list[Tensor]) -> None:
     """Propagate _ttnn_dtype from inputs to unannotated outputs.
 
@@ -64,7 +61,7 @@ def _propagate_ttnn_dtype(inputs: list[Tensor], outputs: list[Tensor]) -> None:
             o._ttnn_dtype = src
 
 
-_COMPACT_DTYPES = frozenset({DataType.BFLOAT8_B, DataType.BFLOAT4_B})
+_COMPACT_DTYPES: frozenset[DataType] = frozenset({DataType.BFLOAT8_B, DataType.BFLOAT4_B})
 
 
 def _propagate_memory_config(inputs: list[Tensor], outputs: list[Tensor]) -> None:
@@ -330,6 +327,11 @@ def layer_norm_pp(args_list, kwargs_dict):
         bias_tensor = require_ttnn_tensor(bias_tensor, "ttnn.layer_norm bias")
 
     kwargs_dict = {}
+    if compute_kernel_config is not None:
+        mf = getattr(compute_kernel_config, "math_fidelity", None)
+        if mf is not None:
+            kwargs_dict["math_fidelity"] = mf.name
+
     if bias_tensor is not None:
         return (input_tensor, weight_tensor, bias_tensor), kwargs_dict
     else:
@@ -847,7 +849,7 @@ def fold(
     pad_h: int = 0,
     pad_w: int = 0,
     grid_size=None,  # ttnn.CoreRangeSet  -- accepted for ttnn API compat, unused
-    override_memory_config: MemoryConfig = None,  # type: ignore  -- accepted for ttnn API compat, unused
+    override_memory_config: MemoryConfig | None = None,  # accepted for ttnn API compat, unused
 ):
     """Fold: (N,H,W,C) → (N, H//stride_h, W//stride_w, C*stride_h*stride_w).
 
