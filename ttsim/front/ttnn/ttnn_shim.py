@@ -1108,7 +1108,7 @@ def untilize(input_tensor, memory_config=None, use_multicore=True,
 
 
 def tilize_with_val_padding(input_tensor, output_padded_shape, pad_value,
-                            memory_config=None, output_dtype=None,
+                            memory_config=None, output_dtype=None, dtype=None,
                             use_multicore=True, sub_core_grids=None):
     """
     Tilize with value padding - converts ROW_MAJOR_LAYOUT to TILE_LAYOUT with padding.
@@ -1119,6 +1119,7 @@ def tilize_with_val_padding(input_tensor, output_padded_shape, pad_value,
         pad_value: Value to use for padding (float or int)
         memory_config: Optional output memory configuration
         output_dtype: Optional output data type
+        dtype: Alias for ``output_dtype`` (tt-metal API compatibility)
         use_multicore: Whether to use multicore (default: True)
         sub_core_grids: Optional sub-core grid specification
     Returns:
@@ -1133,6 +1134,9 @@ def tilize_with_val_padding(input_tensor, output_padded_shape, pad_value,
 
     if input_tensor.get_layout() != Layout.ROW_MAJOR_LAYOUT:
         raise RuntimeError("Can only tilize row major data")
+
+    if output_dtype is None:
+        output_dtype = dtype
 
     # Check data type - handle both DataType enums and numpy dtypes
     tensor_dtype = input_tensor.dtype

@@ -14,15 +14,26 @@ import csv
 import sys
 import yaml
 
-try:
-    from op_canonical import normalize_profiler_opcode, canonical_to_stats_display
-except ImportError:
-    from .op_canonical import normalize_profiler_opcode, canonical_to_stats_display  # type: ignore
 import argparse
+import importlib
 import traceback
 import math
+from types import ModuleType
 from typing import Optional
+
 from loguru import logger
+
+
+def _load_op_canonical() -> ModuleType:
+    """Load sibling ``op_canonical`` when run as ``-m`` package or as a script."""
+    if __package__:
+        return importlib.import_module(".op_canonical", __package__)
+    return importlib.import_module("op_canonical")
+
+
+_op_canonical = _load_op_canonical()
+normalize_profiler_opcode = _op_canonical.normalize_profiler_opcode
+canonical_to_stats_display = _op_canonical.canonical_to_stats_display
 
 
 def extract_dimension_from_bracket(value: str) -> str:
@@ -450,7 +461,7 @@ def convert_profiler_to_polaris(input_file: str, output_file: str, freq_mhz: flo
     
     # Build output fieldnames: all original + prefixed Polaris columns
     polaris_prefixed = [f'polaris_{col}' for col in polaris_columns]
-    output_fieldnames = input_fieldnames + polaris_prefixed
+    output_fieldnames = list(input_fieldnames) + polaris_prefixed
     
     # Write output CSV
     with open(output_file, 'w', newline='') as f:
