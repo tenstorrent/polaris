@@ -9,7 +9,7 @@ import argparse
 import csv
 from collections import defaultdict
 from pathlib import Path
-from typing import Any, Dict, List, Tuple, Optional
+from typing import Any, DefaultDict, Dict, List, Optional, Tuple
 from dataclasses import dataclass
 
 try:
@@ -123,6 +123,16 @@ def parse_args() -> argparse.Namespace:
         '--ignore-attrs',
         action='store_true',
         help='Skip tensor attribute comparison (dtype, layout, memory); compare shapes only'
+    )
+    parser.add_argument(
+        '--summarize-by-signature',
+        action='store_true',
+        help='Print a rollup table keyed by layer optype (CSV name) plus normalized '
+             'input/output shape signature. Uses the same --strip-leading-ones / '
+             '--strip-singleton-dims rules as shape comparison. With two CSVs, prints '
+             'one table per file. With --perf, adds summed duration (and Polaris LUT '
+             'hits when available), and the profiler-vs-Polaris performance comparison '
+             'is grouped by type+signature instead of by optype alone.',
     )
     return parser.parse_args()
 
@@ -351,6 +361,107 @@ def compare_layers(
     return stats
 
 
+def _signature_string_for_layer(
+    layer: Dict[str, Any],
+    strip_leading_ones: bool,
+    strip_singleton_dims: bool,
+) -> str:
+    """Normalized in/out shape string for grouping (matches compare_layers strip rules)."""
+
+    def fmt_slot(shapes: List[str]) -> str:
+        parts: List[str] = []
+        for sh in shapes or []:
+            dims = parse_shape(sh)
+            nd = normalize_shape(dims, strip_leading_ones, strip_singleton_dims)
+            parts.append("x".join(str(x) for x in nd) if nd else "")
+        return ";".join(parts)
+
+    ins = fmt_slot(layer.get("input_tensors") or [])
+    outs = fmt_slot(layer.get("output_tensors") or [])
+    return f"in[{ins}] out[{outs}]"
+
+
+def _print_signature_summary(
+    layers: List[Dict[str, Any]],
+    label: str,
+    strip_leading_ones: bool,
+    strip_singleton_dims: bool,
+    *,
+    include_perf: bool,
+) -> None:
+    """Rollup: count (and optionally ms / LUT) per (optype, shape signature)."""
+    counts: DefaultDict[Tuple[str, str], int] = defaultdict(int)
+    ms_totals: DefaultDict[Tuple[str, str], float] = defaultdict(float)
+    lut_totals: DefaultDict[Tuple[str, str], int] = defaultdict(int)
+
+    for layer in layers:
+        optype = str(layer.get("optype", ""))
+        sig = _signature_string_for_layer(layer, strip_leading_ones, strip_singleton_dims)
+        key = (optype, sig)
+        counts[key] += 1
+        if include_perf:
+            d = layer.get("duration_ms")
+            if d is not None:
+                ms_totals[key] += float(d)
+            if layer.get("uses_perf_lookup"):
+                lut_totals[key] += 1
+
+    keys_sorted = sorted(counts.keys(), key=lambda k: (-counts[k], k[0], k[1]))
+    any_lut = include_perf and sum(lut_totals.values()) > 0
+
+    print(f"\n{'=' * 72}")
+    print(f"  Summary by layer type + signature ({label})")
+    print(f"{'=' * 72}")
+
+    hdr_count = "Count"
+    hdr_type = "Layer type"
+    hdr_sig = "Signature (normalized in / out)"
+    col_c = max(5, len(hdr_count))
+    col_t = max(12, max((len(k[0]) for k in keys_sorted), default=len(hdr_type)))
+    col_m = 11
+    col_l = 9
+
+    if include_perf:
+        hdr_ms = "Sum ms"
+        hdr_lut = "LUT"
+        print(
+            f"  {hdr_count:>{col_c}}  {hdr_type:<{col_t}}  {hdr_ms:>{col_m}}  "
+            f"{hdr_lut:>{col_l}}  {hdr_sig}"
+        )
+    else:
+        print(f"  {hdr_count:>{col_c}}  {hdr_type:<{col_t}}  {hdr_sig}")
+    print(f"  {'─' * 72}")
+
+    total_n = 0
+    total_ms = 0.0
+    total_lut = 0
+    for key in keys_sorted:
+        n = counts[key]
+        total_n += n
+        op, sig = key
+        if include_perf:
+            ms = ms_totals.get(key, 0.0)
+            lut = lut_totals.get(key, 0)
+            total_ms += ms
+            total_lut += lut
+            lut_s = f"{lut}/{n}" if any_lut else "—"
+            print(
+                f"  {n:>{col_c}}  {op:<{col_t}}  {ms:>{col_m}.4f}  {lut_s:>{col_l}}  {sig}"
+            )
+        else:
+            print(f"  {n:>{col_c}}  {op:<{col_t}}  {sig}")
+
+    print(f"  {'─' * 72}")
+    if include_perf:
+        lut_footer = f"{total_lut}/{total_n}" if any_lut else "—"
+        print(
+            f"  {total_n:>{col_c}}  {'TOTAL':<{col_t}}  {total_ms:>{col_m}.4f}  {lut_footer:>{col_l}}"
+        )
+    else:
+        print(f"  {total_n:>{col_c}}  {'TOTAL':<{col_t}}")
+    print()
+
+
 def print_summary(stats: ComparisonStats) -> None:
     """Print summary statistics."""
     print("\n=== Summary ===")
@@ -367,6 +478,32 @@ def print_summary(stats: ComparisonStats) -> None:
 # ---------------------------------------------------------------------------
 # Performance summary helpers
 # ---------------------------------------------------------------------------
+
+def _aggregate_duration_by_optype_signature(
+    layers: List[Dict[str, Any]],
+    strip_leading_ones: bool,
+    strip_singleton_dims: bool,
+) -> Dict[Tuple[str, str], Tuple[int, float, int]]:
+    """Group layers by (optype, normalized shape signature); sum durations and LUT hits."""
+    totals: DefaultDict[Tuple[str, str], float] = defaultdict(float)
+    counts: DefaultDict[Tuple[str, str], int] = defaultdict(int)
+    lut_hits: DefaultDict[Tuple[str, str], int] = defaultdict(int)
+    for layer in layers:
+        optype = str(layer.get("optype", ""))
+        sig = _signature_string_for_layer(layer, strip_leading_ones, strip_singleton_dims)
+        key = (optype, sig)
+        counts[key] += 1
+        dur = layer.get("duration_ms")
+        if dur is not None:
+            totals[key] += float(dur)
+        if layer.get("uses_perf_lookup"):
+            lut_hits[key] += 1
+    all_keys = set(counts) | set(totals) | set(lut_hits)
+    return {
+        k: (counts[k], totals.get(k, 0.0), lut_hits.get(k, 0))
+        for k in all_keys
+    }
+
 
 def _aggregate_duration_by_optype(
     layers: List[Dict[str, Any]],
@@ -406,6 +543,80 @@ def _pct_gap(reference: float, other: float) -> str:
     gap = (other - reference) / reference * 100.0
     sign = "+" if gap >= 0 else ""
     return f"{sign}{gap:.2f}%"
+
+
+def _print_perf_standalone_by_signature(
+    layers: List[Dict[str, Any]],
+    source_label: str,
+    strip_leading_ones: bool,
+    strip_singleton_dims: bool,
+) -> None:
+    """Standalone performance breakdown grouped by optype + signature."""
+    by_key = _aggregate_duration_by_optype_signature(
+        layers, strip_leading_ones, strip_singleton_dims
+    )
+    total_ms = sum(ms for _, ms, _ in by_key.values())
+    total_count = sum(cnt for cnt, _, _ in by_key.values())
+    total_lut = sum(lut for _, _, lut in by_key.values())
+    has_lut = total_lut > 0
+
+    print(f"\n{'=' * 60}")
+    print(f"  Performance Summary by type + signature ({source_label})")
+    print(f"{'=' * 60}")
+    print(f"\n  Network total: {total_ms:.4f} ms")
+    if has_lut:
+        print(f"  LUT hits: {total_lut}/{total_count}")
+    print()
+
+    keys_sorted = sorted(
+        by_key.keys(),
+        key=lambda k: by_key.get(k, (0, 0.0, 0))[1],
+        reverse=True,
+    )
+
+    hdr_type = "Layer type"
+    hdr_sig = "Signature"
+    col_w_t = max(10, max((len(k[0]) for k in keys_sorted), default=len(hdr_type)))
+    col_w_s = max(24, min(72, max((len(k[1]) for k in keys_sorted), default=len(hdr_sig))))
+
+    hdr_cnt = "Count"
+    hdr_dur = "Duration (ms)"
+    hdr_lut = "LUT"
+    col_w_cnt = max(len(hdr_cnt), 6)
+    col_w_dur = max(len(hdr_dur), 14)
+    col_w_lut = max(len(hdr_lut), 8)
+
+    header = (
+        f"  {hdr_type:<{col_w_t}}  {hdr_sig:<{col_w_s}}  {hdr_cnt:>{col_w_cnt}}  "
+        f"{hdr_dur:>{col_w_dur}}"
+    )
+    if has_lut:
+        header += f"  {hdr_lut:>{col_w_lut}}"
+    print(header)
+    rule_len = col_w_t + col_w_s + col_w_cnt + col_w_dur + 8 + (col_w_lut + 2 if has_lut else 0)
+    print(f"  {'─' * min(rule_len, 120)}")
+
+    for key in keys_sorted:
+        op, sig = key
+        cnt, ms, lut = by_key[key]
+        sig_disp = sig if len(sig) <= col_w_s else sig[: col_w_s - 3] + "..."
+        line = (
+            f"  {op:<{col_w_t}}  {sig_disp:<{col_w_s}}  {cnt:>{col_w_cnt}}  "
+            f"{ms:>{col_w_dur}.4f}"
+        )
+        if has_lut:
+            line += f"  {f'{lut}/{cnt}':>{col_w_lut}}"
+        print(line)
+
+    print(f"  {'─' * min(rule_len, 120)}")
+    line = (
+        f"  {'TOTAL':<{col_w_t}}  {'':<{col_w_s}}  {total_count:>{col_w_cnt}}  "
+        f"{total_ms:>{col_w_dur}.4f}"
+    )
+    if has_lut:
+        line += f"  {f'{total_lut}/{total_count}':>{col_w_lut}}"
+    print(line)
+    print()
 
 
 def _print_perf_standalone(
@@ -460,19 +671,33 @@ def _print_perf_standalone(
 def _print_perf_comparison(
     profiler_layers: List[Dict[str, Any]],
     polaris_layers: List[Dict[str, Any]],
+    *,
+    by_signature: bool = False,
+    strip_leading_ones: bool = False,
+    strip_singleton_dims: bool = False,
 ) -> None:
     """Print side-by-side performance comparison with gap w.r.t. profiler."""
-    prof_by_op = _aggregate_duration_by_optype(profiler_layers)
-    pol_by_op = _aggregate_duration_by_optype(polaris_layers)
+    if by_signature:
+        prof_by = _aggregate_duration_by_optype_signature(
+            profiler_layers, strip_leading_ones, strip_singleton_dims
+        )
+        pol_by = _aggregate_duration_by_optype_signature(
+            polaris_layers, strip_leading_ones, strip_singleton_dims
+        )
+        title = "Performance Summary (by layer type + signature)"
+    else:
+        prof_by = _aggregate_duration_by_optype(profiler_layers)
+        pol_by = _aggregate_duration_by_optype(polaris_layers)
+        title = "Performance Summary"
 
-    prof_total_ms = sum(ms for _, ms, _ in prof_by_op.values())
-    pol_total_ms = sum(ms for _, ms, _ in pol_by_op.values())
-    prof_total_cnt = sum(cnt for cnt, _, _ in prof_by_op.values())
-    pol_total_cnt = sum(cnt for cnt, _, _ in pol_by_op.values())
-    pol_total_lut = sum(lut for _, _, lut in pol_by_op.values())
+    prof_total_ms = sum(ms for _, ms, _ in prof_by.values())
+    pol_total_ms = sum(ms for _, ms, _ in pol_by.values())
+    prof_total_cnt = sum(cnt for cnt, _, _ in prof_by.values())
+    pol_total_cnt = sum(cnt for cnt, _, _ in pol_by.values())
+    pol_total_lut = sum(lut for _, _, lut in pol_by.values())
 
     print(f"\n{'=' * 82}")
-    print("  Performance Summary")
+    print(f"  {title}")
     print(f"{'=' * 82}")
 
     print(f"\n  Network total:")
@@ -482,29 +707,47 @@ def _print_perf_comparison(
     print(f"    Polaris LUT hits: {pol_total_lut}/{pol_total_cnt}")
     print()
 
-    all_ops = list(dict.fromkeys(
-        list(prof_by_op.keys()) + list(pol_by_op.keys())
-    ))
+    all_keys: List[Any] = list(dict.fromkeys(list(prof_by.keys()) + list(pol_by.keys())))
+    all_keys.sort(key=lambda k: prof_by.get(k, (0, 0.0, 0))[1], reverse=True)
 
-    # Re-sort by profiler duration descending (missing → 0)
-    all_ops.sort(key=lambda o: prof_by_op.get(o, (0, 0.0, 0))[1], reverse=True)
-
-    col_w_type = max(10, max((len(op) for op in all_ops), default=10))
-    hdr = (
-        f"  {'Layer Type':<{col_w_type}}"
-        f"  {'#Prof':>6}  {'Profiler(ms)':>13}"
-        f"  {'#Pol':>6}  {'Polaris(ms)':>13}"
-        f"  {'LUT':>8}"
-        f"  {'Abs Gap(ms)':>12}"
-        f"  {'Gap%':>9}"
-    )
+    if by_signature:
+        col_w_op = max(10, max((len(k[0]) for k in all_keys), default=10))
+        col_w_sig = max(28, min(56, max((len(k[1]) for k in all_keys), default=28)))
+        hdr = (
+            f"  {'Layer type':<{col_w_op}}"
+            f"  {'Signature':<{col_w_sig}}"
+            f"  {'#Prof':>6}  {'Profiler(ms)':>13}"
+            f"  {'#Pol':>6}  {'Polaris(ms)':>13}"
+            f"  {'LUT':>8}"
+            f"  {'Abs Gap(ms)':>12}"
+            f"  {'Gap%':>9}"
+        )
+    else:
+        col_w_op = max(10, max((len(str(op)) for op in all_keys), default=10))
+        col_w_sig = 0
+        hdr = (
+            f"  {'Layer Type':<{col_w_op}}"
+            f"  {'#Prof':>6}  {'Profiler(ms)':>13}"
+            f"  {'#Pol':>6}  {'Polaris(ms)':>13}"
+            f"  {'LUT':>8}"
+            f"  {'Abs Gap(ms)':>12}"
+            f"  {'Gap%':>9}"
+        )
     print(hdr)
-    rule_len = col_w_type + 6 + 13 + 6 + 13 + 8 + 12 + 9 + 14
-    print(f"  {'─' * rule_len}")
+    rule_len = col_w_op + 6 + 13 + 6 + 13 + 8 + 12 + 9 + 14 + (col_w_sig + 2 if by_signature else 0)
+    print(f"  {'─' * min(rule_len, 120)}")
 
-    for op in all_ops:
-        p_cnt, p_ms, _ = prof_by_op.get(op, (0, 0.0, 0))
-        s_cnt, s_ms, s_lut = pol_by_op.get(op, (0, 0.0, 0))
+    for key in all_keys:
+        if by_signature:
+            op, sig = key
+            sig_disp = sig if len(sig) <= col_w_sig else sig[: col_w_sig - 3] + "..."
+            p_cnt, p_ms, _ = prof_by.get(key, (0, 0.0, 0))
+            s_cnt, s_ms, s_lut = pol_by.get(key, (0, 0.0, 0))
+        else:
+            op = key
+            sig_disp = ""
+            p_cnt, p_ms, _ = prof_by.get(op, (0, 0.0, 0))
+            s_cnt, s_ms, s_lut = pol_by.get(op, (0, 0.0, 0))
         gap_pct = _pct_gap(p_ms, s_ms)
         abs_gap = s_ms - p_ms
         abs_gap_s = f"{abs_gap:+.4f}" if (p_cnt and s_cnt) else "—"
@@ -513,25 +756,47 @@ def _print_perf_comparison(
         p_ms_s = f"{p_ms:.4f}" if p_cnt else "—"
         s_ms_s = f"{s_ms:.4f}" if s_cnt else "—"
         lut_s = f"{s_lut}/{s_cnt}" if s_cnt else "—"
-        print(
-            f"  {op:<{col_w_type}}"
-            f"  {p_cnt_s:>6}  {p_ms_s:>13}"
-            f"  {s_cnt_s:>6}  {s_ms_s:>13}"
-            f"  {lut_s:>8}"
-            f"  {abs_gap_s:>12}"
-            f"  {gap_pct:>9}"
-        )
+        if by_signature:
+            print(
+                f"  {op:<{col_w_op}}"
+                f"  {sig_disp:<{col_w_sig}}"
+                f"  {p_cnt_s:>6}  {p_ms_s:>13}"
+                f"  {s_cnt_s:>6}  {s_ms_s:>13}"
+                f"  {lut_s:>8}"
+                f"  {abs_gap_s:>12}"
+                f"  {gap_pct:>9}"
+            )
+        else:
+            print(
+                f"  {op:<{col_w_op}}"
+                f"  {p_cnt_s:>6}  {p_ms_s:>13}"
+                f"  {s_cnt_s:>6}  {s_ms_s:>13}"
+                f"  {lut_s:>8}"
+                f"  {abs_gap_s:>12}"
+                f"  {gap_pct:>9}"
+            )
 
     abs_total = pol_total_ms - prof_total_ms
-    print(f"  {'─' * rule_len}")
-    print(
-        f"  {'TOTAL':<{col_w_type}}"
-        f"  {prof_total_cnt:>6}  {prof_total_ms:>13.4f}"
-        f"  {pol_total_cnt:>6}  {pol_total_ms:>13.4f}"
-        f"  {f'{pol_total_lut}/{pol_total_cnt}':>8}"
-        f"  {abs_total:>+12.4f}"
-        f"  {_pct_gap(prof_total_ms, pol_total_ms):>9}"
-    )
+    print(f"  {'─' * min(rule_len, 120)}")
+    if by_signature:
+        print(
+            f"  {'TOTAL':<{col_w_op}}"
+            f"  {'':<{col_w_sig}}"
+            f"  {prof_total_cnt:>6}  {prof_total_ms:>13.4f}"
+            f"  {pol_total_cnt:>6}  {pol_total_ms:>13.4f}"
+            f"  {f'{pol_total_lut}/{pol_total_cnt}':>8}"
+            f"  {abs_total:>+12.4f}"
+            f"  {_pct_gap(prof_total_ms, pol_total_ms):>9}"
+        )
+    else:
+        print(
+            f"  {'TOTAL':<{col_w_op}}"
+            f"  {prof_total_cnt:>6}  {prof_total_ms:>13.4f}"
+            f"  {pol_total_cnt:>6}  {pol_total_ms:>13.4f}"
+            f"  {f'{pol_total_lut}/{pol_total_cnt}':>8}"
+            f"  {abs_total:>+12.4f}"
+            f"  {_pct_gap(prof_total_ms, pol_total_ms):>9}"
+        )
     print()
 
 
@@ -548,11 +813,11 @@ def main() -> int:
         print(f"Error: File not found: {args.file2}", file=sys.stderr)
         return 1
 
-    # --- Standalone mode (single file + --perf) ---
+    # --- Standalone mode (single file + --perf and/or --summarize-by-signature) ---
     if args.file2 is None:
-        if not args.perf:
+        if not args.perf and not args.summarize_by_signature:
             print("Error: Two files are required for shape comparison. "
-                  "Use --perf with a single file for standalone performance breakdown.",
+                  "Use --perf and/or --summarize-by-signature with a single file.",
                   file=sys.stderr)
             return 1
 
@@ -582,7 +847,24 @@ def main() -> int:
             layers = [l for l in layers if normalize_optype(l['optype']) == filter_norm]
             print(f"Filtered to {len(layers)} layers with optype='{args.filter_optype}'")
 
-        _print_perf_standalone(layers, label)
+        if args.summarize_by_signature:
+            _print_signature_summary(
+                layers,
+                label,
+                args.strip_leading_ones,
+                args.strip_singleton_dims,
+                include_perf=args.perf,
+            )
+        if args.perf:
+            if args.summarize_by_signature:
+                _print_perf_standalone_by_signature(
+                    layers,
+                    label,
+                    args.strip_leading_ones,
+                    args.strip_singleton_dims,
+                )
+            else:
+                _print_perf_standalone(layers, label)
         return 0
 
     # --- Two-file mode ---
@@ -646,9 +928,31 @@ def main() -> int:
     # Print shape-comparison summary
     print_summary(stats)
 
+    if args.summarize_by_signature:
+        _print_signature_summary(
+            polaris_layers,
+            "Polaris",
+            args.strip_leading_ones,
+            args.strip_singleton_dims,
+            include_perf=args.perf,
+        )
+        _print_signature_summary(
+            profiler_layers,
+            "Profiler",
+            args.strip_leading_ones,
+            args.strip_singleton_dims,
+            include_perf=args.perf,
+        )
+
     # Performance comparison (when --perf is enabled)
     if args.perf:
-        _print_perf_comparison(profiler_layers, polaris_layers)
+        _print_perf_comparison(
+            profiler_layers,
+            polaris_layers,
+            by_signature=args.summarize_by_signature,
+            strip_leading_ones=args.strip_leading_ones,
+            strip_singleton_dims=args.strip_singleton_dims,
+        )
 
     return 0
 
