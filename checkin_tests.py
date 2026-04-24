@@ -2,6 +2,7 @@
 # SPDX-FileCopyrightText: (C) 2025 Tenstorrent AI ULC
 # SPDX-License-Identifier: Apache-2.0
 import os
+import sys
 import argparse
 import re
 import subprocess
@@ -95,7 +96,54 @@ def run_a_job(cmd: str, outputfilename:str)->subprocess.CompletedProcess:
         return subprocess.run(cmd, shell=True, stdout=cmdfout, stderr=subprocess.STDOUT)
 
 
+def check_environment_sanity() -> tuple[bool, str]:
+    """
+    Quick sanity check to ensure a conda environment is active and has
+    critical dependencies available.
+    Returns (success: bool, message: str)
+    """
+    # Check if in a conda environment
+    conda_env = os.environ.get('CONDA_DEFAULT_ENV')
+    if not conda_env:
+        return False, (
+            "ERROR: No conda environment is active.\n"
+            "Please activate a conda environment or use --environment/-e flag.\n"
+            "Example: conda activate polarisdev"
+        )
+
+    # Check critical dependencies
+    missing_packages = []
+    critical_imports = {
+        'pydantic': 'pydantic',
+        'loguru': 'loguru',
+        'yaml': 'pyyaml',
+        'onnx': 'onnx',
+        'networkx': 'networkx',
+        'numpy': 'numpy',
+    }
+
+    for module, package_name in critical_imports.items():
+        try:
+            __import__(module)
+        except ImportError:
+            missing_packages.append(package_name)
+
+    if missing_packages:
+        return False, (
+            f"ERROR: Missing required packages: {', '.join(missing_packages)}\n"
+            f"Current environment: {conda_env}\n\n"
+            f"Options to fix:\n"
+            f"  1. Use --environment/-e to specify a different environment\n"
+            f"  2. Install missing packages: pip install {' '.join(missing_packages)}\n"
+            f"  3. Create environment from environment.yaml:\n"
+            f"     conda env create -f environment.yaml"
+        )
+
+    return True, f"Environment check passed (using: {conda_env})"
+
+
 def main() -> int:
+    # Parse arguments first to allow --help to work without env checks
     parser = argparse.ArgumentParser()
     parser.add_argument('--environment', '-e', dest='condaenv', help='Conda environment name or path to be used for tests')
     parser.add_argument('--stop', '-x', action='store_true', help='Stop tests on first failure')
@@ -103,6 +151,27 @@ def main() -> int:
     parser.add_argument('--dryrun', '-n', action='store_true', help='Show but do not execute the commands')
     parser.add_argument('tests', nargs='*', choices=['coverage', 'static', 'workloads', 'all'])
     args = parser.parse_args()
+
+    # Only perform environment sanity check if NOT using --environment flag
+    # (when --environment is provided, subprocesses will use that env)
+    if args.condaenv is None:
+        env_ok, env_msg = check_environment_sanity()
+        if not env_ok:
+            print(env_msg, file=sys.stderr)
+            return 1
+    else:
+        env_msg = f"Using specified environment via --environment: {args.condaenv}"
+
+    # Import and configure loguru after sanity check
+    try:
+        from loguru import logger
+    except ImportError:
+        print("ERROR: loguru is not installed. Install it with: pip install loguru", file=sys.stderr)
+        return 1
+
+    logger.remove()
+    logger.add(sys.stdout, colorize=True, format="<green>{time:YYYY-MM-DD HH:mm:ss}</green> | <level>{level: <8}</level> | <level>{message}</level>")
+    logger.info(env_msg)
     test_handlers: dict[str, CommandHandler] = {
         'coverage': prepare_commands_coverage,
         'static': prepare_commands_static,
@@ -115,8 +184,8 @@ def main() -> int:
         enabled_tests = set(args.tests)
         unsupported_tests = enabled_tests - set(test_handlers.keys())
         if unsupported_tests:
-            print(f'error: tests {unsupported_tests} are not supported')
-            exit(1)
+            logger.error(f'tests {unsupported_tests} are not supported')
+            return 1
 
 
     condaenvprefix: OptionalString = ''
@@ -144,9 +213,8 @@ def main() -> int:
             log_file = os.path.join(LOGD, f'study_{cmdno+1:03}.log')
         else:
             log_file = os.path.join(LOGD, f'checkin_test_{cmdno+1:03}.log')
-        print(f'#{cmdno+1}/{len(commands)}: {cmd} -> {log_file}', end='', flush=True)
+        logger.info(f'#{cmdno+1}/{len(commands)}: {cmd} -> {log_file}')
         if args.dryrun:
-            print()
             continue
         cmdret     = run_a_job(cmd, log_file)
         results[cmdno] = {'id': f'{cmdno:2d}-{log_file}',
@@ -155,12 +223,10 @@ def main() -> int:
                           }
         if cmdret.returncode != 0:
             if args.stop:
-                print(' FAILED')
-                print(f'error: {cmd} failed with exit code {cmdret.returncode}')
-                print('checkin tests failed')
+                logger.error(f'{cmd} failed with exit code {cmdret.returncode}')
+                logger.error('checkin tests failed')
                 return cmdret.returncode
             num_failures += 1
-        print(' ', results[cmdno]['status'])
 
     if args.dryrun:
         return 0
@@ -168,27 +234,27 @@ def main() -> int:
 
     for res in ['PASS', 'FAIL']:
         if res == 'FAIL' and num_failures:
-            print('-- Failed commands')
+            logger.warning('-- Failed commands')
         for cmdno, result in enumerate(results):
             if result['status'] != res:
                 continue
-            print(f"{result["id"]:{mf}s}  RESULT= {res}")
+            logger.info(f"{result['id']:{mf}s}  RESULT= {res}")
 
     if num_failures == 0:
         errorlines = os.popen(f'grep ERROR: {LOGD}/*.log').readlines()
         if errorlines:
-            print('Warning: log lines containing ERROR: messages')
+            logger.warning('Warning: log lines containing ERROR: messages')
             for line in errorlines:
                 line = line.rstrip()
-                print('\t' + line)
-            print('--------------------------------------------------------------------------')
-            print('Warning: log lines containing ERROR: messages though runs exit with code 0')
-            print('--------------------------------------------------------------------------')
+                logger.warning('\t' + line)
+            logger.warning('--------------------------------------------------------------------------')
+            logger.warning('Warning: log lines containing ERROR: messages though runs exit with code 0')
+            logger.warning('--------------------------------------------------------------------------')
 
     if num_failures:
-        print(f'{num_failures} of {len(commands)} failed')
+        logger.error(f'{num_failures} of {len(commands)} failed')
     else:
-        print('checkin tests successful')
+        logger.success('checkin tests successful')
     return num_failures
 
 if __name__ == '__main__':
