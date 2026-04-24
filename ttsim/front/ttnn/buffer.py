@@ -2,7 +2,9 @@
 # SPDX-FileCopyrightText: © 2025 Tenstorrent AI ULC
 # SPDX-License-Identifier: Apache-2.0
 
+from __future__ import annotations
 from enum import Enum, auto
+from typing import Tuple
 
 class TensorMemoryLayout(Enum):
     INTERLEAVED    = auto()
@@ -36,4 +38,38 @@ class BufferType(Enum):
     SYSTEM_MEMORY = auto()
     L1_SMALL      = auto()
     TRACE         = auto()
+
+
+class ShardSpec:
+    """Minimal ShardSpec for simulation - preserves sharding metadata.
+
+    Mirrors tt-metal's ShardSpec structure with grid, shape, and orientation.
+    For Polaris simulation, this is primarily metadata tracking - actual shard
+    calculations are not performed.
+
+    The grid can be any grid-like object (CoreGrid, CoreRangeSet, tuple, etc.)
+    and is stored as-is for later extraction by call sites.
+    """
+    def __init__(self, grid, shape: Tuple[int, int],
+                 orientation: ShardOrientation = ShardOrientation.ROW_MAJOR):
+        """Initialize ShardSpec.
+
+        Args:
+            grid: Core grid specification (CoreGrid, CoreRangeSet, or grid-like object)
+            shape: (height, width) shard dimensions
+            orientation: ROW_MAJOR or COL_MAJOR core traversal order
+        """
+        self.grid = grid
+        self.shape = shape
+        self.orientation = orientation
+
+    def __repr__(self):
+        return f"ShardSpec(grid={self.grid}, shape={self.shape}, orientation={self.orientation})"
+
+    def __eq__(self, other):
+        if not isinstance(other, ShardSpec):
+            return False
+        return (self.grid == other.grid and
+                self.shape == other.shape and
+                self.orientation == other.orientation)
 

@@ -154,10 +154,8 @@ def num_cores_to_corerangeset(*args, **kwargs):
     return (1,1) # dummy implementation
 
 def create_sharded_memory_config(*args, **kwargs):
-    return None
-
-def interleaved_to_sharded(input_tensor, *args, **kwargs):
-    return input_tensor
+    from .memory import create_sharded_memory_config as _create
+    return _create(*args, **kwargs)
 
 def ReadDeviceProfiler(device: Device):
     return

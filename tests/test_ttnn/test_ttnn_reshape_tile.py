@@ -31,11 +31,11 @@ def test_ttnn_reshape_tile_device_track_is_untilize_then_tilize_with_val_padding
         assert out.logical_shape().as_list() == [30, 10]
         assert out.layout == Layout.TILE_LAYOUT
         seq = [op.optype for op in device.ops.values()]
-        assert seq == ["UntilizeWithValUnpadding", "TilizeWithValPadding"]
+        assert seq == ["UntilizeWithUnpadding", "TilizeWithValPadding"]
         assert "Reshape" not in seq
         ops_list = list(device.ops.values())
         uwu = ops_list[0]
-        assert uwu.optype == "UntilizeWithValUnpadding"
+        assert uwu.optype == "UntilizeWithUnpadding"
         ps = uwu.perf_stats
         assert ps is not None
         assert ps["inElems"] == 3 * 16 * 16

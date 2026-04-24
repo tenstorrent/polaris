@@ -253,7 +253,16 @@ class Device:
         #find compute cycles
         op.compute_cycles = 0
         for instr,instr_count in op.perf_stats['instrs'].items():
-            peak_ipc = self.simconfig_obj.peak_ipc(op.uses_compute_pipe, instr, op.precision)
+            # Enhanced error handling to provide context when instruction lookup fails
+            # (e.g., when an operation needs an instruction not in its primary pipe)
+            try:
+                peak_ipc = self.simconfig_obj.peak_ipc(op.uses_compute_pipe, instr, op.precision)
+            except AssertionError as e:
+                raise AssertionError(
+                    f"Failed to get peak IPC for operation '{op.name}' (optype={op.optype}): "
+                    f"instruction='{instr}', pipe='{op.uses_compute_pipe}', precision='{op.precision}'. "
+                    f"Original error: {e}"
+                ) from e
             real_ipc = peak_ipc * self.DG_COMPUTE_UTIL_CONSTANT
             op.compute_cycles += math.ceil(instr_count / real_ipc)
 

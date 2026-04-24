@@ -35,7 +35,7 @@ class DataType(Enum):
         return DataType[s.upper()]
 
     @property
-    def itemsize(self) -> int:
+    def itemsize(self) -> float:
         return {
             "UINT8": 1,
             "UINT16": 2,
@@ -44,8 +44,8 @@ class DataType(Enum):
             "INT64": 8,
             "FLOAT32": 4,
             "BFLOAT16": 2,
-            "BFLOAT8_B": 2,
-            "BFLOAT4_B": 1,
+            "BFLOAT8_B": 1,  # 8-bit compact format
+            "BFLOAT4_B": 0.5,  # 4-bit format, 2 elements per byte
             "BOOL": 1,
         }[self.name]
 
@@ -167,9 +167,13 @@ class Tensor(SimTensor):
         if kwargs['device'] is not None and not isinstance(kwargs['device'], Device):
             raise TypeError(f"Error: Tensor Creation -- attribute device={kwargs['device']} should be of type Device or None")
 
-        # NOTE: Convert DataType enum to np.dtype for compatibility with downstream operations
-        # that expect np.dtype (e.g., typesize in ops/tensor.py).
+        # NumPy has no native bfloat8/bfloat4 types, so DataType.BFLOAT8_B and
+        # BFLOAT4_B both map to np.float32 via to_numpy -- making them
+        # indistinguishable from FLOAT32.  We preserve the original DataType
+        # enum so that stats/CSV output can report the true ttnn dtype.
+        self._ttnn_dtype: DataType | None = None
         if 'dtype' in kwargs and isinstance(kwargs['dtype'], DataType):
+            self._ttnn_dtype = kwargs['dtype']
             kwargs['dtype'] = kwargs['dtype'].to_numpy
 
         if "name" not in kwargs:
@@ -207,7 +211,7 @@ class Tensor(SimTensor):
         logger.debug("Tensor constructor: {} logical_shape {} and padded_shape {}", self.name, self._logical_shape, self._padded_shape)
 
         self.fill_value = kwargs.get('fill_value', None)
-        self._memory_config = None
+        self._memory_config = kwargs.get('memory_config', None)
         self._storage_type = "DEVICE" if self.device is not None else "HOST"
         # Essential for to_layout: device vs host is decided by buffer() is not None; without this,
         # ttsim Tensors would always be treated as host and layout _op (tilize_op, etc.) would never be used.
@@ -318,6 +322,14 @@ class Tensor(SimTensor):
     def memory_config(self):
         return self._memory_config
 
+    def element_size(self):
+        """Return element size in bytes, preferring _ttnn_dtype when available."""
+        if self._ttnn_dtype is not None:
+            # Use _ttnn_dtype for accurate compact dtype sizes
+            return self._ttnn_dtype.itemsize
+        # Fall back to np.dtype itemsize
+        return self.dtype.itemsize
+
     def storage_type(self):
         return self._storage_type
 
@@ -334,10 +346,16 @@ class Tensor(SimTensor):
     def get_data(self):
         return self.data
 
-    def to(self, dt):
-        self.dtype = dt.to_numpy
-        return self
+    def to(self, *args, **kwargs):
+        if len(args) == 1 and not kwargs and isinstance(args[0], DataType):
+            self._ttnn_dtype = args[0]
+            self.dtype = args[0].to_numpy
+            return self
 
+        raise TypeError(
+            "Tensor.to() only supports the signature Tensor.to(DataType); "
+            f"got args={args}, kwargs={kwargs}"
+        )
     def set_shape(self, newshape):
         super().set_shape(newshape) 
         if newshape is not None:
@@ -724,7 +742,10 @@ def typecast(input_tensor, dtype):
 def from_torch(torch_tensor_like, **kwargs):
     for k, v in kwargs.items():
         if hasattr(torch_tensor_like, k):
-            setattr(torch_tensor_like, k, v.to_numpy if k == "dtype" else v)
+            if k == "dtype" and isinstance(v, DataType):
+                torch_tensor_like._ttnn_dtype = v
+                v = v.to_numpy
+            setattr(torch_tensor_like, k, v)
 
     if "device" in kwargs:
         torch_tensor_like = to_device(torch_tensor_like, kwargs["device"])
@@ -746,5 +767,8 @@ def to_device(tt_tensor_like, device, memory_config=None):
 
     tt_tensor_like.device = device
     device.add_tensor(tt_tensor_like)
+
+    if memory_config is not None:
+        tt_tensor_like._memory_config = memory_config
 
     return tt_tensor_like

@@ -94,6 +94,7 @@ class Attention():
         self.compute_kernel_config_hifi4 = configuration.compute_kernel_config_hifi4
 
         self.transformation_mats = transformation_mats
+        self.use_fused_qkv_op = getattr(configuration, 'use_fused_qkv_op', True)
 
         self.model_config = None#configuration.get_model_config()
         self.ccl_topology = configuration.ccl_topology()
@@ -493,12 +494,13 @@ class Attention():
             q_heads_1QSD_pre_rot,
             k_heads_1KSD_pre_rot,
             v_heads_1VSD,
-        ) = utils.nlp_create_qkv_heads( #ttnn.experimental.nlp_create_qkv_heads(
+        ) = utils.nlp_create_qkv_heads(
             xqkv_fused,
             num_heads=self.n_local_heads,
             num_kv_heads=self.n_local_kv_heads,
             transpose_k_heads=False,
             memory_config=ttnn.DRAM_MEMORY_CONFIG,
+            fused=self.use_fused_qkv_op,
         )
 
         q_heads_1QSD_pre_rot = self.q_norm(q_heads_1QSD_pre_rot, mode="prefill")
@@ -562,6 +564,7 @@ class Attention():
         attn_output_11SH = utils.nlp_concat_heads(
             attn_output_1QSD,
             memory_config=ttnn.DRAM_MEMORY_CONFIG,
+            fused=self.use_fused_qkv_op,
         )
         ttnn.deallocate(attn_output_1QSD)
 

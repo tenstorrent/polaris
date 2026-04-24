@@ -24,9 +24,9 @@ Matching strategies:
   WZYX parsing rules as ``tools.profiling.profiler_to_polaris_converter``. Stable for duplicate op signatures by
   consuming Polaris ops in ``opnum`` order for each signature. By default
   ``use_layout_attr_shapes`` is True: Polaris layout ops use ``attrs`` (``TilizeWithValPadding``
-  ``output_padded_shape``; ``UntilizeWithValUnpadding`` ``output_shape`` / ``output_tensor_end``), and
+  ``output_padded_shape``; ``UntilizeWithUnpadding`` ``output_shape`` / ``output_tensor_end``), and
   the profiler side uses ``*_PAD[PADDED]`` columns when present (else ``LOGICAL``) for
-  ``TilizeWithValPadding`` **output** and ``UntilizeWithValUnpadding`` **input_0**. Pass False or CLI
+  ``TilizeWithValPadding`` **output** and ``UntilizeWithUnpadding`` **input_0**. Pass False or CLI
   ``--no-layout-attr-shapes`` for ``LOGICAL``-only profiler columns and Polaris tensor strings only.
 * ``ordered``: align profiler rows sorted by ``GLOBAL CALL COUNT`` with Polaris rows sorted by
   ``opnum``; requires equal lengths.
@@ -123,7 +123,7 @@ def _coerce_output_padded_shape(raw: Any) -> tuple[int, ...] | None:
 
 def _untilize_unpadding_logical_output_from_attrs(pattrs: Mapping[str, Any]) -> tuple[int, ...] | None:
     """
-    True logical output shape for UntilizeWithValUnpadding from Polaris ``attrs``.
+    True logical output shape for UntilizeWithUnpadding from Polaris ``attrs``.
 
     Simulator ops store ``output_shape`` (dims). CSV exports may use ``output_tensor_end`` with
     last valid indices per dimension; output size is ``end + 1`` (see ``untilize_with_unpadding``).
@@ -241,7 +241,7 @@ def polaris_op_signature(
         Default True. When True, refine fingerprints from ``attrs`` for:
 
         * ``TilizeWithValPadding``: **output** from ``output_padded_shape`` (tile extent).
-        * ``UntilizeWithValUnpadding``: **output** from ``output_shape`` or ``output_tensor_end``.
+        * ``UntilizeWithUnpadding``: **output** from ``output_shape`` or ``output_tensor_end``.
 
         Set False to use only ``input_tensors`` / ``output_tensors`` strings for those ops.
     """
@@ -271,7 +271,7 @@ def profiler_op_signature(
 
     When ``use_layout_attr_shapes`` is True, uses ``*_PAD[PADDED]`` via
     :func:`tools.profiling.profiler_to_polaris_converter.parse_tensor_dimensions` for ``TilizeWithValPadding``
-    **output_0** and ``UntilizeWithValUnpadding`` **input_0** when those columns exist; otherwise
+    **output_0** and ``UntilizeWithUnpadding`` **input_0** when those columns exist; otherwise
     ``*_PAD[LOGICAL]``. When False, always ``LOGICAL``.
     """
     attrs = _parse_profiler_attributes(row.get('ATTRIBUTES'))

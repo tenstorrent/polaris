@@ -1306,7 +1306,7 @@ class resnet50:
             padded_shape,
             0.0,
             memory_config=ttnn.L1_WIDTH_SHARDED_MEMORY_CONFIG,
-            dtype=self.model_config["ACTIVATIONS_DTYPE"],
+            output_dtype=self.model_config["ACTIVATIONS_DTYPE"],
         )
 
         x = self.avgpool(x, memory_config=ttnn.L1_WIDTH_SHARDED_MEMORY_CONFIG)
@@ -1344,7 +1344,7 @@ class resnet50:
             padded_shape,
             0.0,
             memory_config=ttnn.L1_WIDTH_SHARDED_MEMORY_CONFIG,
-            dtype=self.model_config["ACTIVATIONS_DTYPE"],
+            output_dtype=self.model_config["ACTIVATIONS_DTYPE"],
         )
 
         x = self.fc(x)

@@ -3,8 +3,11 @@
 # SPDX-License-Identifier: Apache-2.0
 
 """
-Layout op descriptors for Tilize, Untilize, TilizeWithValPadding, UntilizeWithValUnpadding.
-Used by the TTNN front-end tracking-only operator APIs (tilize_op, etc.) in ttnn_shim.
+Layout, shard, and transformer head op descriptors:
+  Tilize, Untilize, TilizeWithValPadding, UntilizeWithUnpadding,
+  InterleavedToSharded, ShardedToInterleaved, Reshard,
+  NLPConcatHeads, NLPCreateQKVHeads.
+Used by the TTNN front-end tracking-only operator APIs (*_op helpers) in ttnn_shim.
 """
 
 from ttsim.ops.desc.registry import register_ops
@@ -161,13 +164,13 @@ def tilize_with_val_padding_sinf(iTList, oTList, op, **kwargs):
     return
 
 
-def untilize_with_val_unpadding_sinf(iTList, oTList, op, **kwargs):
-    """Shape inference for UntilizeWithValUnpadding: 1 input, output shape from attrs."""
+def untilize_with_unpadding_sinf(iTList, oTList, op, **kwargs):
+    """Shape inference for UntilizeWithUnpadding: 1 input, output shape from attrs."""
     assert len(iTList) == 1 and len(oTList) == 1
     X = iTList[0]
     in_shape = require_shape_list(
         X.shape,
-        "UntilizeWithValUnpadding shape inference: input tensor shape must be known for element/byte accounting",
+        "UntilizeWithUnpadding shape inference: input tensor shape must be known for element/byte accounting",
     )
 
     # Output logical shape is given in attrs (unpadded/cropped size); input may be tile-padded, output is smaller.
@@ -192,13 +195,171 @@ def untilize_with_val_unpadding_sinf(iTList, oTList, op, **kwargs):
     return
 
 
+def interleaved_to_sharded_sinf(iTList, oTList, op, **kwargs):
+    """Shape inference for InterleavedToSharded: 1->1, same logical shape (memory layout change only)."""
+    assert len(iTList) == 1 and len(oTList) == 1
+    X = iTList[0]
+    in_shape = require_shape_list(
+        X.shape,
+        "InterleavedToSharded shape inference: input tensor shape must be known",
+    )
+    oTList[0].shape = list(in_shape)
+    oTList[0].dtype = X.dtype
+
+    elem_size = op.attrs.get('element_size', 2)
+    elems = _nelems(in_shape)
+    op.perf_stats = {
+        'inElems': elems,
+        'outElems': elems,
+        'inBytes': elems * elem_size,
+        'outBytes': elems * elem_size,
+        'instrs': {'mov': elems},
+    }
+    return
+
+
+def sharded_to_interleaved_sinf(iTList, oTList, op, **kwargs):
+    """Shape inference for ShardedToInterleaved: 1->1, same logical shape (memory layout change only)."""
+    assert len(iTList) == 1 and len(oTList) == 1
+    X = iTList[0]
+    in_shape = require_shape_list(
+        X.shape,
+        "ShardedToInterleaved shape inference: input tensor shape must be known",
+    )
+    oTList[0].shape = list(in_shape)
+    oTList[0].dtype = X.dtype
+
+    elem_size = op.attrs.get('element_size', 2)
+    elems = _nelems(in_shape)
+    op.perf_stats = {
+        'inElems': elems,
+        'outElems': elems,
+        'inBytes': elems * elem_size,
+        'outBytes': elems * elem_size,
+        'instrs': {'mov': elems},
+    }
+    return
+
+
+def reshard_sinf(iTList, oTList, op, **kwargs):
+    """Shape inference for Reshard: 1->1, same logical shape (shard-to-shard re-layout)."""
+    assert len(iTList) == 1 and len(oTList) == 1
+    X = iTList[0]
+    in_shape = require_shape_list(
+        X.shape,
+        "Reshard shape inference: input tensor shape must be known",
+    )
+    oTList[0].shape = list(in_shape)
+    oTList[0].dtype = X.dtype
+
+    elem_size = op.attrs.get('element_size', 2)
+    elems = _nelems(in_shape)
+    op.perf_stats = {
+        'inElems': elems,
+        'outElems': elems,
+        'inBytes': elems * elem_size,
+        'outBytes': elems * elem_size,
+        'instrs': {'mov': elems},
+    }
+    return
+
+
+def nlp_concat_heads_sinf(iTList, oTList, op, **kwargs):
+    """Shape inference for NLPConcatHeads: [B, num_heads, S, head_dim] -> [B, S, num_heads*head_dim]."""
+    assert len(iTList) == 1 and len(oTList) == 1
+    X = iTList[0]
+    in_shape = require_shape_list(
+        X.shape,
+        "NLPConcatHeads shape inference: input tensor shape must be known",
+    )
+    assert len(in_shape) == 4, f"NLPConcatHeads expects rank-4 input, got rank {len(in_shape)}"
+    B, num_heads, S, head_dim = in_shape
+    out_shape = [B, S, num_heads * head_dim]
+
+    oTList[0].shape = out_shape
+    oTList[0].dtype = X.dtype
+
+    elem_size = op.attrs.get('element_size', 2)
+    elems = _nelems(in_shape)
+    op.perf_stats = {
+        'inElems': elems,
+        'outElems': elems,
+        'inBytes': elems * elem_size,
+        'outBytes': elems * elem_size,
+        'instrs': {'mov': elems},
+    }
+    return
+
+
+def nlp_create_qkv_heads_sinf(iTList, oTList, op, **kwargs):
+    """Shape inference for NLPCreateQKVHeads: 1-2 inputs -> 3 outputs (Q, K, V).
+
+    Input: [B, S, (num_heads + 2*num_kv_heads) * head_dim] (fused QKV)
+    Optional second input: [B, S, 2*num_kv_heads * head_dim] (separate KV)
+    Outputs: Q=[B, num_heads, S, head_dim],
+             K=[B, num_kv_heads, head_dim, S] if transpose_k_heads else [B, num_kv_heads, S, head_dim],
+             V=[B, num_kv_heads, S, head_dim]
+    """
+    assert 1 <= len(iTList) <= 2 and len(oTList) == 3
+    X = iTList[0]
+    in_shape = require_shape_list(
+        X.shape,
+        "NLPCreateQKVHeads shape inference: input tensor shape must be known",
+    )
+
+    num_heads = op.attrs.get('num_heads', 1)
+    num_kv_heads = op.attrs.get('num_kv_heads', num_heads)
+    head_dim = op.attrs.get('head_dim', None)
+    # HW returns K pre-transposed when this attr is set; propagate to shape.
+    transpose_k = op.attrs.get('transpose_k_heads', False)
+
+    if len(iTList) == 2:
+        B = in_shape[0] if len(in_shape) >= 3 else 1
+        S = in_shape[-2] if len(in_shape) >= 2 else in_shape[0]
+        if head_dim is None:
+            head_dim = in_shape[-1] // num_heads
+    else:
+        B = in_shape[0] if len(in_shape) >= 3 else 1
+        S = in_shape[-2] if len(in_shape) >= 2 else in_shape[0]
+        if head_dim is None:
+            head_dim = in_shape[-1] // (num_heads + 2 * num_kv_heads)
+
+    q_shape = [B, num_heads, S, head_dim]
+    k_shape = [B, num_kv_heads, head_dim, S] if transpose_k else [B, num_kv_heads, S, head_dim]
+    v_shape = [B, num_kv_heads, S, head_dim]
+
+    oTList[0].shape = q_shape
+    oTList[0].dtype = X.dtype
+    oTList[1].shape = k_shape
+    oTList[1].dtype = X.dtype
+    oTList[2].shape = v_shape
+    oTList[2].dtype = X.dtype
+
+    elem_size = op.attrs.get('element_size', 2)
+    in_elems = sum(_nelems(t.shape) for t in iTList if t.shape)
+    out_elems = _nelems(q_shape) + _nelems(k_shape) + _nelems(v_shape)
+    op.perf_stats = {
+        'inElems': in_elems,
+        'outElems': out_elems,
+        'inBytes': in_elems * elem_size,
+        'outBytes': out_elems * elem_size,
+        'instrs': {'mov': out_elems},
+    }
+    return
+
+
 def register_layout_ops():
     d = _TTNN_OP_DOMAIN
     _optbl = [
         ['Tilize', 'ARITY_1->1', d, 'COMMON', 24, 21, 1, 1, 1, 1, tilize_sinf, True, True, True, True, True],
         ['Untilize', 'ARITY_1->1', d, 'COMMON', 24, 21, 1, 1, 1, 1, untilize_sinf, True, True, True, True, True],
         ['TilizeWithValPadding', 'ARITY_1->1', d, 'COMMON', 24, 21, 1, 1, 1, 1, tilize_with_val_padding_sinf, True, True, True, True, True],
-        ['UntilizeWithValUnpadding', 'ARITY_1->1', d, 'COMMON', 24, 21, 1, 1, 1, 1, untilize_with_val_unpadding_sinf, True, True, True, True, True],
+        ['UntilizeWithUnpadding', 'ARITY_1->1', d, 'COMMON', 24, 21, 1, 1, 1, 1, untilize_with_unpadding_sinf, True, True, True, True, True],
+        ['InterleavedToSharded', 'ARITY_1->1', d, 'COMMON', 24, 21, 1, 1, 1, 1, interleaved_to_sharded_sinf, True, True, True, True, True],
+        ['ShardedToInterleaved', 'ARITY_1->1', d, 'COMMON', 24, 21, 1, 1, 1, 1, sharded_to_interleaved_sinf, True, True, True, True, True],
+        ['Reshard', 'ARITY_1->1', d, 'COMMON', 24, 21, 1, 1, 1, 1, reshard_sinf, True, True, True, True, True],
+        ['NLPConcatHeads', 'ARITY_1->1', d, 'COMMON', 24, 21, 1, 1, 1, 1, nlp_concat_heads_sinf, True, True, True, True, True],
+        ['NLPCreateQKVHeads', 'ARITY_VARIADIC[1-2]->3', d, 'COMMON', 24, 21, 2, 1, 3, 3, nlp_create_qkv_heads_sinf, True, True, True, True, True],
     ]
     register_ops('layout', _optbl)
     return

@@ -629,16 +629,74 @@ def matmul_shape_inf(iTList, oTList, op, **kwargs):
 
     # NUMERICAL COMPUTATION (if data available)
     if A.data is not None and B.data is not None:
-        oTList[0].data = compute_matmul(iTList, op)
+        import numpy as np
+        result = compute_matmul(iTList, op)
+        # When ttnn.linear fuses bias as a 3rd input, add it after matmul.
+        # Bias shapes are always [1, out_features] (see make_info() in the
+        # workload runners), so numpy broadcasting against the matmul result
+        # [B, S, out_features] is well-defined and matches linear-layer
+        # semantics.  Incompatible shapes would raise a numpy ValueError,
+        # never silently produce wrong results.
+        if len(iTList) > 2 and iTList[2].data is not None:
+            result = result + iTList[2].data
+
+        # Apply fused activation if present (ttnn.linear activation parameter)
+        fused_activation = op.attrs.get("fused_activation")
+        if fused_activation is not None:
+            if fused_activation == "relu":
+                result = np.maximum(0, result)
+            elif fused_activation == "gelu":
+                try:
+                    from scipy.special import erf  # type: ignore[import-untyped]
+                except ImportError:
+                    from math import erf as _erf
+                    erf = np.vectorize(_erf)  # type: ignore[assignment]
+                result = (0.5 * result * (1.0 + erf(result / np.sqrt(2.0)))).astype(result.dtype)
+            elif fused_activation == "silu":
+                # SiLU/Swish: x * sigmoid(x) = x / (1 + exp(-x))
+                result = result / (1.0 + np.exp(-np.clip(result, -20, 20)))
+            else:
+                raise ValueError(f"Unsupported fused activation: {fused_activation}")
+
+        oTList[0].data = result
     else:
         oTList[0].data = None
 
+    # Accumulate input stats across all inputs.  Plain matmul has 2 inputs;
+    # ttnn.linear fuses bias as a 3rd input on the same MatMul SimOp (see
+    # op.py linear()).  Summing over iTList ensures the bias tensor's memory
+    # footprint is reflected in inElems/inBytes.
+    in_elems = sum(t.nelems() for t in iTList)
+    in_bytes = sum(t.nbytes(op.precision) for t in iTList)
+    instrs: dict = {"mac": oTList[0].nelems() * reduced_dim}
+    if len(iTList) > 2:
+        instrs["add"] = oTList[0].nelems()
+
+    # Add instruction counts for fused activation (ttnn.linear activation parameter)
+    fused_activation = op.attrs.get("fused_activation")
+    if fused_activation is not None:
+        from ttsim.ops.desc.helpers import gelu_instr_counts
+        nelem = oTList[0].nelems()
+        if fused_activation == "relu":
+            instrs["cmp"] = instrs.get("cmp", 0) + nelem
+            instrs["mov"] = instrs.get("mov", 0) + nelem
+        elif fused_activation == "gelu":
+            gelu_instrs = gelu_instr_counts(nelem)
+            for key, val in gelu_instrs.items():
+                instrs[key] = instrs.get(key, 0) + val
+        elif fused_activation == "silu":
+            # SiLU = x * sigmoid(x): sigmoid (exp + add + div) + multiply
+            instrs["exp"] = instrs.get("exp", 0) + nelem
+            instrs["add"] = instrs.get("add", 0) + nelem
+            instrs["div"] = instrs.get("div", 0) + nelem
+            instrs["mul"] = instrs.get("mul", 0) + nelem
+
     op.perf_stats = {
-        "inElems": iTList[0].nelems() + iTList[1].nelems(),
+        "inElems": in_elems,
         "outElems": oTList[0].nelems(),
-        "inBytes": iTList[0].nbytes(op.precision) + iTList[1].nbytes(op.precision),
+        "inBytes": in_bytes,
         "outBytes": oTList[0].nbytes(op.precision),
-        "instrs": {"mac": oTList[0].nelems() * reduced_dim},
+        "instrs": instrs,
     }
     return
 
@@ -1166,14 +1224,16 @@ def register_math_ops():
             True,
             True,
         ],
+        # max_input=3 (was 2): ttnn.linear fuses bias as a 3rd input on the
+        # same MatMul SimOp, so the op must accept 2 or 3 inputs.
         [
             "MatMul",
-            "ARITY_2->1",
+            "ARITY_VARIADIC[2-3]->1",
             "ai.onnx",
             "COMMON",
             13,
             13,
-            2,
+            3,
             2,
             1,
             1,

@@ -507,9 +507,37 @@ class PackageInstanceModel(BaseModel, extra='forbid'):
             assert compute_group.ipobj is not None
             assert isinstance(compute_group.ipobj, ComputeBlockModel)
         N        = compute_group.num_units
+        
+        # Try primary pipe first
         pipe_obj = compute_group.ipobj.get_pipe(pipe)
-        ipc      = pipe_obj.peak_ipc(instr, precision)
-        return N * ipc
+        try:
+            ipc = pipe_obj.peak_ipc(instr, precision)
+            return N * ipc
+        except AssertionError:
+            # Instruction not found in primary pipe, search other pipes
+            # This enables mixed-pipe operations (e.g., MatMul with fused activation:
+            # matmul uses matrix pipe, activation uses vector pipe)
+            pass
+        
+        # Search all other pipes for this instruction
+        for other_pipe in compute_group.ipobj.pipes:
+            if other_pipe.name == pipe:
+                continue  # Already tried primary pipe
+            try:
+                ipc = other_pipe.peak_ipc(instr, precision)
+                logger.debug(
+                    f"Instruction '{instr}' not found in primary pipe '{pipe}', "
+                    f"using pipe '{other_pipe.name}' instead"
+                )
+                return N * ipc
+            except AssertionError:
+                continue  # Try next pipe
+        
+        # Instruction not found in any pipe
+        raise AssertionError(
+            f"Instruction '{instr}' not found in any compute pipe "
+            f"(searched: {[p.name for p in compute_group.ipobj.pipes]})"
+        )
 
     def peak_flops(self, pipe, instr, precision, mul_factor=1, units='TFLOPS') -> float:
         compute_group = self.get_ipgroup(iptype='compute')

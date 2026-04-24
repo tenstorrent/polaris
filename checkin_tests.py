@@ -144,8 +144,9 @@ def main() -> int:
             log_file = os.path.join(LOGD, f'study_{cmdno+1:03}.log')
         else:
             log_file = os.path.join(LOGD, f'checkin_test_{cmdno+1:03}.log')
-        print(f'#{cmdno+1}/{len(commands)}: {cmd} -> {log_file}')
+        print(f'#{cmdno+1}/{len(commands)}: {cmd} -> {log_file}', end='', flush=True)
         if args.dryrun:
+            print()
             continue
         cmdret     = run_a_job(cmd, log_file)
         results[cmdno] = {'id': f'{cmdno:2d}-{log_file}',
@@ -154,10 +155,12 @@ def main() -> int:
                           }
         if cmdret.returncode != 0:
             if args.stop:
+                print(' FAILED')
                 print(f'error: {cmd} failed with exit code {cmdret.returncode}')
                 print('checkin tests failed')
                 return cmdret.returncode
             num_failures += 1
+        print(' ', results[cmdno]['status'])
 
     if args.dryrun:
         return 0

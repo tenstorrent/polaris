@@ -10,7 +10,7 @@ These shims are designed for simulation, performance modeling, and logic testing
 
 - **Complete API Compatibility**: All functions match the exact Python API signatures of their ttnn counterparts
 - **Dual-Mode Operation**: Can track operations OR actually execute them (or both)
-- **Operation Tracking**: Tracks all tilize, untilize, and layout conversion operations with detailed internal operation tracking
+- **Operation Tracking**: Tracks all tilize, untilize, shard layout, and transformer head operations with detailed internal operation tracking
 - **Duck-Compatible**: Works with duck-compatible objects (objects that have the same attributes/methods as ttnn.Tensor)
 - **Pure Python**: No dependencies on ttnn or torch - completely self-contained
 - **Validation**: Includes all validation logic and error handling matching the original functions
@@ -61,11 +61,39 @@ These shims are designed for simulation, performance modeling, and logic testing
 - `pad(tensor, padding, pad_value, output_memory_config=None)`
   - Pads tensor with specified padding
 
+### Shard Layout Operations
+
+- `interleaved_to_sharded(input_tensor, memory_config=None, output_dtype=None)`
+  - Converts tensor from interleaved to sharded memory layout
+  - Tracks data movement for simulation
+
+- `sharded_to_interleaved(input_tensor, memory_config=None, output_dtype=None)`
+  - Converts tensor from sharded to interleaved memory layout
+  - Tracks data movement for simulation
+
+- `reshard(input_tensor, memory_config, output_tensor=None)`
+  - Changes shard layout of an already-sharded tensor
+  - Supports optional `output_tensor` parameter (per tt-metal nanobind)
+
+### Transformer Head Operations
+
+- `nlp_create_qkv_heads(input_tensor, kv_input_tensor=None, *, num_heads, num_kv_heads=None, transpose_k_heads=False, memory_config=None)`
+  - Splits fused QKV tensor into separate Q, K, V head tensors
+  - Returns `(Q, K, V)` tuple; single SimOp with 3 outputs
+  - Also available as `ttnn.experimental.nlp_create_qkv_heads(...)`
+
+- `nlp_concat_heads(input_tensor, memory_config=None)`
+  - Merges attention heads: `[B, num_heads, S, head_dim]` -> `[B, S, num_heads*head_dim]`
+  - Also available as `ttnn.experimental.nlp_concat_heads(...)`
+
 ### Device-graph operator APIs (SimOp-only)
 
 These build `SimOp` nodes on the device graph (like `ttnn` front-end ops) but live only on `ttnn_shim` — not re-exported from `ttsim.front.ttnn`.
 
 - `tilize_op`, `untilize_op`, `tilize_with_val_padding_op`, `untilize_with_unpadding_op` — layout conversions as first-class ops (see `ttsim/ops/desc/ttsim_layout.py`).
+- `interleaved_to_sharded_op`, `sharded_to_interleaved_op`, `reshard_op` — shard layout conversions as SimOp graph nodes.
+- `nlp_create_qkv_heads_op` — fused QKV head split; 1-2 inputs, 3 outputs (Q, K, V). SimOp type **NLPCreateQKVHeads**.
+- `nlp_concat_heads_op` — head merge; SimOp type **NLPConcatHeads**.
 - `permute_op(input_tensor, dims, memory_config=None)` — axis reorder with SimOp type **Permute** and attrs `perm`. Same mathematical role as `ttnn.permute(tensor, dims)`, but the generic `ttnn.permute` in `op.py` still records **Transpose** for other call sites.
 
 ## Classes
@@ -121,6 +149,7 @@ print(f"Untilize count: {summary['untilize_count']}")
 - `reshape_count`: Number of reshape operations
 - `pad_count`: Number of pad operations
 - `memory_operations`: List of all operations with details
+- `memory_reads` / `memory_writes` / `data_movements`: Detailed per-op data movement tracking (includes shard and NLP head ops)
 
 ## Constants
 

@@ -121,7 +121,18 @@ class SimTensor:
     def __init__(self, cfg):
         self.name        = cfg['name']                # String
         self.dtype       = cfg.get('dtype')           # Numpy datatype
-        self.data        = cfg.get('data', None)      # Actual data (numpy array)
+        # Convert list/tuple data to numpy array for compatibility
+        data = cfg.get('data', None)
+        if data is not None and isinstance(data, (list, tuple)):
+            if self.dtype is not None:
+                if hasattr(self.dtype, 'to_numpy'):
+                    dtype = self.dtype.to_numpy
+                else:
+                    dtype = self.dtype
+            else:
+                dtype = np.float32
+            data = np.array(data, dtype=dtype)
+        self.data        = data                       # Actual data (numpy array)
         self.resolve     = cfg.get('resolve','_')     # Has the tensor shape been resolved (intermediate tensor shapes) (Boolean)
         self.op_in       = cfg.get('op_in', [])       # Which operators is this "input" for (consumer list)
         self.op_out      = cfg.get('op_out', [])      # Which operators is this "output" of (producer list)

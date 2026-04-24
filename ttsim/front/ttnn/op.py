@@ -11,6 +11,7 @@ from loguru import logger
 from ttsim.ops.op import SimOp
 from ttsim.ops.tensor import Shape, require_shape_list
 
+from .buffer import BufferType, TensorMemoryLayout
 from .memory import MemoryConfig
 from .tensor import DataType, Layout, Tensor, require_ttnn_tensor, zeros
 
@@ -35,6 +36,67 @@ op_counter = count(start=1, step=1)
 
 def generate_new_op_name():
     return f"ttsim.ttnn.Op_{next(op_counter)}"
+
+
+_COMPACT_DTYPES: frozenset[DataType] = frozenset()  # populated after DataType import below
+# Precedence order for compact dtypes (most compact first)
+_COMPACT_DTYPE_PRECEDENCE: list[DataType] = []  # populated after DataType import
+
+
+def _propagate_ttnn_dtype(inputs: list[Tensor], outputs: list[Tensor]) -> None:
+    """Propagate _ttnn_dtype from inputs to unannotated outputs.
+
+    When inputs carry different DataTypes (e.g. BFLOAT16 + BFLOAT8_B), the more
+    compact type wins.  This mirrors HW behaviour where ``activations_dtype``
+    (typically BFLOAT8_B) dominates after the first conversion point.
+
+    Compact dtypes are prioritized by explicit precedence: BFLOAT4_B (most compact)
+    is preferred over BFLOAT8_B, ensuring deterministic propagation regardless of
+    input order.
+    """
+    candidates = [
+        getattr(t, "_ttnn_dtype", None)
+        for t in inputs
+        if getattr(t, "_ttnn_dtype", None) is not None
+    ]
+    if not candidates:
+        return
+
+    # Find the most compact dtype according to precedence order
+    compact = [d for d in candidates if d in _COMPACT_DTYPES]
+    if compact:
+        # Pick the first dtype in precedence order that appears in candidates
+        src = next((d for d in _COMPACT_DTYPE_PRECEDENCE if d in compact), compact[0])
+    else:
+        src = candidates[0]
+
+    for o in outputs:
+        if getattr(o, "_ttnn_dtype", None) is None:
+            o._ttnn_dtype = src
+
+
+_COMPACT_DTYPES = frozenset({DataType.BFLOAT8_B, DataType.BFLOAT4_B})
+# BFLOAT4_B (4 bits) is more compact than BFLOAT8_B (8 bits)
+_COMPACT_DTYPE_PRECEDENCE = [DataType.BFLOAT4_B, DataType.BFLOAT8_B]
+
+
+def _propagate_memory_config(inputs: list[Tensor], outputs: list[Tensor]) -> None:
+    """Propagate _memory_config from the first input that has one set.
+
+    On real tt-metal, op outputs inherit the memory placement of their
+    inputs unless the op explicitly changes it (e.g. to_memory_config).
+    """
+    src = None
+    for t in inputs:
+        mc = getattr(t, "_memory_config", None)
+        if mc is not None:
+            src = mc
+            break
+    if src is None:
+        return
+    for o in outputs:
+        if getattr(o, "_memory_config", None) is None:
+            o._memory_config = src
 
 
 def single_output_immediate_op(optype, /, preprocess=None):
@@ -70,19 +132,40 @@ def single_output_immediate_op(optype, /, preprocess=None):
                 opinfo["inList"].append(x.name)
                 new_args.append(x)
             elif isinstance(x, (int, float)):
-                # print(f"FOUND not Tensor input in ttnn.op({optype}) : {type(x)}")
                 if optype in ["Add", "Sub", "Mul"]:
-                    # Scalar input's type is matched to the tensor input type
                     assert (
                         len(tensor_args) == 1
                     ), f"Only one tensor input supported for {optype} with scalar input"
-                    arg0_dtype = DataType.from_numpy(tensor_args[0].dtype)
+                    opinfo["attrs"]["scalar"] = x
+                    # On tt-metal, the scalar is broadcast-filled into a
+                    # full-shape tensor buffer.  The profiler records both
+                    # inputs, so include this broadcast tensor in inList to
+                    # produce an arity-2 LUT key matching the profiler.
+                    tensor_shape = list(tensor_args[0].shape) if tensor_args[0].shape is not None else [1]
+                    tensor_dtype = DataType.from_numpy(tensor_args[0].dtype)
+
+                    # Populate data for EXECUTE/EXECUTE_AND_TRACK modes so that
+                    # compute helpers (compute_add/sub/mul) can access iTList[1].data
+                    scalar_data = None
+                    if hasattr(tensor_args[0], 'has_data') and tensor_args[0].has_data():
+                        # Create broadcast-filled array matching tensor shape
+                        np_dtype = tensor_args[0].dtype
+                        scalar_data = np.full(tensor_shape, x, dtype=np_dtype)
+
                     tmp = Tensor(
-                        name=f"{op_name}.in.{i}",
-                        shape=[],
-                        dtype=arg0_dtype,
+                        name=f"{op_name}.scalar",
+                        shape=tensor_shape,
+                        dtype=tensor_dtype,
+                        layout=tensor_args[0].get_layout(),
                         device=device,
+                        data=scalar_data,
                     )
+                    src_mc = getattr(tensor_args[0], "_memory_config", None)
+                    if src_mc is not None:
+                        tmp._memory_config = src_mc
+                    src_dt = getattr(tensor_args[0], "_ttnn_dtype", None)
+                    if src_dt is not None:
+                        tmp._ttnn_dtype = src_dt
                     tmp.op_in.append(op_name)
                     opinfo["inList"].append(tmp.name)
                     new_args.append(tmp)
@@ -104,6 +187,13 @@ def single_output_immediate_op(optype, /, preprocess=None):
         opobj = SimOp(opinfo)
         perf_stats = opobj.get_perf_counts(new_args, [C])
         opobj.update_tensor_counts(new_args, [C])
+
+        _propagate_ttnn_dtype(tensor_args, [C])
+        _propagate_memory_config(tensor_args, [C])
+
+        mem_cfg = kwargs.get("memory_config", None)
+        if mem_cfg is not None:
+            C._memory_config = mem_cfg
 
         device.add_op(opobj)  # type: ignore[union-attr]
 
@@ -148,6 +238,8 @@ def multiple_output_immediate_op(optype, /, preprocess=None):
         # print(f"{optype}:: {perf_stats}")
         opobj.update_tensor_counts(new_args, out_tensors)
 
+        _propagate_ttnn_dtype(tensor_args, out_tensors)
+        _propagate_memory_config(tensor_args, out_tensors)
         device.add_op(opobj)  # type: ignore[union-attr]
 
         return tuple(out_tensors)
@@ -347,35 +439,13 @@ def transpose_pp(args_list, kwargs_dict):
 
 
 def cat(tensors, dim=0):
-    """Concatenate a list of tensors along a specified dimension."""
-    if not tensors:
-        raise ValueError("Input list of tensors is empty")
+    """Concatenate a list of tensors along a specified dimension.
 
-    for i, t in enumerate(tensors):
-        require_ttnn_tensor(t, f"ttnn.cat tensors[{i}]")
-    first_tensor = tensors[0]
-    # Handle negative dimension
-    original_rank = len(first_tensor.shape)
-    if dim < 0:
-        dim += original_rank
-
-    # Validate dimension
-    if dim < 0 or dim >= original_rank:
-        raise ValueError(
-            f"Dimension {dim} is out of range for tensors of rank {original_rank}. "
-            f"Valid range is [-{original_rank}, {original_rank - 1}]"
-        )
-
-    # Calculate new shape
-    new_shape = list(first_tensor.shape)
-    new_shape[dim] = int(np.sum([tensor.shape[dim] for tensor in tensors]))
-
-    # Create the concatenated tensor
-    return Tensor(
-        shape=new_shape,
-        dtype=DataType.from_numpy(first_tensor.dtype.name),
-        device=first_tensor.device,
-    )
+    Delegates to ``concat`` (which emits a ``Concat`` SimOp) so that the
+    operation is visible in the device graph regardless of whether the
+    caller spells it ``ttnn.cat`` or ``ttnn.concat``.
+    """
+    return concat(*tensors, axis=dim)
 
 
 def where_pp(args, kwargs_dict):
@@ -383,11 +453,6 @@ def where_pp(args, kwargs_dict):
     input_tensor = require_ttnn_tensor(args[1], "ttnn.where x")
     value_tensor = require_ttnn_tensor(args[2], "ttnn.where y")
     return (mask_tensor, input_tensor, value_tensor), kwargs_dict
-
-
-def sharded_to_interleaved(input_tensor, memory_config=None):
-    require_ttnn_tensor(input_tensor, "ttnn.sharded_to_interleaved input")
-    return input_tensor  # No actual conversion, just returning the input tensor
 
 
 def rms_norm(
@@ -595,6 +660,24 @@ class experimental:
     def all_gather_matmul(self, *args, **kwargs):
         pass
 
+    @staticmethod
+    def nlp_create_qkv_heads(input_tensor, kv_input_tensor=None, *,
+                              num_heads, num_kv_heads=None,
+                              transpose_k_heads=False, memory_config=None):
+        """Delegate to ttnn_shim; mirrors HW's single-op QKV head split."""
+        from .ttnn_shim import nlp_create_qkv_heads as _nlp_create_qkv_heads
+        return _nlp_create_qkv_heads(
+            input_tensor, kv_input_tensor,
+            num_heads=num_heads, num_kv_heads=num_kv_heads,
+            transpose_k_heads=transpose_k_heads, memory_config=memory_config,
+        )
+
+    @staticmethod
+    def nlp_concat_heads(input_tensor, memory_config=None):
+        """Delegate to ttnn_shim; mirrors HW's single-op head concatenation."""
+        from .ttnn_shim import nlp_concat_heads as _nlp_concat_heads
+        return _nlp_concat_heads(input_tensor, memory_config=memory_config)
+
 
 def all_gather(*args, **kwargs):
     raise NotImplementedError("all_gather is not implemented yet!!")
@@ -720,46 +803,65 @@ def silu(x):
 
 # Multi-operator functions
 def linear(*args, **kwargs):
+    """Fused linear: emits a single MatMul SimOp with optional bias (3rd input)
+    and optional fused activation, matching HW's MatmulDeviceOperation.
+
+    Previous implementation decomposed linear into separate matmul → add → activation
+    SimOps.  HW's MatmulDeviceOperation fuses all three into one kernel, so the
+    decomposed graph produced extra ops that did not appear in profiler traces.
+    Emitting a single MatMul SimOp (with bias as an optional 3rd input and activation
+    as an attribute) keeps the POLARIS op graph 1-to-1 with HW profiler output.
+    """
     assert len(args) == 2, f"linear args #-inputs({len(args)}) != 2"
     A = require_ttnn_tensor(args[0], "ttnn.linear input")
     B = require_ttnn_tensor(args[1], "ttnn.linear weight")
-    bias = kwargs.get("bias", None)
+    bias_tensor = kwargs.get("bias", None)
     act = kwargs.get("activation", None)
-    # t_A         = kwargs.get('transpose_a',            False)
-    # t_B         = kwargs.get('transpose_b',            False)
-    dtype = kwargs.get("dtype", None)
-    # otile       = kwargs.get('output_tile',            None)
-    # opt_otensor = kwargs.get('optional_output_tensor', None)
-    core_grid = kwargs.get("core_grid", None)
-    # mem_cfg     = kwargs.get('memory_config',          MemoryConfig.DRAM)
-    # pgm_cfg     = kwargs.get('program_config',         None)
-    ckrnl_cfg = kwargs.get("compute_kernel_config", None)
 
-    not_impl_attrs = {
-        "transpose_a": False,
-        "transpose_b": False,
-        #'dtype'                 : None,
-        "output_tile": None,
-        "optional_output_tensor": None,
-        #'core_grid'             : None,
-        #'memory_config'         : MemoryConfig.DRAM,
-        "program_config": None,
-        # 'compute_kernel_config' : None,
-    }
+    device = A.device if hasattr(A, 'device') and A.device else (
+        B.device if hasattr(B, 'device') else None)
 
-    for aname, adefval in not_impl_attrs.items():
-        if aname in kwargs:
-            assert (
-                kwargs[aname] == adefval
-            ), f"linear.attrib: {aname} = {kwargs[aname]} not implemented yet!!"
-
-    C = matmul(A, B)
-    if bias is not None:
-        bias = require_ttnn_tensor(bias, "ttnn.linear bias")
-        C = add(C, bias)
+    op_name = generate_new_op_name()
+    attrs = {}
     if act is not None:
-        act_op = { 'relu': relu, 'gelu': gelu, 'silu': silu }[act]
-        C = act_op(C)
+        attrs["fused_activation"] = act
+    opinfo = {'name': op_name, 'optype': 'MatMul', 'inList': [], 'attrs': attrs}
+    C = Tensor(name=op_name + ".out", op_out=[op_name], device=device)
+
+    input_tensors = []
+    for x in [A, B]:
+        x.op_in.append(op_name)
+        opinfo["inList"].append(x.name)
+        input_tensors.append(x)
+
+    if bias_tensor is not None:
+        bias_tensor = require_ttnn_tensor(bias_tensor, "ttnn.linear bias")
+        bias_tensor.op_in.append(op_name)
+        opinfo["inList"].append(bias_tensor.name)
+        input_tensors.append(bias_tensor)
+
+    opinfo["outList"] = [C.name]
+    opobj = SimOp(opinfo)
+    opobj.get_perf_counts(input_tensors, [C])
+    opobj.update_tensor_counts(input_tensors, [C])
+
+    # Handle both dtype and output_dtype parameters (dtype is an alias for output_dtype)
+    output_dtype = kwargs.get("output_dtype", None)
+    if output_dtype is None:
+        output_dtype = kwargs.get("dtype", None)
+    if output_dtype is not None and isinstance(output_dtype, DataType):
+        C._ttnn_dtype = output_dtype
+    else:
+        _propagate_ttnn_dtype(input_tensors, [C])
+
+    _propagate_memory_config(input_tensors, [C])
+
+    mem_cfg = kwargs.get("memory_config", None)
+    if mem_cfg is not None:
+        C._memory_config = mem_cfg
+
+    if device is not None:
+        device.add_op(opobj)
     return C
 
 
@@ -816,6 +918,26 @@ def fold(
         # Fold as first-class SimOp (matches hardware Fold kernel naming vs reshape shortcut).
         assert ttnn_tensor_like.device is not None, "fold requires input tensor on device"
         op_name = generate_new_op_name()
+        # Design decision: flatten_nd is *computed* from the input tensor's
+        # layout and memory configuration rather than being a caller-supplied
+        # parameter.  This mirrors the tt-metal C++ implementation where
+        # prim::fold always produces [1,1,N*Hs*Ws,Cs] but the higher-level
+        # ttnn::fold conditionally reshapes back to [N,Hs,Ws,Cs] for tiled
+        # or DRAM-interleaved inputs (see fold.cpp / fold_device_op.cpp).
+        #
+        # The choice of `not (is_tiled or is_dram)` means:
+        #   - L1-sharded ROW_MAJOR → flatten_nd=True  (ViT, typical models)
+        #   - DRAM-interleaved     → flatten_nd=False  (preserve 4D)
+        #   - TILE_LAYOUT          → flatten_nd=False  (preserve 4D)
+        #   - Unknown/no memcfg    → flatten_nd=True   (safe HW default)
+        #
+        # This attr is forwarded to fold_sinf in tensor.py, which is
+        # frontend-agnostic; see the comment there for the default rationale.
+        is_tiled = getattr(ttnn_tensor_like, 'layout', None) == Layout.TILE_LAYOUT
+        # Tensor.memory_config() returns None when no config has been set
+        # (the common L1-sharded path); hasattr guards against non-Tensor inputs.
+        mc = ttnn_tensor_like.memory_config() if hasattr(ttnn_tensor_like, 'memory_config') else None
+        is_dram = (getattr(mc, 'buffer_type', None) is BufferType.DRAM) if mc is not None else False
         fold_attrs = {
             'stride_h': stride_h,
             'stride_w': stride_w,
@@ -841,6 +963,10 @@ def fold(
         opobj = SimOp(opinfo)
         opobj.get_perf_counts([ttnn_tensor_like], [out_tensor])
         opobj.update_tensor_counts([ttnn_tensor_like], [out_tensor])
+        _propagate_ttnn_dtype([ttnn_tensor_like], [out_tensor])
+        out_tensor._memory_config = MemoryConfig(
+            TensorMemoryLayout.HEIGHT_SHARDED, BufferType.L1,
+        )
         ttnn_tensor_like.device.add_op(opobj)
         reshaped2 = out_tensor
 

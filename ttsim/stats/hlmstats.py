@@ -140,12 +140,26 @@ def save_data(model: BaseModel, filename, outputfmt: OutputFormat)->None:
         with open(filename, 'wb') as foutbin:
             pickle.dump(model, foutbin)
 
-def format_tensor_for_stats(tensor) -> str:
-    """Format a single tensor as name[dim1xdim2xdim3]:precision for stats output."""
+def format_tensor_for_stats(tensor, shape_override=None) -> str:
+    """Format a single tensor as name[dim1xdim2xdim3]:precision for stats output.
+
+    Args:
+        tensor: The tensor to format.
+        shape_override: If provided, use this shape instead of the live tensor.shape.
+            Used by _extract_tensor_info to pass frozen shapes from SimOp so that
+            post-op set_shape mutations don't corrupt recorded shapes.
+    """
     name = tensor.name
-    shape = shape_as_optional_list(tensor.shape) or []
-    # Get precision as string
-    if hasattr(tensor.dtype, 'name'):
+    shape = shape_as_optional_list(
+        shape_override if shape_override is not None else tensor.shape
+    ) or []
+    # Prefer the original ttnn DataType name (e.g. "bfloat8_b") over the
+    # numpy dtype name (e.g. "float32") because multiple ttnn types collapse
+    # to the same numpy dtype (BFLOAT8_B, BFLOAT4_B, FLOAT32 -> np.float32).
+    ttnn_dtype = getattr(tensor, '_ttnn_dtype', None)
+    if ttnn_dtype is not None:
+        precision = ttnn_dtype.name.lower()
+    elif hasattr(tensor.dtype, 'name'):
         precision = tensor.dtype.name.lower()
     elif isinstance(tensor.dtype, str):
         precision = tensor.dtype.lower()
@@ -180,27 +194,55 @@ class HLMStats:
 
         return
 
+    @staticmethod
+    def _tensor_attrs_dict(tensor) -> dict:
+        """Return a dict of layout/memory/dtype for a single tensor."""
+        layout = getattr(tensor, 'layout', None)
+        layout_str = layout.name if layout is not None else None
+        mem = tensor.memory_config() if callable(getattr(tensor, 'memory_config', None)) else None
+        mem_str = str(mem) if mem is not None else None
+        ttnn_dtype = getattr(tensor, '_ttnn_dtype', None)
+        if ttnn_dtype is not None:
+            dtype_str = ttnn_dtype.name.lower()
+        elif hasattr(tensor.dtype, 'name'):
+            dtype_str = tensor.dtype.name.lower()
+        elif isinstance(tensor.dtype, str):
+            dtype_str = tensor.dtype.lower()
+        else:
+            dtype_str = str(tensor.dtype).lower()
+        return {'layout': layout_str, 'memory': mem_str, 'dtype': dtype_str}
+
     def _extract_tensor_info(self, op):
         """Extract tensor information (name and shape) for input, output, and weight tensors.
 
-        Returns a dict with three keys (all strings in format: name[dim1xdim2]:precision;name2[dim1xdim2]:precision):
-        - input_tensors: String representation of input tensors
-        - output_tensors: String representation of output tensors
-        - weight_tensors: String representation of weight/parameter tensors
+        Returns a dict with four keys:
+        - input_tensors: String representation (name[dim1xdim2]:precision;…)
+        - output_tensors: String representation
+        - weight_tensors: String representation
+        - tensor_attributes: JSON-serializable dict with per-tensor layout/memory/dtype
         """
         input_parts = []
         output_parts = []
         weight_parts = []
+        input_attrs = []
+        output_attrs = []
+
+        # Prefer frozen shapes from SimOp (captured at op execution time) over
+        # live tensor shapes which may have been mutated by later set_shape() calls.
+        frozen_in = getattr(op, '_frozen_input_shapes', [])
+        frozen_out = getattr(op, '_frozen_output_shapes', [])
 
         # Process input tensors
-        for tensor_name in op.inList:
+        for i, tensor_name in enumerate(op.inList):
             if tensor_name in self.wlgraph._tensors:
                 tensor = self.wlgraph._tensors[tensor_name]
-                input_parts.append(format_tensor_for_stats(tensor))
+                shape_ov = frozen_in[i] if i < len(frozen_in) else None
+                input_parts.append(format_tensor_for_stats(tensor, shape_override=shape_ov))
+                input_attrs.append(self._tensor_attrs_dict(tensor))
 
                 # If tensor is a parameter/weight, also add to weight_tensors
                 if tensor.is_param:
-                    weight_parts.append(format_tensor_for_stats(tensor))
+                    weight_parts.append(format_tensor_for_stats(tensor, shape_override=shape_ov))
             else:
                 WARNING(
                     f"Tensor '{tensor_name}' not found in workload graph tensors for op '{op.name}'.",
@@ -208,10 +250,12 @@ class HLMStats:
                 )
 
         # Process output tensors
-        for tensor_name in op.outList:
+        for i, tensor_name in enumerate(op.outList):
             if tensor_name in self.wlgraph._tensors:
                 tensor = self.wlgraph._tensors[tensor_name]
-                output_parts.append(format_tensor_for_stats(tensor))
+                shape_ov = frozen_out[i] if i < len(frozen_out) else None
+                output_parts.append(format_tensor_for_stats(tensor, shape_override=shape_ov))
+                output_attrs.append(self._tensor_attrs_dict(tensor))
             else:
                 WARNING(
                     f"Tensor '{tensor_name}' not found in workload graph tensors for op '{op.name}'.",
@@ -221,7 +265,8 @@ class HLMStats:
         return {
             'input_tensors': ';'.join(input_parts),
             'output_tensors': ';'.join(output_parts),
-            'weight_tensors': ';'.join(weight_parts)
+            'weight_tensors': ';'.join(weight_parts),
+            'tensor_attributes': json.dumps({'inputs': input_attrs, 'outputs': output_attrs}),
         }
 
     def dump_stats(self, dfreq):
@@ -258,6 +303,7 @@ class HLMStats:
                     'input_tensors'    : tensor_info['input_tensors'],
                     'output_tensors'   : tensor_info['output_tensors'],
                     'weight_tensors'   : tensor_info['weight_tensors'],
+                    'tensor_attributes': tensor_info['tensor_attributes'],
                     'domain'           : op.domain,
                     'opclass'          : op.opclass_str,
                     'removed'          : op.removed_in_optimization,

@@ -4,7 +4,7 @@
 
 from .device import open_device, close_device, ARCH, num_cores_to_corerangeset, create_sharded_memory_config, ReadDeviceProfiler
 from .device import USE_DEFAULT_DEVICE, resolve_device, set_default_device, get_default_device
-from .device import interleaved_to_sharded
+from .ttnn_shim import interleaved_to_sharded, sharded_to_interleaved, reshard
 from .tensor import (
     Tensor,
     _rand,
@@ -23,12 +23,13 @@ from .tensor import (
 from .tensor import Layout, as_tensor, arange, stack, ShardStrategy, unsqueeze_to_4D, ReplicateTensorToMesh
 from .config import Conv2dConfig, WormholeComputeKernelConfig, init_device_compute_kernel_config
 from .config import MatmulMultiCoreReuseMultiCast1DProgramConfig
-from .buffer import TensorMemoryLayout, ShardOrientation, BufferType
+from .buffer import TensorMemoryLayout, ShardOrientation, BufferType, ShardSpec
 from .memory import MemoryConfig, create_sharded_memory_config_, get_memory_config, to_memory_config
 from .types import TILE_HEIGHT, TILE_WIDTH
 from .core   import CoreCoord, CoreRange, CoreRangeSet, CoreGrid
 from .op     import *
 from .ttnn_shim import to_layout, permute, ttnn_reshape as reshape
+from .ttnn_shim import untilize_with_unpadding, tilize_with_val_padding
 from ttsim.ops.tensor import Shape
 
 
@@ -60,8 +61,8 @@ ROW_MAJOR_LAYOUT = Layout.ROW_MAJOR_LAYOUT
 TILE_LAYOUT      = Layout.TILE_LAYOUT
 TILE_SIZE        = 32
 
-DRAM_MEMORY_CONFIG = MemoryConfig.DRAM
-L1_MEMORY_CONFIG   = MemoryConfig.L1
+DRAM_MEMORY_CONFIG = MemoryConfig.DRAM  # MemoryConfig(INTERLEAVED, BufferType.DRAM)
+L1_MEMORY_CONFIG   = MemoryConfig.L1   # MemoryConfig(INTERLEAVED, BufferType.L1)
 
 L1_WIDTH_SHARDED_MEMORY_CONFIG = 0
 
@@ -93,5 +94,3 @@ def prepare_conv_bias(bias_tensor, input_memory_config, input_layout, input_dtyp
 def deallocate(x): pass
 def reallocate(x): return x
 
-def untilize_with_unpadding(x, *args, **kwargs): return x
-def tilize_with_val_padding(x, *args, **kwargs): return x

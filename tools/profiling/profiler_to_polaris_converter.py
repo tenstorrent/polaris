@@ -159,8 +159,7 @@ def map_optype_to_polaris(opcode: str, attrs: dict) -> str:
         'Untilize': 'Untilize',
         'TilizeWithValPadding': 'TilizeWithValPadding',
         'Tilize': 'Tilize',
-        'UntilizeWithUnpadding': 'UntilizeWithValUnpadding',
-        'UntilizeWithValUnpadding': 'UntilizeWithValUnpadding',
+        'UntilizeWithUnpadding': 'UntilizeWithUnpadding',
     }
     return optype_mapping.get(opcode, opcode)
 
