@@ -242,6 +242,45 @@ def classify_file(filename: str) -> tuple[str, str]:
     return ext, lang
 
 
+def is_text_file(filename: str) -> tuple[bool, str | None]:
+    """
+    Check if a file appears to be text.
+    Reads only a small prefix once, then attempts to decode that sample with
+    UTF-8 and common fallbacks. Returns (is_text, encoding) where encoding
+    is the successful encoding or None if not text.
+    Uses binary sniffing to reject files with NUL bytes.
+    """
+    # Only accept strict UTF-8 encodings for unknown extensions to avoid
+    # misclassifying binary files (latin-1/cp1252 decode any byte sequence)
+    encodings = ['utf-8', 'utf-8-sig']
+    sample_size = 16384  # Read first 16KB for detection
+
+    try:
+        with open(filename, 'rb') as f:
+            sample = f.read(sample_size)
+    except Exception as e:
+        logger.debug(f'Error reading file {filename}: {e}')
+        return False, None
+
+    # Empty files are considered text
+    if not sample:
+        return True, 'utf-8'
+
+    # Binary sniff: reject files with NUL bytes
+    if b'\x00' in sample:
+        return False, None
+
+    # Try to decode with allowed encodings
+    for encoding in encodings:
+        try:
+            sample.decode(encoding)
+            return True, encoding
+        except (UnicodeDecodeError, ValueError):
+            continue
+
+    return False, None
+
+
 def analyze_file(filename: str, allowed_licenses: list[str], allowed_copyrights: list[str],
                  warn_flag: bool = False) -> tuple[SPDXHeaderStatus, SPDXHeaderStatus]:
     """
@@ -260,13 +299,185 @@ def analyze_file(filename: str, allowed_licenses: list[str], allowed_copyrights:
         license_status = SPDXHeaderStatus.ST_OK
         copyright_status = SPDXHeaderStatus.ST_OK
     elif lang == 'unknown':
-        logger.error(f'File {filename} has unknown extension {ext}. Skipping.')
+        # Try to parse as text file with multiple comment syntaxes
+        is_text, encoding = is_text_file(filename)
+        if is_text and encoding:
+            logger.debug(f'File {filename} has unknown extension {ext}. Attempting multi-syntax parsing.')
+            multi_parser = MultiSyntaxParser(allowed_licenses, allowed_copyrights, warn_flag)
+            try:
+                parser_result = multi_parser.parse(filename, encoding)
+                license_status = parser_result['license']
+                copyright_status = parser_result['copyright']
+            except UnicodeDecodeError as exc:
+                logger.error(
+                    f'File {filename} was identified as text but could not be decoded during parsing: {exc}. '
+                    'Skipping.'
+                )
+        else:
+            logger.error(f'File {filename} has unknown extension {ext}. Skipping.')
     else:
-        parser = LanguageParser(lang, allowed_licenses, allowed_copyrights, warn_flag)
-        parser_result = parser.parse(filename)
+        lang_parser = LanguageParser(lang, allowed_licenses, allowed_copyrights, warn_flag)
+        parser_result = lang_parser.parse(filename)
         license_status = parser_result['license']
         copyright_status = parser_result['copyright']
     return license_status, copyright_status
+
+
+class MultiSyntaxParser:
+    """
+    Parser that tries multiple comment syntaxes for files with unknown extensions.
+    Attempts to detect SPDX headers using all known comment syntaxes.
+    """
+
+    def __init__(self, allowed_licenses: list[str], allowed_copyrights: list[str],
+                 warn_flag: bool = False):
+        self.allowed_licenses = allowed_licenses
+        self.allowed_copyrights = allowed_copyrights
+        self.warn_flag = warn_flag
+        self.parsing: str | None = None
+        self.found_licenses: list[tuple[str, SPDXHeaderStatus]] = []
+        self.found_copyrights: list[tuple[str, SPDXHeaderStatus]] = []
+
+    def parse(self, filename: str, encoding: str = 'utf-8') -> dict[str, SPDXHeaderStatus]:
+        """
+        Parse a file trying all known comment syntaxes.
+        Aggregates all SPDX header matches found across syntaxes and returns
+        the overall status for each header type.
+        Args:
+            filename: Path to the file to parse
+            encoding: Text encoding to use (should match what is_text_file() detected)
+        """
+        self.parsing = filename
+        self.found_licenses = []
+        self.found_copyrights = []
+
+        try:
+            with open(filename, encoding=encoding) as f:
+                contents = f.read()
+                if len(contents) == 0:
+                    # Empty files with unknown extensions should fail validation
+                    # since they don't contain required SPDX headers
+                    self.parsing = None
+                    return {'license': SPDXHeaderStatus.ST_MISSING, 'copyright': SPDXHeaderStatus.ST_MISSING}
+
+                # Try each known comment syntax once, de-duplicating languages
+                # that share the same comment delimiters.
+                seen_syntaxes = set()
+                for syntax in LANG_2_SYNTAX.values():
+                    syntax_key = (syntax.get('comment'), syntax.get('end_comment'))
+                    if syntax_key in seen_syntaxes:
+                        continue
+                    seen_syntaxes.add(syntax_key)
+                    self._parse_with_syntax(contents, syntax)
+
+        except (IOError, OSError) as e:
+            logger.debug(f'Error reading file {filename}: {e}')
+            self.parsing = None
+            return {'license': SPDXHeaderStatus.ST_MISSING, 'copyright': SPDXHeaderStatus.ST_MISSING}
+
+        # Determine overall status based on all found entries
+        result = {
+            'license': self._determine_overall_status(self.found_licenses),
+            'copyright': self._determine_overall_status(self.found_copyrights)
+        }
+
+        self.parsing = None
+        return result
+
+    def _parse_with_syntax(self, contents: str, syntax: dict[str, str]) -> None:
+        """
+        Parse file contents using a specific comment syntax.
+        """
+        comment_syntax = syntax.get('comment', '')
+        end_comment = syntax.get('end_comment', '')
+        
+        # Escape special regex characters in comment syntax
+        escaped_comment = re.escape(comment_syntax)
+        escaped_end_comment = re.escape(end_comment)
+        
+        # Build regex patterns for this syntax
+        license_re = re.compile(escaped_comment + r'(?P<optional_space>\s*)' + SPDX_LICENSE.pattern + r'(?P<optional_space2>\s*)(?P<suffix>' + escaped_end_comment + r')')
+        copyright_re = re.compile(escaped_comment + r'(?P<optional_space>\s*)' + SPDX_COPYRIGHT.pattern + r'(?P<optional_space2>\s*)(?P<suffix>' + escaped_end_comment + r')')
+
+        # Parse all lines
+        for line in contents.splitlines():
+            line = line.rstrip()
+            if not line.startswith(comment_syntax):
+                continue
+
+            # Try license pattern
+            if license_match := license_re.search(line):
+                license_text = license_match.group('license_text').strip()
+                status = self._check_license(license_text)
+                self.found_licenses.append((license_text, status))
+
+            # Try copyright pattern
+            if copyright_match := copyright_re.search(line):
+                copyright_text = copyright_match.group('copyright_text')
+                status = self._check_copyright(copyright_text)
+                self.found_copyrights.append((copyright_text, status))
+
+    def _check_license(self, license_text: str) -> SPDXHeaderStatus:
+        """Check if license text is in allowed list."""
+        if license_text in self.allowed_licenses:
+            return SPDXHeaderStatus.ST_OK
+        else:
+            if self.warn_flag:
+                logger.warning(f'{self.parsing}: wrong license text: "{license_text}", allowed licenses: {self.allowed_licenses}')
+            else:
+                logger.error(f'{self.parsing}: wrong license text: "{license_text}", allowed licenses: {self.allowed_licenses}')
+            return SPDXHeaderStatus.ST_INCORRECT
+
+    def _check_copyright(self, copyright_text: str) -> SPDXHeaderStatus:
+        """Check if copyright text matches allowed patterns."""
+        if not (copyright_parts_match := COPYRIGHT_REGEX.search(copyright_text)):
+            # Fallback: accept line without year if full text or holder part matches allowed copyright
+            cprt_holder_fallback = copyright_text.strip()
+            if cprt_holder_fallback in self.allowed_copyrights:
+                logger.debug(f'{self.parsing}: Copyright line does not match expected format but holder matches allowed list: "{copyright_text}"')
+                return SPDXHeaderStatus.ST_OK
+            # Strip leading copyright symbols
+            for prefix in COPYRIGHT_PREFIXES:
+                if cprt_holder_fallback.startswith(prefix):
+                    if cprt_holder_fallback[len(prefix):].strip() in self.allowed_copyrights:
+                        logger.debug(f'{self.parsing}: Copyright line does not match expected format but holder matches allowed list after stripping prefix: "{copyright_text}"')
+                        return SPDXHeaderStatus.ST_OK
+                    break
+            logger.debug(f'{self.parsing}: Copyright line is ill-formed: "{copyright_text}"')
+            return SPDXHeaderStatus.ST_ILLFORMED
+
+        cprt_holder = copyright_parts_match.group('cprt_holder').strip()
+
+        if cprt_holder in self.allowed_copyrights:
+            return SPDXHeaderStatus.ST_OK
+        else:
+            if self.warn_flag:
+                logger.warning(f'{self.parsing}: wrong copyright holder: "{cprt_holder}", allowed copyrights: {self.allowed_copyrights}')
+            else:
+                logger.error(f'{self.parsing}: wrong copyright holder: "{cprt_holder}", allowed copyrights: {self.allowed_copyrights}')
+            return SPDXHeaderStatus.ST_INCORRECT
+
+    def _determine_overall_status(self, found_entries: list[tuple[str, SPDXHeaderStatus]]) -> SPDXHeaderStatus:
+        """
+        Determine the overall status based on all found entries.
+        If no entries are found, status is MISSING.
+        If any entry has an error status, the overall status reflects the error.
+        If all entries are OK, the overall status is OK.
+        """
+        if not found_entries:
+            return SPDXHeaderStatus.ST_MISSING
+
+        # Check if all entries are OK
+        if all(status == SPDXHeaderStatus.ST_OK for _, status in found_entries):
+            return SPDXHeaderStatus.ST_OK
+
+        # If there are any errors, prioritize the most severe error status
+        error_statuses = [status for _, status in found_entries if status != SPDXHeaderStatus.ST_OK]
+        if SPDXHeaderStatus.ST_INCORRECT in error_statuses:
+            return SPDXHeaderStatus.ST_INCORRECT
+        elif SPDXHeaderStatus.ST_ILLFORMED in error_statuses:
+            return SPDXHeaderStatus.ST_ILLFORMED
+        raise AssertionError("Unexpected error status fallback in _determine_overall_status")
 
 
 class LanguageParser:

@@ -5,8 +5,8 @@ from contextlib import chdir
 import pytest
 
 from tools.spdxchecker import (ConfigFileModel, SPDXHeaderStatus, analyze_file, classify_file, collect_all_files,
-                               collect_git_status_files, create_args, ext_2_lang, get_active_files, load_config,
-                               validate_config)
+                               collect_git_status_files, create_args, ext_2_lang, get_active_files,
+                               load_config, validate_config)
 
 
 @pytest.mark.parametrize("extension,expected_language", [
@@ -349,3 +349,279 @@ def test_cli_override_copyrights():
     """Test that CLI can override allowed copyrights."""
     args = create_args().parse_args(['--allowed-copyrights', 'Company A', 'Company B'])
     assert args.allowed_copyrights == ['Company A', 'Company B']
+
+
+# Tests for unknown extension file handling
+
+def test_unknown_extension_with_hash_comments(mocker):
+    """Test that files with unknown extensions pass when they have valid headers with # comments."""
+    content = """# SPDX-FileCopyrightText: (C) 2025 Tenstorrent AI ULC
+# SPDX-License-Identifier: Apache-2.0
+
+This is a custom file with unknown extension.
+"""
+    mocker.patch("builtins.open", mocker.mock_open(read_data=content))
+    mocker.patch("tools.spdxchecker.is_text_file", return_value=(True, "utf-8"))
+    license_status, copyright_status = analyze_file(
+        "custom_script.unknown",
+        ["Apache-2.0"],
+        ["Tenstorrent AI ULC"]
+    )
+    assert license_status == SPDXHeaderStatus.ST_OK
+    assert copyright_status == SPDXHeaderStatus.ST_OK
+
+
+def test_unknown_extension_with_double_slash_comments(mocker):
+    """Test that files with unknown extensions pass when they have valid headers with // comments."""
+    content = """// SPDX-FileCopyrightText: (C) 2025 Tenstorrent AI ULC
+// SPDX-License-Identifier: Apache-2.0
+
+This is a custom file with unknown extension.
+"""
+    mocker.patch("builtins.open", mocker.mock_open(read_data=content))
+    mocker.patch("tools.spdxchecker.is_text_file", return_value=(True, "utf-8"))
+    license_status, copyright_status = analyze_file(
+        "custom_script.xyz",
+        ["Apache-2.0"],
+        ["Tenstorrent AI ULC"]
+    )
+    assert license_status == SPDXHeaderStatus.ST_OK
+    assert copyright_status == SPDXHeaderStatus.ST_OK
+
+
+def test_unknown_extension_with_html_comments(mocker):
+    """Test that files with unknown extensions pass when they have valid headers with <!-- --> comments."""
+    content = """<!-- SPDX-FileCopyrightText: (C) 2025 Tenstorrent AI ULC -->
+<!-- SPDX-License-Identifier: Apache-2.0 -->
+
+This is a custom file with unknown extension.
+"""
+    mocker.patch("builtins.open", mocker.mock_open(read_data=content))
+    mocker.patch("tools.spdxchecker.is_text_file", return_value=(True, "utf-8"))
+    license_status, copyright_status = analyze_file(
+        "custom_file.customext",
+        ["Apache-2.0"],
+        ["Tenstorrent AI ULC"]
+    )
+    assert license_status == SPDXHeaderStatus.ST_OK
+    assert copyright_status == SPDXHeaderStatus.ST_OK
+
+
+def test_unknown_extension_with_block_comments(mocker):
+    """Test that files with unknown extensions pass when they have valid headers with /* */ comments."""
+    content = """/* SPDX-FileCopyrightText: (C) 2025 Tenstorrent AI ULC */
+/* SPDX-License-Identifier: Apache-2.0 */
+
+This is a custom file with unknown extension.
+"""
+    mocker.patch("builtins.open", mocker.mock_open(read_data=content))
+    mocker.patch("tools.spdxchecker.is_text_file", return_value=(True, "utf-8"))
+    license_status, copyright_status = analyze_file(
+        "custom_file.dat",
+        ["Apache-2.0"],
+        ["Tenstorrent AI ULC"]
+    )
+    assert license_status == SPDXHeaderStatus.ST_OK
+    assert copyright_status == SPDXHeaderStatus.ST_OK
+
+
+def test_unknown_extension_missing_headers(mocker):
+    """Test that files with unknown extensions fail when headers are missing."""
+    content = """This is a custom file without SPDX headers.
+Just plain content.
+"""
+    mocker.patch("builtins.open", mocker.mock_open(read_data=content))
+    mocker.patch("tools.spdxchecker.is_text_file", return_value=(True, "utf-8"))
+    license_status, copyright_status = analyze_file(
+        "custom_script.unknown",
+        ["Apache-2.0"],
+        ["Tenstorrent AI ULC"]
+    )
+    assert license_status == SPDXHeaderStatus.ST_MISSING
+    assert copyright_status == SPDXHeaderStatus.ST_MISSING
+
+
+def test_unknown_extension_incorrect_license(mocker):
+    """Test that files with unknown extensions fail with incorrect license."""
+    # Construct invalid license header dynamically to avoid detection by SPDX checker
+    invalid_lic = '# SPDX-License-' + 'Identifier: InvalidLicense'
+    valid_copyright = '# SPDX-FileCopyrightText: (C) 2025 Tenstorrent AI ULC'
+    content = f"""{valid_copyright}
+{invalid_lic}
+
+This is a custom file with wrong license.
+"""
+    mocker.patch("builtins.open", mocker.mock_open(read_data=content))
+    mocker.patch("tools.spdxchecker.is_text_file", return_value=(True, "utf-8"))
+    license_status, copyright_status = analyze_file(
+        "custom_script.unknown",
+        ["Apache-2.0"],
+        ["Tenstorrent AI ULC"],
+        warn_flag=True  # Avoid error logging in tests
+    )
+    assert license_status == SPDXHeaderStatus.ST_INCORRECT
+    assert copyright_status == SPDXHeaderStatus.ST_OK
+
+
+def test_unknown_extension_incorrect_copyright(mocker):
+    """Test that files with unknown extensions fail with incorrect copyright."""
+    # Construct invalid copyright header dynamically to avoid detection by SPDX checker
+    invalid_copyright = '# SPDX-FileCopyright' + 'Text: (C) 2025 Unknown Company'
+    valid_lic = '# SPDX-License-Identifier: Apache-2.0'
+    content = f"""{invalid_copyright}
+{valid_lic}
+
+This is a custom file with wrong copyright.
+"""
+    mocker.patch("builtins.open", mocker.mock_open(read_data=content))
+    mocker.patch("tools.spdxchecker.is_text_file", return_value=(True, "utf-8"))
+    license_status, copyright_status = analyze_file(
+        "custom_script.unknown",
+        ["Apache-2.0"],
+        ["Tenstorrent AI ULC"],
+        warn_flag=True  # Avoid error logging in tests
+    )
+    assert license_status == SPDXHeaderStatus.ST_OK
+    assert copyright_status == SPDXHeaderStatus.ST_INCORRECT
+
+
+def test_unknown_extension_mixed_comment_styles(mocker):
+    """Test that files with mixed comment styles are handled correctly."""
+    content = """# SPDX-FileCopyrightText: (C) 2025 Tenstorrent AI ULC
+// SPDX-License-Identifier: Apache-2.0
+
+This file uses both # and // comments.
+"""
+    mocker.patch("builtins.open", mocker.mock_open(read_data=content))
+    mocker.patch("tools.spdxchecker.is_text_file", return_value=(True, "utf-8"))
+    license_status, copyright_status = analyze_file(
+        "mixed_script.unknown",
+        ["Apache-2.0"],
+        ["Tenstorrent AI ULC"]
+    )
+    assert license_status == SPDXHeaderStatus.ST_OK
+    assert copyright_status == SPDXHeaderStatus.ST_OK
+
+
+def test_unknown_extension_with_no_extension(mocker):
+    """Test that files with no extension are handled correctly."""
+    content = """# SPDX-FileCopyrightText: (C) 2025 Tenstorrent AI ULC
+# SPDX-License-Identifier: Apache-2.0
+
+This is a file with no extension.
+"""
+    mocker.patch("builtins.open", mocker.mock_open(read_data=content))
+    mocker.patch("tools.spdxchecker.is_text_file", return_value=(True, "utf-8"))
+    license_status, copyright_status = analyze_file(
+        "custom_script",
+        ["Apache-2.0"],
+        ["Tenstorrent AI ULC"]
+    )
+    assert license_status == SPDXHeaderStatus.ST_OK
+    assert copyright_status == SPDXHeaderStatus.ST_OK
+
+
+def test_unknown_extension_binary_file(mocker):
+    """Test that binary files with unknown extensions are handled correctly."""
+    # Mock is_text_file to return False (simulating a binary file)
+    mocker.patch("tools.spdxchecker.is_text_file", return_value=(False, None))
+    
+    license_status, copyright_status = analyze_file(
+        "binary_file.bin",
+        ["Apache-2.0"],
+        ["Tenstorrent AI ULC"]
+    )
+    # Should return ST_MISSING for both (current behavior for unreadable files)
+    assert license_status == SPDXHeaderStatus.ST_MISSING
+    assert copyright_status == SPDXHeaderStatus.ST_MISSING
+
+
+def test_unknown_extension_empty_file(mocker):
+    """Test that empty files with unknown extensions fail validation."""
+    content = ""
+    mocker.patch("builtins.open", mocker.mock_open(read_data=content))
+    mocker.patch("tools.spdxchecker.is_text_file", return_value=(True, "utf-8"))
+    license_status, copyright_status = analyze_file(
+        "empty_file.unknown",
+        ["Apache-2.0"],
+        ["Tenstorrent AI ULC"]
+    )
+    # Empty files with unknown extensions should fail since they lack required SPDX headers
+    assert license_status == SPDXHeaderStatus.ST_MISSING
+    assert copyright_status == SPDXHeaderStatus.ST_MISSING
+
+
+# Real tests for is_text_file() function
+
+def test_is_text_file_with_utf8_content(tmp_path):
+    """Test is_text_file() with actual UTF-8 text content."""
+    from tools.spdxchecker import is_text_file
+    
+    test_file = tmp_path / "utf8_file.txt"
+    test_file.write_text("# SPDX-License-Identifier: Apache-2.0\\nHello, world!", encoding="utf-8")
+    
+    is_text, encoding = is_text_file(str(test_file))
+    assert is_text is True
+    assert encoding == "utf-8"
+
+
+def test_is_text_file_with_utf8_bom(tmp_path):
+    """Test is_text_file() with UTF-8 BOM."""
+    from tools.spdxchecker import is_text_file
+    
+    test_file = tmp_path / "utf8_bom_file.txt"
+    test_file.write_text("# SPDX-License-Identifier: Apache-2.0\\nHello!", encoding="utf-8-sig")
+    
+    is_text, encoding = is_text_file(str(test_file))
+    assert is_text is True
+    assert encoding in ("utf-8", "utf-8-sig")  # Either is acceptable
+
+
+def test_is_text_file_with_binary_content(tmp_path):
+    """Test is_text_file() with actual binary content (NUL bytes)."""
+    from tools.spdxchecker import is_text_file
+    
+    test_file = tmp_path / "binary_file.bin"
+    # Binary content with NUL bytes
+    test_file.write_bytes(b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\x00\x00")
+    
+    is_text, encoding = is_text_file(str(test_file))
+    assert is_text is False
+    assert encoding is None
+
+
+def test_is_text_file_with_latin1_content(tmp_path):
+    """Test is_text_file() rejects latin-1 encoded text (not in allowed encodings)."""
+    from tools.spdxchecker import is_text_file
+    
+    test_file = tmp_path / "latin1_file.txt"
+    # Content that's valid latin-1 but not UTF-8 (byte 0xFF)
+    test_file.write_bytes(b"Hello \xff world")
+    
+    is_text, encoding = is_text_file(str(test_file))
+    # Should reject since we only accept UTF-8/UTF-8-sig
+    assert is_text is False
+    assert encoding is None
+
+
+def test_is_text_file_with_empty_file(tmp_path):
+    """Test is_text_file() with empty file."""
+    from tools.spdxchecker import is_text_file
+    
+    test_file = tmp_path / "empty_file.txt"
+    test_file.write_bytes(b"")
+    
+    is_text, encoding = is_text_file(str(test_file))
+    assert is_text is True
+    assert encoding == "utf-8"
+
+
+def test_is_text_file_nonexistent(tmp_path):
+    """Test is_text_file() with nonexistent file."""
+    from tools.spdxchecker import is_text_file
+    
+    test_file = tmp_path / "nonexistent.txt"
+    
+    is_text, encoding = is_text_file(str(test_file))
+    assert is_text is False
+    assert encoding is None
