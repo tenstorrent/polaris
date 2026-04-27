@@ -1782,6 +1782,14 @@ def untilize_with_unpadding_op(input_tensor, output_shape,
     opobj.get_perf_counts([input_tensor], [out_tensor])
     opobj.update_tensor_counts([input_tensor], [out_tensor])
     _propagate_ttnn_dtype([input_tensor], [out_tensor])
+    # Memory config propagation: explicit kwarg wins; otherwise inherit the input's
+    # memory_config so direct callers (e.g. BH ViT patch embeddings) don't silently
+    # land in DRAM_INTERLEAVED when the HW path is L1_INTERLEAVED.  Mirrors
+    # untilize_op / tilize_op / tilize_with_val_padding_op behavior.
+    if memory_config is not None:
+        out_tensor._memory_config = memory_config
+    elif getattr(input_tensor, "_memory_config", None) is not None:
+        out_tensor._memory_config = input_tensor._memory_config
     input_tensor.device.add_op(opobj)
     return out_tensor
 
@@ -2045,10 +2053,16 @@ def to_layout(tensor, layout, dtype=None, memory_config=None, sub_core_grids=Non
                             "to_layout: choosing tilize_with_val_padding_op (height-sharded device tensor, padding change, ROW_MAJOR->TILE; padded_output_shape={})",
                             padded_output_shape._shape,
                         )
-                        return tilize_with_val_padding_op(
+                        out = tilize_with_val_padding_op(
                             tensor, padded_output_shape._shape, pad_value,
                             use_multicore=True, element_size=2, memory_config=output_memory_config,
                         )
+                        # Symmetry with the no-padding-change tilize_op branch above:
+                        # honor the `dtype` kwarg in track-only mode by tagging
+                        # ``_ttnn_dtype`` on the SimOp output.
+                        if dtype is not None and isinstance(dtype, DataType):
+                            out._ttnn_dtype = dtype
+                        return out
                     else:
                         if should_track:
                             _tracker.track_to_layout(tensor.get_layout(), layout)
@@ -2073,9 +2087,15 @@ def to_layout(tensor, layout, dtype=None, memory_config=None, sub_core_grids=Non
                             padded_output_shape._shape,
                             pad_value,
                         )
-                        return tilize_with_val_padding_op(
+                        out = tilize_with_val_padding_op(
                             tensor, padded_output_shape._shape, pad_value, use_multicore=True, element_size=2, memory_config=output_memory_config
                         )
+                        # Symmetry with the no-padding-change tilize_op branch above:
+                        # honor the `dtype` kwarg in track-only mode by tagging
+                        # ``_ttnn_dtype`` on the SimOp output.
+                        if dtype is not None and isinstance(dtype, DataType):
+                            out._ttnn_dtype = dtype
+                        return out
                     else:
                         # Not using tilize_with_val_padding_op: input is not a ttsim Tensor or has no device; preserve API with tracker + manual tensor.
                         if should_track:
