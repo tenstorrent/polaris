@@ -865,39 +865,67 @@ def linear(*args, **kwargs):
     return C
 
 
-# fold:
-# takes an input tensor with shape (N, H, W, C) and transforms it to shape
-# (N, H//stride_h, W//stride_w, C*stride_h*stride_w) by reshaping and permuting
-# the spatial dimensions. This operation is commonly used as a preprocessing step
-# for convolution operations, similar to the im2col operation in other deep learning
-# frameworks, to reorganize input data in a format suitable for efficient matrix
-# multiplication on Tenstorrent hardware.
 def fold(
     ttnn_tensor_like,
     stride_h: int,
     stride_w: int,
     *,
     use_transpose_as_fold=False,
-    output_shape=None,  # ttnn.Shape
+    output_shape=None,  # ttnn.Shape  -- accepted for ttnn API compat, unused
     pad_c: int = 0,
     pad_h: int = 0,
     pad_w: int = 0,
-    grid_size=None,  # ttnn.CoreRangeSet
-    override_memory_config: MemoryConfig = None,  # type: ignore
+    grid_size=None,  # ttnn.CoreRangeSet  -- accepted for ttnn API compat, unused
+    override_memory_config: MemoryConfig | None = None,  # accepted for ttnn API compat, unused
 ):
+    """Fold: (N,H,W,C) → (N, Hs, Ws, Cs) or (1, 1, N*Hs*Ws, Cs).
 
+    Reorganises spatial dimensions similarly to im2col, commonly used as a
+    preprocessing step for convolution on Tenstorrent hardware.
+
+    Where Hs = H//stride_h, Ws = W//stride_w, Cs = C*stride_h*stride_w.
+
+    Output shape depends on execution path:
+      - ``use_transpose_as_fold=True``: decomposed into reshape/transpose ops,
+        always produces 4D logical output [N, Hs, Ws, Cs].
+      - ``use_transpose_as_fold=False`` (default): creates a first-class Fold
+        SimOp whose output shape depends on the input tensor's memory config:
+
+        * L1-sharded ROW_MAJOR (typical): flatten_nd=True → [1, 1, N*Hs*Ws, Cs]
+        * DRAM-interleaved or TILE_LAYOUT: flatten_nd=False → [N, Hs, Ws, Cs]
+
+        (See ``flatten_nd`` design comment below for rationale.)
+    """
     ttnn_tensor_like = require_ttnn_tensor(ttnn_tensor_like, "ttnn.fold input")
     assert (
         ttnn_tensor_like.rank() == 4
-    ), f"fold input should be a rank-4 [N, H, W, C] tensor!!\n{ttnn_tensor_like}"
+    ), f"fold input should be a rank-4 [N, H, W, C] tensor: {ttnn_tensor_like}"
     N, H, W, C = ttnn_tensor_like.shape
 
     assert (
         isinstance(stride_h, int) and stride_h > 0 and stride_h <= H
-    ), f"stride_h({stride_h}) should be in [0, {H}]"
+    ), f"stride_h({stride_h}) should be in (0, {H}]"
     assert (
-        isinstance(stride_w, int) and stride_w > 0 and stride_w <= H
-    ), f"stride_w({stride_w}) should be in [0, {W}]"
+        isinstance(stride_w, int) and stride_w > 0 and stride_w <= W
+    ), f"stride_w({stride_w}) should be in (0, {W}]"
+
+    # Validate unused parameters to prevent silent divergence from real ttnn.fold behavior
+    # These parameters are unused in both execution paths
+    if output_shape is not None:
+        raise ValueError(
+            "ttnn.fold: output_shape is not supported by this implementation. "
+            "It is accepted only for API compatibility but ignored. Remove it to avoid confusion."
+        )
+    if grid_size is not None:
+        raise ValueError(
+            "ttnn.fold: grid_size is not supported by this implementation. "
+            "It is accepted only for API compatibility but ignored. Remove it to avoid confusion."
+        )
+    if override_memory_config is not None:
+        raise ValueError(
+            "ttnn.fold: override_memory_config is not supported by this implementation. "
+            "It is accepted only for API compatibility but ignored. Remove it to avoid confusion."
+        )
 
     if pad_h > 0:
         H += pad_h
@@ -937,6 +965,11 @@ def fold(
         # Tensor.memory_config() returns None when no config has been set
         # (the common L1-sharded path); hasattr guards against non-Tensor inputs.
         mc = ttnn_tensor_like.memory_config() if hasattr(ttnn_tensor_like, 'memory_config') else None
+        # Detect DRAM via the underlying buffer_type rather than identity/equality
+        # against a specific singleton.  This correctly recognises both the local
+        # MemoryConfig.DRAM and any shim-side MemoryConfig instance (e.g.
+        # ttnn_shim.DRAM_MEMORY_CONFIG), since both share buffer_type=BufferType.DRAM,
+        # without needing to import ttnn_shim here.
         is_dram = (getattr(mc, 'buffer_type', None) is BufferType.DRAM) if mc is not None else False
         fold_attrs = {
             'stride_h': stride_h,
@@ -944,6 +977,7 @@ def fold(
             'pad_h': pad_h,
             'pad_w': pad_w,
             'pad_c': pad_c,
+            'flatten_nd': not (is_tiled or is_dram),
         }
         out_tensor = Tensor(
             name=op_name + '.out',

@@ -7,6 +7,7 @@ from typing import Optional, Tuple, Union
 from ttsim.ops.op import SimOp
 from ttsim.ops.tensor import SimTensor, Shape
 from .device import Device, USE_DEFAULT_DEVICE, resolve_device
+from .memory import MemoryConfig as MemoryConfigEnum
 from .types import TILE_HEIGHT, TILE_WIDTH
 
 from enum import Enum, auto
@@ -166,6 +167,11 @@ class Tensor(SimTensor):
             raise TypeError(f"Error: Tensor Creation -- attribute layout={kwargs['layout']} should be of type Layout")
         if kwargs['device'] is not None and not isinstance(kwargs['device'], Device):
             raise TypeError(f"Error: Tensor Creation -- attribute device={kwargs['device']} should be of type Device or None")
+        if 'memory_config' in kwargs and kwargs['memory_config'] is not None:
+            # Avoid circular import by importing ttnn_shim.MemoryConfig here
+            from .ttnn_shim import MemoryConfig as MemoryConfigClass
+            if not isinstance(kwargs['memory_config'], (MemoryConfigEnum, MemoryConfigClass)):
+                raise TypeError(f"Error: Tensor Creation -- attribute memory_config={kwargs['memory_config']} should be of type MemoryConfig or None")
 
         # NumPy has no native bfloat8/bfloat4 types, so DataType.BFLOAT8_B and
         # BFLOAT4_B both map to np.float32 via to_numpy -- making them
@@ -766,7 +772,19 @@ def to_device(tt_tensor_like, device, memory_config=None):
             del old_device.tensors[tt_tensor_like.name]
 
     tt_tensor_like.device = device
-    device.add_tensor(tt_tensor_like)
+    if memory_config is not None:
+        # Validate memory_config type (mirror constructor validation)
+        from .ttnn_shim import MemoryConfig as MemoryConfigClass
+        if not isinstance(memory_config, (MemoryConfigEnum, MemoryConfigClass)):
+            raise TypeError(f"Error: to_device -- memory_config={memory_config} should be of type MemoryConfig or None")
+        tt_tensor_like._memory_config = memory_config
+    buffer = device.add_tensor(tt_tensor_like)
+
+    # Update storage_type and buffer to maintain consistency when moving to device
+    if hasattr(tt_tensor_like, "_storage_type"):
+        tt_tensor_like._storage_type = "DEVICE"
+    if hasattr(tt_tensor_like, "_buffer"):
+        tt_tensor_like._buffer = buffer if buffer is not None else "buffer_placeholder"
 
     if memory_config is not None:
         tt_tensor_like._memory_config = memory_config

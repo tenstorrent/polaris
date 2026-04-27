@@ -843,7 +843,24 @@ def permute_op_inf_func(iTList, oTList, op, **kwargs):
 
 
 def fold_sinf(iTList, oTList, op, **kwargs):
-    """Shape inference for Fold: 4D [N,H,W,C] -> [N,H//sh,W//sw,C*sh*sw]; attrs stride_h, stride_w; optional pad_*."""
+    """Shape inference for Fold.
+
+    Default output shape is the standard mathematical form
+    ``[N, Hs, Ws, Cs]`` where ``Hs = H // stride_h``, ``Ws = W // stride_w``,
+    ``Cs = C * stride_h * stride_w``.
+
+    When ``flatten_nd`` is set in the op attrs, the output uses the
+    HW ``prim::fold`` representation ``[1, 1, N*Hs*Ws, Cs]`` instead,
+    which flattens batch and spatial dims into a single row dimension.
+    This matches L1-sharded / ROW_MAJOR inputs on Tenstorrent hardware
+    (the common case for ViT and similar TTNN models).  DRAM-interleaved
+    or originally-tiled inputs keep the 4D form (``flatten_nd=False``),
+    matching the ``compute_output_specs`` override in
+    ``fold_device_op.cpp``.
+
+    The ``use_transpose_as_fold=True`` reference path in ``op.py`` bypasses
+    this function entirely and always produces ``[N, Hs, Ws, Cs]``.
+    """
     assert len(iTList) == 1 and len(oTList) == 1
     X = iTList[0]
     assert X.check_shape(), f"Fold: input shape not defined: {X}"
@@ -865,7 +882,21 @@ def fold_sinf(iTList, oTList, op, **kwargs):
     )
     Hs = H // stride_h
     Ws = W // stride_w
-    out_shape = [N, Hs, Ws, C * stride_h * stride_w]
+    Cs = C * stride_h * stride_w
+    # Design decision: the default (flatten_nd absent or False) produces the
+    # standard mathematical 4D shape [N, Hs, Ws, Cs].  This keeps fold_sinf
+    # frontend-agnostic -- any non-TTNN caller (e.g. ONNX, future frontends)
+    # gets correct behaviour without needing to know about Tenstorrent HW
+    # layout semantics.  Only the TTNN frontend explicitly opts into the
+    # flattened [1,1,rows,channels] form by setting flatten_nd=True, which
+    # mirrors the conditional logic in tt-metal's fold_device_op.cpp
+    # (prim::fold flattens for L1-sharded ROW_MAJOR; compute_output_specs
+    # preserves 4D for DRAM-interleaved or tiled inputs).
+    flatten_nd = bool(op.attrs.get('flatten_nd', False))
+    if flatten_nd:
+        out_shape = [1, 1, N * Hs * Ws, Cs]
+    else:
+        out_shape = [N, Hs, Ws, Cs]
     oTList[0].shape = out_shape
     oTList[0].dtype = X.dtype
     in_elems = X.nelems()
