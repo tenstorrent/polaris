@@ -383,3 +383,76 @@ workloads:
     module : run_vit_perf_device@test_vit_device_perf.py
     instances:
       vitoptim_b16_perf_report: { bs: 8, model_name: vitoptim-b16-perf-report }
+
+  # ----- Blackhole (p100a) variants of optimized sharded ViT -----
+
+  - api: TTNN
+    name: vitoptim_bh_patch_embeddings
+    basedir: workloads/ttnn/vit
+    module : run_vit_patch_embeddings@run_ttnn_optimized_sharded_vit_bh.py
+    instances:
+      vitoptim_bh_b16_patch_embeddings: { bs: 1, model_name: vitoptim-bh-b16-patch-embeddings }
+
+  - api: TTNN
+    name: vitoptim_bh_embeddings
+    basedir: workloads/ttnn/vit
+    module : run_vit_embeddings@run_ttnn_optimized_sharded_vit_bh.py
+    instances:
+      vitoptim_bh_b16_embeddings: { bs: 1, model_name: vitoptim-bh-b16-embeddings }
+
+  - api: TTNN
+    name: vitoptim_bh_attention
+    basedir: workloads/ttnn/vit
+    module : run_vit_attention@run_ttnn_optimized_sharded_vit_bh.py
+    instances:
+      vitoptim_bh_b16_attention: { bs: 1, model_name: vitoptim-bh-b16-attention }
+
+  - api: TTNN
+    name: vitoptim_bh_intermediate
+    basedir: workloads/ttnn/vit
+    module : run_vit_intermediate@run_ttnn_optimized_sharded_vit_bh.py
+    instances:
+      vitoptim_bh_b16_intermediate: { bs: 1, model_name: vitoptim-bh-b16-intermediate }
+
+  - api: TTNN
+    name: vitoptim_bh_output
+    basedir: workloads/ttnn/vit
+    module : run_vit_output@run_ttnn_optimized_sharded_vit_bh.py
+    instances:
+      vitoptim_bh_b16_output: { bs: 1, model_name: vitoptim-bh-b16-output }
+
+  - api: TTNN
+    name: vitoptim_bh_layer
+    basedir: workloads/ttnn/vit
+    module : run_vit_layer@run_ttnn_optimized_sharded_vit_bh.py
+    instances:
+      vitoptim_bh_b16_layer: { bs: 1, model_name: vitoptim-bh-b16-layer }
+
+  - api: TTNN
+    name: vitoptim_bh_encoder
+    basedir: workloads/ttnn/vit
+    module : run_vit_encoder@run_ttnn_optimized_sharded_vit_bh.py
+    instances:
+      vitoptim_bh_b16_encoder: { bs: 1, model_name: vitoptim-bh-b16-encoder }
+
+  - api: TTNN
+    name: vitoptim_bh
+    basedir: workloads/ttnn/vit
+    module : run_vit@run_ttnn_optimized_sharded_vit_bh.py
+    instances:
+      vitoptim_bh_b16: { bs: 1, model_name: vitoptim-bh-b16 }
+      vitoptim_bh_base_224x224: { bs: 1, model_name: vitoptim-bh-b16 }
+
+  - api: TTNN
+    name: vitoptim_bh_device_perf
+    basedir: workloads/ttnn/vit
+    module : run_vit_device_ops@test_vit_device_perf_bh.py
+    instances:
+      vitoptim_bh_b16_device_perf: { bs: 1, model_name: vitoptim-bh-b16-device-perf }
+
+  - api: TTNN
+    name: vitoptim_bh_perf_report
+    basedir: workloads/ttnn/vit
+    module : run_vit_perf_device@test_vit_device_perf_bh.py
+    instances:
+      vitoptim_bh_b16_perf_report: { bs: 10, model_name: vitoptim-bh-b16-perf-report }
