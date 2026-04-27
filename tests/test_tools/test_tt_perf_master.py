@@ -41,6 +41,7 @@ from tools.perf_lookup.tt_perf_master_schema import (
     tuple_to_labeled_key_map,
     yaml_labeled_key_to_tuple,
 )
+from tools.profiling.op_canonical import normalize_profiler_opcode
 from tools.perf_lookup.tt_perf_mapper import (
     EXCEL_COL_DRAM_BW_UTIL,
     EXCEL_COL_FPU,
@@ -53,10 +54,8 @@ from tools.perf_lookup.tt_perf_mapper import (
     POLARIS_LAYER_MATMUL,
     STATS_COLUMN_OPTIONAL,
     STATS_COLUMNS_REQUIRED,
-    _row_to_polaris_layer_type,
     build_key_tuple,
     build_stats_row,
-    excel_op_code_to_polaris_layer_type,
     canonicalize_master_for_write,
     format_dry_run_report,
     is_curve_entry,
@@ -717,7 +716,7 @@ def test_build_stats_row_returns_none_when_required_stat_non_numeric():
     ],
 )
 def test_excel_op_code_tilize_untilize_variants(raw, expected):
-    assert excel_op_code_to_polaris_layer_type(raw) == expected
+    assert normalize_profiler_opcode(raw) == expected
 
 
 def test_unary_device_operation_gelu_from_op_chain_attributes():
@@ -726,5 +725,4 @@ def test_unary_device_operation_gelu_from_op_chain_attributes():
         "base=BasicUnaryWithParam<float>(op_type=UnaryOpType::GELU;param={0}))}'; "
         "'output_dtype': 'DataType::BFLOAT16'}"
     )
-    row = {"OP CODE": "UnaryDeviceOperation", "ATTRIBUTES": attr}
-    assert _row_to_polaris_layer_type(row) == "gelu"
+    assert normalize_profiler_opcode("UnaryDeviceOperation", attr) == "gelu"

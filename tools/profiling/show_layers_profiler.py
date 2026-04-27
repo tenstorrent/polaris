@@ -9,12 +9,15 @@ import re
 import yaml
 from typing import Any, Dict, List, Optional, Tuple
 
+try:
+    from op_canonical import normalize_profiler_opcode
+except ImportError:
+    from .op_canonical import normalize_profiler_opcode  # type: ignore
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description='Show layers from profiler CSV')
     parser.add_argument('input', type=str, help='Input CSV file')
     return parser.parse_args()
-
-COLUMNS_OF_INTEREST = ['GLOBAL CALL COUNT', 'OP CODE']
 
 
 def expand_tensor_string(row: Dict[str, Any], input_index: int, in_or_out: str='INPUT') -> str:
@@ -59,55 +62,21 @@ def expand_tensor_attrs(row: Dict[str, Any], input_index: int, in_or_out: str = 
     return {'layout': layout, 'dtype': dtype, 'memory': memory}
 
 
-def normalize_tensor_string(col: str,tensor_string: str) -> str:
-    if 'tensors' not in col:
-        return tensor_string
-    fields = tensor_string.split(';')
-    normalized_fields = []
-    for field in fields:
-        tmp = field.split(':')[0].split('[')[1].replace(']', '')
-        normalized_fields.append(tmp)
-    return ';'.join(normalized_fields)
-
-
 def layers_profiler(input_file: str) -> List[Dict[str, Any]]:
     rows = []
     with open(input_file, 'r') as f:
         reader = csv.DictReader(f)
         for row in reader:
-            row['OP CODE'] = row['OP CODE'].replace("DeviceOperation", "")
-            if 'BinaryNg' in row['OP CODE']:
-                attrs_cell = (row.get('ATTRIBUTES') or '').strip()
-                attributes = None
-                if attrs_cell:
-                    try:
-                        attributes = yaml.safe_load(attrs_cell.replace(";", ","))
-                    except yaml.YAMLError:
-                        attributes = None
-                if isinstance(attributes, dict) and 'binary_op_type' in attributes:
-                    bot = attributes['binary_op_type']
-                    if isinstance(bot, str):
-                        row['OP CODE'] = bot.replace("BinaryOpType::", "")
-            if 'Unary' in row['OP CODE']:
-                attrs_cell = (row.get('ATTRIBUTES') or '').strip()
-                attributes = None
-                if attrs_cell:
-                    try:
-                        attributes = yaml.safe_load(attrs_cell.replace(";", ","))
-                    except yaml.YAMLError:
-                        attributes = None
-                if isinstance(attributes, dict):
-                    # Try direct unary_op_type field first
-                    if 'unary_op_type' in attributes:
-                        uot = attributes['unary_op_type']
-                        if isinstance(uot, str):
-                            row['OP CODE'] = uot.replace("UnaryOpType::", "")
-                    # Otherwise, try to extract from op_chain field
-                    elif 'op_chain' in attributes:
-                        op_chain = str(attributes['op_chain'])
-                        match = re.search(r'UnaryOpType::(\w+)', op_chain)
-                        if match:
-                            row['OP CODE'] = match.group(1)
+            attrs_cell = (row.get('ATTRIBUTES') or '').strip()
+            parsed_attrs = None
+            if attrs_cell:
+                try:
+                    parsed_attrs = yaml.safe_load(attrs_cell.replace(";", ","))
+                except yaml.YAMLError:
+                    parsed_attrs = None
+            if not isinstance(parsed_attrs, dict):
+                parsed_attrs = None
+            optype = normalize_profiler_opcode(row['OP CODE'], parsed_attrs)
             # Attribute lists (dtypes, layouts, memories) must stay parallel
             # with their tensor lists so that positional indexing in
             # compare_tensor_attributes (compare_layers.py) compares the
@@ -115,9 +84,20 @@ def layers_profiler(input_file: str) -> List[Dict[str, Any]]:
             # has a tensor, we append None to preserve alignment.
             a0_in = expand_tensor_attrs(row, 0, 'INPUT')
             a0_out = expand_tensor_attrs(row, 0, 'OUTPUT')
+            # Duration: DEVICE KERNEL DURATION [ns] → ms
+            dur_ns_raw = (row.get('DEVICE KERNEL DURATION [ns]') or '').strip()
+            if dur_ns_raw:
+                try:
+                    dur_ms = float(dur_ns_raw) / 1_000_000.0
+                except ValueError:
+                    dur_ms = None
+            else:
+                dur_ms = None
+
             filtered_row: Dict[str, Any] = {
                 'seqno': int(row['GLOBAL CALL COUNT']),
-                'optype': row['OP CODE'].lower(),
+                'optype': optype,
+                'duration_ms': dur_ms,
                 'input_tensors': [expand_tensor_string(row, 0, 'INPUT')],
                 'output_tensors': [expand_tensor_string(row, 0, 'OUTPUT')],
                 'input_pad_logical': [expand_tensor_dims(row, 0, 'INPUT')],

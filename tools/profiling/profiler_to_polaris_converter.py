@@ -13,11 +13,27 @@ mapping rules are implemented in this module (``map_optype_to_polaris``,
 import csv
 import sys
 import yaml
+
 import argparse
+import importlib
 import traceback
 import math
+from types import ModuleType
 from typing import Optional
+
 from loguru import logger
+
+
+def _load_op_canonical() -> ModuleType:
+    """Load sibling ``op_canonical`` when run as ``-m`` package or as a script."""
+    if __package__:
+        return importlib.import_module(".op_canonical", __package__)
+    return importlib.import_module("op_canonical")
+
+
+_op_canonical = _load_op_canonical()
+normalize_profiler_opcode = _op_canonical.normalize_profiler_opcode
+canonical_to_stats_display = _op_canonical.canonical_to_stats_display
 
 
 def extract_dimension_from_bracket(value: str) -> str:
@@ -141,27 +157,13 @@ def format_tensor_string(name: str, dims: list, datatype: str) -> str:
 
 
 def map_optype_to_polaris(opcode: str, attrs: dict) -> str:
-    """Map profiler operation types to Polaris STATS format."""
-    # Check for binary operation type in attributes
-    if attrs and 'binary_op_type' in attrs:
-        binary_type = str(attrs['binary_op_type']).replace('BinaryOpType::', '')
-        return binary_type
-    
-    # Standard mapping
-    optype_mapping = {
-        'Matmul': 'MatMul',
-        'ADD': 'Add',
-        'ReshapeDeviceOperation': 'Reshape',
-        'TransposeDeviceOperation': 'Transpose',
-        'PermuteDeviceOperation': 'Permute',
-        'MUL': 'Mul',
-        'SoftmaxDeviceOperation': 'Softmax',
-        'Untilize': 'Untilize',
-        'TilizeWithValPadding': 'TilizeWithValPadding',
-        'Tilize': 'Tilize',
-        'UntilizeWithUnpadding': 'UntilizeWithUnpadding',
-    }
-    return optype_mapping.get(opcode, opcode)
+    """Map profiler operation types to Polaris STATS format (PascalCase).
+
+    Delegates to :func:`~tools.profiling.op_canonical.normalize_profiler_opcode`
+    for canonical resolution, then maps to the PascalCase STATS display name.
+    """
+    canonical = normalize_profiler_opcode(opcode, attrs)
+    return canonical_to_stats_display(canonical)
 
 
 def get_polaris_column_order() -> list[str]:
@@ -459,7 +461,7 @@ def convert_profiler_to_polaris(input_file: str, output_file: str, freq_mhz: flo
     
     # Build output fieldnames: all original + prefixed Polaris columns
     polaris_prefixed = [f'polaris_{col}' for col in polaris_columns]
-    output_fieldnames = input_fieldnames + polaris_prefixed
+    output_fieldnames = list(input_fieldnames) + polaris_prefixed
     
     # Write output CSV
     with open(output_file, 'w', newline='') as f:

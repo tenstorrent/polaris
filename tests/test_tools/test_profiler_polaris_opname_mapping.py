@@ -9,6 +9,7 @@ import pytest
 
 from tools.profiling.profiler_polaris_opname_mapping import (
     _coerce_output_padded_shape,
+    _map_profiler_opcode_to_polaris_optype,
     _untilize_unpadding_logical_output_from_attrs,
     polaris_op_signature,
     profiler_op_signature,
@@ -135,3 +136,36 @@ def test_profiler_op_signature_untilize_prefers_input_padded_columns() -> None:
 
     legacy = {**row, 'OP CODE': 'UntilizeWithUnpadding'}
     assert profiler_op_signature(legacy, use_layout_attr_shapes=True) == sig_on
+
+
+@pytest.mark.unit
+def test_binary_ng_device_operation_maps_to_add_mul() -> None:
+    """New convention: BinaryNgDeviceOperation with binary_op_type in attrs."""
+    assert (
+        _map_profiler_opcode_to_polaris_optype(
+            'BinaryNgDeviceOperation', {'binary_op_type': 'BinaryOpType::ADD'}
+        )
+        == 'Add'
+    )
+    assert (
+        _map_profiler_opcode_to_polaris_optype(
+            'BinaryNgDeviceOperation', {'binary_op_type': 'BinaryOpType::MUL'}
+        )
+        == 'Mul'
+    )
+
+
+@pytest.mark.unit
+def test_legacy_bare_add_mul_still_works() -> None:
+    """Old convention: bare ADD/MUL as OP CODE, no binary_op_type in attrs."""
+    assert _map_profiler_opcode_to_polaris_optype('ADD', {}) == 'Add'
+    assert _map_profiler_opcode_to_polaris_optype('MUL', {}) == 'Mul'
+
+
+@pytest.mark.unit
+def test_create_qkv_heads_maps_to_nlp_create_qkv_heads() -> None:
+    """CreateQKVHeadsDeviceOperation maps to NLPCreateQKVHeads via stem_to_lookup."""
+    assert (
+        _map_profiler_opcode_to_polaris_optype('CreateQKVHeadsDeviceOperation', {})
+        == 'NLPCreateQKVHeads'
+    )

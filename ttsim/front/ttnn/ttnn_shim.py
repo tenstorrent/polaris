@@ -755,7 +755,7 @@ def reshape(tensor, shape, padded_shape=None, memory_config=None, pad_value=None
     elif hasattr(tensor, 'get_data'):
         try:
             output_data = tensor.get_data()
-        except:
+        except Exception:
             output_data = None
     # Use the same tensor type among the different tensor types as the input tensor
     return type(tensor)(
@@ -824,7 +824,6 @@ def pad(tensor, padding, pad_value, output_memory_config=None):
     if should_execute and tensor.has_data():
         # Simple padding: create new data array and copy existing data
         input_data = tensor.get_data()
-        input_shape = tensor.padded_shape()._shape
         output_shape = new_padded
         # Calculate total elements
         total_output_elements = 1
@@ -894,7 +893,7 @@ def tilize(input_tensor, memory_config=None, output_dtype=None, use_multicore=Tr
                     DataType.INT32, DataType.UINT16]
     if tensor_dtype not in valid_dtypes:
         raise RuntimeError(
-            f"Can only tilize bfloat16/float32 or int32/uint32/uint16 tensors"
+            "Can only tilize bfloat16/float32 or int32/uint32/uint16 tensors"
         )
 
     # Handle empty tensors
@@ -1108,7 +1107,7 @@ def untilize(input_tensor, memory_config=None, use_multicore=True,
 
 
 def tilize_with_val_padding(input_tensor, output_padded_shape, pad_value,
-                            memory_config=None, output_dtype=None,
+                            memory_config=None, output_dtype=None, dtype=None,
                             use_multicore=True, sub_core_grids=None):
     """
     Tilize with value padding - converts ROW_MAJOR_LAYOUT to TILE_LAYOUT with padding.
@@ -1119,6 +1118,7 @@ def tilize_with_val_padding(input_tensor, output_padded_shape, pad_value,
         pad_value: Value to use for padding (float or int)
         memory_config: Optional output memory configuration
         output_dtype: Optional output data type
+        dtype: Alias for ``output_dtype`` (tt-metal API compatibility)
         use_multicore: Whether to use multicore (default: True)
         sub_core_grids: Optional sub-core grid specification
     Returns:
@@ -1133,6 +1133,9 @@ def tilize_with_val_padding(input_tensor, output_padded_shape, pad_value,
 
     if input_tensor.get_layout() != Layout.ROW_MAJOR_LAYOUT:
         raise RuntimeError("Can only tilize row major data")
+
+    if output_dtype is None:
+        output_dtype = dtype
 
     # Check data type - handle both DataType enums and numpy dtypes
     tensor_dtype = input_tensor.dtype
@@ -2250,12 +2253,23 @@ def interleaved_to_sharded_op(input_tensor, memory_config=None, element_size=2):
         device=input_tensor.device,
     )
     input_tensor.op_in.append(op_name)
+    memory_config_attr = None
+    if memory_config is not None:
+        memory_config_attr = {
+            'memory_layout': memory_config.memory_layout,
+            'buffer_type': memory_config.buffer_type,
+            'shard_spec': memory_config.shard_spec,
+            'nd_shard_spec': getattr(memory_config, 'nd_shard_spec', None),
+        }
     opinfo = {
         'name': op_name,
         'optype': 'InterleavedToSharded',
         'inList': [input_tensor.name],
         'outList': [out_tensor.name],
-        'attrs': {'element_size': element_size},
+        'attrs': {
+            'element_size': element_size,
+            'memory_config': memory_config_attr,
+        },
     }
     opobj = SimOp(opinfo)
     opobj.get_perf_counts([input_tensor], [out_tensor])
@@ -2269,12 +2283,12 @@ def interleaved_to_sharded_op(input_tensor, memory_config=None, element_size=2):
 
 def interleaved_to_sharded(input_tensor, memory_config=None, output_dtype=None):
     """Convert tensor from interleaved to sharded memory layout.
-    
+
     Args:
         input_tensor: Input tensor to convert
         memory_config: Target memory configuration (should specify sharding)
         output_dtype: Optional output data type
-        
+
     Returns:
         Tensor with sharded memory layout
     """
@@ -2292,6 +2306,13 @@ def interleaved_to_sharded(input_tensor, memory_config=None, output_dtype=None):
             else:
                 out_tensor.dtype = output_dtype
         return out_tensor
+
+    if should_track:
+        elem_sz = input_tensor.element_size() if hasattr(input_tensor, 'element_size') else 2
+        _tracker.track_interleaved_to_sharded(
+            input_tensor.logical_shape()._shape,
+            element_size=elem_sz,
+        )
 
     output_data = None
     if should_execute and hasattr(input_tensor, 'has_data') and input_tensor.has_data():
@@ -2330,12 +2351,23 @@ def sharded_to_interleaved_op(input_tensor, memory_config=None, element_size=2):
         device=input_tensor.device,
     )
     input_tensor.op_in.append(op_name)
+    memory_config_attr = None
+    if memory_config is not None:
+        memory_config_attr = {
+            'memory_layout': memory_config.memory_layout,
+            'buffer_type': memory_config.buffer_type,
+            'shard_spec': memory_config.shard_spec,
+            'nd_shard_spec': getattr(memory_config, 'nd_shard_spec', None),
+        }
     opinfo = {
         'name': op_name,
         'optype': 'ShardedToInterleaved',
         'inList': [input_tensor.name],
         'outList': [out_tensor.name],
-        'attrs': {'element_size': element_size},
+        'attrs': {
+            'element_size': element_size,
+            'memory_config': memory_config_attr,
+        },
     }
     opobj = SimOp(opinfo)
     opobj.get_perf_counts([input_tensor], [out_tensor])
@@ -2375,6 +2407,13 @@ def sharded_to_interleaved(input_tensor, memory_config=None, output_dtype=None):
             else:
                 out_tensor.dtype = output_dtype
         return out_tensor
+
+    if should_track:
+        elem_sz = input_tensor.element_size() if hasattr(input_tensor, 'element_size') else 2
+        _tracker.track_sharded_to_interleaved(
+            input_tensor.logical_shape()._shape,
+            element_size=elem_sz,
+        )
 
     output_data = None
     if should_execute and hasattr(input_tensor, 'has_data') and input_tensor.has_data():
@@ -2423,12 +2462,23 @@ def reshard_op(input_tensor, memory_config=None, element_size=2):
         device=input_tensor.device,
     )
     input_tensor.op_in.append(op_name)
+    memory_config_attr = None
+    if memory_config is not None:
+        memory_config_attr = {
+            'memory_layout': memory_config.memory_layout,
+            'buffer_type': memory_config.buffer_type,
+            'shard_spec': memory_config.shard_spec,
+            'nd_shard_spec': getattr(memory_config, 'nd_shard_spec', None),
+        }
     opinfo = {
         'name': op_name,
         'optype': 'Reshard',
         'inList': [input_tensor.name],
         'outList': [out_tensor.name],
-        'attrs': {'element_size': element_size},
+        'attrs': {
+            'element_size': element_size,
+            'memory_config': memory_config_attr,
+        },
     }
     opobj = SimOp(opinfo)
     opobj.get_perf_counts([input_tensor], [out_tensor])
@@ -2449,6 +2499,13 @@ def reshard(input_tensor, memory_config, output_tensor=None):
     if should_track and input_tensor.device is not None and isinstance(input_tensor, Tensor):
         elem_sz = input_tensor.element_size() if hasattr(input_tensor, 'element_size') else 2
         return reshard_op(input_tensor, memory_config=memory_config, element_size=elem_sz)
+
+    if should_track:
+        elem_sz = input_tensor.element_size() if hasattr(input_tensor, 'element_size') else 2
+        _tracker.track_reshard(
+            input_tensor.logical_shape()._shape,
+            element_size=elem_sz,
+        )
 
     output_data = None
     if should_execute and hasattr(input_tensor, 'has_data') and input_tensor.has_data():
@@ -2555,13 +2612,6 @@ def nlp_concat_heads(input_tensor, memory_config=None):
     should_track = (mode == ExecutionMode.TRACK_ONLY or mode == ExecutionMode.EXECUTE_AND_TRACK)
     should_execute = (mode == ExecutionMode.EXECUTE or mode == ExecutionMode.EXECUTE_AND_TRACK)
 
-    if should_track:
-        elem_sz = input_tensor.element_size() if hasattr(input_tensor, 'element_size') else 2
-        _tracker.track_nlp_concat_heads(
-            in_shape, out_shape_list,
-            element_size=elem_sz,
-        )
-
     output_data = None
     if should_execute and hasattr(input_tensor, 'has_data') and input_tensor.has_data():
         import numpy as _np
@@ -2569,6 +2619,13 @@ def nlp_concat_heads(input_tensor, memory_config=None):
         arr = _np.array(data).reshape(in_shape)
         arr = arr.transpose(0, 2, 1, 3).reshape(out_shape_list)
         output_data = arr.flatten().tolist()
+
+    if should_track:
+        elem_sz = input_tensor.element_size() if hasattr(input_tensor, 'element_size') else 2
+        _tracker.track_nlp_concat_heads(
+            in_shape, out_shape_list,
+            element_size=elem_sz,
+        )
 
     # Preserve compact TTNN dtype
     ttnn_dtype = getattr(input_tensor, "_ttnn_dtype", None)
@@ -2608,10 +2665,22 @@ def nlp_create_qkv_heads_op(input_tensor, kv_input_tensor=None, *,
         num_kv_heads = num_heads
 
     in_shape = input_tensor.logical_shape()._shape
+    hidden_size = in_shape[-1]
     if kv_input_tensor is not None:
-        head_dim = in_shape[-1] // num_heads
+        if hidden_size % num_heads != 0:
+            raise ValueError(
+                f"nlp_create_qkv_heads_op requires input hidden size {hidden_size} "
+                f"to be divisible by num_heads ({num_heads}) when kv_input_tensor is provided"
+            )
+        head_dim = hidden_size // num_heads
     else:
-        head_dim = in_shape[-1] // (num_heads + 2 * num_kv_heads)
+        total_qkv_heads = num_heads + 2 * num_kv_heads
+        if hidden_size % total_qkv_heads != 0:
+            raise ValueError(
+                f"nlp_create_qkv_heads_op requires input hidden size {hidden_size} "
+                f"to be divisible by num_heads + 2 * num_kv_heads ({total_qkv_heads})"
+            )
+        head_dim = hidden_size // total_qkv_heads
 
     # Handle both 3D [B, S, D] and 4D [B, seq_groups, seq_len, D] inputs
     if len(in_shape) == 4:
@@ -2739,10 +2808,22 @@ def nlp_create_qkv_heads(input_tensor, kv_input_tensor=None, *,
         num_kv_heads = num_heads
 
     in_shape = input_tensor.logical_shape()._shape
+    hidden_size = in_shape[-1]
     if kv_input_tensor is not None:
-        head_dim = in_shape[-1] // num_heads
+        if hidden_size % num_heads != 0:
+            raise ValueError(
+                f"nlp_create_qkv_heads requires input hidden size {hidden_size} "
+                f"to be divisible by num_heads ({num_heads}) when kv_input_tensor is provided"
+            )
+        head_dim = hidden_size // num_heads
     else:
-        head_dim = in_shape[-1] // (num_heads + 2 * num_kv_heads)
+        total_qkv_heads = num_heads + 2 * num_kv_heads
+        if hidden_size % total_qkv_heads != 0:
+            raise ValueError(
+                f"nlp_create_qkv_heads requires input hidden size {hidden_size} "
+                f"to be divisible by num_heads + 2 * num_kv_heads ({total_qkv_heads})"
+            )
+        head_dim = hidden_size // total_qkv_heads
 
     # Handle both 3D [B, S, D] and 4D [B, seq_groups, seq_len, D] inputs
     if len(in_shape) == 4:

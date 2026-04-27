@@ -166,21 +166,12 @@ def _normalize_profiler_row_keys(row: Mapping[str, Any]) -> dict[str, str]:
 
 
 def _map_profiler_opcode_to_polaris_optype(opcode: str, attrs: dict[str, Any]) -> str:
-    """Extend :func:`map_optype_to_polaris` for profiler / Excel opcodes (e.g. ``MatmulDeviceOperation``)."""
-    oc = (opcode or '').strip()
-    if oc == 'ReshapeViewDeviceOperation':
-        return 'Reshape'
-    if oc.endswith('DeviceOperation'):
-        stem = oc[: -len('DeviceOperation')]
-        # map_optype_to_polaris keys vary: some use *DeviceOperation*, some bare names.
-        stem_to_lookup: dict[str, str] = {
-            'Permute': 'PermuteDeviceOperation',
-            'Softmax': 'SoftmaxDeviceOperation',
-            'LayerNorm': 'LayerNormalization',
-        }
-        lookup = stem_to_lookup.get(stem, stem)
-        return map_optype_to_polaris(lookup, attrs)
-    return map_optype_to_polaris(oc, attrs)
+    """Map profiler opcode to a Polaris STATS-style optype.
+
+    Uses :func:`map_optype_to_polaris` which handles canonical resolution
+    internally and provides backwards-compatible PascalCase display names.
+    """
+    return map_optype_to_polaris(opcode, attrs)
 
 
 def profiler_op_index(row: Mapping[str, str]) -> int:
@@ -458,11 +449,11 @@ def profiler_polaris_layer_diff(
 def summarize_layer_diff_by_optype(diff: ProfilerPolarisLayerDiff) -> tuple[dict[str, int], dict[str, int]]:
     """Return (profiler_only_counts_by_mapped_optype, polaris_only_counts_by_optype)."""
     pc: dict[str, int] = {}
-    for x in diff.only_in_profiler:
-        pc[x.mapped_optype] = pc.get(x.mapped_optype, 0) + 1
+    for prof_only in diff.only_in_profiler:
+        pc[prof_only.mapped_optype] = pc.get(prof_only.mapped_optype, 0) + 1
     pl: dict[str, int] = {}
-    for x in diff.only_in_polaris:
-        pl[x.optype] = pl.get(x.optype, 0) + 1
+    for pol_only in diff.only_in_polaris:
+        pl[pol_only.optype] = pl.get(pol_only.optype, 0) + 1
     return pc, pl
 
 
@@ -620,7 +611,7 @@ def load_profiler_ops_table(path: str | Path, *, sheet_name: str | int | None = 
 
     if p.suffix.lower() in ('.xlsx', '.xlsm'):
         try:
-            import pandas as pd  # type: ignore[import-not-found]
+            import pandas as pd  # type: ignore[import-untyped]
 
             df = pd.read_excel(p, sheet_name=sheet_name)
             return [_normalize_profiler_row_keys(r) for r in df.to_dict('records')]
@@ -633,12 +624,15 @@ def load_profiler_ops_table(path: str | Path, *, sheet_name: str | int | None = 
                 'Reading .xlsx requires openpyxl or pandas. Install with: pip install openpyxl'
             ) from e
         wb = load_workbook(p, read_only=True, data_only=True)
+        ws: Any
         if isinstance(sheet_name, int):
             ws = wb.worksheets[sheet_name]
         elif isinstance(sheet_name, str):
             ws = wb[sheet_name]
         else:
             ws = wb.active
+        if ws is None:
+            raise ValueError(f'Workbook has no sheet: {sheet_name!r}')
         rows = ws.iter_rows(values_only=True)
         try:
             header = next(rows)
@@ -765,8 +759,8 @@ def main() -> int:
             print(f'  {k}: {pc[k]}')
         print()
         print(f'=== Only in Polaris (simulator), {len(diff.only_in_polaris)} ops ===')
-        for x in diff.only_in_polaris:
-            print(f'{x.polaris_opname}\topnum={x.polaris_opnum}\t{x.optype}\t{x.signature}')
+        for pol_only in diff.only_in_polaris:
+            print(f'{pol_only.polaris_opname}\topnum={pol_only.polaris_opnum}\t{pol_only.optype}\t{pol_only.signature}')
         print()
         print('--- Count by optype (Polaris-only) ---')
         for k in sorted(pl.keys(), key=lambda s: (-pl[s], s)):
