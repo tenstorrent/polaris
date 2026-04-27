@@ -12,4 +12,4 @@ filterarch: n150
 datatype: bf16
 filterwl: vitoptim_patch_embeddings,vitoptim_embeddings,vitoptim_attention,vitoptim_intermediate,vitoptim_output,vitoptim_layer,vitoptim_encoder,vitoptim,vitoptim_device_perf,vitoptim_perf_report
 dump_stats_csv: true
-log_level: debug
+log_level: info
