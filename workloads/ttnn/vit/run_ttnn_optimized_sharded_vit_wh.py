@@ -759,14 +759,14 @@ def run_vit(wlname: str, device: ttnn.device.Device, cfg: dict):
 # ---------------------------------------------------------------------------
 
 _STANDALONE_RUN_SPECS: list[tuple[str, object, str]] = [
-    ("patch-embeddings", run_vit_patch_embeddings, "opt-vit-patch-embeddings"),
-    ("embeddings", run_vit_embeddings, "opt-vit-embeddings"),
-    ("attention", run_vit_attention, "opt-vit-attention"),
-    ("intermediate", run_vit_intermediate, "opt-vit-intermediate"),
-    ("output", run_vit_output, "opt-vit-output"),
-    ("layer", run_vit_layer, "opt-vit-layer"),
-    ("encoder", run_vit_encoder, "opt-vit-encoder"),
-    ("vit", run_vit, "opt-vit"),
+    ("patch-embeddings", run_vit_patch_embeddings, "opt-vit-wh-patch-embeddings"),
+    ("embeddings", run_vit_embeddings, "opt-vit-wh-embeddings"),
+    ("attention", run_vit_attention, "opt-vit-wh-attention"),
+    ("intermediate", run_vit_intermediate, "opt-vit-wh-intermediate"),
+    ("output", run_vit_output, "opt-vit-wh-output"),
+    ("layer", run_vit_layer, "opt-vit-wh-layer"),
+    ("encoder", run_vit_encoder, "opt-vit-wh-encoder"),
+    ("vit", run_vit, "opt-vit-wh"),
 ]
 
 _STANDALONE_VALID_SHORT_NAMES = frozenset(s[0] for s in _STANDALONE_RUN_SPECS)

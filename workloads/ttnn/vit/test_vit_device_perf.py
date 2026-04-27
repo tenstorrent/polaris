@@ -136,7 +136,7 @@ def test_vit_perf_device(batch_size=8, expected_kernel_samples_per_sec=1560):
 # ---------------------------------------------------------------------------
 
 _STANDALONE_RUN_SPECS: list[tuple[str, object, str]] = [
-    ("device-ops", run_vit_device_ops, "opt-vit-device-ops"),
+    ("device-ops", run_vit_device_ops, "opt-vit-wh-device-ops"),
 ]
 
 _STANDALONE_VALID_SHORT_NAMES = frozenset(s[0] for s in _STANDALONE_RUN_SPECS)
