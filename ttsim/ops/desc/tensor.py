@@ -113,7 +113,9 @@ def where_sinf(iTList, oTList, op, **kwargs):
 def cast_sinf(iTList, oTList, op, **kwargs):
     '''Cast operation: converts tensor to specified dtype'''
     assert iTList[0].check_shape()
-    assert oTList[0].check_shape()
+    # Propagate shape from input to output (Cast preserves shape)
+    if not oTList[0].check_shape():
+        oTList[0].shape = list(iTList[0].shape)
 
     # ONNX dtype code mapping to numpy dtypes
     ONNX_DTYPE_MAP = {
@@ -131,14 +133,37 @@ def cast_sinf(iTList, oTList, op, **kwargs):
         13: np.dtype(np.uint64),
         16: np.dtype(np.float16),  # Placeholder for bfloat16; adjust as needed
     }
+    # String dtype name mapping (case-insensitive)
+    STRING_DTYPE_MAP = {
+        'float': np.dtype(np.float32),
+        'float32': np.dtype(np.float32),
+        'float16': np.dtype(np.float16),
+        'float64': np.dtype(np.float64),
+        'int': np.dtype(np.int32),
+        'int32': np.dtype(np.int32),
+        'int64': np.dtype(np.int64),
+        'int16': np.dtype(np.int16),
+        'int8': np.dtype(np.int8),
+        'uint8': np.dtype(np.uint8),
+        'uint16': np.dtype(np.uint16),
+        'uint32': np.dtype(np.uint32),
+        'uint64': np.dtype(np.uint64),
+        'bool': np.dtype(np.bool_),
+    }
 
     # Set output dtype based on 'to' attribute
     to_dtype_code = op.attrs.get('to')
     if to_dtype_code is not None:
-        try:
-            oTList[0].dtype = ONNX_DTYPE_MAP[to_dtype_code]
-        except KeyError:
-            raise ValueError(f"Unsupported 'to' dtype code: {to_dtype_code}")
+        if isinstance(to_dtype_code, str):
+            key = to_dtype_code.lower()
+            if key not in STRING_DTYPE_MAP:
+                raise ValueError(f"Unsupported 'to' dtype string: {to_dtype_code}")
+            oTList[0].dtype = STRING_DTYPE_MAP[key]
+        else:
+            try:
+                oTList[0].dtype = ONNX_DTYPE_MAP[to_dtype_code]
+            except KeyError:
+                raise ValueError(f"Unsupported 'to' dtype code: {to_dtype_code}")
     else:
         # Fallback: preserve input dtype if 'to' not specified
         oTList[0].dtype = iTList[0].dtype

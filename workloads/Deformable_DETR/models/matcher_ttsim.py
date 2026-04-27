@@ -238,7 +238,19 @@ class HungarianMatcher(SimNN.Module):
 
         # ── 1) Flatten predictions: [bs, num_queries, ...] → [bs*num_queries, ...] ──
         # Matches PyTorch: outputs["pred_logits"].flatten(0, 1)
-        out_logits_flat = pred_logits.flatten(2).reshape(bs * num_queries, -1)  # type: ignore[attr-defined]
+        # We are past the early-exit so data is available — reshape numpy directly.
+        num_classes = pred_logits.shape[2] if len(pred_logits.shape) > 2 else 1
+        flat_logits_data = pred_logits.data.reshape(bs * num_queries, num_classes)
+        out_logits_flat = SimTensor(
+            {
+                "name": f"{self.name}.pred_logits_flat",
+                "shape": [bs * num_queries, num_classes],
+                "data": flat_logits_data,
+                "dtype": np.dtype("float32"),
+            }
+        )
+        out_logits_flat.set_module(self)
+        self._tensors[out_logits_flat.name] = out_logits_flat
 
         # Sigmoid activation for classification probabilities
         sigmoid_op = F.Sigmoid(self.name + ".sigmoid_prob")
@@ -247,7 +259,17 @@ class HungarianMatcher(SimNN.Module):
         out_prob = sigmoid_op(out_logits_flat)
 
         # Flatten boxes
-        out_bbox = pred_boxes.reshape(bs * num_queries, 4)  # type: ignore[attr-defined]
+        flat_boxes_data = pred_boxes.data.reshape(bs * num_queries, 4)
+        out_bbox = SimTensor(
+            {
+                "name": f"{self.name}.pred_boxes_flat",
+                "shape": [bs * num_queries, 4],
+                "data": flat_boxes_data,
+                "dtype": np.dtype("float32"),
+            }
+        )
+        out_bbox.set_module(self)
+        self._tensors[out_bbox.name] = out_bbox
 
         # ── 2) Concatenate ground truth across batch ─────────────────────
         tgt_ids_list = []
@@ -430,7 +452,7 @@ class HungarianMatcher(SimNN.Module):
                     "name": self.name + ".cost_class",
                     "shape": list(cost_class_data.shape),
                     "data": cost_class_data,
-                    "dtype": np.float32,
+                    "dtype": np.dtype("float32"),
                 }
             )
             cost_class.set_module(self)
@@ -444,7 +466,7 @@ class HungarianMatcher(SimNN.Module):
                         out_prob.shape[0],
                         len(tgt_ids.shape) if hasattr(tgt_ids, "shape") else 0,
                     ],
-                    "dtype": np.float32,
+                    "dtype": np.dtype("float32"),
                 }
             )
             cost_class.set_module(self)
@@ -482,7 +504,7 @@ class HungarianMatcher(SimNN.Module):
                     "name": self.name + ".cost_bbox",
                     "shape": list(cost_bbox_data.shape),
                     "data": cost_bbox_data,
-                    "dtype": np.float32,
+                    "dtype": np.dtype("float32"),
                 }
             )
             cost_bbox.set_module(self)
@@ -493,7 +515,7 @@ class HungarianMatcher(SimNN.Module):
                 {
                     "name": self.name + ".cost_bbox",
                     "shape": [out_bbox.shape[0], tgt_bbox.shape[0]],
-                    "dtype": np.float32,
+                    "dtype": np.dtype("float32"),
                 }
             )
             cost_bbox.set_module(self)

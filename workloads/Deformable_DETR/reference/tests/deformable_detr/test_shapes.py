@@ -206,8 +206,8 @@ def sync_encoder_layer_weights(pt_layer, tt_layer):
     ]:
         pt_proj = getattr(pt_layer.self_attn, proj_name)
         tt_proj = getattr(tt_layer.self_attn, proj_name)
-        tt_proj.weight = pt_proj.weight.detach().numpy().copy()
-        tt_proj.bias = pt_proj.bias.detach().numpy().copy()
+        tt_proj.param.data = pt_proj.weight.detach().numpy().copy()
+        tt_proj.bias.data = pt_proj.bias.detach().numpy().copy()
 
     tt_layer.linear1.param.data = pt_layer.linear1.weight.detach().numpy().copy()
     tt_layer.linear1.bias.data = pt_layer.linear1.bias.detach().numpy().copy()
@@ -243,8 +243,8 @@ def sync_decoder_layer_weights(pt_layer, tt_layer):
     ]:
         pt_proj = getattr(pt_layer.cross_attn, proj_name)
         tt_proj = getattr(tt_layer.cross_attn, proj_name)
-        tt_proj.weight = pt_proj.weight.detach().numpy().copy()
-        tt_proj.bias = pt_proj.bias.detach().numpy().copy()
+        tt_proj.param.data = pt_proj.weight.detach().numpy().copy()
+        tt_proj.bias.data = pt_proj.bias.detach().numpy().copy()
 
     tt_layer.linear1.param.data = pt_layer.linear1.weight.detach().numpy().copy()
     tt_layer.linear1.bias.data = pt_layer.linear1.bias.detach().numpy().copy()
@@ -850,7 +850,7 @@ def test_07_postprocess_segm():
                     "name": "pred_masks",
                     "shape": list(pred_masks_np.shape),
                     "data": pred_masks_np,
-                    "dtype": np.float32,
+                    "dtype": np.dtype("float32"),
                 }
             )
         },

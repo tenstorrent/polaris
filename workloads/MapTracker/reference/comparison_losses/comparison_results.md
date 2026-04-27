@@ -1,4 +1,4 @@
-# Comparison Results (bevformer) — 2026-03-21 00:12:39
+# Comparison Results (bevformer) — 2026-04-27 09:29:43
 
 ## test_detr_loss.py  —  PASS
 
@@ -31,7 +31,7 @@ TEST 3: MasksLoss (BCE)
 ================================================================================
 PyTorch MasksLoss: 0.810909
 ttsim MasksLoss:   0.810909
-Difference: 0.00000000
+Difference: 0.00000006
 [PASS] PASS: MasksLoss matches!
 
 ================================================================================
@@ -39,7 +39,7 @@ TEST 4: LenLoss (Cross Entropy)
 ================================================================================
 PyTorch LenLoss: 3.442037
 ttsim LenLoss:   3.442037
-Difference: 0.00000000
+Difference: 0.00000048
 [PASS] PASS: LenLoss matches!
 
 ================================================================================
@@ -62,13 +62,6 @@ SUMMARY
 Total: 5/5 tests passed
 
 [PASS] All tests passed! PyTorch and ttsim implementations match perfectly!
-```
-
-### stderr
-
-```
-C:\Users\SaSagar\AppData\Local\miniforge3\envs\polaris\Lib\site-packages\requests\__init__.py:109: RequestsDependencyWarning: urllib3 (2.6.3) or chardet (None)/charset_normalizer (3.4.4) doesn't match a supported version!
-  warnings.warn(
 ```
 
 ---
@@ -105,7 +98,7 @@ TEST 3: Perfect Prediction (Edge Case)
 ================================================================================
 PyTorch DiceLoss (perfect): 0.000000
 ttsim DiceLoss (perfect):   0.000000
-Difference: 0.00000006
+Difference: 0.00000000
 [PASS] PASS: Perfect prediction gives low loss!
 
 ================================================================================
@@ -118,13 +111,6 @@ SUMMARY
 Total: 3/3 tests passed
 
 [PASS] All tests passed! PyTorch and ttsim implementations match perfectly!
-```
-
-### stderr
-
-```
-C:\Users\SaSagar\AppData\Local\miniforge3\envs\polaris\Lib\site-packages\requests\__init__.py:109: RequestsDependencyWarning: urllib3 (2.6.3) or chardet (None)/charset_normalizer (3.4.4) doesn't match a supported version!
-  warnings.warn(
 ```
 
 ---

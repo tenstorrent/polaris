@@ -821,7 +821,7 @@ def topk_sinf(iTList, oTList, op, **kwargs):
 
     assert X.check_shape(), f"Input tensor-X shape not defined: {X}"
     assert K.dtype == np.int64, f"Input tensor-K Data-Type should be np.int64 {K}"
-    XShape = copy.copy(X.shape)
+    XShape = list(X.shape)  # plain list copy — avoids mutating X.shape via shared Shape._shape
     XRank  = X.rank()
     _axis   : int = op.attrs.get('axis',   -1)
     _largest: int = op.attrs.get('largest', 1)
@@ -1522,6 +1522,24 @@ def register_math_ops():
         ],
         [
             "Relu",
+            "ARITY_1->1",
+            "ai.onnx",
+            "COMMON",
+            14,
+            14,
+            1,
+            1,
+            1,
+            1,
+            unary_fwd,
+            True,
+            True,
+            True,
+            True,
+            True,
+        ],
+        [
+            "Relu6",
             "ARITY_1->1",
             "ai.onnx",
             "COMMON",

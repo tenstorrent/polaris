@@ -272,13 +272,11 @@ def multi_scale_deformable_attn_ttsim(
         # sampling_grid_l_flat: [bs*num_heads, num_queries, num_points, 2]
         # output: [bs*num_heads, embed_dims_per_head, num_queries, num_points]
         sampling_value_l = F.GridSample(
-            value_l_img,
-            sampling_grid_l_flat,
+            name + f".grid_sample_l{level}",
             mode="bilinear",
             padding_mode="zeros",
             align_corners=False,
-            name=name + f".grid_sample_l{level}",
-        )
+        )(value_l_img, sampling_grid_l_flat)
         _check_data(sampling_value_l, f"sampling_value_l{level}")
 
         sampling_value_list.append(sampling_value_l)

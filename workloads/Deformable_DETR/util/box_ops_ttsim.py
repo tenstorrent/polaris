@@ -72,7 +72,7 @@ def box_cxcywh_to_xyxy(x):
                 "name": "box_xyxy",
                 "shape": list(out.shape),
                 "data": out,
-                "dtype": np.float32,
+                "dtype": np.dtype("float32"),
             }
         )
     else:
@@ -125,7 +125,7 @@ def box_xyxy_to_cxcywh(x):
                 "name": "box_cxcywh",
                 "shape": list(out.shape),
                 "data": out,
-                "dtype": np.float32,
+                "dtype": np.dtype("float32"),
             }
         )
     else:
@@ -179,7 +179,7 @@ def masks_to_boxes(masks):
                     "name": "boxes",
                     "shape": list(out.shape),
                     "data": out,
-                    "dtype": np.float32,
+                    "dtype": np.dtype("float32"),
                 }
             )
 
@@ -206,7 +206,7 @@ def masks_to_boxes(masks):
                 "name": "boxes",
                 "shape": list(out.shape),
                 "data": out,
-                "dtype": np.float32,
+                "dtype": np.dtype("float32"),
             }
         )
     else:
@@ -261,7 +261,7 @@ def box_area(boxes):
                 "name": "box_area",
                 "shape": list(out.shape),
                 "data": out.astype(np.float32),
-                "dtype": np.float32,
+                "dtype": np.dtype("float32"),
             }
         )
     else:
@@ -340,7 +340,7 @@ def box_iou(boxes1, boxes2):
                 "name": "iou",
                 "shape": list(iou_data.shape),
                 "data": iou_data.astype(np.float32),
-                "dtype": np.float32,
+                "dtype": np.dtype("float32"),
             }
         )
         union_tensor = SimTensor(
@@ -348,7 +348,7 @@ def box_iou(boxes1, boxes2):
                 "name": "union",
                 "shape": list(union.shape),
                 "data": union.astype(np.float32),
-                "dtype": np.float32,
+                "dtype": np.dtype("float32"),
             }
         )
         return iou_tensor, union_tensor
@@ -411,10 +411,10 @@ def generalized_box_iou(boxes1, boxes2):
         # Compute IoU and union
         iou_tensor, union_tensor = box_iou(
             SimTensor(
-                {"name": "b1", "shape": b1_shape, "data": b1_data, "dtype": np.float32}
+                {"name": "b1", "shape": b1_shape, "data": b1_data, "dtype": np.dtype("float32")}
             ),
             SimTensor(
-                {"name": "b2", "shape": b2_shape, "data": b2_data, "dtype": np.float32}
+                {"name": "b2", "shape": b2_shape, "data": b2_data, "dtype": np.dtype("float32")}
             ),
         )
         iou_data = iou_tensor.data
@@ -435,7 +435,7 @@ def generalized_box_iou(boxes1, boxes2):
                 "name": "giou",
                 "shape": list(giou_data.shape),
                 "data": giou_data.astype(np.float32),
-                "dtype": np.float32,
+                "dtype": np.dtype("float32"),
             }
         )
     else:

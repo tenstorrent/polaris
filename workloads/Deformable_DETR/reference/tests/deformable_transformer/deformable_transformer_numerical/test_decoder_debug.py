@@ -104,8 +104,8 @@ def sync_layer_weights(pt_layer, tt_layer):
     for pn in ["sampling_offsets", "attention_weights", "value_proj", "output_proj"]:
         pt_p = getattr(pt_layer.cross_attn, pn)
         tt_p = getattr(tt_layer.cross_attn, pn)
-        tt_p.weight = pt_p.weight.detach().numpy().copy()
-        tt_p.bias = pt_p.bias.detach().numpy().copy()
+        tt_p.param.data = pt_p.weight.detach().numpy().copy()
+        tt_p.bias.data = pt_p.bias.detach().numpy().copy()
 
     # FFN (SimNN.Linear — no transpose needed)
     tt_layer.linear1.param.data = pt_layer.linear1.weight.detach().numpy().copy()
@@ -523,7 +523,7 @@ def debug_manual_decoder_loop():
                 "name": f"tgt_l{lid}",
                 "shape": list(output_np.shape),
                 "data": output_np.copy(),
-                "dtype": np.float32,
+                "dtype": np.dtype("float32"),
             }
         )
         tgt_sim.link_module = tt_l
@@ -534,7 +534,7 @@ def debug_manual_decoder_loop():
                 "name": f"qpos_l{lid}",
                 "shape": list(qpos_np.shape),
                 "data": qpos_np.copy(),
-                "dtype": np.float32,
+                "dtype": np.dtype("float32"),
             }
         )
         qpos_sim.link_module = tt_l
@@ -545,7 +545,7 @@ def debug_manual_decoder_loop():
                 "name": f"ref_l{lid}",
                 "shape": list(ref_expanded_np.shape),
                 "data": ref_expanded_np.copy(),
-                "dtype": np.float32,
+                "dtype": np.dtype("float32"),
             }
         )
         ref_sim.link_module = tt_l
@@ -556,7 +556,7 @@ def debug_manual_decoder_loop():
                 "name": f"src_l{lid}",
                 "shape": list(src_np.shape),
                 "data": src_np.copy(),
-                "dtype": np.float32,
+                "dtype": np.dtype("float32"),
             }
         )
         src_sim.link_module = tt_l
@@ -567,7 +567,7 @@ def debug_manual_decoder_loop():
                 "name": f"ss_l{lid}",
                 "shape": list(np.array(ss_list).shape),
                 "data": np.array(ss_list, dtype=np.float32),
-                "dtype": np.float32,
+                "dtype": np.dtype("float32"),
             }
         )
         ss_sim.link_module = tt_l
@@ -578,7 +578,7 @@ def debug_manual_decoder_loop():
                 "name": f"lsi_l{lid}",
                 "shape": list(np.array(lsi_list).shape),
                 "data": np.array(lsi_list, dtype=np.float32),
-                "dtype": np.float32,
+                "dtype": np.dtype("float32"),
             }
         )
         lsi_sim.link_module = tt_l
@@ -682,7 +682,7 @@ def debug_wrapper_vs_manual():
                 "name": f"man_tgt_l{lid}",
                 "shape": list(output_np.shape),
                 "data": output_np.copy(),
-                "dtype": np.float32,
+                "dtype": np.dtype("float32"),
             }
         )
         tgt_sim.link_module = tt_l
@@ -693,7 +693,7 @@ def debug_wrapper_vs_manual():
                 "name": f"man_qpos_l{lid}",
                 "shape": list(qpos_np.shape),
                 "data": qpos_np.copy(),
-                "dtype": np.float32,
+                "dtype": np.dtype("float32"),
             }
         )
         qpos_sim.link_module = tt_l
@@ -704,7 +704,7 @@ def debug_wrapper_vs_manual():
                 "name": f"man_ref_l{lid}",
                 "shape": list(ref_expanded.shape),
                 "data": ref_expanded.copy(),
-                "dtype": np.float32,
+                "dtype": np.dtype("float32"),
             }
         )
         ref_sim.link_module = tt_l
@@ -715,7 +715,7 @@ def debug_wrapper_vs_manual():
                 "name": f"man_src_l{lid}",
                 "shape": list(src_np.shape),
                 "data": src_np.copy(),
-                "dtype": np.float32,
+                "dtype": np.dtype("float32"),
             }
         )
         src_sim.link_module = tt_l
@@ -726,7 +726,7 @@ def debug_wrapper_vs_manual():
                 "name": f"man_ss_l{lid}",
                 "shape": list(np.array(ss_list).shape),
                 "data": np.array(ss_list, dtype=np.float32),
-                "dtype": np.float32,
+                "dtype": np.dtype("float32"),
             }
         )
         ss_sim.link_module = tt_l
@@ -737,7 +737,7 @@ def debug_wrapper_vs_manual():
                 "name": f"man_lsi_l{lid}",
                 "shape": list(np.array(lsi_list).shape),
                 "data": np.array(lsi_list, dtype=np.float32),
-                "dtype": np.float32,
+                "dtype": np.dtype("float32"),
             }
         )
         lsi_sim.link_module = tt_l
@@ -747,8 +747,9 @@ def debug_wrapper_vs_manual():
         output_np = output_tt.data.copy()
 
     # Compare wrapper output vs manual output
+    wrapper_data = wrapper_out.data if isinstance(wrapper_out, SimTensor) else wrapper_out
     ok, _ = compare(
-        "Wrapper vs Manual (same TT layers)", wrapper_out, output_np, atol=1e-6
+        "Wrapper vs Manual (same TT layers)", wrapper_data, output_np, atol=1e-6
     )
 
     # Also compare vs PyTorch
@@ -837,13 +838,13 @@ def debug_weight_sync():
 
         # Cross-attn value_proj
         pt_w = pt_l.cross_attn.value_proj.weight.detach().numpy()
-        tt_w = tt_l.cross_attn.value_proj.weight
+        tt_w = tt_l.cross_attn.value_proj.param.data
         ok, _ = compare(f"  L{lid} cross_attn.value_proj.weight", pt_w, tt_w, atol=1e-7)
         all_ok &= ok
 
         # Cross-attn output_proj
         pt_w = pt_l.cross_attn.output_proj.weight.detach().numpy()
-        tt_w = tt_l.cross_attn.output_proj.weight
+        tt_w = tt_l.cross_attn.output_proj.param.data
         ok, _ = compare(
             f"  L{lid} cross_attn.output_proj.weight", pt_w, tt_w, atol=1e-7
         )
@@ -852,13 +853,13 @@ def debug_weight_sync():
         # FFN linear1
         pt_w = pt_l.linear1.weight.detach().numpy()
         tt_w = tt_l.linear1.param.data
-        ok, _ = compare(f"  L{lid} linear1.weight", pt_w.T, tt_w, atol=1e-7)
+        ok, _ = compare(f"  L{lid} linear1.weight", pt_w, tt_w, atol=1e-7)
         all_ok &= ok
 
         # FFN linear2
         pt_w = pt_l.linear2.weight.detach().numpy()
         tt_w = tt_l.linear2.param.data
-        ok, _ = compare(f"  L{lid} linear2.weight", pt_w.T, tt_w, atol=1e-7)
+        ok, _ = compare(f"  L{lid} linear2.weight", pt_w, tt_w, atol=1e-7)
         all_ok &= ok
 
         # LayerNorm (swapped)

@@ -1,4 +1,4 @@
-# Comparison Results (bevformer) — 2026-03-21 00:06:48
+# Comparison Results (bevformer) — 2026-04-27 09:28:01
 
 ## test_map_seg_head.py  —  PASS
 
@@ -51,31 +51,31 @@ Injecting PyTorch weights into TTSim model
 PyTorch Forward Pass
 --------------------------------------------------------------------------------
 Predictions shape: torch.Size([1, 3, 100, 50])
-Predictions range: [-0.335249, 0.420631]
+Predictions range: [-0.314742, 0.503101]
 Seg features shape: torch.Size([1, 64, 50, 25])
-Seg features range: [0.000000, 1.011781]
+Seg features range: [0.000000, 0.911500]
 
 --------------------------------------------------------------------------------
 TTSim Forward Pass
 --------------------------------------------------------------------------------
-Predictions shape: [1, 3, 100, 50]
-Predictions range: [-0.335249, 0.420631]
-Seg features shape: [1, 64, 50, 25]
-Seg features range: [0.000000, 1.011780]
+Predictions shape: Shape([1, 3, 100, 50])
+Predictions range: [-0.314743, 0.503101]
+Seg features shape: Shape([1, 64, 50, 25])
+Seg features range: [0.000000, 0.911501]
 
 ================================================================================
 Output Comparison
 ================================================================================
 
 Predictions comparison:
-  Max absolute diff: 2.7567148209e-07
-  Mean absolute diff: 4.4536928812e-08
-  Median absolute diff: 3.7252902985e-08
+  Max absolute diff: 3.5762786865e-07
+  Mean absolute diff: 5.3588525617e-08
+  Median absolute diff: 4.4703483582e-08
 
 Seg features comparison:
-  Max absolute diff: 2.8014183044e-06
-  Mean absolute diff: 1.3069571025e-07
-  Median absolute diff: 5.9604644775e-08
+  Max absolute diff: 2.1457672119e-06
+  Mean absolute diff: 1.4788963654e-07
+  Median absolute diff: 7.4505805969e-08
 
 Validation (rtol=1e-5, atol=1e-5):
   Predictions match: [OK] YES
@@ -95,7 +95,7 @@ TEST 3: Different Upsampling Configurations
 
 2x upsampling (rectangular):
   BEV: (50, 25), Canvas: (100, 50)
-  Preds diff: max=1.937151e-07, match=True
+  Preds diff: max=2.682209e-07, match=True
   Feats diff: max=2.205372e-06, match=True
   [OK] PASSED
 
@@ -111,13 +111,6 @@ Different Sizes............................................. [OK] PASSED
 Total: 3/3 tests passed
 
 ! All tests passed!
-```
-
-### stderr
-
-```
-C:\Users\SaSagar\AppData\Local\miniforge3\envs\polaris\Lib\site-packages\requests\__init__.py:109: RequestsDependencyWarning: urllib3 (2.6.3) or chardet (None)/charset_normalizer (3.4.4) doesn't match a supported version!
-  warnings.warn(
 ```
 
 ---
@@ -137,8 +130,8 @@ TEST 1: RegressionBranch
 ================================================================================
 Input shape: (2, 100, 256)
 Output shape: (2, 100, 40)
-Max difference: 4.768372e-07
-Mean difference: 7.660140e-08
+Max difference: 8.344650e-07
+Mean difference: 1.407595e-07
   Total RegressionBranch params: 414,760
 PyTorch params: 416,808
 [OK] RegressionBranch test PASSED
@@ -148,8 +141,8 @@ TEST 2: ClassificationBranch
 ================================================================================
 Input shape: (2, 100, 256)
 Output shape: (2, 100, 3)
-Max difference: 0.000000e+00
-Mean difference: 0.000000e+00
+Max difference: 4.768372e-07
+Mean difference: 5.484074e-08
   ClassificationBranch params: 771
 PyTorch params: 771
 [OK] ClassificationBranch test PASSED
@@ -168,7 +161,7 @@ Created MapDetectorHead:
 
 BEV features processing:
   Input shape: (2, 128, 50, 100)
-  Output shape: [2, 256, 50, 100]
+  Output shape: Shape([2, 256, 50, 100])
     MapDetectorHead 'map_detector_head':
       Input projection: 33,024
       Query embedding: 25,600
@@ -209,13 +202,6 @@ BEV Pos Encoding Values: [OK] PASSED
 ================================================================================
 ALL TESTS PASSED [OK]
 ================================================================================
-```
-
-### stderr
-
-```
-C:\Users\SaSagar\AppData\Local\miniforge3\envs\polaris\Lib\site-packages\requests\__init__.py:109: RequestsDependencyWarning: urllib3 (2.6.3) or chardet (None)/charset_normalizer (3.4.4) doesn't match a supported version!
-  warnings.warn(
 ```
 
 ---

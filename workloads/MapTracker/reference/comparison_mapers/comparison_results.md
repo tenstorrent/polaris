@@ -1,4 +1,4 @@
-# Comparison Results (bevformer) — 2026-03-21 00:12:47
+# Comparison Results (bevformer) — 2026-04-27 09:29:45
 
 ## test_base_mapper.py  —  PASS
 
@@ -25,9 +25,9 @@ TEST 2: extract_feat()
   Synced neck.weight -> neck_op.param, shape: (64, 64, 1, 1)
   Synced head.weight -> head_op.param, shape: (10, 64, 1, 1)
 PyTorch feat shape: torch.Size([2, 64, 32, 32])
-PyTorch feat mean: 0.012287
+PyTorch feat mean: -0.004951
 ttsim feat shape: (2, 64, 32, 32)
-ttsim feat mean: 0.012287
+ttsim feat mean: -0.004951
 Max difference: 0.00000024
 [PASS] PASS: extract_feat matches!
 
@@ -37,11 +37,11 @@ TEST 3: forward_train()
   Synced conv.weight -> conv_op.param, shape: (64, 3, 3, 3)
   Synced neck.weight -> neck_op.param, shape: (64, 64, 1, 1)
   Synced head.weight -> head_op.param, shape: (10, 64, 1, 1)
-PyTorch loss: 1.010636
-PyTorch log_vars: {'loss': 1.0106356143951416}
-ttsim loss: 1.010636
-ttsim log_vars: {'loss': 1.0106356143951416}
-Difference: 0.00000000
+PyTorch loss: 1.014594
+PyTorch log_vars: {'loss': 1.0145939588546753}
+ttsim loss: 1.014594
+ttsim log_vars: {'loss': 1.0145938396453857}
+Difference: 0.00000012
 [PASS] PASS: forward_train matches!
 
 ================================================================================
@@ -50,8 +50,8 @@ TEST 4: train_step()
   Synced conv.weight -> conv_op.param, shape: (64, 3, 3, 3)
   Synced neck.weight -> neck_op.param, shape: (64, 64, 1, 1)
   Synced head.weight -> head_op.param, shape: (10, 64, 1, 1)
-PyTorch train_step loss: 1.014707
-ttsim train_step loss: 1.014707
+PyTorch train_step loss: 1.014483
+ttsim train_step loss: 1.014483
 Difference: 0.00000000
 [PASS] PASS: train_step matches!
 
@@ -66,13 +66,6 @@ SUMMARY
 Total: 4/4 tests passed
 
 [PASS] All tests passed! PyTorch and ttsim implementations match perfectly!
-```
-
-### stderr
-
-```
-C:\Users\SaSagar\AppData\Local\miniforge3\envs\polaris\Lib\site-packages\requests\__init__.py:109: RequestsDependencyWarning: urllib3 (2.6.3) or chardet (None)/charset_normalizer (3.4.4) doesn't match a supported version!
-  warnings.warn(
 ```
 
 ---
@@ -117,17 +110,17 @@ MapTracker Architecture Layer-by-Layer Validation
   ---------------------------------------------------------------------------
     Conv7x7/2: [2, 3, 28, 50] -> [2, 8, 14, 25]
     BN + ReLU + MaxPool3x3/2 -> torch.Size([2, 8, 7, 13])
-  PASS Stem: Match! Max diff: 7.45e-08, Mean diff: 4.82e-09
+  PASS Stem: Match! Max diff: 1.79e-07, Mean diff: 1.10e-08
 
   Layer 3: ResNet-50 Stages 1-4 (Bottleneck blocks)
   ---------------------------------------------------------------------------
-  PASS Bottleneck: Match! Max diff: 8.94e-08, Mean diff: 5.04e-09
+  PASS Bottleneck: Match! Max diff: 1.79e-07, Mean diff: 1.33e-08
     Stage 1: 8->8 ch, stride=1, 1 block(s) -> torch.Size([2, 8, 7, 13])
-  PASS Bottleneck: Match! Max diff: 2.98e-08, Mean diff: 2.59e-09
+  PASS Bottleneck: Match! Max diff: 5.96e-08, Mean diff: 4.60e-09
     Stage 2: 8->16 ch, stride=2, 1 block(s) -> torch.Size([2, 16, 4, 7])
-  PASS Bottleneck: Match! Max diff: 2.98e-08, Mean diff: 4.39e-09
+  PASS Bottleneck: Match! Max diff: 2.98e-08, Mean diff: 3.48e-09
     Stage 3: 16->32 ch, stride=2, 1 block(s) -> torch.Size([2, 32, 2, 4])
-  PASS Bottleneck: Match! Max diff: 2.98e-08, Mean diff: 2.26e-09
+  PASS Bottleneck: Match! Max diff: 2.98e-08, Mean diff: 2.19e-09
     Stage 4: 32->64 ch, stride=2, 1 block(s) -> torch.Size([2, 64, 1, 2])
     out_indices=(1,2,3): C3=torch.Size([2, 16, 4, 7]), C4=torch.Size([2, 32, 2, 4]), C5=torch.Size([2, 64, 1, 2])
 
@@ -136,11 +129,11 @@ MapTracker Architecture Layer-by-Layer Validation
     Lateral C5: torch.Size([2, 64, 1, 2]) -> 1x1 conv -> torch.Size([2, 32, 1, 2])
     Lateral C4: torch.Size([2, 32, 2, 4]) -> 1x1 conv -> torch.Size([2, 32, 2, 4])
     Lateral C3: torch.Size([2, 16, 4, 7]) -> 1x1 conv -> torch.Size([2, 32, 4, 7])
-  âœ“ FPN Fusion: Match! Max difference: 5.59e-09
-  âœ“ FPN Fusion: Match! Max difference: 5.59e-09
-  PASS FPN P3 output conv: Match! Max diff: 3.73e-09, Mean diff: 5.31e-10
-  PASS FPN P4 output conv: Match! Max diff: 2.10e-09, Mean diff: 3.62e-10
-  PASS FPN P5 output conv: Match! Max diff: 6.98e-10, Mean diff: 1.43e-10
+  ✓ FPN Fusion: Match! Max difference: 4.66e-09
+  ✓ FPN Fusion: Match! Max difference: 5.59e-09
+  PASS FPN P3 output conv: Match! Max diff: 5.59e-09, Mean diff: 5.84e-10
+  PASS FPN P4 output conv: Match! Max diff: 1.63e-09, Mean diff: 3.90e-10
+  PASS FPN P5 output conv: Match! Max diff: 5.82e-10, Mean diff: 1.47e-10
     FPN Level 0 (P3): torch.Size([2, 32, 4, 7])
     FPN Level 1 (P4): torch.Size([2, 32, 2, 4])
     FPN Level 2 (P5): torch.Size([2, 32, 1, 2])
@@ -151,85 +144,85 @@ MapTracker Architecture Layer-by-Layer Validation
     Positional encoding: torch.Size([1, 200, 32])
   PASS BEV Queries+Pos: Match! Max diff: 0.00e+00, Mean diff: 0.00e+00
 
-  â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  ───────────────────────────────────────────────────────────────────────────
   ENCODER LAYER 1/2
-  â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  ───────────────────────────────────────────────────────────────────────────
 
-  â”œâ”€ Layer 6: Temporal Self-Attention
+  ├─ Layer 6: Temporal Self-Attention
      * Step 1: Q, K, V projections (K,V from current+prev BEV)
   PASS        Q projection: Match! Max diff: 0.00e+00, Mean diff: 0.00e+00
      * Step 2: Temporal multi-head attention (8 heads)
      * Step 3: Output projection
-  PASS        Output Projection: Match! Max diff: 1.31e-10, Mean diff: 2.35e-11
+  PASS        Output Projection: Match! Max diff: 3.06e-10, Mean diff: 6.05e-11
      * Step 4: Residual connection [1, 200, 32]
-  PASS        Residual: Match! Max diff: 2.98e-08, Mean diff: 1.48e-11
+  PASS        Residual: Match! Max diff: 1.19e-07, Mean diff: 8.96e-11
 
-  â”œâ”€ Layer 7: LayerNorm
-  PASS      Normalized: Match! Max diff: 4.77e-07, Mean diff: 4.14e-08
+  ├─ Layer 7: LayerNorm
+  PASS      Normalized: Match! Max diff: 4.77e-07, Mean diff: 3.99e-08
 
-  â”œâ”€ Layer 8: Spatial Cross-Attention (Deformable)
+  ├─ Layer 8: Spatial Cross-Attention (Deformable)
      * Step 1: 3D ref pts projected to camera views
      * Step 2: Sample from 1 FPN level x 2 cameras
      * Step 3: Output projection (32 -> 32)
   PASS        Projection: Match! Max diff: 0.00e+00, Mean diff: 0.00e+00
      * Step 4: Residual connection
-  PASS      Final Output: Match! Max diff: 4.77e-07, Mean diff: 4.14e-08
+  PASS      Final Output: Match! Max diff: 4.77e-07, Mean diff: 3.99e-08
 
-  â”œâ”€ Layer 9: LayerNorm
-  PASS      Normalized: Match! Max diff: 7.15e-07, Mean diff: 5.13e-08
+  ├─ Layer 9: LayerNorm
+  PASS      Normalized: Match! Max diff: 4.77e-07, Mean diff: 5.10e-08
 
-  â”œâ”€ Layer 10: FFN (Linear-ReLU-Linear)
+  ├─ Layer 10: FFN (Linear-ReLU-Linear)
      * Step 1: Linear expand (32 -> 128)
-  âœ“        Linear1: Match! Max difference: 4.47e-08
+  ✓        Linear1: Match! Max difference: 4.47e-08
      * Step 2: ReLU activation
-  âœ“        ReLU: Match! Max difference: 4.47e-08
+  ✓        ReLU: Match! Max difference: 4.47e-08
      * Step 3: Linear contract (128 -> 32)
-  âœ“        Linear2: Match! Max difference: 6.52e-09
+  ✓        Linear2: Match! Max difference: 3.73e-09
      * Residual connection
-  PASS      Final Output: Match! Max diff: 7.15e-07, Mean diff: 5.15e-08
+  PASS      Final Output: Match! Max diff: 4.77e-07, Mean diff: 5.12e-08
 
-  â””â”€ Layer 11: LayerNorm (Final)
-  PASS      Final Normalized: Match! Max diff: 7.15e-07, Mean diff: 5.72e-08
+  └─ Layer 11: LayerNorm (Final)
+  PASS      Final Normalized: Match! Max diff: 4.77e-07, Mean diff: 5.64e-08
 
-  â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  ───────────────────────────────────────────────────────────────────────────
   ENCODER LAYER 2/2
-  â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  ───────────────────────────────────────────────────────────────────────────
 
-  â”œâ”€ Layer 12: Temporal Self-Attention
+  ├─ Layer 12: Temporal Self-Attention
      * Step 1: Q, K, V projections (K,V from current+prev BEV)
-  PASS        Q projection: Match! Max diff: 4.47e-08, Mean diff: 5.37e-09
+  PASS        Q projection: Match! Max diff: 4.10e-08, Mean diff: 5.31e-09
      * Step 2: Temporal multi-head attention (8 heads)
      * Step 3: Output projection
-  PASS        Output Projection: Match! Max diff: 1.86e-10, Mean diff: 3.17e-11
+  PASS        Output Projection: Match! Max diff: 3.78e-10, Mean diff: 6.90e-11
      * Step 4: Residual connection [1, 200, 32]
-  PASS        Residual: Match! Max diff: 7.15e-07, Mean diff: 5.72e-08
+  PASS        Residual: Match! Max diff: 7.15e-07, Mean diff: 5.65e-08
 
-  â”œâ”€ Layer 13: LayerNorm
-  PASS      Normalized: Match! Max diff: 7.15e-07, Mean diff: 6.20e-08
+  ├─ Layer 13: LayerNorm
+  PASS      Normalized: Match! Max diff: 4.77e-07, Mean diff: 6.03e-08
 
-  â”œâ”€ Layer 14: Spatial Cross-Attention (Deformable)
+  ├─ Layer 14: Spatial Cross-Attention (Deformable)
      * Step 1: 3D ref pts projected to camera views
      * Step 2: Sample from 1 FPN level x 2 cameras
      * Step 3: Output projection (32 -> 32)
   PASS        Projection: Match! Max diff: 0.00e+00, Mean diff: 0.00e+00
      * Step 4: Residual connection
-  PASS      Final Output: Match! Max diff: 7.15e-07, Mean diff: 6.19e-08
+  PASS      Final Output: Match! Max diff: 4.77e-07, Mean diff: 6.02e-08
 
-  â”œâ”€ Layer 15: LayerNorm
-  PASS      Normalized: Match! Max diff: 7.15e-07, Mean diff: 6.72e-08
+  ├─ Layer 15: LayerNorm
+  PASS      Normalized: Match! Max diff: 9.54e-07, Mean diff: 6.68e-08
 
-  â”œâ”€ Layer 16: FFN (Linear-ReLU-Linear)
+  ├─ Layer 16: FFN (Linear-ReLU-Linear)
      * Step 1: Linear expand (32 -> 128)
-  âœ“        Linear1: Match! Max difference: 4.47e-08
+  ✓        Linear1: Match! Max difference: 5.96e-08
      * Step 2: ReLU activation
-  âœ“        ReLU: Match! Max difference: 4.47e-08
+  ✓        ReLU: Match! Max difference: 4.47e-08
      * Step 3: Linear contract (128 -> 32)
-  âœ“        Linear2: Match! Max difference: 4.66e-09
+  ✓        Linear2: Match! Max difference: 5.59e-09
      * Residual connection
-  PASS      Final Output: Match! Max diff: 7.15e-07, Mean diff: 6.73e-08
+  PASS      Final Output: Match! Max diff: 9.54e-07, Mean diff: 6.70e-08
 
-  â””â”€ Layer 17: LayerNorm (Final)
-  PASS      Final Normalized: Match! Max diff: 7.15e-07, Mean diff: 7.55e-08
+  └─ Layer 17: LayerNorm (Final)
+  PASS      Final Normalized: Match! Max diff: 9.54e-07, Mean diff: 7.60e-08
 
   ENCODER COMPLETE: 2 layers processed
   Final BEV features: torch.Size([1, 200, 32]) [B, bev_h*bev_w, 32]
@@ -243,7 +236,7 @@ MapTracker Architecture Layer-by-Layer Validation
     Encoder output: [1, 200, 32] (from Stage 0)
     Reshape + Permute -> torch.Size([1, 32, 20, 10]) [B, C, H, W]
     BEV grid: 20 x 10 = 200 cells
-  PASS BEV Input (from encoder): Match! Max diff: 7.15e-07, Mean diff: 7.55e-08
+  PASS BEV Input (from encoder): Match! Max diff: 9.54e-07, Mean diff: 7.60e-08
 
   ===========================================================================
   STAGE 2: BEV BACKBONE (BEVFormerBackbone)
@@ -280,23 +273,23 @@ MapTracker Architecture Layer-by-Layer Validation
   ---------------------------------------------------------------------------
     Conv2d: [1, 32, 20, 10] -> [1, 32, 20, 10]
     ReLU applied
-  PASS SegHead Conv_in + ReLU: Match! Max diff: 4.17e-07, Mean diff: 2.38e-08
+  PASS SegHead Conv_in + ReLU: Match! Max diff: 3.87e-07, Mean diff: 2.39e-08
 
   Layer 23: Upsample(2x) + Conv2d(3x3) + bias + ReLU
   ---------------------------------------------------------------------------
     Upsample: [1, 32, 20, 10] -> [1, 32, 40, 20]
     Conv2d(3x3) + bias + ReLU
-  PASS SegHead Upsample+Conv: Match! Max diff: 5.59e-08, Mean diff: 3.61e-09
+  PASS SegHead Upsample+Conv: Match! Max diff: 5.96e-08, Mean diff: 3.73e-09
 
   Layer 24: Conv2d(1x1) + bias -> Segmentation Predictions
   ---------------------------------------------------------------------------
     Conv2d(1x1): [1, 32, 40, 20] -> [1, 3, 40, 20]
-  PASS SegHead Predictions: Match! Max diff: 1.86e-09, Mean diff: 3.17e-10
+  PASS SegHead Predictions: Match! Max diff: 1.86e-09, Mean diff: 3.32e-10
 
   Layer 25: Downsample(0.5x) -> seg_feats
   ---------------------------------------------------------------------------
     Bilinear downsample: [1, 32, 40, 20] -> torch.Size([1, 32, 20, 10])
-  PASS SegHead Features: Match! Max diff: 8.57e-08, Mean diff: 4.76e-09
+  PASS SegHead Features: Match! Max diff: 9.31e-08, Mean diff: 4.85e-09
 
   ===========================================================================
   STAGE 4: VECTOR MAP DETECTION HEAD (MapDetectorHead)
@@ -305,20 +298,20 @@ MapTracker Architecture Layer-by-Layer Validation
   Layer 26: Input Projection Conv2d(1x1) + bias
   ---------------------------------------------------------------------------
     Conv2d(1x1): [1, 32, 20, 10] -> [1, 32, 20, 10]
-  PASS Input Projection: Match! Max diff: 4.47e-08, Mean diff: 6.47e-09
+  PASS Input Projection: Match! Max diff: 5.22e-08, Mean diff: 6.50e-09
 
   Layer 27: BEV Sine Positional Embedding + Add
   ---------------------------------------------------------------------------
     Positional encoding: (1, 32, 20, 10)
     Add to projected BEV -> torch.Size([1, 32, 20, 10])
-  PASS BEV + PosEmbed: Match! Max diff: 1.19e-07, Mean diff: 6.54e-09
+  PASS BEV + PosEmbed: Match! Max diff: 1.19e-07, Mean diff: 6.66e-09
 
   Layer 28: Flatten BEV for Decoder
   ---------------------------------------------------------------------------
     Reshape [1, 32, 20, 10] -> [1, 32, 200]
     Permute -> [1, 200, 32]
     Permute -> [200, 1, 32] (sequence-first for attention)
-  PASS BEV Flattened: Match! Max diff: 1.19e-07, Mean diff: 6.54e-09
+  PASS BEV Flattened: Match! Max diff: 1.19e-07, Mean diff: 6.66e-09
 
   Layer 29: Query Initialization (Embedding + Ref Points)
   ---------------------------------------------------------------------------
@@ -326,7 +319,7 @@ MapTracker Architecture Layer-by-Layer Validation
     Reference points Linear(32->10) + Sigmoid -> Reshape
     Reference points: torch.Size([1, 10, 5, 2])
   PASS Query Embedding: Match! Max diff: 0.00e+00, Mean diff: 0.00e+00
-  PASS Reference Points: Match! Max diff: 5.96e-08, Mean diff: 8.94e-09
+  PASS Reference Points: Match! Max diff: 5.96e-08, Mean diff: 5.96e-10
 
   ===========================================================================
   STAGE 5: TRANSFORMER DECODER (2 layers)
@@ -335,19 +328,19 @@ MapTracker Architecture Layer-by-Layer Validation
   Then: RegressionBranch + ClassificationBranch
 
 
-  â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  ───────────────────────────────────────────────────────────────────────────
   DECODER LAYER 1/2
-  â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  ───────────────────────────────────────────────────────────────────────────
 
   |-- Layer 30: Self-Attention (MultiheadAttention)
-     * Q,K,V projections: Linear(32->32) Ã— 3
+     * Q,K,V projections: Linear(32->32) × 3
      * Reshape -> 8 heads x 4 head_dim
      * MatMul(Q, K^T) / sqrt(4) -> Softmax -> MatMul(attn, V)
      * Output projection + residual
-  PASS      Self-Attn Output: Match! Max diff: 3.73e-09, Mean diff: 3.06e-11
+  PASS      Self-Attn Output: Match! Max diff: 4.66e-10, Mean diff: 1.46e-12
 
   |-- Layer 31: LayerNorm
-  PASS      LayerNorm: Match! Max diff: 4.77e-07, Mean diff: 5.58e-08
+  PASS      LayerNorm: Match! Max diff: 2.38e-07, Mean diff: 3.09e-08
 
   |-- Layer 32: Cross-Attention (Deformable Attention to BEV)
      * Value projection: Linear(32->32)
@@ -355,10 +348,10 @@ MapTracker Architecture Layer-by-Layer Validation
      * Attention weights: Linear(32->32) + Softmax
      * Deformable sampling from BEV [200, 32]
      * Output projection + residual
-  PASS      Deformable Attn Output: Match! Max diff: 5.96e-07, Mean diff: 5.60e-08
+  PASS      Deformable Attn Output: Match! Max diff: 2.38e-07, Mean diff: 3.11e-08
 
   |-- Layer 33: LayerNorm
-  PASS      LayerNorm: Match! Max diff: 4.77e-07, Mean diff: 5.53e-08
+  PASS      LayerNorm: Match! Max diff: 2.38e-07, Mean diff: 4.95e-08
 
   |-- Layer 34: Memory Cross-Attention (Frame 0: ACTIVE)
      * Pre-populated memory: 1 track(s), mem_len=10
@@ -367,42 +360,42 @@ MapTracker Architecture Layer-by-Layer Validation
      * V from memory: [1, 10, 32]
      * MHA per-track: Q,K,V proj -> 8 heads -> Softmax -> Output proj
      * Fusion: query_memory + query_bev (additive)
-  PASS      MemAttn Output: Match! Max diff: 4.77e-07, Mean diff: 5.53e-08
+  PASS      MemAttn Output: Match! Max diff: 2.38e-07, Mean diff: 4.95e-08
 
   |-- Layer 35: LayerNorm
-  PASS      LayerNorm: Match! Max diff: 4.77e-07, Mean diff: 5.00e-08
+  PASS      LayerNorm: Match! Max diff: 4.77e-07, Mean diff: 5.37e-08
 
   |-- Layer 36: FFN (Linear-ReLU-Linear + Residual)
      * Expansion: 32 -> 128 (ReLU) -> 32
-  PASS      FFN Output: Match! Max diff: 4.77e-07, Mean diff: 5.00e-08
+  PASS      FFN Output: Match! Max diff: 4.77e-07, Mean diff: 5.39e-08
 
   |-- Layer 37: LayerNorm (Final)
-  PASS      Final LayerNorm: Match! Max diff: 4.77e-07, Mean diff: 6.07e-08
+  PASS      Final LayerNorm: Match! Max diff: 4.77e-07, Mean diff: 6.24e-08
 
   |-- Layer 38: RegressionBranch
      * Linear(32->64) -> LN -> ReLU
      * Linear(64->64) -> LN -> ReLU
      * Linear(64->10) -> Sigmoid
      * Reference points: torch.Size([1, 10, 5, 2])
-  PASS      Regression Branch: Match! Max diff: 5.96e-08, Mean diff: 1.16e-08
+  PASS      Regression Branch: Match! Max diff: 5.96e-08, Mean diff: 3.58e-09
 
   |-- Layer 39: ClassificationBranch
      * Linear(32 -> 3)
-  PASS      Classification Branch: Match! Max diff: 1.49e-08, Mean diff: 4.34e-09
+  PASS      Classification Branch: Match! Max diff: 1.49e-08, Mean diff: 5.72e-09
 
-  â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  ───────────────────────────────────────────────────────────────────────────
   DECODER LAYER 2/2
-  â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  ───────────────────────────────────────────────────────────────────────────
 
   |-- Layer 40: Self-Attention (MultiheadAttention)
-     * Q,K,V projections: Linear(32->32) Ã— 3
+     * Q,K,V projections: Linear(32->32) × 3
      * Reshape -> 8 heads x 4 head_dim
      * MatMul(Q, K^T) / sqrt(4) -> Softmax -> MatMul(attn, V)
      * Output projection + residual
-  PASS      Self-Attn Output: Match! Max diff: 4.77e-07, Mean diff: 6.10e-08
+  PASS      Self-Attn Output: Match! Max diff: 4.77e-07, Mean diff: 6.26e-08
 
   |-- Layer 41: LayerNorm
-  PASS      LayerNorm: Match! Max diff: 4.77e-07, Mean diff: 8.07e-08
+  PASS      LayerNorm: Match! Max diff: 4.77e-07, Mean diff: 8.53e-08
 
   |-- Layer 42: Cross-Attention (Deformable Attention to BEV)
      * Value projection: Linear(32->32)
@@ -410,10 +403,10 @@ MapTracker Architecture Layer-by-Layer Validation
      * Attention weights: Linear(32->32) + Softmax
      * Deformable sampling from BEV [200, 32]
      * Output projection + residual
-  PASS      Deformable Attn Output: Match! Max diff: 4.77e-07, Mean diff: 8.04e-08
+  PASS      Deformable Attn Output: Match! Max diff: 4.77e-07, Mean diff: 8.40e-08
 
   |-- Layer 43: LayerNorm
-  PASS      LayerNorm: Match! Max diff: 4.77e-07, Mean diff: 7.55e-08
+  PASS      LayerNorm: Match! Max diff: 4.77e-07, Mean diff: 8.78e-08
 
   |-- Layer 44: Memory Cross-Attention (Frame 0: ACTIVE)
      * Pre-populated memory: 1 track(s), mem_len=10
@@ -422,34 +415,34 @@ MapTracker Architecture Layer-by-Layer Validation
      * V from memory: [1, 10, 32]
      * MHA per-track: Q,K,V proj -> 8 heads -> Softmax -> Output proj
      * Fusion: query_memory + query_bev (additive)
-  PASS      MemAttn Output: Match! Max diff: 4.77e-07, Mean diff: 7.54e-08
+  PASS      MemAttn Output: Match! Max diff: 4.77e-07, Mean diff: 8.79e-08
 
   |-- Layer 45: LayerNorm
-  PASS      LayerNorm: Match! Max diff: 4.77e-07, Mean diff: 7.90e-08
+  PASS      LayerNorm: Match! Max diff: 4.77e-07, Mean diff: 8.97e-08
 
   |-- Layer 46: FFN (Linear-ReLU-Linear + Residual)
      * Expansion: 32 -> 128 (ReLU) -> 32
-  PASS      FFN Output: Match! Max diff: 4.77e-07, Mean diff: 7.89e-08
+  PASS      FFN Output: Match! Max diff: 4.77e-07, Mean diff: 9.02e-08
 
   |-- Layer 47: LayerNorm (Final)
-  PASS      Final LayerNorm: Match! Max diff: 4.77e-07, Mean diff: 8.15e-08
+  PASS      Final LayerNorm: Match! Max diff: 4.77e-07, Mean diff: 9.79e-08
 
   |-- Layer 48: RegressionBranch
      * Linear(32->64) -> LN -> ReLU
      * Linear(64->64) -> LN -> ReLU
      * Linear(64->10) -> Sigmoid
      * Reference points: torch.Size([1, 10, 5, 2])
-  PASS      Regression Branch: Match! Max diff: 5.96e-08, Mean diff: 1.13e-08
+  PASS      Regression Branch: Match! Max diff: 5.96e-08, Mean diff: 4.77e-09
 
   |-- Layer 49: ClassificationBranch
      * Linear(32 -> 3)
-  PASS      Classification Branch: Match! Max diff: 2.24e-08, Mean diff: 4.08e-09
+  PASS      Classification Branch: Match! Max diff: 1.49e-08, Mean diff: 5.06e-09
 
   ===========================================================================
   DECODER COMPLETE: 2 layers processed
   Final query features: torch.Size([10, 1, 32])
-  PASS All Cls Scores (stacked): Match! Max diff: 2.24e-08, Mean diff: 4.21e-09
-  PASS All Reg Points (stacked): Match! Max diff: 5.96e-08, Mean diff: 1.15e-08
+  PASS All Cls Scores (stacked): Match! Max diff: 1.49e-08, Mean diff: 5.39e-09
+  PASS All Reg Points (stacked): Match! Max diff: 5.96e-08, Mean diff: 4.17e-09
 
   ===========================================================================
   STAGE 6: QUERY PROPAGATION (MotionMLP)
@@ -459,14 +452,14 @@ MapTracker Architecture Layer-by-Layer Validation
   ---------------------------------------------------------------------------
     Pose: [10, 7] -> [10, 147]
     10 frequency bands: sin/cos encoding
-  PASS Embedder Output: Match! Max diff: 5.96e-08, Mean diff: 6.50e-09
+  PASS Embedder Output: Match! Max diff: 5.96e-08, Mean diff: 6.99e-09
 
   Layer 51: MotionMLP (Concat -> Linear -> LN -> ReLU -> Linear + Residual)
   ---------------------------------------------------------------------------
     Concat: [10, 32] + [10, 147] -> [10, 179]
     Linear(179->64) -> LN -> ReLU
     Linear(64->32) + Residual
-  PASS MotionMLP Output: Match! Max diff: 2.38e-07, Mean diff: 5.58e-09
+  PASS MotionMLP Output: Match! Max diff: 1.19e-07, Mean diff: 7.49e-09
 
   ===========================================================================
   STAGE 7: POST-PROCESSING
@@ -476,7 +469,7 @@ MapTracker Architecture Layer-by-Layer Validation
   ---------------------------------------------------------------------------
     Cls scores: (1, 10, 3) -> Sigmoid -> Max
     Scores: torch.Size([1, 10]), Labels: torch.Size([1, 10])
-  PASS Scores (sigmoid+max): Match! Max diff: 5.96e-08, Mean diff: 5.96e-09
+  PASS Scores (sigmoid+max): Match! Max diff: 0.00e+00, Mean diff: 0.00e+00
   PASS Labels (argmax): Match! Max diff: 0.00e+00, Mean diff: 0.00e+00
     Seg preds: [3, 40, 20] -> ArgMax -> Semantic mask
   PASS Semantic Mask: Match! Max diff: 0.00e+00, Mean diff: 0.00e+00
@@ -510,9 +503,9 @@ MapTracker Architecture Layer-by-Layer Validation
     Interleave sin/cos -> [100, 32] -> slice to [100, 32]
   PASS PE Table: Match! Max diff: 0.00e+00, Mean diff: 0.00e+00
 
-  â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  ───────────────────────────────────────────────────────────────────────────
   FRAME 1/2
-  â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  ───────────────────────────────────────────────────────────────────────────
 
   Layer 55: Ego-Motion Warp Grid (Frame 1)
   ---------------------------------------------------------------------------
@@ -539,14 +532,14 @@ MapTracker Architecture Layer-by-Layer Validation
   ---------------------------------------------------------------------------
     BEV [1,32,20,10] -> Conv->ReLU->Up->Conv->ReLU->Conv
     Seg preds: torch.Size([1, 3, 40, 20])
-  PASS SegHead Preds: Match! Max diff: 1.86e-09, Mean diff: 3.26e-10
+  PASS SegHead Preds: Match! Max diff: 2.27e-09, Mean diff: 3.28e-10
 
   Layer 59: Query Propagation via MotionMLP (Frame 1)
   ---------------------------------------------------------------------------
     Pose: quat=[0,0,0,1] + delta_t=[5. 0. 0.]
     Embedder: [10, 7] -> [10, 147]
     MLP: [10, 179] -> [10, 32]
-  PASS MotionMLP Propagation: Match! Max diff: 1.19e-07, Mean diff: 5.01e-09
+  PASS MotionMLP Propagation: Match! Max diff: 2.38e-07, Mean diff: 6.33e-09
 
   Running Decoder for Frame 1 (Memory Cross-Attn ACTIVE)...
 
@@ -556,7 +549,7 @@ MapTracker Architecture Layer-by-Layer Validation
      * K = memory + relative_PE(gap=1): [1, 10, 32]
      * V from memory (prev frame): [1, 10, 32]
      * MHA: Q,K,V proj -> 8 heads -> Softmax -> Output proj
-  PASS      MemAttn Output: Match! Max diff: 4.77e-07, Mean diff: 4.87e-08
+  PASS      MemAttn Output: Match! Max diff: 2.38e-07, Mean diff: 4.81e-08
 
   |-- Layer 61: Memory Cross-Attention (ACTIVE, Decoder L2, Frame 1)
      + Relative Temporal PE added to memory keys
@@ -564,19 +557,19 @@ MapTracker Architecture Layer-by-Layer Validation
      * K = memory + relative_PE(gap=1): [1, 10, 32]
      * V from memory (prev frame): [1, 10, 32]
      * MHA: Q,K,V proj -> 8 heads -> Softmax -> Output proj
-  PASS      MemAttn Output: Match! Max diff: 4.77e-07, Mean diff: 8.25e-08
+  PASS      MemAttn Output: Match! Max diff: 4.77e-07, Mean diff: 7.99e-08
 
   Layer 62: Frame 1 Decoder Output Validation
   ---------------------------------------------------------------------------
-  PASS Decoder Output F1: Match! Max diff: 7.15e-07, Mean diff: 9.53e-08
-  PASS Cls Scores F1: Match! Max diff: 2.24e-08, Mean diff: 6.75e-09
-  PASS Reg Points F1: Match! Max diff: 5.96e-08, Mean diff: 9.69e-09
+  PASS Decoder Output F1: Match! Max diff: 5.96e-07, Mean diff: 9.60e-08
+  PASS Cls Scores F1: Match! Max diff: 2.98e-08, Mean diff: 7.20e-09
+  PASS Reg Points F1: Match! Max diff: 5.96e-08, Mean diff: 3.87e-09
     Decoder queries: torch.Size([10, 1, 32])
     Cls: (2, 1, 10, 3), Reg: (2, 1, 10, 5, 2)
 
-  â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  ───────────────────────────────────────────────────────────────────────────
   FRAME 2/2
-  â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  ───────────────────────────────────────────────────────────────────────────
 
   Layer 63: Ego-Motion Warp Grid (Frame 2)
   ---------------------------------------------------------------------------
@@ -603,14 +596,14 @@ MapTracker Architecture Layer-by-Layer Validation
   ---------------------------------------------------------------------------
     BEV [1,32,20,10] -> Conv->ReLU->Up->Conv->ReLU->Conv
     Seg preds: torch.Size([1, 3, 40, 20])
-  PASS SegHead Preds: Match! Max diff: 1.86e-09, Mean diff: 2.97e-10
+  PASS SegHead Preds: Match! Max diff: 1.86e-09, Mean diff: 3.08e-10
 
   Layer 67: Query Propagation via MotionMLP (Frame 2)
   ---------------------------------------------------------------------------
     Pose: quat=[0,0,0,1] + delta_t=[5. 0. 0.]
     Embedder: [10, 7] -> [10, 147]
     MLP: [10, 179] -> [10, 32]
-  PASS MotionMLP Propagation: Match! Max diff: 1.19e-07, Mean diff: 3.61e-09
+  PASS MotionMLP Propagation: Match! Max diff: 1.19e-07, Mean diff: 5.63e-09
 
   Running Decoder for Frame 2 (Memory Cross-Attn ACTIVE)...
 
@@ -620,7 +613,7 @@ MapTracker Architecture Layer-by-Layer Validation
      * K = memory + relative_PE(gap=1): [1, 10, 32]
      * V from memory (prev frame): [1, 10, 32]
      * MHA: Q,K,V proj -> 8 heads -> Softmax -> Output proj
-  PASS      MemAttn Output: Match! Max diff: 4.77e-07, Mean diff: 5.59e-08
+  PASS      MemAttn Output: Match! Max diff: 2.38e-07, Mean diff: 4.19e-08
 
   |-- Layer 69: Memory Cross-Attention (ACTIVE, Decoder L2, Frame 2)
      + Relative Temporal PE added to memory keys
@@ -628,22 +621,22 @@ MapTracker Architecture Layer-by-Layer Validation
      * K = memory + relative_PE(gap=1): [1, 10, 32]
      * V from memory (prev frame): [1, 10, 32]
      * MHA: Q,K,V proj -> 8 heads -> Softmax -> Output proj
-  PASS      MemAttn Output: Match! Max diff: 4.77e-07, Mean diff: 8.14e-08
+  PASS      MemAttn Output: Match! Max diff: 4.77e-07, Mean diff: 7.61e-08
 
   Layer 70: Frame 2 Decoder Output Validation
   ---------------------------------------------------------------------------
-  PASS Decoder Output F2: Match! Max diff: 4.77e-07, Mean diff: 9.49e-08
-  PASS Cls Scores F2: Match! Max diff: 2.98e-08, Mean diff: 6.79e-09
-  PASS Reg Points F2: Match! Max diff: 5.96e-08, Mean diff: 8.64e-09
+  PASS Decoder Output F2: Match! Max diff: 5.96e-07, Mean diff: 9.03e-08
+  PASS Cls Scores F2: Match! Max diff: 2.24e-08, Mean diff: 6.70e-09
+  PASS Reg Points F2: Match! Max diff: 5.96e-08, Mean diff: 2.24e-09
     Decoder queries: torch.Size([10, 1, 32])
     Cls: (2, 1, 10, 3), Reg: (2, 1, 10, 5, 2)
 
-  â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  ───────────────────────────────────────────────────────────────────────────
   MULTI-FRAME SUMMARY: 3 frames processed
     Frame 0: decoder=torch.Size([10, 1, 32]), cls=(1, 10, 3), reg=torch.Size([1, 10, 5, 2])
     Frame 1: decoder=torch.Size([10, 1, 32]), cls=(1, 10, 3), reg=torch.Size([1, 10, 5, 2])
     Frame 2: decoder=torch.Size([10, 1, 32]), cls=(1, 10, 3), reg=torch.Size([1, 10, 5, 2])
-  â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  ───────────────────────────────────────────────────────────────────────────
 
   ===========================================================================
   COMPLETE MAPTRACKER PIPELINE:
@@ -762,7 +755,7 @@ MapTracker Architecture Layer-by-Layer Validation
   Layer 68: MemAttn L1 F2                       PASS       torch.Size([10, 1, 32])
   Layer 69: MemAttn L2 F2                       PASS       torch.Size([10, 1, 32])
   Layer 70: Decoder F2                          PASS       dec+cls+reg
-  Layer 71: Multi-Frame (3f)                    PASS       warp+fusion+memAttn+MLPÃ—2
+  Layer 71: Multi-Frame (3f)                    PASS       warp+fusion+memAttn+MLP×2
 
   73/73 components validated
   Total layers processed: 71
@@ -777,13 +770,6 @@ Layer-by-Layer Validation with TTSim........................ PASS
 Total: 1/1 tests passed
 
 All tests passed! TTSim computations match PyTorch!
-```
-
-### stderr
-
-```
-C:\Users\SaSagar\AppData\Local\miniforge3\envs\polaris\Lib\site-packages\requests\__init__.py:109: RequestsDependencyWarning: urllib3 (2.6.3) or chardet (None)/charset_normalizer (3.4.4) doesn't match a supported version!
-  warnings.warn(
 ```
 
 ---
@@ -844,7 +830,7 @@ TEST 1: PyTorch PositionalEncoding1D (reference)
     2.1492156e-04  1.0000000e+00]
   ...
   [ 6.5698659e-01  7.5390226e-01  2.2877480e-01 ...  9.9999970e-01
-    7.5222540e-04  9.9999970e-01]
+    7.5222540e-04  9.9999976e-01]
   [ 9.8935825e-01 -1.4550003e-01  9.1735768e-01 ...  9.9999958e-01
     8.5968612e-04  9.9999964e-01]
   [ 4.1211849e-01 -9.1113025e-01  8.6723864e-01 ...  9.9999946e-01
@@ -858,7 +844,7 @@ TEST 1: PyTorch PositionalEncoding1D (reference)
     2.1492156e-04  1.0000000e+00]
   ...
   [ 6.5698659e-01  7.5390226e-01  2.2877480e-01 ...  9.9999970e-01
-    7.5222540e-04  9.9999970e-01]
+    7.5222540e-04  9.9999976e-01]
   [ 9.8935825e-01 -1.4550003e-01  9.1735768e-01 ...  9.9999958e-01
     8.5968612e-04  9.9999964e-01]
   [ 4.1211849e-01 -9.1113025e-01  8.6723864e-01 ...  9.9999946e-01
@@ -871,35 +857,35 @@ TEST 1: PyTorch PositionalEncoding1D (reference)
 
 TEST 2: ttsim PositionalEncoding1D
 ----------------------------------------------------------------------
-  Input shape: [2, 10, 256]
-  Output shape: [2, 10, 256]
+  Input shape: Shape([2, 10, 256])
+  Output shape: Shape([2, 10, 256])
   Output values:
 [[[ 0.0000000e+00  1.0000000e+00  0.0000000e+00 ...  1.0000000e+00
     0.0000000e+00  1.0000000e+00]
-  [ 8.4147102e-01  5.4030228e-01  8.0196178e-01 ...  1.0000000e+00
+  [ 8.4147096e-01  5.4030234e-01  8.0196178e-01 ...  1.0000000e+00
     1.0746078e-04  1.0000000e+00]
-  [ 9.0929741e-01 -4.1614681e-01  9.5814437e-01 ...  1.0000000e+00
+  [ 9.0929741e-01 -4.1614684e-01  9.5814437e-01 ...  1.0000000e+00
     2.1492156e-04  1.0000000e+00]
   ...
-  [ 6.5698659e-01  7.5390226e-01  2.2877482e-01 ...  9.9999970e-01
-    7.5222540e-04  9.9999970e-01]
+  [ 6.5698659e-01  7.5390226e-01  2.2877480e-01 ...  9.9999970e-01
+    7.5222540e-04  9.9999976e-01]
   [ 9.8935825e-01 -1.4550003e-01  9.1735768e-01 ...  9.9999958e-01
     8.5968612e-04  9.9999964e-01]
-  [ 4.1211846e-01 -9.1113025e-01  8.6723864e-01 ...  9.9999946e-01
+  [ 4.1211849e-01 -9.1113025e-01  8.6723864e-01 ...  9.9999946e-01
     9.6714683e-04  9.9999952e-01]]
 
  [[ 0.0000000e+00  1.0000000e+00  0.0000000e+00 ...  1.0000000e+00
     0.0000000e+00  1.0000000e+00]
-  [ 8.4147102e-01  5.4030228e-01  8.0196178e-01 ...  1.0000000e+00
+  [ 8.4147096e-01  5.4030234e-01  8.0196178e-01 ...  1.0000000e+00
     1.0746078e-04  1.0000000e+00]
-  [ 9.0929741e-01 -4.1614681e-01  9.5814437e-01 ...  1.0000000e+00
+  [ 9.0929741e-01 -4.1614684e-01  9.5814437e-01 ...  1.0000000e+00
     2.1492156e-04  1.0000000e+00]
   ...
-  [ 6.5698659e-01  7.5390226e-01  2.2877482e-01 ...  9.9999970e-01
-    7.5222540e-04  9.9999970e-01]
+  [ 6.5698659e-01  7.5390226e-01  2.2877480e-01 ...  9.9999970e-01
+    7.5222540e-04  9.9999976e-01]
   [ 9.8935825e-01 -1.4550003e-01  9.1735768e-01 ...  9.9999958e-01
     8.5968612e-04  9.9999964e-01]
-  [ 4.1211846e-01 -9.1113025e-01  8.6723864e-01 ...  9.9999946e-01
+  [ 4.1211849e-01 -9.1113025e-01  8.6723864e-01 ...  9.9999946e-01
     9.6714683e-04  9.9999952e-01]]]
   Output .data is None? False
   [OK] SUCCESS: Output data was computed!
@@ -912,15 +898,15 @@ TEST 2: ttsim PositionalEncoding1D
 TEST 3: Numerical Comparison
 ----------------------------------------------------------------------
   Tolerance: atol=1e-06, rtol=1e-05
-  Max absolute difference: 0.0000000596
-  Mean absolute difference: 0.0000000028
+  Max absolute difference: 0.0000000000
+  Mean absolute difference: 0.0000000000
   Arrays match (allclose): True
   [PASS] ttsim matches PyTorch (within atol=1e-06, rtol=1e-05)
 
 TEST 4: Graph Connectivity (Sin/Cos interleaving via TTSim ops)
 ----------------------------------------------------------------------
   pe_table exists: True
-  pe_table shape: [1000, 256]
+  pe_table shape: Shape([1000, 256])
   pe_table.data is None? False
   pe_table[:, :org_channels] matches emb_cache: True
   [PASS] pe_table data matches emb_cache
@@ -931,13 +917,6 @@ TEST 4: Graph Connectivity (Sin/Cos interleaving via TTSim ops)
 ======================================================================
 Test Complete!
 ======================================================================
-```
-
-### stderr
-
-```
-C:\Users\SaSagar\AppData\Local\miniforge3\envs\polaris\Lib\site-packages\requests\__init__.py:109: RequestsDependencyWarning: urllib3 (2.6.3) or chardet (None)/charset_normalizer (3.4.4) doesn't match a supported version!
-  warnings.warn(
 ```
 
 ---
@@ -958,7 +937,7 @@ ins=64, outs=128, h=8, w=10
 PyTorch Implementation
 --------------------------------------------------------------------------------
 PyTorch output shape: torch.Size([2, 128, 16, 20])
-PyTorch output range: [0.000000, 3.252456]
+PyTorch output range: [0.000000, 3.252455]
 tensor([[[[0.0000e+00, 2.7798e-01, 5.5596e-01,  ..., 0.0000e+00,
            0.0000e+00, 0.0000e+00],
           [2.5709e-01, 2.8357e-01, 3.1004e-01,  ..., 2.7762e-01,
@@ -980,16 +959,16 @@ tensor([[[[0.0000e+00, 2.7798e-01, 5.5596e-01,  ..., 0.0000e+00,
           [6.9803e-02, 4.9134e-02, 2.8466e-02,  ..., 0.0000e+00,
            0.0000e+00, 0.0000e+00],
           ...,
-          [4.5623e-01, 7.3180e-01, 1.0074e+00,  ..., 6.0047e-02,
+          [4.5622e-01, 7.3180e-01, 1.0074e+00,  ..., 6.0047e-02,
            5.8459e-01, 1.1091e+00],
           [4.2572e-01, 4.6990e-01, 5.1408e-01,  ..., 5.4811e-02,
            4.2102e-01, 7.8723e-01],
-          [3.9521e-01, 2.0800e-01, 2.0800e-02,  ..., 4.9575e-02,
+          [3.9521e-01, 2.0800e-01, 2.0800e-02,  ..., 4.9576e-02,
            2.5745e-01, 4.6532e-01]],
 
          [[2.5208e-01, 9.7745e-01, 1.7028e+00,  ..., 6.9289e-01,
            3.4644e-01, 0.0000e+00],
-          [3.0399e-01, 7.2773e-01, 1.1515e+00,  ..., 3.8625e-01,
+          [3.0399e-01, 7.2774e-01, 1.1515e+00,  ..., 3.8625e-01,
            3.5184e-01, 3.1744e-01],
           [3.5591e-01, 4.7802e-01, 6.0013e-01,  ..., 7.9607e-02,
            3.5724e-01, 6.3488e-01],
@@ -1003,14 +982,14 @@ tensor([[[[0.0000e+00, 2.7798e-01, 5.5596e-01,  ..., 0.0000e+00,
 
          ...,
 
-         [[0.0000e+00, 1.3155e-01, 2.6309e-01,  ..., 3.8772e-02,
+         [[0.0000e+00, 1.3155e-01, 2.6310e-01,  ..., 3.8772e-02,
            3.8772e-01, 7.3666e-01],
           [0.0000e+00, 1.4765e-01, 2.9529e-01,  ..., 2.0678e-02,
            2.0678e-01, 3.9289e-01],
           [0.0000e+00, 1.6374e-01, 3.2749e-01,  ..., 2.5848e-03,
            2.5848e-02, 4.9111e-02],
           ...,
-          [4.5966e-02, 3.4074e-02, 2.2182e-02,  ..., 7.6294e-02,
+          [4.5966e-02, 3.4074e-02, 2.2181e-02,  ..., 7.6294e-02,
            3.6421e-01, 6.5212e-01],
           [3.6773e-01, 1.9848e-01, 2.9235e-02,  ..., 3.5293e-01,
            3.3950e-01, 3.2606e-01],
@@ -1031,7 +1010,7 @@ tensor([[[[0.0000e+00, 2.7798e-01, 5.5596e-01,  ..., 0.0000e+00,
           [0.0000e+00, 5.2073e-01, 1.0415e+00,  ..., 1.2451e+00,
            1.3038e+00, 1.3626e+00]],
 
-         [[4.2636e-01, 6.6994e-01, 9.1351e-01,  ..., 4.6027e-01,
+         [[4.2636e-01, 6.6993e-01, 9.1351e-01,  ..., 4.6027e-01,
            4.2404e-01, 3.8781e-01],
           [2.2739e-01, 4.2374e-01, 6.2010e-01,  ..., 2.5073e-01,
            2.7871e-01, 3.0669e-01],
@@ -1078,7 +1057,7 @@ tensor([[[[0.0000e+00, 2.7798e-01, 5.5596e-01,  ..., 0.0000e+00,
            3.8820e-01, 3.4338e-01],
           [0.0000e+00, 1.5526e-01, 3.1051e-01,  ..., 6.2103e-01,
            5.0216e-01, 3.8329e-01],
-          [0.0000e+00, 3.1051e-01, 6.2102e-01,  ..., 8.0903e-01,
+          [0.0000e+00, 3.1051e-01, 6.2103e-01,  ..., 8.0903e-01,
            6.1612e-01, 4.2321e-01],
           ...,
           [0.0000e+00, 3.0566e-02, 6.1132e-02,  ..., 2.0739e-01,
@@ -1114,7 +1093,7 @@ tensor([[[[0.0000e+00, 2.7798e-01, 5.5596e-01,  ..., 0.0000e+00,
           [1.7655e-01, 1.6846e-01, 1.6037e-01,  ..., 3.0521e-01,
            1.7609e-01, 4.6977e-02],
           [4.3368e-01, 2.6602e-01, 9.8362e-02,  ..., 2.2890e-01,
-           1.2619e-01, 2.3489e-02],
+           1.2619e-01, 2.3488e-02],
           [6.9080e-01, 3.6358e-01, 3.6358e-02,  ..., 1.5258e-01,
            7.6291e-02, 0.0000e+00]],
 
@@ -1130,7 +1109,7 @@ tensor([[[[0.0000e+00, 2.7798e-01, 5.5596e-01,  ..., 0.0000e+00,
           [2.2534e-01, 4.2660e-01, 6.2786e-01,  ..., 6.3036e-01,
            3.1518e-01, 0.0000e+00],
           [0.0000e+00, 5.7750e-01, 1.1550e+00,  ..., 1.1819e+00,
-           5.9096e-01, 0.0000e+00]]]])
+           5.9097e-01, 0.0000e+00]]]])
 
 --------------------------------------------------------------------------------
 ttsim Implementation
@@ -1142,111 +1121,111 @@ ttsim output shape: (2, 128, 16, 20)
 ttsim output range: [0.000000, 3.252455]
 [[[[0.00000000e+00 2.77979076e-01 5.55958152e-01 ... 0.00000000e+00
     0.00000000e+00 0.00000000e+00]
-   [2.57090986e-01 2.83566564e-01 3.10042143e-01 ... 2.77620614e-01
-    1.72540739e-01 6.74608499e-02]
-   [5.14181972e-01 2.89154053e-01 6.41260892e-02 ... 5.55241227e-01
-    3.45081478e-01 1.34921700e-01]
+   [2.57090867e-01 2.83566505e-01 3.10042113e-01 ... 2.77620673e-01
+    1.72540754e-01 6.74608052e-02]
+   [5.14181733e-01 2.89153934e-01 6.41260743e-02 ... 5.55241346e-01
+    3.45081508e-01 1.34921610e-01]
    ...
-   [1.07494116e-01 4.58851784e-01 8.10209453e-01 ... 1.82733321e+00
-    9.13666606e-01 0.00000000e+00]
-   [8.59952927e-01 6.53744817e-01 4.47536588e-01 ... 1.05786884e+00
-    5.28934419e-01 0.00000000e+00]
-   [1.61241162e+00 8.48637700e-01 8.48637670e-02 ... 2.88404465e-01
+   [1.07494108e-01 4.58851635e-01 8.10209155e-01 ... 1.82733297e+00
+    9.13666487e-01 0.00000000e+00]
+   [8.59952867e-01 6.53744698e-01 4.47536439e-01 ... 1.05786872e+00
+    5.28934360e-01 0.00000000e+00]
+   [1.61241150e+00 8.48637640e-01 8.48637670e-02 ... 2.88404465e-01
     1.44202232e-01 0.00000000e+00]]
 
-  [[1.04704094e+00 7.37014294e-01 4.26987559e-01 ... 0.00000000e+00
+  [[1.04704094e+00 7.37014294e-01 4.26987618e-01 ... 0.00000000e+00
     0.00000000e+00 0.00000000e+00]
-   [5.58421850e-01 3.93074274e-01 2.27726713e-01 ... 0.00000000e+00
+   [5.58421850e-01 3.93074304e-01 2.27726743e-01 ... 0.00000000e+00
     0.00000000e+00 0.00000000e+00]
-   [6.98027313e-02 4.91342843e-02 2.84658391e-02 ... 0.00000000e+00
+   [6.98027313e-02 4.91342880e-02 2.84658428e-02 ... 0.00000000e+00
     0.00000000e+00 0.00000000e+00]
    ...
-   [4.56225276e-01 7.31795967e-01 1.00736654e+00 ... 6.00474738e-02
-    5.84587753e-01 1.10912800e+00]
-   [4.25715983e-01 4.69899744e-01 5.14083445e-01 ... 5.48114106e-02
-    4.21018422e-01 7.87225485e-01]
-   [3.95206660e-01 2.08003506e-01 2.08003502e-02 ... 4.95753512e-02
-    2.57449090e-01 4.65322852e-01]]
+   [4.56225276e-01 7.31796205e-01 1.00736701e+00 ... 6.00474887e-02
+    5.84587872e-01 1.10912824e+00]
+   [4.25716013e-01 4.69899893e-01 5.14083683e-01 ... 5.48114814e-02
+    4.21018600e-01 7.87225664e-01]
+   [3.95206720e-01 2.08003551e-01 2.08003540e-02 ... 4.95754704e-02
+    2.57449299e-01 4.65323091e-01]]
 
-  [[2.52077073e-01 9.77449894e-01 1.70282269e+00 ... 6.92885101e-01
-    3.46442550e-01 0.00000000e+00]
-   [3.03992331e-01 7.27734745e-01 1.15147710e+00 ... 3.86246026e-01
-    3.51842523e-01 3.17438990e-01]
-   [3.55907619e-01 4.78019476e-01 6.00131333e-01 ... 7.96069726e-02
-    3.57242495e-01 6.34877980e-01]
+  [[2.52077132e-01 9.77450073e-01 1.70282292e+00 ... 6.92885041e-01
+    3.46442521e-01 0.00000000e+00]
+   [3.03992271e-01 7.27734864e-01 1.15147746e+00 ... 3.86246026e-01
+    3.51842523e-01 3.17439049e-01]
+   [3.55907440e-01 4.78019536e-01 6.00131631e-01 ... 7.96069726e-02
+    3.57242554e-01 6.34878099e-01]
    ...
-   [4.58335094e-02 3.66143703e-01 6.86453938e-01 ... 2.11175680e+00
+   [4.58335094e-02 3.66143614e-01 6.86453760e-01 ... 2.11175680e+00
     1.05587840e+00 0.00000000e+00]
-   [3.66668075e-01 3.63993615e-01 3.61319125e-01 ... 1.43308318e+00
+   [3.66668075e-01 3.63993585e-01 3.61319035e-01 ... 1.43308318e+00
     7.16541588e-01 0.00000000e+00]
-   [6.87502623e-01 3.61843497e-01 3.61843482e-02 ... 7.54409552e-01
-    3.77204776e-01 0.00000000e+00]]
+   [6.87502623e-01 3.61843497e-01 3.61843482e-02 ... 7.54409432e-01
+    3.77204716e-01 0.00000000e+00]]
 
   ...
 
-  [[0.00000000e+00 1.31547436e-01 2.63094872e-01 ... 3.87716740e-02
-    3.87716740e-01 7.36661792e-01]
-   [0.00000000e+00 1.47645727e-01 2.95291454e-01 ... 2.06782278e-02
-    2.06782281e-01 3.92886311e-01]
-   [0.00000000e+00 1.63744003e-01 3.27488005e-01 ... 2.58477847e-03
-    2.58477852e-02 4.91107889e-02]
+  [[0.00000000e+00 1.31547511e-01 2.63095021e-01 ... 3.87716629e-02
+    3.87716651e-01 7.36661613e-01]
+   [0.00000000e+00 1.47645742e-01 2.95291483e-01 ... 2.06782222e-02
+    2.06782222e-01 3.92886221e-01]
+   [0.00000000e+00 1.63743973e-01 3.27487946e-01 ... 2.58477777e-03
+    2.58477777e-02 4.91107777e-02]
    ...
-   [4.59660999e-02 3.40737253e-02 2.21813470e-02 ... 7.62937739e-02
-    3.64208847e-01 6.52123928e-01]
-   [3.67728800e-01 1.98482007e-01 2.92351879e-02 ... 3.52932841e-01
-    3.39497387e-01 3.26061964e-01]
-   [6.89491451e-01 3.62890244e-01 3.62890251e-02 ... 6.29571855e-01
-    3.14785928e-01 0.00000000e+00]]
+   [4.59660999e-02 3.40738446e-02 2.21815854e-02 ... 7.62937963e-02
+    3.64209086e-01 6.52124345e-01]
+   [3.67728800e-01 1.98482066e-01 2.92353071e-02 ... 3.52932870e-01
+    3.39497536e-01 3.26062173e-01]
+   [6.89491451e-01 3.62890244e-01 3.62890251e-02 ... 6.29571974e-01
+    3.14785987e-01 0.00000000e+00]]
 
-  [[0.00000000e+00 0.00000000e+00 0.00000000e+00 ... 4.75019962e-01
-    2.37509981e-01 0.00000000e+00]
-   [5.60278893e-01 3.07234734e-01 5.41905612e-02 ... 6.10833883e-01
-    3.05416942e-01 0.00000000e+00]
-   [1.12055779e+00 6.14469469e-01 1.08381122e-01 ... 7.46647716e-01
-    3.73323858e-01 0.00000000e+00]
+  [[0.00000000e+00 0.00000000e+00 0.00000000e+00 ... 4.75019902e-01
+    2.37509951e-01 0.00000000e+00]
+   [5.60279012e-01 3.07234794e-01 5.41905388e-02 ... 6.10833704e-01
+    3.05416852e-01 0.00000000e+00]
+   [1.12055802e+00 6.14469588e-01 1.08381078e-01 ... 7.46647477e-01
+    3.73323739e-01 0.00000000e+00]
    ...
-   [4.99151736e-01 2.97427058e-01 9.57024172e-02 ... 8.30045119e-02
-    8.69223028e-02 9.08401012e-02]
-   [2.49575868e-01 4.09080803e-01 5.68585753e-01 ... 6.64036095e-01
-    6.95378423e-01 7.26720810e-01]
-   [0.00000000e+00 5.20734489e-01 1.04146898e+00 ... 1.24506760e+00
-    1.30383456e+00 1.36260140e+00]]
+   [4.99151289e-01 2.97426879e-01 9.57023948e-02 ... 8.30044895e-02
+    8.69222879e-02 9.08400714e-02]
+   [2.49575645e-01 4.09080714e-01 5.68585753e-01 ... 6.64035916e-01
+    6.95378304e-01 7.26720572e-01]
+   [0.00000000e+00 5.20734489e-01 1.04146898e+00 ... 1.24506736e+00
+    1.30383420e+00 1.36260104e+00]]
 
-  [[4.26361382e-01 6.69934988e-01 9.13508594e-01 ... 4.60269481e-01
-    4.24041480e-01 3.87813449e-01]
-   [2.27392748e-01 4.23744708e-01 6.20096684e-01 ... 2.50732660e-01
-    2.78711408e-01 3.06690156e-01]
-   [2.84240935e-02 1.77554399e-01 3.26684684e-01 ... 4.11958247e-02
-    1.33381337e-01 2.25566834e-01]
+  [[4.26361203e-01 6.69934869e-01 9.13508534e-01 ... 4.60269183e-01
+    4.24041331e-01 3.87813449e-01]
+   [2.27392659e-01 4.23744619e-01 6.20096564e-01 ... 2.50732511e-01
+    2.78711319e-01 3.06690097e-01]
+   [2.84240823e-02 1.77554294e-01 3.26684505e-01 ... 4.11957987e-02
+    1.33381277e-01 2.25566745e-01]
    ...
-   [0.00000000e+00 5.27992547e-01 1.05598509e+00 ... 1.93269327e-02
-    1.93269342e-01 3.67211699e-01]
-   [0.00000000e+00 4.53891993e-01 9.07783985e-01 ... 3.72137949e-02
-    3.72137964e-01 7.07062066e-01]
-   [0.00000000e+00 3.79791379e-01 7.59582758e-01 ... 5.51006533e-02
-    5.51006556e-01 1.04691243e+00]]]
+   [0.00000000e+00 5.27992666e-01 1.05598533e+00 ... 1.93269327e-02
+    1.93269342e-01 3.67211729e-01]
+   [0.00000000e+00 4.53892052e-01 9.07784104e-01 ... 3.72137912e-02
+    3.72137934e-01 7.07062006e-01]
+   [0.00000000e+00 3.79791379e-01 7.59582758e-01 ... 5.51006496e-02
+    5.51006496e-01 1.04691231e+00]]]
 
 
  [[[0.00000000e+00 0.00000000e+00 0.00000000e+00 ... 0.00000000e+00
     0.00000000e+00 0.00000000e+00]
-   [0.00000000e+00 6.75434709e-01 1.35086942e+00 ... 7.00942576e-01
-    3.50471288e-01 0.00000000e+00]
-   [0.00000000e+00 1.35086942e+00 2.70173883e+00 ... 1.40188515e+00
-    7.00942576e-01 0.00000000e+00]
+   [0.00000000e+00 6.75434530e-01 1.35086906e+00 ... 7.00942397e-01
+    3.50471199e-01 0.00000000e+00]
+   [0.00000000e+00 1.35086906e+00 2.70173812e+00 ... 1.40188479e+00
+    7.00942397e-01 0.00000000e+00]
    ...
-   [0.00000000e+00 1.28415404e-02 2.56830808e-02 ... 1.17709292e-02
-    1.17709294e-01 2.23647654e-01]
-   [0.00000000e+00 1.02732323e-01 2.05464646e-01 ... 5.88546460e-03
-    5.88546470e-02 1.11823827e-01]
-   [0.00000000e+00 1.92623079e-01 3.85246158e-01 ... 0.00000000e+00
+   [0.00000000e+00 1.28415301e-02 2.56830603e-02 ... 1.17709218e-02
+    1.17709227e-01 2.23647520e-01]
+   [0.00000000e+00 1.02732241e-01 2.05464482e-01 ... 5.88546088e-03
+    5.88546135e-02 1.11823760e-01]
+   [0.00000000e+00 1.92622945e-01 3.85245889e-01 ... 0.00000000e+00
     0.00000000e+00 0.00000000e+00]]
 
-  [[0.00000000e+00 0.00000000e+00 0.00000000e+00 ... 4.81419116e-01
-    6.19021297e-01 7.56623387e-01]
-   [0.00000000e+00 0.00000000e+00 0.00000000e+00 ... 7.80222416e-01
-    5.91877460e-01 4.03532505e-01]
+  [[0.00000000e+00 0.00000000e+00 0.00000000e+00 ... 4.81419265e-01
+    6.19021237e-01 7.56623209e-01]
+   [0.00000000e+00 0.00000000e+00 0.00000000e+00 ... 7.80222535e-01
+    5.91877460e-01 4.03532386e-01]
    [0.00000000e+00 0.00000000e+00 0.00000000e+00 ... 1.07902575e+00
-    5.64733684e-01 5.04415631e-02]
+    5.64733684e-01 5.04415482e-02]
    ...
    [0.00000000e+00 0.00000000e+00 0.00000000e+00 ... 2.91869324e-02
     2.91869342e-01 5.54551721e-01]
@@ -1255,82 +1234,75 @@ ttsim output range: [0.000000, 3.252455]
    [0.00000000e+00 0.00000000e+00 0.00000000e+00 ... 0.00000000e+00
     0.00000000e+00 0.00000000e+00]]
 
-  [[0.00000000e+00 0.00000000e+00 0.00000000e+00 ... 4.33026612e-01
-    3.88203144e-01 3.43379676e-01]
-   [0.00000000e+00 1.55256063e-01 3.10512125e-01 ... 6.21027768e-01
-    5.02161324e-01 3.83294821e-01]
-   [0.00000000e+00 3.10512125e-01 6.21024251e-01 ... 8.09028804e-01
+  [[0.00000000e+00 0.00000000e+00 0.00000000e+00 ... 4.33026344e-01
+    3.88203025e-01 3.43379676e-01]
+   [0.00000000e+00 1.55256033e-01 3.10512066e-01 ... 6.21027648e-01
+    5.02161264e-01 3.83294821e-01]
+   [0.00000000e+00 3.10512066e-01 6.21024132e-01 ... 8.09028864e-01
     6.16119385e-01 4.23209965e-01]
    ...
-   [0.00000000e+00 3.05659361e-02 6.11318722e-02 ... 2.07391992e-01
-    1.32620621e+00 2.44502044e+00]
-   [0.00000000e+00 1.52829681e-02 3.05659361e-02 ... 7.00777948e-01
-    1.02606976e+00 1.35136163e+00]
-   [0.00000000e+00 0.00000000e+00 0.00000000e+00 ... 1.19416392e+00
-    7.25933313e-01 2.57702738e-01]]
+   [0.00000000e+00 3.05659361e-02 6.11318722e-02 ... 2.07392037e-01
+    1.32620645e+00 2.44502091e+00]
+   [0.00000000e+00 1.52829681e-02 3.05659361e-02 ... 7.00778127e-01
+    1.02607000e+00 1.35136187e+00]
+   [0.00000000e+00 0.00000000e+00 0.00000000e+00 ... 1.19416416e+00
+    7.25933433e-01 2.57702738e-01]]
 
   ...
 
   [[0.00000000e+00 2.39481881e-01 4.78963763e-01 ... 0.00000000e+00
     0.00000000e+00 0.00000000e+00]
-   [5.16412914e-01 3.99519980e-01 2.82626987e-01 ... 6.65598586e-02
-    3.32799293e-02 0.00000000e+00]
-   [1.03282583e+00 5.59558034e-01 8.62901732e-02 ... 1.33119717e-01
-    6.65598586e-02 0.00000000e+00]
+   [5.16412914e-01 3.99519980e-01 2.82626987e-01 ... 6.65598437e-02
+    3.32799219e-02 0.00000000e+00]
+   [1.03282583e+00 5.59558034e-01 8.62901732e-02 ... 1.33119687e-01
+    6.65598437e-02 0.00000000e+00]
    ...
-   [9.07491803e-01 6.62122667e-01 4.16753590e-01 ... 3.39571059e-01
-    1.69785529e-01 0.00000000e+00]
-   [5.15945375e-01 3.63797903e-01 2.11650446e-01 ... 1.69785529e-01
-    8.48927647e-02 0.00000000e+00]
+   [9.07491684e-01 6.62122607e-01 4.16753531e-01 ... 3.39571118e-01
+    1.69785559e-01 0.00000000e+00]
+   [5.15945315e-01 3.63797873e-01 2.11650416e-01 ... 1.69785559e-01
+    8.48927796e-02 0.00000000e+00]
    [1.24398910e-01 6.54731095e-02 6.54731086e-03 ... 0.00000000e+00
     0.00000000e+00 0.00000000e+00]]
 
-  [[0.00000000e+00 8.02183568e-01 1.60436714e+00 ... 6.65791094e-01
-    3.82793158e-01 9.97952148e-02]
-   [0.00000000e+00 4.27831262e-01 8.55662525e-01 ... 1.19191587e+00
-    8.12544227e-01 4.33172494e-01]
+  [[0.00000000e+00 8.02183568e-01 1.60436714e+00 ... 6.65791214e-01
+    3.82793218e-01 9.97951850e-02]
+   [0.00000000e+00 4.27831262e-01 8.55662525e-01 ... 1.19191599e+00
+    8.12544346e-01 4.33172464e-01]
    [0.00000000e+00 5.34789078e-02 1.06957816e-01 ... 1.71804082e+00
     1.24229527e+00 7.66549766e-01]
    ...
-   [1.76549852e-01 1.68457836e-01 1.60365820e-01 ... 3.05209547e-01
-    1.76093295e-01 4.69770618e-02]
-   [4.33675170e-01 2.66018510e-01 9.83618647e-02 ... 2.28895918e-01
-    1.26192212e-01 2.34885309e-02]
-   [6.90800428e-01 3.63579184e-01 3.63579169e-02 ... 1.52582273e-01
-    7.62911364e-02 0.00000000e+00]]
+   [1.76549867e-01 1.68457776e-01 1.60365701e-01 ... 3.05209726e-01
+    1.76093370e-01 4.69769947e-02]
+   [4.33675259e-01 2.66018540e-01 9.83618125e-02 ... 2.28896201e-01
+    1.26192361e-01 2.34884974e-02]
+   [6.90800607e-01 3.63579273e-01 3.63579281e-02 ... 1.52582675e-01
+    7.62913376e-02 0.00000000e+00]]
 
-  [[4.17174637e-01 4.93843913e-01 5.70513189e-01 ... 0.00000000e+00
+  [[4.17174667e-01 4.93843913e-01 5.70513189e-01 ... 0.00000000e+00
     0.00000000e+00 0.00000000e+00]
-   [2.46886536e-01 2.76222080e-01 3.05557579e-01 ... 0.00000000e+00
+   [2.46886551e-01 2.76222080e-01 3.05557579e-01 ... 0.00000000e+00
     0.00000000e+00 0.00000000e+00]
-   [7.65984133e-02 5.86001799e-02 4.06019390e-02 ... 0.00000000e+00
+   [7.65983909e-02 5.86001687e-02 4.06019390e-02 ... 0.00000000e+00
     0.00000000e+00 0.00000000e+00]
    ...
-   [4.50682878e-01 2.75701731e-01 1.00720577e-01 ... 7.87953213e-02
+   [4.50682878e-01 2.75701731e-01 1.00720562e-01 ... 7.87953213e-02
     3.93976606e-02 0.00000000e+00]
-   [2.25341439e-01 4.26602453e-01 6.27863467e-01 ... 6.30362570e-01
+   [2.25341439e-01 4.26602393e-01 6.27863348e-01 ... 6.30362570e-01
     3.15181285e-01 0.00000000e+00]
-   [0.00000000e+00 5.77503085e-01 1.15500617e+00 ... 1.18192971e+00
+   [0.00000000e+00 5.77502966e-01 1.15500593e+00 ... 1.18192971e+00
     5.90964854e-01 0.00000000e+00]]]]
 
 ================================================================================
 Comparison
 ================================================================================
 
-Max absolute difference: 0.0000027418
-Mean absolute difference: 0.0000001554
-Std absolute difference: 0.0000001915
+Max absolute difference: 0.0000035763
+Mean absolute difference: 0.0000001780
+Std absolute difference: 0.0000002170
 
 [PASS] PASS: Outputs match within tolerance (atol=1e-05, rtol=1e-05)
 
 ================================================================================
-```
-
-### stderr
-
-```
-C:\Users\SaSagar\AppData\Local\miniforge3\envs\polaris\Lib\site-packages\requests\__init__.py:109: RequestsDependencyWarning: urllib3 (2.6.3) or chardet (None)/charset_normalizer (3.4.4) doesn't match a supported version!
-  warnings.warn(
 ```
 
 ---
@@ -1362,7 +1334,7 @@ PyTorch PositionalEncoding1D:
   Sample [0, 0, :5]: [0. 1. 0. 1. 0.]
 
 ttsim PositionalEncoding1D:
-  Output shape: [2, 10, 256]
+  Output shape: Shape([2, 10, 256])
   Output .data is None? False
   Output stats:
     Min:  -0.999998
@@ -1372,8 +1344,8 @@ ttsim PositionalEncoding1D:
   Sample [0, 0, :5]: [0. 1. 0. 1. 0.]
 
 Numerical Comparison:
-  Max absolute difference:  5.9604644775e-08
-  Mean absolute difference: 2.7595774554e-09
+  Max absolute difference:  0.0000000000e+00
+  Mean absolute difference: 0.0000000000e+00
   [PASS] Outputs match within tolerance (atol=1e-06, rtol=1e-05)
 
 ======================================================================
@@ -1438,11 +1410,11 @@ ttsim prepare_transformation_batch:
 
 Numerical Comparison:
   curr2prev:
-    Max diff:  1.6888605092e-07
-    Mean diff: 1.7253411551e-08
+    Max diff:  1.6840362704e-07
+    Mean diff: 1.7874293267e-08
   prev2curr:
-    Max diff:  1.7376036876e-07
-    Mean diff: 1.1912444095e-08
+    Max diff:  1.1954899137e-07
+    Mean diff: 1.2542298357e-08
 
 Transformation validity:
   PyTorch inverse check (curr2prev @ prev2curr = I): True
@@ -1460,8 +1432,8 @@ Configuration:
 Cache comparison:
   PyTorch cache shape: (1000, 128)
   ttsim cache shape: (1000, 128)
-  Max cache difference:  5.9604644775e-08
-  Mean cache difference: 5.7151789967e-09
+  Max cache difference:  0.0000000000e+00
+  Mean cache difference: 0.0000000000e+00
 
 Sequence length tests:
   [PASS] seq_len=5: cache match
@@ -1473,13 +1445,6 @@ Sequence length tests:
 ======================================================================
 Test Complete!
 ======================================================================
-```
-
-### stderr
-
-```
-C:\Users\SaSagar\AppData\Local\miniforge3\envs\polaris\Lib\site-packages\requests\__init__.py:109: RequestsDependencyWarning: urllib3 (2.6.3) or chardet (None)/charset_normalizer (3.4.4) doesn't match a supported version!
-  warnings.warn(
 ```
 
 ---

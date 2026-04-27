@@ -11,6 +11,12 @@ class StateSE2Index(IntEnum):
     _Y = 1
     _HEADING = 2
 
+    # Direct integer members for Python 3.11+ compatibility
+    # (@classmethod + @property was deprecated in 3.11 and broken in 3.13)
+    X = 0
+    Y = 1
+    HEADING = 2
+
     @classmethod
     def size(cls):
         valid_attributes = [
@@ -21,28 +27,11 @@ class StateSE2Index(IntEnum):
         return len(valid_attributes)
 
     @classmethod
-    @property
-    def X(cls):
-        return cls._X
-
-    @classmethod
-    @property
-    def Y(cls):
-        return cls._Y
-
-    @classmethod
-    @property
-    def HEADING(cls):
-        return cls._HEADING
-
-    @classmethod
-    @property
     def POINT(cls):
         # assumes X, Y have subsequent indices
         return slice(cls._X, cls._Y + 1)
 
     @classmethod
-    @property
     def STATE_SE2(cls):
         # assumes X, Y, HEADING have subsequent indices
         return slice(cls._X, cls._HEADING + 1)
@@ -59,6 +48,15 @@ class BoundingBoxIndex(IntEnum):
     _HEIGHT = 5
     _HEADING = 6
 
+    # Direct integer members for Python 3.11+ compatibility
+    X = 0
+    Y = 1
+    Z = 2
+    LENGTH = 3
+    WIDTH = 4
+    HEIGHT = 5
+    HEADING = 6
+
     @classmethod
     def size(cls):
         valid_attributes = [
@@ -69,54 +67,16 @@ class BoundingBoxIndex(IntEnum):
         return len(valid_attributes)
 
     @classmethod
-    @property
-    def X(cls):
-        return cls._X
-
-    @classmethod
-    @property
-    def Y(cls):
-        return cls._Y
-
-    @classmethod
-    @property
-    def Z(cls):
-        return cls._Z
-
-    @classmethod
-    @property
-    def LENGTH(cls):
-        return cls._LENGTH
-
-    @classmethod
-    @property
-    def WIDTH(cls):
-        return cls._WIDTH
-
-    @classmethod
-    @property
-    def HEIGHT(cls):
-        return cls._HEIGHT
-
-    @classmethod
-    @property
-    def HEADING(cls):
-        return cls._HEADING
-
-    @classmethod
-    @property
     def POINT2D(cls):
         # assumes X, Y have subsequent indices
         return slice(cls._X, cls._Y + 1)
 
     @classmethod
-    @property
     def POSITION(cls):
         # assumes X, Y, Z have subsequent indices
         return slice(cls._X, cls._Z + 1)
 
     @classmethod
-    @property
     def DIMENSION(cls):
         # assumes LENGTH, WIDTH, HEIGHT have subsequent indices
         return slice(cls._LENGTH, cls._HEIGHT + 1)
@@ -132,6 +92,14 @@ class LidarIndex(IntEnum):
     _RING = 4
     _ID = 5
 
+    # Direct integer members for Python 3.11+ compatibility
+    X = 0
+    Y = 1
+    Z = 2
+    INTENSITY = 3
+    RING = 4
+    ID = 5
+
     @classmethod
     def size(cls):
         valid_attributes = [
@@ -142,43 +110,11 @@ class LidarIndex(IntEnum):
         return len(valid_attributes)
 
     @classmethod
-    @property
-    def X(cls):
-        return cls._X
-
-    @classmethod
-    @property
-    def Y(cls):
-        return cls._Y
-
-    @classmethod
-    @property
-    def Z(cls):
-        return cls._Z
-
-    @classmethod
-    @property
-    def INTENSITY(cls):
-        return cls._INTENSITY
-
-    @classmethod
-    @property
-    def RING(cls):
-        return cls._RING
-
-    @classmethod
-    @property
-    def ID(cls):
-        return cls._ID
-
-    @classmethod
-    @property
     def POINT2D(cls):
         # assumes X, Y have subsequent indices
         return slice(cls._X, cls._Y + 1)
 
     @classmethod
-    @property
     def POSITION(cls):
         # assumes X, Y, Z have subsequent indices
         return slice(cls._X, cls._Z + 1)

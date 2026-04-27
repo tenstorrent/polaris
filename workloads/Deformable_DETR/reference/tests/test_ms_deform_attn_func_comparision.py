@@ -9,6 +9,7 @@ Compares TTSim implementation against PyTorch reference module-by-module.
 import sys
 import os
 import numpy as np
+import pytest
 import torch
 import torch.nn.functional as F
 from datetime import datetime
@@ -285,14 +286,14 @@ def test_shape_inference():
     S = int(np.sum(spatial_shapes[:, 0] * spatial_shapes[:, 1]))
 
     value_sim = SimTensor(
-        {"name": "value", "shape": [N, S, M, D], "data": None, "dtype": np.float32}
+        {"name": "value", "shape": [N, S, M, D], "data": None, "dtype": np.dtype("float32")}
     )
     sampling_locations_sim = SimTensor(
         {
             "name": "sampling_locations",
             "shape": [N, Lq, M, L, P, 2],
             "data": None,
-            "dtype": np.float32,
+            "dtype": np.dtype("float32"),
         }
     )
     attention_weights_sim = SimTensor(
@@ -300,7 +301,7 @@ def test_shape_inference():
             "name": "attention_weights",
             "shape": [N, Lq, M, L, P],
             "data": None,
-            "dtype": np.float32,
+            "dtype": np.dtype("float32"),
         }
     )
 
@@ -326,6 +327,27 @@ def test_shape_inference():
     return result
 
 
+@pytest.mark.parametrize(
+    "config_name,N,Lq,M,D,L,P,spatial_shapes",
+    [
+        (
+            "Small Configuration",
+            2, 100, 8, 32, 4, 4,
+            np.array([[50, 50], [25, 25], [13, 13], [7, 7]], dtype=np.int32),
+        ),
+        (
+            "Single Level",
+            1, 50, 4, 16, 1, 2,
+            np.array([[32, 32]], dtype=np.int32),
+        ),
+        (
+            "Multiple Sampling Points",
+            1, 64, 4, 16, 2, 8,
+            np.array([[16, 16], [8, 8]], dtype=np.int32),
+        ),
+    ],
+    ids=["small_config", "single_level", "multi_points"],
+)
 def test_numerical_computation(config_name, N, Lq, M, D, L, P, spatial_shapes):
     """Test numerical computation with detailed intermediate comparisons."""
     print(f"\n{'='*80}")

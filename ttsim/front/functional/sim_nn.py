@@ -7,6 +7,7 @@
 ###############################################################
 from typing import Iterator
 import ttsim.front.functional.op as F
+import ttsim.front.functional.tensor_op  # noqa: F401 – ensures SimTensor operators (e.g. __add__) are bound
 import ttsim.ops.op as Ops
 from ttsim.ops import SimTensor
 from ttsim.graph import WorkloadGraph

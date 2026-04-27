@@ -57,7 +57,11 @@ def load_plan_anchor(base_path: str) -> np.ndarray:
         path = base_path + ".json"
 
     if not os.path.exists(path):
-        raise FileNotFoundError(f"Could not find plan_anchor JSON at '{path}'")
+        raise FileNotFoundError(f"Could not find plan_anchor at '{path}'")
+
+    # Support both .npy (raw array) and .json (clusters dict) formats
+    if path.endswith(".npy"):
+        return np.load(path).astype(np.float32)
 
     with open(path, "r") as f:
         data = json.load(f)

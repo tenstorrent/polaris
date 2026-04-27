@@ -29,13 +29,12 @@ def xavier_uniform_(tensor, gain=1.0, distribution="uniform"):
         - Glorot, X. & Bengio, Y. (2010)
     """
     if hasattr(tensor, "numpy"):
-        pass
-        ## PyTorch tensor
-        # import torch.nn.init as init
-        # if distribution == 'uniform':
-        #    init.xavier_uniform_(tensor, gain=gain)
-        # else:
-        #    init.xavier_normal_(tensor, gain=gain)
+        # PyTorch tensor
+        import torch.nn.init as init # type: ignore[import-not-found]
+        if distribution == 'uniform':
+            init.xavier_uniform_(tensor, gain=gain)
+        else:
+            init.xavier_normal_(tensor, gain=gain)
     else:
         # Numpy array
         fan_in, fan_out = _calculate_fan_in_and_fan_out(tensor)
@@ -61,10 +60,9 @@ def constant_(tensor, val=0.0):
         val: constant value
     """
     if hasattr(tensor, "numpy"):
-        pass
-        ## PyTorch tensor
-        # import torch.nn.init as init
-        # init.constant_(tensor, val)
+        # PyTorch tensor
+        import torch.nn.init as init # type: ignore[import-not-found]
+        init.constant_(tensor, val)
     else:
         # Numpy array
         tensor[:] = val

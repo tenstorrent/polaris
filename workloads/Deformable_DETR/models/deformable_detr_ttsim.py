@@ -605,7 +605,7 @@ class SetCriterion(SimNN.Module):
                     "name": "src_xyxy",
                     "shape": list(src_boxes.shape),
                     "data": src_boxes,
-                    "dtype": np.float32,
+                    "dtype": np.dtype("float32"),
                 }
             )
         )
@@ -615,7 +615,7 @@ class SetCriterion(SimNN.Module):
                     "name": "tgt_xyxy",
                     "shape": list(target_boxes.shape),
                     "data": target_boxes,
-                    "dtype": np.float32,
+                    "dtype": np.dtype("float32"),
                 }
             )
         )
@@ -663,7 +663,7 @@ class SetCriterion(SimNN.Module):
                 "name": "src_masks_interp",
                 "shape": list(src_masks.shape),
                 "data": src_masks,
-                "dtype": np.float32,
+                "dtype": np.dtype("float32"),
             }
         )
         src_masks_interp = interpolate(
@@ -919,7 +919,7 @@ class PostProcessSegm(SimNN.Module):
                     "name": f"segm_interp_{i}",
                     "shape": [mask_i.shape[0], 1, mask_i.shape[1], mask_i.shape[2]],
                     "data": mask_i[:, None, :, :].astype(np.float32),
-                    "dtype": np.float32,
+                    "dtype": np.dtype("float32"),
                 }
             )
             interped = interpolate(
@@ -942,7 +942,7 @@ class PostProcessSegm(SimNN.Module):
                     "name": f"segm_resize_{i}",
                     "shape": [cropped.shape[0], 1, img_h, img_w],
                     "data": cropped[:, None, :, :].astype(np.float32),
-                    "dtype": np.float32,
+                    "dtype": np.dtype("float32"),
                 }
             )
             resized = interpolate(cropped_st, size=(orig_h, orig_w), mode="nearest")

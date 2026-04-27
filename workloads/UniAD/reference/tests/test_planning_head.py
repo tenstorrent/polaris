@@ -17,6 +17,8 @@ _SMALL_CFG = dict(
     num_heads=4,
     ffn_dim=64,
     bs=1,
+    bev_h=4,
+    bev_w=4,
 )
 
 

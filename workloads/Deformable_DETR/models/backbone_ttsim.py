@@ -39,6 +39,24 @@ import ttsim.front.functional.op as F
 import ttsim.front.functional.sim_nn as SimNN
 from ttsim.ops.tensor import SimTensor, shape_as_optional_list
 
+
+class Sequential(SimNN.Sequential):
+    """Sequential wrapper that accepts an optional name as first positional argument."""
+
+    def __init__(self, name_or_modules, modules=None):
+        if modules is None:
+            # Called as Sequential([module1, module2, ...])
+            super().__init__(name_or_modules)
+        else:
+            # Called as Sequential("name", [module1, module2, ...])
+            super().__init__(modules)
+            self.name = name_or_modules
+
+    @property
+    def modules_list(self):
+        """Alias for _sequential for backward compatibility."""
+        return self._sequential
+
 # Import NestedTensorTTSim and interpolate from misc_ttsim
 from workloads.Deformable_DETR.util.misc_ttsim import NestedTensor, interpolate
 
@@ -93,6 +111,11 @@ class FrozenBatchNorm2d(SimNN.Module):
         self.running_var: np.ndarray = np.ones(n, dtype=np.float32)
         # Use F.BatchNorm2d SimOpHandle so the output tensor is graph-tracked.
         self._bn_op = F.BatchNorm2d(name + '.bn', n)
+        # Initialize _bn_op param tensors with default data for numerical propagation
+        self._bn_op.params[0][1].data = self.weight
+        self._bn_op.params[1][1].data = self.bias
+        self._bn_op.params[2][1].data = self.running_mean
+        self._bn_op.params[3][1].data = self.running_var
         super().link_op2module()
 
     def set_parameters(self, weight, bias, running_mean, running_var):
@@ -100,6 +123,11 @@ class FrozenBatchNorm2d(SimNN.Module):
         self.bias = np.asarray(bias, dtype=np.float32).copy()
         self.running_mean = np.asarray(running_mean, dtype=np.float32).copy()
         self.running_var = np.asarray(running_var, dtype=np.float32).copy()
+        # Sync to _bn_op param tensors for numerical data propagation
+        self._bn_op.params[0][1].data = self.weight
+        self._bn_op.params[1][1].data = self.bias
+        self._bn_op.params[2][1].data = self.running_mean
+        self._bn_op.params[3][1].data = self.running_var
         return self
 
     def __call__(self, x):

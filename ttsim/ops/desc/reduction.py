@@ -53,8 +53,15 @@ def r1_func(iTList, oTList, op, **kwargs):
     axesT    = iTList[1].clone_by_shape(data_maybe_missing=False) if len(iTList) == 2 else None
     rank     = dataT.rank()
     if axesT is None:
-        if noop:
-            outShape = dataT.shape
+        # Check for axis/axes in attrs (common usage: ReduceMin(name, axis=1)(tensor))
+        attr_axis = op.attrs.get('axis', None)
+        attr_axes = op.attrs.get('axes', None)
+        if attr_axis is not None:
+            reduce_axes = [attr_axis] if isinstance(attr_axis, int) else list(attr_axis)
+        elif attr_axes is not None:
+            reduce_axes = list(attr_axes)
+        elif noop:
+            outShape = list(dataT.shape)
             reduce_axes = None
         else:
             reduce_axes = [i for i in range(rank)]
@@ -73,7 +80,8 @@ def r1_func(iTList, oTList, op, **kwargs):
             outShape = [1 if i in axes_set else d for i,d in enumerate(dataT.shape)]
         else:
             outShape = [d for i,d in enumerate(dataT.shape) if i not in axes_set]
-
+    else:
+        assert noop, "If no axes provided, noop_with_empty_axes must be set to 1"
 
     inelems = dataT.nelems()
     instr_profile = {

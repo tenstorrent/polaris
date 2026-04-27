@@ -89,7 +89,7 @@ def test_shape_inference():
             "name": "query",
             "shape": [N, Len_q, d_model],
             "data": None,
-            "dtype": np.float32,
+            "dtype": np.dtype("float32"),
         }
     )
     reference_points_sim = SimTensor(
@@ -97,7 +97,7 @@ def test_shape_inference():
             "name": "reference_points",
             "shape": [N, Len_q, n_levels, 2],
             "data": None,
-            "dtype": np.float32,
+            "dtype": np.dtype("float32"),
         }
     )
     input_flatten_sim = SimTensor(
@@ -105,7 +105,7 @@ def test_shape_inference():
             "name": "input_flatten",
             "shape": [N, Len_in, d_model],
             "data": None,
-            "dtype": np.float32,
+            "dtype": np.dtype("float32"),
         }
     )
     input_spatial_shapes_sim = SimTensor(
@@ -113,7 +113,7 @@ def test_shape_inference():
             "name": "input_spatial_shapes",
             "shape": [n_levels, 2],
             "data": None,
-            "dtype": np.int32,
+            "dtype": np.dtype("int32"),
         }
     )
 

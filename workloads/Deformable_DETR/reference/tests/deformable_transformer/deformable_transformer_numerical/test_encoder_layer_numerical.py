@@ -126,13 +126,13 @@ def sync_encoder_layer_weights(pt_layer, tt_layer):
     ]:
         pt_proj = getattr(pt_layer.self_attn, proj_name)
         tt_proj = getattr(tt_layer.self_attn, proj_name)
-        tt_proj.weight = pt_proj.weight.detach().numpy().copy()
-        tt_proj.bias = pt_proj.bias.detach().numpy().copy()
+        tt_proj.param.data = pt_proj.weight.detach().numpy().copy()
+        tt_proj.bias.data = pt_proj.bias.detach().numpy().copy()
         assert (
-            tt_proj.weight.shape[0] == tt_proj.out_features
+            tt_proj.param.data.shape[0] == tt_proj.out_features
         ), f"{proj_name}: weight shape mismatch"
         assert (
-            tt_proj.weight.shape[1] == tt_proj.in_features
+            tt_proj.param.data.shape[1] == tt_proj.in_features
         ), f"{proj_name}: weight shape mismatch"
 
     # FFN Linear layers (SimNN.Linear — no transpose needed)

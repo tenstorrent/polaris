@@ -21,6 +21,8 @@ _SMALL_CFG = dict(
     num_cls_fcs=2,
     num_reg_fcs=2,
     bs=1,
+    bev_h=4,
+    bev_w=4,
 )
 
 

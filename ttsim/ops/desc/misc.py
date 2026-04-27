@@ -218,9 +218,9 @@ def register_text_ops():
     return
 
 def register_misc_ops():
+    # Note: ScatterND is registered in tensor.py (scatter_nd_sinf) which includes
+    # data compute support via try_compute_data. Only ScatterElements is here.
     _optbl = [
-        ['ScatterND', 'ARITY_3->1', 'ai.onnx', 'COMMON',
-         18, 11, 3, 3, 1, 1, scatternd_sinf, True, True, True, True, True],
         ['ScatterElements', 'ARITY_3->1', 'ai.onnx', 'COMMON',
          18, 11, 3, 3, 1, 1, scatterelements_sinf, True, True, True, True, True],
     ]

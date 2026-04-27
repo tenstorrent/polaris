@@ -31,6 +31,24 @@ import numpy as np
 from ttsim.front.functional.sim_nn import Module, Linear
 
 
+class LayerNorm(Module):
+    """TTSim Layer Normalization module wrapping F.LayerNorm."""
+
+    def __init__(self, name, normalized_shape, eps=1e-5):
+        super().__init__()
+        self.name = name
+        self.normalized_shape = normalized_shape
+        self.op = F.LayerNorm(name + ".ln", normalized_shape, epsilon=eps)
+        super().link_op2module()
+
+    def __call__(self, x):
+        return self.op(x)
+
+    def analytical_param_count(self):
+        # scale (gamma) + bias (beta), each of size normalized_shape
+        return 2 * self.normalized_shape
+
+
 def build_activation_layer(cfg):
     """
     Build activation layer from config.
@@ -169,11 +187,7 @@ def build_norm_layer(name, cfg, num_features):
     eps = cfg.get("eps", 1e-5)
 
     if norm_type in ["LN", "LayerNorm"]:
-        def ln(x):
-            op = F.LayerNorm(name, num_features, epsilon=eps)
-            return op(x)
-
-        return ln
+        return LayerNorm(name, num_features, eps=eps)
     else:
         raise ValueError(f"Unsupported normalization type: {norm_type}")
 

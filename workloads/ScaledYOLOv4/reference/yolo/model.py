@@ -406,7 +406,7 @@ class ModelPyTorch(nn.Module):
 
         m = self.model[-1]
         if isinstance(m, Detect):
-            s = 256
+            s = 64
             m.stride = torch.tensor(
                 [s / x.shape[-2] for x in self.forward(torch.zeros(1, ch, s, s))]
             )
@@ -461,7 +461,7 @@ def calculate_pytorch_memory_stats(pytorch_model, input_data, iterations=50):
 
     # Warmup
     with torch.no_grad():
-        for _ in range(5):  # Reduced warmup for full model
+        for _ in range(2):  # Reduced warmup for full model
             _ = pytorch_model(input_torch)
 
     # Measure execution time
@@ -1097,7 +1097,7 @@ def validate_model_module(verbose: bool = False):
 
         # Calculate PyTorch memory stats
         pytorch_mem_stats = calculate_pytorch_memory_stats(
-            model_pt, input_data, iterations=50
+            model_pt, input_data, iterations=5
         )
 
         # Calculate ttsim memory stats

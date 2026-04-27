@@ -383,6 +383,8 @@ def unary_fwd(iTList, oTList, op, **kwargs):
         },
     }
 
+    optype2instr['Relu6'] = {'cmp': 2 * X.nelems(), 'mov': X.nelems()}
+
     for xopname in ['Sign', 'Relu', 'LeakyRelu', 'ThresholdedRelu', 'Hardmax']:
         #Sign            : x <=> 0
         #Relu            : max(0,x)

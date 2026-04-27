@@ -25,7 +25,7 @@ from workloads.MapTracker.plugin.models.maper import (
     PositionalEncoding1D as PositionalEncoding1D_TT,
 )
 
-# Import PyTorch version from maptracker workspace using importlib
+# Import PyTorch version from maptracker workspace using importlib, with inline fallback
 vector_memory_path = os.path.abspath(
     os.path.join(
         os.path.dirname(__file__),
@@ -41,11 +41,56 @@ vector_memory_path = os.path.abspath(
         "vector_memory.py",
     )
 )
-spec = importlib.util.spec_from_file_location("vector_memory", vector_memory_path)
-vector_memory = importlib.util.module_from_spec(spec)
-spec.loader.exec_module(vector_memory)
-PositionalEncoding1D_PT = vector_memory.PositionalEncoding1D
-get_emb = vector_memory.get_emb
+
+_loaded_external = False
+if os.path.isfile(vector_memory_path):
+    try:
+        spec = importlib.util.spec_from_file_location("vector_memory", vector_memory_path)
+        vector_memory = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(vector_memory)
+        PositionalEncoding1D_PT = vector_memory.PositionalEncoding1D
+        get_emb = vector_memory.get_emb
+        _loaded_external = True
+    except Exception:
+        pass
+
+if not _loaded_external:
+    # Fallback: inline PyTorch reference implementation matching the original source
+    def get_emb(sin_inp):
+        """Gets a base embedding for one dimension with sin and cos interleaved."""
+        emb = torch.stack((sin_inp.sin(), sin_inp.cos()), dim=-1)
+        return torch.flatten(emb, -2, -1)
+
+    class PositionalEncoding1D_PT(nn.Module):
+        """1D Positional Encoding (inline PyTorch reference)."""
+
+        def __init__(self, channels):
+            super(PositionalEncoding1D_PT, self).__init__()
+            self.org_channels = channels
+            channels = int(np.ceil(channels / 2) * 2)
+            self.channels = channels
+            inv_freq = 1.0 / (10000 ** (torch.arange(0, channels, 2).float() / channels))
+            self.register_buffer("inv_freq", inv_freq)
+            self.register_buffer("cached_penc", None)
+            # Pre-compute emb_cache
+            fake_tensor = torch.zeros((1, 1000, self.org_channels))
+            cached_result = self.forward(fake_tensor)
+            self.emb_cache = cached_result[0].cpu().numpy()
+
+        def forward(self, tensor):
+            if len(tensor.shape) != 3:
+                raise RuntimeError("The input tensor has to be 3d!")
+            if self.cached_penc is not None and self.cached_penc.shape == tensor.shape:
+                return self.cached_penc
+            self.cached_penc = None
+            batch_size, x, orig_ch = tensor.shape
+            pos_x = torch.arange(x, device=tensor.device).type(self.inv_freq.type())
+            sin_inp_x = torch.einsum("i,j->ij", pos_x, self.inv_freq)
+            emb_x = get_emb(sin_inp_x)
+            emb = torch.zeros((x, self.channels), device=tensor.device).type(tensor.type())
+            emb[:, : self.channels] = emb_x
+            self.cached_penc = emb[None, :, :orig_ch].repeat(batch_size, 1, 1)
+            return self.cached_penc
 
 print("=" * 70)
 print("Testing PositionalEncoding1D - PyTorch vs ttsim")

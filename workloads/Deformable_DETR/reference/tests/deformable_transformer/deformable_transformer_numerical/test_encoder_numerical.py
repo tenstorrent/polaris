@@ -125,8 +125,8 @@ def sync_encoder_layer_weights(pt_layer, tt_layer):
     ]:
         pt_proj = getattr(pt_layer.self_attn, proj_name)
         tt_proj = getattr(tt_layer.self_attn, proj_name)
-        tt_proj.weight = pt_proj.weight.detach().numpy().copy()
-        tt_proj.bias = pt_proj.bias.detach().numpy().copy()
+        tt_proj.param.data = pt_proj.weight.detach().numpy().copy()
+        tt_proj.bias.data = pt_proj.bias.detach().numpy().copy()
 
     # FFN Linear layers (SimNN.Linear — no transpose needed)
     tt_layer.linear1.param.data = pt_layer.linear1.weight.detach().numpy().copy()

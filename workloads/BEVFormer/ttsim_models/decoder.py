@@ -406,12 +406,11 @@ class CustomMSDeformableAttention(Module):
 
             # Sample features
             sampled_l = F.GridSample(
-                value_l,
-                sampling_locations_normalized,
+                f"msda.grid_sample_l{lvl}",
                 mode="bilinear",
                 padding_mode="zeros",
                 align_corners=False,
-            )
+            )(value_l, sampling_locations_normalized)
 
             # Reshape back: [bs, num_heads, num_query, num_points, dim_per_head]
             sampled_l = F.Reshape(

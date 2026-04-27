@@ -1,4 +1,4 @@
-# Comparison Results (bevformer) — 2026-03-21 00:15:10
+# Comparison Results (bevformer) — 2026-04-27 09:30:05
 
 ## test_custom_msdeformable_attention.py  —  PASS
 
@@ -84,16 +84,16 @@ Configuration:
 
 Attention Output Comparison:
   PyTorch shape: torch.Size([2, 100, 128])
-  PyTorch stats: mean=-0.001972, std=0.187070
-  PyTorch range: [-0.908061, 0.848749]
+  PyTorch stats: mean=-0.000701, std=0.181858
+  PyTorch range: [-0.894325, 0.745550]
   TTSim shape: (2, 100, 128)
-  TTSim stats: mean=-0.001972, std=0.187070
-  TTSim range: [-0.908061, 0.848748]
+  TTSim stats: mean=-0.000701, std=0.181858
+  TTSim range: [-0.894325, 0.745550]
 
   Absolute differences:
-    Max:    1.564622e-06
-    Mean:   2.250626e-07
-    Median: 1.792796e-07
+    Max:    1.497567e-06
+    Mean:   2.223651e-07
+    Median: 1.788139e-07
 
   [PASS] [PASS] Outputs match (rtol=1e-05, atol=1e-05)
 
@@ -111,16 +111,16 @@ TEST 3: Multi-Point Reference Points (all points vs first-only)
 
 Multi-point reference output Comparison:
   PyTorch shape: torch.Size([2, 20, 128])
-  PyTorch stats: mean=-0.000384, std=0.210924
-  PyTorch range: [-0.546211, 0.629009]
+  PyTorch stats: mean=0.002464, std=0.205280
+  PyTorch range: [-0.478200, 0.552619]
   TTSim shape: (2, 20, 128)
-  TTSim stats: mean=-0.000384, std=0.210924
-  TTSim range: [-0.546211, 0.629009]
+  TTSim stats: mean=0.002464, std=0.205280
+  TTSim range: [-0.478200, 0.552619]
 
   Absolute differences:
     Max:    2.384186e-07
-    Mean:   5.896820e-08
-    Median: 4.470348e-08
+    Mean:   4.955382e-08
+    Median: 3.725290e-08
 
   [PASS] [PASS] Outputs match (rtol=0.0001, atol=0.0001)
 
@@ -135,13 +135,6 @@ Multi-Point Reference Points: [OK] PASSED
 ================================================================================
 ALL TESTS PASSED [OK]
 ================================================================================
-```
-
-### stderr
-
-```
-C:\Users\SaSagar\AppData\Local\miniforge3\envs\polaris\Lib\site-packages\requests\__init__.py:109: RequestsDependencyWarning: urllib3 (2.6.3) or chardet (None)/charset_normalizer (3.4.4) doesn't match a supported version!
-  warnings.warn(
 ```
 
 ---
@@ -163,8 +156,8 @@ TEST: Deformable attention standalone
 ----------------------------------------------------------------------
     Pytorch  shape=(2, 50, 256)  range=[-1.4179e-01, 1.6137e-01]  mean=5.2761e-04
     TTSim   shape=(2, 50, 256)  range=[-1.4179e-01, 1.6137e-01]  mean=5.2761e-04
-    range=[0.0000e+00, 1.0803e-07]  mean=1.1161e-08
-  [PASS] deformable attention: max=1.08e-07  mean=1.12e-08
+    range=[0.0000e+00, 9.3132e-08]  mean=1.1054e-08
+  [PASS] deformable attention: max=9.31e-08  mean=1.11e-08
 
 PASSED
 
@@ -172,8 +165,8 @@ TEST: Self-attention (MHA) standalone
 ----------------------------------------------------------------------
     Pytorch  shape=(50, 2, 256)  range=[-1.6075e-02, 1.8919e-02]  mean=4.1343e-05
     TTSim   shape=(50, 2, 256)  range=[-1.6075e-02, 1.8919e-02]  mean=4.1343e-05
-    range=[0.0000e+00, 9.3132e-09]  mean=1.2317e-09
-  [PASS] self-attention (MHA): max=9.31e-09  mean=1.23e-09
+    range=[0.0000e+00, 1.0245e-08]  mean=1.0761e-09
+  [PASS] self-attention (MHA): max=1.02e-08  mean=1.08e-09
 
 PASSED
 
@@ -181,43 +174,43 @@ TEST: FFN standalone
 ----------------------------------------------------------------------
     Pytorch  shape=(50, 2, 256)  range=[-4.3936e-01, 4.3884e-01]  mean=-4.6020e-03
     TTSim   shape=(50, 2, 256)  range=[-4.3936e-01, 4.3884e-01]  mean=-4.6020e-03
-    range=[0.0000e+00, 5.9605e-08]  mean=7.6130e-09
-  [PASS] FFN (2-layer + residual): max=5.96e-08  mean=7.61e-09
+    range=[0.0000e+00, 1.4901e-07]  mean=1.5944e-08
+  [PASS] FFN (2-layer + residual): max=1.49e-07  mean=1.59e-08
 
 PASSED
 
 TEST: Single layer via MapTransformerLayer.__call__
 ----------------------------------------------------------------------
-    Pytorch  shape=(50, 2, 256)  range=[-4.4332e+00, 4.2559e+00]  mean=8.1956e-10
-    TTSim   shape=(50, 2, 256)  range=[-4.4332e+00, 4.2559e+00]  mean=1.3644e-09
-    range=[0.0000e+00, 9.5367e-07]  mean=1.0148e-07
-  [PASS] MapTransformerLayer.__call__: max=9.54e-07  mean=1.01e-07
+    Pytorch  shape=(50, 2, 256)  range=[-4.4332e+00, 4.2559e+00]  mean=1.3737e-09
+    TTSim   shape=(50, 2, 256)  range=[-4.4332e+00, 4.2559e+00]  mean=2.5705e-09
+    range=[0.0000e+00, 9.5367e-07]  mean=1.0807e-07
+  [PASS] MapTransformerLayer.__call__: max=9.54e-07  mean=1.08e-07
 
 PASSED
 
 TEST: Full 2-layer decoder via MapTransformerDecoder_new.__call__
 ----------------------------------------------------------------------
-      Pytorch L0  shape=(2, 50, 256)  range=[-4.1003e+00, 3.9631e+00]  mean=1.4575e-09
-      TTSim  L0  shape=(2, 50, 256)  range=[-4.1003e+00, 3.9631e+00]  mean=1.4901e-10
-    range=[0.0000e+00, 7.1526e-07]  mean=1.0102e-07
-  [PASS] decoder layer 0: max=7.15e-07  mean=1.01e-07
-      Pytorch L1  shape=(2, 50, 256)  range=[-3.9434e+00, 3.9458e+00]  mean=2.8871e-10
-      TTSim  L1  shape=(2, 50, 256)  range=[-3.9434e+00, 3.9458e+00]  mean=-6.5193e-10
-    range=[0.0000e+00, 1.1921e-06]  mean=1.4528e-07
-  [PASS] decoder layer 1: max=1.19e-06  mean=1.45e-07
+      Pytorch L0  shape=(2, 50, 256)  range=[-4.1003e+00, 3.9631e+00]  mean=-1.9604e-09
+      TTSim  L0  shape=(2, 50, 256)  range=[-4.1003e+00, 3.9631e+00]  mean=4.9593e-10
+    range=[0.0000e+00, 9.5367e-07]  mean=1.0615e-07
+  [PASS] decoder layer 0: max=9.54e-07  mean=1.06e-07
+      Pytorch L1  shape=(2, 50, 256)  range=[-3.9434e+00, 3.9458e+00]  mean=-1.5204e-09
+      TTSim  L1  shape=(2, 50, 256)  range=[-3.9434e+00, 3.9458e+00]  mean=-9.6392e-10
+    range=[0.0000e+00, 1.1921e-06]  mean=1.5906e-07
+  [PASS] decoder layer 1: max=1.19e-06  mean=1.59e-07
 
 PASSED
 
 TEST: Decoder with regression branches
 ----------------------------------------------------------------------
-    range=[0.0000e+00, 9.5367e-07]  mean=1.0021e-07
-  [PASS] decoder+reg layer 0 output: max=9.54e-07  mean=1.00e-07
-    range=[0.0000e+00, 1.3113e-06]  mean=1.5192e-07
-  [PASS] decoder+reg layer 1 output: max=1.31e-06  mean=1.52e-07
+    range=[0.0000e+00, 9.5367e-07]  mean=1.0526e-07
+  [PASS] decoder+reg layer 0 output: max=9.54e-07  mean=1.05e-07
+    range=[0.0000e+00, 1.4305e-06]  mean=1.6654e-07
+  [PASS] decoder+reg layer 1 output: max=1.43e-06  mean=1.67e-07
       Pytorch ref_pts  shape=(2, 50, 20, 2)  range=[1.1509e-01, 8.8748e-01]  mean=5.0435e-01
       TTSim  ref_pts  shape=(2, 50, 20, 2)  range=[1.1509e-01, 8.8748e-01]  mean=5.0435e-01
-    range=[0.0000e+00, 2.3842e-07]  mean=3.3474e-08
-  [PASS] final reference points: max=2.38e-07  mean=3.35e-08
+    range=[0.0000e+00, 2.3842e-07]  mean=3.5057e-08
+  [PASS] final reference points: max=2.38e-07  mean=3.51e-08
 
 PASSED
 
@@ -225,8 +218,8 @@ TEST: Varied inputs (edge refs, small dims)
 ----------------------------------------------------------------------
     Pytorch  shape=(1, 20, 128)  range=[-1.2733e-01, 1.4497e-01]  mean=4.3140e-04
     TTSim   shape=(1, 20, 128)  range=[-1.2733e-01, 1.4497e-01]  mean=4.3140e-04
-    range=[0.0000e+00, 6.7055e-08]  mean=8.9904e-09
-  [PASS] varied inputs (edge refs, small dims): max=6.71e-08  mean=8.99e-09
+    range=[0.0000e+00, 5.2154e-08]  mean=8.9076e-09
+  [PASS] varied inputs (edge refs, small dims): max=5.22e-08  mean=8.91e-09
 
 PASSED
 
@@ -242,17 +235,17 @@ TEST: Weight transfer fidelity
   [PASS] attention_weights: max=0.00e+00  mean=0.00e+00
     range=[0.0000e+00, 0.0000e+00]  mean=0.0000e+00
   [PASS] MHA q_proj: max=0.00e+00  mean=0.00e+00
-    range=[0.0000e+00, 4.4703e-08]  mean=7.6673e-09
-  [PASS] FFN (no residual): max=4.47e-08  mean=7.67e-09
+    range=[0.0000e+00, 1.4156e-07]  mean=1.5553e-08
+  [PASS] FFN (no residual): max=1.42e-07  mean=1.56e-08
 
 PASSED
 
 TEST: Memory bank query_bev + query_memory fusion
 ----------------------------------------------------------------------
-    Pytorch (with memory)  shape=(50, 2, 256)  range=[-4.1748e+00, 4.1742e+00]  mean=2.6380e-09
-    TTSim  (with memory)  shape=(50, 2, 256)  range=[-4.1748e+00, 4.1742e+00]  mean=1.1665e-09
-    range=[0.0000e+00, 9.5367e-07]  mean=1.0896e-07
-  [PASS] memory bank query_bev+query_memory fusion: max=9.54e-07  mean=1.09e-07
+    Pytorch (with memory)  shape=(50, 2, 256)  range=[-4.1748e+00, 4.1742e+00]  mean=-6.2864e-11
+    TTSim  (with memory)  shape=(50, 2, 256)  range=[-4.1748e+00, 4.1742e+00]  mean=4.6566e-10
+    range=[0.0000e+00, 1.1921e-06]  mean=1.1618e-07
+  [PASS] memory bank query_bev+query_memory fusion: max=1.19e-06  mean=1.16e-07
 
 PASSED
 
@@ -270,13 +263,6 @@ SUMMARY
   [PASS]  Memory bank query_bev + query_memory fusion
 
 All 9 tests passed.
-```
-
-### stderr
-
-```
-C:\Users\SaSagar\AppData\Local\miniforge3\envs\polaris\Lib\site-packages\requests\__init__.py:109: RequestsDependencyWarning: urllib3 (2.6.3) or chardet (None)/charset_normalizer (3.4.4) doesn't match a supported version!
-  warnings.warn(
 ```
 
 ---
@@ -302,8 +288,8 @@ Input shape: (50, 2, 256)
 Output shape: (50, 2, 256)
 
 Difference vs PyTorch:
-  Max:  0.0000001341
-  Mean: 0.0000000167
+  Max:  0.0000001118
+  Mean: 0.0000000158
   Total MultiheadAttention params: 263,168
 
 PyTorch params: 263,168
@@ -324,8 +310,8 @@ Value shape: (50, 2, 256)
 Output shape: (30, 2, 256)
 
 Difference vs PyTorch:
-  Max:  0.0000001192
-  Mean: 0.0000000159
+  Max:  0.0000001267
+  Mean: 0.0000000154
 
 [OK] Cross-Attention test PASSED (threshold=1e-05)
 
@@ -341,8 +327,8 @@ Input shape: (3, 40, 128) (bs, seq, embed)
 Output shape: (3, 40, 128)
 
 Difference vs PyTorch:
-  Max:  0.0000000969
-  Mean: 0.0000000156
+  Max:  0.0000001192
+  Mean: 0.0000000149
 
 [OK] Batch-First test PASSED (threshold=1e-05)
 
@@ -352,18 +338,18 @@ TEST 4: Attention Weights Return
 
 Test 1: need_weights=False
   Return type: <class 'ttsim.ops.tensor.SimTensor'>
-  Output shape: [20, 2, 128]
+  Output shape: Shape([20, 2, 128])
 
 Test 2: need_weights=True, average_attn_weights=True
   Return type: tuple
-  Output shape: [20, 2, 128]
-  Attention weights shape: [2, 1, 20, 20]
+  Output shape: Shape([20, 2, 128])
+  Attention weights shape: Shape([2, 1, 20, 20])
   Expected attn shape: (batch=2, seq_q=20, seq_k=20)
 
 Test 3: need_weights=True, average_attn_weights=False
   Return type: tuple
-  Output shape: [20, 2, 128]
-  Attention weights shape: [2, 8, 20, 20]
+  Output shape: Shape([20, 2, 128])
+  Attention weights shape: Shape([2, 8, 20, 20])
   Expected attn shape: (batch=2, num_heads=8, seq_q=20, seq_k=20)
 
 Attention weights properties:
@@ -385,8 +371,8 @@ Configuration:
 Output shape: (2, 10, 256)
 
 Difference vs PyTorch:
-  Max:  0.0000000596
-  Mean: 0.0000000052
+  Max:  0.0000000186
+  Mean: 0.0000000020
 
 [OK] Key Padding Mask test PASSED (threshold=1e-05)
 
@@ -402,13 +388,6 @@ Key Padding Mask: [OK] PASSED
 ================================================================================
 ALL TESTS PASSED [OK]
 ================================================================================
-```
-
-### stderr
-
-```
-C:\Users\SaSagar\AppData\Local\miniforge3\envs\polaris\Lib\site-packages\requests\__init__.py:109: RequestsDependencyWarning: urllib3 (2.6.3) or chardet (None)/charset_normalizer (3.4.4) doesn't match a supported version!
-  warnings.warn(
 ```
 
 ---

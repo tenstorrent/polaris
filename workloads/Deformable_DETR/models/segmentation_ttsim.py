@@ -91,8 +91,14 @@ def interpolate_nearest(tensor, size, module=None, call_id=None):
     Delegates to SimTensor.interpolate() (which uses F.Resize internally).
     Computes scale factors from the target size and input spatial dimensions.
     """
-    if module is not None:
-        tensor.set_module(module)
+    if module is None:
+        # Create a temporary anonymous module to satisfy interpolate's link_module requirement
+        _tmp = SimNN.Module.__new__(SimNN.Module)
+        SimNN.Module.__init__(_tmp)
+        _tmp.name = f"interpolate_anon_{id(tensor)}"
+        module = _tmp
+
+    tensor.set_module(module)
 
     if hasattr(tensor, "shape") and len(tensor.shape) == 4:
         H_in, W_in = tensor.shape[2], tensor.shape[3]

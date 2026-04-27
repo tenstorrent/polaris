@@ -447,6 +447,7 @@ workloads:
       maptracker_tiny   : { bev_h: 25, bev_w: 50, vector_num_queries: 50, canvas_size: [50, 100], img_height: 256, img_width: 256 }
       maptracker_small  : { bev_h: 50, bev_w: 100, vector_num_queries: 100, canvas_size: [100, 200], img_height: 480, img_width: 800 }
       maptracker_base   : { bev_h: 100, bev_w: 200, vector_num_queries: 100, canvas_size: [200, 400], img_height: 480, img_width: 800 }
+
   - api: TTSIM
     name: DiffusionDrive
     basedir: workloads/DiffusionDrive/navsim/agents/diffusiondrive
@@ -458,3 +459,66 @@ workloads:
     instances:
       dd_base  : { camera_height: 256, camera_width: 1024, lidar_h: 256, lidar_w: 256 }
       dd_small : { camera_height: 256, camera_width: 256, lidar_h: 256, lidar_w: 256 }
+
+  - api: TTSIM
+    name: DiffusionDrive_Validation
+    basedir: workloads/DiffusionDrive/navsim/agents/diffusiondrive
+    module : DiffusionDriveValidation@diffusiondrive_validation.py
+    params :
+      image_architecture: resnet34
+      lidar_architecture: resnet34
+      bs: 1
+    instances:
+      dd_base  : { camera_height: 256, camera_width: 1024, lidar_h: 256, lidar_w: 256 }
+      dd_small : { camera_height: 256, camera_width: 256, lidar_h: 256, lidar_w: 256 }
+
+  - api: TTSIM
+    name: MapTracker_Validation
+    basedir: workloads/MapTracker/plugin/models/maper
+    module : MapTrackerValidation@maptracker_validation.py
+    params : {bs: 1, seg_in_channels: 256, seg_embed_dims: 256, vector_embed_dims: 256, seg_num_classes: 3, vector_num_points: 20}
+    instances:
+      maptracker_small  : { bev_h: 50, bev_w: 100, vector_num_queries: 100, canvas_size: [100, 200], img_height: 480, img_width: 800 }
+
+  - api: TTSIM
+    name: BEVFormer_Validation
+    basedir: workloads/BEVFormer/ttsim_models
+    module : BEVFormerValidation@bevformer_validation.py
+    params : {num_cams: 6, img_channels: 3, embed_dims: 256, num_classes: 10, bs: 1}
+    instances:
+      bevformer_tiny   : { img_height: 256, img_width: 256, bev_h: 25, bev_w: 25, num_query: 300 }
+      bevformer_small  : { img_height: 512, img_width: 512, bev_h: 50, bev_w: 50, num_query: 900 }
+
+  - api: TTSIM
+    name: DeformableDETR_Validation
+    basedir: workloads/Deformable_DETR/models
+    module : DeformableDETRValidation@deformable_detr_validation.py
+    params : {num_classes: 80, num_queries: 300, hidden_dim: 256, num_feature_levels: 4, num_encoder_layers: 6, num_decoder_layers: 6, img_channels: 3, bs: 1, name: 'detr'}
+    instances:
+      detr_640x640 : { img_height: 640, img_width: 640 }
+      detr_800x800 : { img_height: 800, img_width: 800 }
+
+  - api: TTSIM
+    name: UniAD_Validation
+    basedir: workloads/UniAD
+    module : UniAD_E2E_Validation@uniad_validation.py
+    params :
+      embed_dims    : 256
+      num_query     : 900
+      num_classes   : 10
+      bev_h         : 50
+      bev_w         : 50
+      num_cameras   : 6
+      resnet_depth  : 50
+      num_enc_layers: 6
+      num_heads     : 8
+      ffn_dim       : 512
+    instances:
+      uniad_s : { img_height: 256, img_width: 256, bs: 1 }
+
+  - api: TTSIM
+    name: ScaledYOLOv4_Validation
+    basedir: workloads/ScaledYOLOv4/models
+    module : ScaledYOLOv4Validation@scaled_yolov4_validation.py
+    instances:
+      yolov4-csp : {yaml_cfg_path: 'https://raw.githubusercontent.com/WongKinYiu/ScaledYOLOv4/refs/heads/yolov4-large/models/yolov4-csp.yaml', in_channels: 3, in_resolution: 640, bs: 1}
