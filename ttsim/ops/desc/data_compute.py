@@ -3,6 +3,7 @@
 # SPDX-License-Identifier: Apache-2.0
 """Data computation helpers for shape inference functions"""
 
+import math
 import numpy as np
 from typing import Any, List, Optional
 
@@ -62,6 +63,7 @@ def compute_maxpool2d(iTList, op) -> np.ndarray:
     kernel_shape = op.attrs.get("kernel_shape", [2, 2])
     strides = op.attrs.get("strides", kernel_shape)
     pads = op.attrs.get("pads", [0, 0, 0, 0])  # [top, left, bottom, right]
+    ceil_mode = op.attrs.get("ceil_mode", 0)
 
     N, C, H_in, W_in = X.shape
     Kh, Kw = kernel_shape
@@ -71,15 +73,45 @@ def compute_maxpool2d(iTList, op) -> np.ndarray:
     pad_w = (pads[1], pads[3])
 
     if any(p > 0 for p in pads):
+        dtype = X.dtype
+        if np.issubdtype(dtype, np.floating):
+            pad_val = -np.inf
+        elif np.issubdtype(dtype, np.integer):
+            pad_val = np.iinfo(dtype).min
+        else:
+            # Fallback: treat as float32 for pooling
+            X = X.astype(np.float32)
+            pad_val = -np.inf
+
         X_padded = np.pad(
-            X, ((0, 0), (0, 0), pad_h, pad_w), mode="constant", constant_values=-np.inf
+            X, ((0, 0), (0, 0), pad_h, pad_w),
+            mode="constant", constant_values=pad_val,
         )
     else:
         X_padded = X
 
-    # Calculate output size
-    H_out = (H_in + pads[0] + pads[2] - Kh) // strides[0] + 1
-    W_out = (W_in + pads[1] + pads[3] - Kw) // strides[1] + 1
+    # Calculate output size (must match pooling_shape_inference)
+    padded_H = H_in + pads[0] + pads[2]
+    padded_W = W_in + pads[1] + pads[3]
+    if ceil_mode:
+        H_out = math.ceil((padded_H - Kh) / strides[0]) + 1
+        W_out = math.ceil((padded_W - Kw) / strides[1]) + 1
+    else:
+        H_out = (padded_H - Kh) // strides[0] + 1
+        W_out = (padded_W - Kw) // strides[1] + 1
+
+    # For ceil_mode, pad extra so pooling windows don't go out of bounds
+    if ceil_mode:
+        needed_H = (H_out - 1) * strides[0] + Kh
+        needed_W = (W_out - 1) * strides[1] + Kw
+        _, _, cur_H, cur_W = X_padded.shape
+        extra_h = max(needed_H - cur_H, 0)
+        extra_w = max(needed_W - cur_W, 0)
+        if extra_h > 0 or extra_w > 0:
+            X_padded = np.pad(
+                X_padded, ((0, 0), (0, 0), (0, extra_h), (0, extra_w)),
+                mode="constant", constant_values=-np.inf
+            )
 
     Y = np.zeros((N, C, H_out, W_out), dtype=X.dtype)
 

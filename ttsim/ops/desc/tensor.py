@@ -706,6 +706,14 @@ def split_sinf(iTList, oTList, op, **kwargs):
         tout.dtype = A.dtype
         outBytes += tout.nbytes(op.precision)
         outElems += tout.nelems()
+        
+    # Compute data if input has data
+    if A.data is not None:
+        from ttsim.ops.desc.data_compute import compute_split
+ 
+        split_results = compute_split(iTList, op)
+        for tidx, tout in enumerate(oTList):
+            tout.data = split_results[tidx]
 
     # Compute data if input has data
     if A.data is not None:

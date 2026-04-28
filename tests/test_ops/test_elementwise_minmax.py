@@ -211,7 +211,7 @@ def test_elementwise_max():
 
         # Report results
         if shape_match and numerical_match is True and pipeline_match is True:
-            print(
+            logger.info(
                 f"TEST[{tno:3d}] Max {tmsg:{msgw}s} PASS [Shape OK, Numerical OK, Pipeline OK]"
             )
         else:
@@ -301,7 +301,7 @@ def test_elementwise_min():
 
         # Report results
         if shape_match and numerical_match is True and pipeline_match is True:
-            print(
+            logger.info(
                 f"TEST[{tno:3d}] Min {tmsg:{msgw}s} PASS [Shape OK, Numerical OK, Pipeline OK]"
             )
         else:

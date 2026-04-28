@@ -335,3 +335,26 @@ workloads:
       dd_small : { camera_height: 256, camera_width: 256, lidar_h: 256, lidar_w: 256 }
 
 
+
+  
+  - api: TTSIM
+    name: FusionAD
+    basedir: workloads/FusionAD/projects/mmdet_plugin/fusionad/detectors
+    module: FusionAD@fusionad_e2e.py
+    params:
+      embed_dims       : 256
+      num_query        : 900
+      num_classes      : 10
+      num_cams         : 6
+      queue_length     : 3
+      predict_steps    : 12
+      predict_modes    : 6
+      planning_steps   : 6
+      occ_n_future     : 4
+      pc_range         : [-54.0, -54.0, -5.0, 54.0, 54.0, 3.0]
+      video_test_mode  : true
+      bs               : 1
+    instances:
+      fusionad_tiny  : { bev_h: 25,  bev_w: 25,  img_height: 256,  img_width: 256  }
+      fusionad_small : { bev_h: 50,  bev_w: 50,  img_height: 512,  img_width: 512  }
+      # fusionad_base  : { bev_h: 200, bev_w: 200, img_height: 900,  img_width: 1600 }

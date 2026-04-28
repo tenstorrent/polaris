@@ -6,6 +6,7 @@
 # Poor Man's Module/ModuleList inspired by PyTorch Signature
 ###############################################################
 from typing import Iterator
+from typing import Optional
 import ttsim.front.functional.op as F
 import ttsim.front.functional.tensor_op  # noqa: F401 – ensures SimTensor operators (e.g. __add__) are bound
 import ttsim.ops.op as Ops
@@ -287,26 +288,31 @@ class Linear(Module):
         self.name = name
         self.in_features = in_features
         self.out_features = out_features
-        self.matmul = F.MatMul(name + ".matmul")
-        self.transpose = F.Transpose(name + ".transpose", perm=[1, 0])
+
+        self.bias: Optional[SimTensor]
+
+        self.matmul = F.MatMul(f"{name}.matmul")
+        self.transpose = F.Transpose(f"{name}.transpose", perm=[1, 0])
         self.param = F._from_shape(
-            name + ".param", [out_features, in_features], is_param=True
+            f"{name}.param", [out_features, in_features], is_param=True
         )
-        self.bias = (
-            F._from_shape(name + ".bias", [out_features], is_param=True)
-            if bias
-            else None
-        )
-        self.param.set_module(self)
+
         if bias:
-            self.bias.set_module(self)  # type: ignore
+            self.bias = F._from_shape(
+                f"{name}.bias", [out_features], is_param=True
+            )
+        else:
+            self.bias = None
+    
+        self.add_bias = F.Add(f"{name}.add_bias")
+
         super().link_op2module()
 
     def __call__(self, x):
         param_t = self.transpose(self.param)
         Y = self.matmul(x, param_t)
         if self.bias is not None:
-            Y += self.bias
+            Y = self.add_bias(Y, self.bias)
         return Y
 
     def analytical_param_count(self, lvl):

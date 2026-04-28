@@ -715,7 +715,9 @@ def calculate_conv2d_memory_stats(
         "output_bytes": output_bytes,
     }
 
-
+@pytest.mark.slow
+@pytest.mark.unit
+@pytest.mark.opunit
 def test_conv2d_memory_validation(capsys, request):
     """Test conv2d memory validation with various tensor sizes"""
 

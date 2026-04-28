@@ -393,6 +393,9 @@ def unary_fwd(iTList, oTList, op, **kwargs):
         #Hardmax         : Hardmax(x, axis) = 1 if x == first_max_val_along_xis else 0; TODO: account for axis
         optype2instr[xopname] = {'cmp': X.nelems(), 'mov': X.nelems()}
     optype2instr['LeakyRelu']['add'] = X.nelems()
+    
+    # Relu6: min(max(0, x), 6) — two comparisons and a move
+    optype2instr["Relu6"] = {"cmp": 2 * X.nelems(), "mov": X.nelems()}
 
     # Neg uses subtraction: -x = 0 - x
     optype2instr['Neg'] = {'sub': X.nelems()}
