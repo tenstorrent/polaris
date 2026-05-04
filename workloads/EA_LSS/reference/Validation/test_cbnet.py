@@ -24,7 +24,7 @@ for p in [_polaris_root, _ealss_root]:
 
 from ttsim.front.functional.op import _from_shape
 from ttsim_modules.cbnet import CBSwinTransformer
-from Reference.Validation.ttsim_utils import (
+from reference.Validation.ttsim_utils import (
     print_header, print_test, compare_arrays, ttsim_conv2d,
 )
 

@@ -50,6 +50,7 @@ No torch / mmcv imports.
 import os
 import sys
 import copy
+from typing import Optional
 
 current_dir = os.path.dirname(os.path.abspath(__file__))
 polaris_root = os.path.abspath(os.path.join(current_dir, "..", "..", ".."))
@@ -251,7 +252,7 @@ class TransFusionHead(SimNN.Module):
         num_decoder_layers: int = 1,
         num_heads: int = 8,
         ffn_channel: int = 256,
-        common_heads: dict = None,
+        common_heads: Optional[dict] = None,
         num_heatmap_convs: int = 2,
         initialize_by_heatmap: bool = True,
         fuse_img: bool = False,

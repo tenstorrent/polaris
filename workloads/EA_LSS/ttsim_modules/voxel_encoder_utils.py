@@ -25,6 +25,7 @@ No torch / mmcv imports.
 
 import os
 import sys
+from typing import Optional
 
 current_dir = os.path.dirname(os.path.abspath(__file__))
 polaris_root = os.path.abspath(os.path.join(current_dir, "..", "..", ".."))
@@ -103,7 +104,7 @@ class VFELayer(SimNN.Module):
         name: str,
         in_channels: int,
         out_channels: int,
-        norm_cfg: dict = None,
+        norm_cfg: Optional[dict] = None,
         max_out: bool = True,
         cat_max: bool = True,
     ):
@@ -221,7 +222,7 @@ class DynamicVFELayer(SimNN.Module):
         name: str,
         in_channels: int,
         out_channels: int,
-        norm_cfg: dict = None,
+        norm_cfg: Optional[dict] = None,
     ):
         super().__init__()
         if norm_cfg is None:

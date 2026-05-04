@@ -47,7 +47,7 @@ from ttsim_modules.cam_stream_lss         import LiftSplatShoot
 # Full model
 from ttsim_modules.ealss                  import EALSS
 
-from Reference.Validation.ttsim_utils import print_header, print_test
+from reference.Validation.ttsim_utils import print_header, print_test
 
 
 # ─────────────────────────────────────────────────────────────────────────────

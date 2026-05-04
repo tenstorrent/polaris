@@ -40,6 +40,7 @@ No torch / mmcv imports.
 import os
 import sys
 import math
+from typing import Optional
 
 current_dir = os.path.dirname(os.path.abspath(__file__))
 polaris_root = os.path.abspath(os.path.join(current_dir, "..", "..", ".."))
@@ -73,8 +74,8 @@ class LiftSplatShoot(SimNN.Module):
         name: str,
         lss: bool = False,
         final_dim: tuple = (900, 1600),
-        camera_depth_range: list = None,
-        pc_range: list = None,
+        camera_depth_range: Optional[list] = None,
+        pc_range: Optional[list] = None,
         downsample: int = 4,
         grid: int = 3,
         inputC: int = 256,
@@ -198,8 +199,8 @@ class LiftSplatShoot(SimNN.Module):
 
         # Resize d to match x's spatial; use ACTUAL d.shape (strided conv output
         # may not equal fH//8 exactly for all input sizes)
-        d_H = d.shape[2]
-        d_W = d.shape[3]
+        d_H = d.shape[2]  # type: ignore[index]
+        d_W = d.shape[3]  # type: ignore[index]
         if (d_H, d_W) != (fH, fW):
             # Resize d from [B_N, 64, fH//8, fW//8] to [B_N, 64, fH, fW]
             d = F.Resize(

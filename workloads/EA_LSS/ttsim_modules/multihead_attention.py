@@ -26,6 +26,7 @@ No torch / mmcv imports.
 
 import os
 import sys
+from typing import Optional
 
 current_dir = os.path.dirname(os.path.abspath(__file__))
 polaris_root = os.path.abspath(os.path.join(current_dir, "..", "..", ".."))
@@ -79,8 +80,8 @@ class MultiheadAttention(SimNN.Module):
         num_heads: int,
         dropout: float = 0.0,
         bias: bool = True,
-        kdim: int = None,
-        vdim: int = None,
+        kdim: Optional[int] = None,
+        vdim: Optional[int] = None,
     ):
         super().__init__()
         self.name = name

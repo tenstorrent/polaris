@@ -42,6 +42,7 @@ No torch / mmcv imports.
 
 import os
 import sys
+from typing import Optional
 
 current_dir = os.path.dirname(os.path.abspath(__file__))
 polaris_root = os.path.abspath(os.path.join(current_dir, "..", "..", ".."))
@@ -99,8 +100,8 @@ class TransFusionBBoxCoder(SimNN.Module):
         pc_range: list,
         out_size_factor: int,
         voxel_size: list,
-        post_center_range: list = None,
-        score_threshold: float = None,
+        post_center_range: Optional[list] = None,
+        score_threshold: Optional[float] = None,
         code_size: int = 8,
     ):
         super().__init__()

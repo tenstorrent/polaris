@@ -52,7 +52,7 @@ from ttsim_modules.se_block       import SE_Block
 from ttsim_modules.transfusion_head import TransFusionHead
 
 
-class EALSS(SimNN.Module):
+class EA_LSS(SimNN.Module):
     """
     EA-LSS multi-modal 3-D detector — polaris workload class.
 

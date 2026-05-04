@@ -31,6 +31,7 @@ No torch / timm / mmcv imports.
 
 import os
 import sys
+from typing import Optional
 
 current_dir = os.path.dirname(os.path.abspath(__file__))
 polaris_root = os.path.abspath(os.path.join(current_dir, "..", "..", ".."))
@@ -614,8 +615,8 @@ class SwinTransformer(SimNN.Module):
         patch_size: int = 4,
         in_chans: int = 3,
         embed_dim: int = 96,
-        depths: list = None,
-        num_heads: list = None,
+        depths: Optional[list] = None,
+        num_heads: Optional[list] = None,
         window_size: int = 7,
         mlp_ratio: float = 4.0,
         out_indices: tuple = (0, 1, 2, 3),

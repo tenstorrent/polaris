@@ -27,6 +27,7 @@ No torch / mmcv / numba imports.
 
 import os
 import sys
+from typing import Optional
 
 current_dir = os.path.dirname(os.path.abspath(__file__))
 polaris_root = os.path.abspath(os.path.join(current_dir, "..", "..", ".."))
@@ -170,7 +171,7 @@ def box3d_multiclass_nms(
     max_num: int,
     use_rotate_nms: bool = False,
     nms_thr: float = 0.2,
-    mlvl_dir_scores: np.ndarray = None,
+    mlvl_dir_scores: Optional[np.ndarray] = None,
 ):
     """
     Multi-class NMS for 3-D bounding boxes.

@@ -194,7 +194,7 @@ class ConvModule1d(SimNN.Module):
             conv_params.append((2, conv_bias))
             self.conv_bias = conv_bias
         else:
-            self.conv_bias = None
+            self.conv_bias = None  # type: ignore[assignment]
 
         self.conv_weight = conv_weight
 
@@ -216,7 +216,7 @@ class ConvModule1d(SimNN.Module):
         if with_bn:
             self.bn = BatchNorm1d(name + ".bn", out_channels)
         else:
-            self.bn = None
+            self.bn = None  # type: ignore[assignment]
 
         # ------------------------------------------------------------------
         # (Optional) ReLU

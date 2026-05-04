@@ -86,7 +86,7 @@ class NaiveSyncBatchNorm1d(SimNN.Module):
 
     def set_weights(self, weight_np, bias_np, running_mean_np, running_var_np):
         """Inject inference-mode statistics and affine params."""
-        self._bn.set_weights(weight_np, bias_np, running_mean_np, running_var_np)
+        self._bn.set_weights(weight_np, bias_np, running_mean_np, running_var_np)  # type: ignore[attr-defined]
 
     def analytical_param_count(self, lvl=0):
         return self._bn.analytical_param_count(lvl + 1)

@@ -28,6 +28,7 @@ No torch / mmcv imports.
 
 import os
 import sys
+from typing import Optional
 
 current_dir = os.path.dirname(os.path.abspath(__file__))
 polaris_root = os.path.abspath(os.path.join(current_dir, "..", "..", ".."))
@@ -91,8 +92,8 @@ class EALSS_CAM(SimNN.Module):
         num_classes: int = 10,
         num_proposals: int = 200,
         num_decoder_layers: int = 1,
-        camera_depth_range: list = None,
-        pc_range: list = None,
+        camera_depth_range: Optional[list] = None,
+        pc_range: Optional[list] = None,
         final_dim: tuple = (900, 1600),
         downsample: int = 4,
         grid: int = 3,
@@ -130,7 +131,7 @@ class EALSS_CAM(SimNN.Module):
             name + ".img_backbone",
             embed_dim=96,
             cb_del_stages=1,
-            **_swin_kwargs,
+            **_swin_kwargs,  # type: ignore[arg-type]
         )
         self.img_neck = FPNC(
             name + ".img_neck",

@@ -70,7 +70,7 @@ def test_aligned_3d_nms_identical_boxes():
     classes = np.zeros(5, dtype=np.int32)
     keep = aligned_3d_nms(boxes, scores, classes, thresh=0.3)
     assert len(keep) == 1, f"Expected 1 kept box, got {len(keep)}: {keep}"
-    assert scores[keep[0]] == 0.9, f"Best score should be kept: {scores[keep[0]]}"
+    assert abs(scores[keep[0]] - 0.9) < 1e-6, f"Best score should be kept: {scores[keep[0]]}"
     print_test("PASS", f"kept={keep}")
 
 

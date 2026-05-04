@@ -28,6 +28,7 @@ No torch / mmcv imports.
 
 import os
 import sys
+from typing import Optional
 
 current_dir = os.path.dirname(os.path.abspath(__file__))
 polaris_root = os.path.abspath(os.path.join(current_dir, "..", "..", ".."))
@@ -197,7 +198,7 @@ class GaussianDepthTarget(SimNN.Module):
     """
 
     def __init__(self, name: str, stride: int,
-                 cam_depth_range: tuple, constant_std: float = None):
+                 cam_depth_range: tuple, constant_std: Optional[float] = None):
         super().__init__()
         self.name = name
         self.stride = stride

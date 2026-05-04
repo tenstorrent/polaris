@@ -23,6 +23,7 @@ TTSim ops used:
 
 import os
 import sys
+from typing import Optional
 
 current_dir = os.path.dirname(os.path.abspath(__file__))
 polaris_root = os.path.abspath(os.path.join(current_dir, "..", "..", ".."))
@@ -42,12 +43,12 @@ from ttsim.front.functional.op import SimOpHandle, _from_shape, _from_data
 def apply_3d_transformation(
     pcd,
     name: str,
-    rotation_mat: np.ndarray = None,
+    rotation_mat: Optional[np.ndarray] = None,
     scale_factor: float = 1.0,
-    trans_vector: np.ndarray = None,
+    trans_vector: Optional[np.ndarray] = None,
     horizontal_flip: bool = False,
     vertical_flip: bool = False,
-    flow: list = None,
+    flow: Optional[list] = None,
     reverse: bool = False,
 ):
     """

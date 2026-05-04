@@ -31,6 +31,7 @@ No torch / mmcv imports.
 
 import os
 import sys
+from typing import Optional
 
 current_dir = os.path.dirname(os.path.abspath(__file__))
 polaris_root = os.path.abspath(os.path.join(current_dir, "..", "..", ".."))
@@ -74,9 +75,9 @@ class SECONDFPN(SimNN.Module):
     def __init__(
         self,
         name: str,
-        in_channels: list = None,
-        out_channels: list = None,
-        upsample_strides: list = None,
+        in_channels: Optional[list] = None,
+        out_channels: Optional[list] = None,
+        upsample_strides: Optional[list] = None,
         eps: float = 1e-3,
     ):
         super().__init__()
