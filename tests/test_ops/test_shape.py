@@ -308,10 +308,10 @@ def test_shape_properties():
         assert len(result.shape) == 1, f"Output not 1D for {ndim}D input"
         assert result.shape[0] == ndim, f"Output length {result.shape[0]} != {ndim}"
 
-        logger.info("    All 1D outputs ✓")
+    logger.info("    All 1D outputs ✓")
 
     # Property 2: Data content doesn't affect shape
-        logger.info("  Property 2: Data content doesn't affect output")
+    logger.info("  Property 2: Data content doesn't affect output")
     shape = [4, 5, 6]
     data1 = np.zeros(shape, dtype=np.float32)
     data2 = np.ones(shape, dtype=np.float32)

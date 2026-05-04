@@ -266,6 +266,66 @@ workloads:
       maptracker_tiny   : { bev_h: 25, bev_w: 50, vector_num_queries: 50, canvas_size: [50, 100], img_height: 256, img_width: 256 }
       maptracker_small  : { bev_h: 50, bev_w: 100, vector_num_queries: 100, canvas_size: [100, 200], img_height: 480, img_width: 800 }
       maptracker_base   : { bev_h: 100, bev_w: 200, vector_num_queries: 100, canvas_size: [200, 400], img_height: 480, img_width: 800 }
+
+  - api: TTSIM
+    name: EALSS
+    basedir: workloads/EA-LSS
+    module : EALSS@ealss_ttsim.py
+    params :
+      imc           : 256
+      lic           : 384
+      num_views     : 6
+      camera_stream : true
+      lc_fusion     : true
+      se            : false
+      num_classes   : 10
+      num_proposals : 200
+      bs            : 1
+    instances:
+      ealss_nuscenes: { img_height: 256, img_width: 704 }
+
+  - api: TTNN
+    name: vit_attention
+    basedir: workloads/ttnn/vit
+    module : run_vit_attention@run_ttnn_functional_vit.py
+    instances:
+      vit_b16_attention: { bs: 1, model_name: vit-b16-attention }
+
+  - api: TTNN
+    name: vit_intermediate
+    basedir: workloads/ttnn/vit
+    module : run_vit_intermediate@run_ttnn_functional_vit.py
+    instances:
+      vit_b16_intermediate: { bs: 1, model_name: vit-b16-intermediate }
+
+  - api: TTNN
+    name: vit_output
+    basedir: workloads/ttnn/vit
+    module : run_vit_output@run_ttnn_functional_vit.py
+    instances:
+      vit_b16_output: { bs: 1, model_name: vit-b16-output }
+
+  - api: TTNN
+    name: vit_layer
+    basedir: workloads/ttnn/vit
+    module : run_vit_layer@run_ttnn_functional_vit.py
+    instances:
+      vit_b16_layer: { bs: 1, model_name: vit-b16-layer }
+
+  - api: TTNN
+    name: vit_encoder
+    basedir: workloads/ttnn/vit
+    module : run_vit_encoder@run_ttnn_functional_vit.py
+    instances:
+      vit_b16_encoder: { bs: 1, model_name: vit-b16-encoder }
+
+  - api: TTNN
+    name: vit
+    basedir: workloads/ttnn/vit
+    module : run_vit@run_ttnn_functional_vit.py
+    instances:
+      vit_b16: { bs: 1, model_name: vit-b16 }
+      vit_base_224x224: { bs: 1, model_name: vit-b16 }
   - api: TTSIM
     name: DiffusionDrive
     basedir: workloads/DiffusionDrive/navsim/agents/diffusiondrive
@@ -278,9 +338,6 @@ workloads:
       dd_base  : { camera_height: 256, camera_width: 1024, lidar_h: 256, lidar_w: 256 }
       dd_small : { camera_height: 256, camera_width: 256, lidar_h: 256, lidar_w: 256 }
 
-
-
-  
   - api: TTSIM
     name: FusionAD
     basedir: workloads/FusionAD/projects/mmdet_plugin/fusionad/detectors

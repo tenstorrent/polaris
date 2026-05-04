@@ -11,6 +11,7 @@ from .types import TILE_HEIGHT, TILE_WIDTH
 
 from enum import Enum, auto
 from itertools import count
+from numbers import Integral
 
 from loguru import logger
 
@@ -592,8 +593,21 @@ def _rand(shape, dtype, device=USE_DEFAULT_DEVICE):
 def zeros(shape, dtype, layout=Layout.DEFAULT, device=USE_DEFAULT_DEVICE):
     return Tensor(shape=shape, dtype=dtype, layout=layout, device=device, fill_value=0)
 
-def ones(*shape, dtype=None, layout=Layout.DEFAULT, device=USE_DEFAULT_DEVICE):
-    return Tensor(shape=shape, dtype=dtype, layout=layout, device=device, fill_value=1)
+def _normalize_shape_list(shape, arg_name="shape"):
+     actual_shape = list(shape)
+     if not all(isinstance(dim, Integral) and not isinstance(dim, bool) for dim in actual_shape):
+         raise TypeError(f"{arg_name} must contain only integer dimensions")
+     return actual_shape
+
+
+def ones(*args, shape=None, dtype=None, layout=Layout.DEFAULT, device=USE_DEFAULT_DEVICE):
+    if shape is not None:
+        actual_shape = _normalize_shape_list(shape, arg_name="shape")
+    elif len(args) == 1 and isinstance(args[0], (list, tuple)):
+        actual_shape = _normalize_shape_list(args[0], arg_name="shape")
+    else:
+        actual_shape = _normalize_shape_list(args, arg_name="args")
+    return Tensor(shape=actual_shape, dtype=dtype, layout=layout, device=device, fill_value=1)
 
 
 def full(shape, fill_value, dtype, layout, device):

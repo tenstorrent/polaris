@@ -226,7 +226,14 @@ class HungarianMatcher(SimNN.Module):
         pred_boxes.set_module(self)
         self._tensors[pred_boxes.name] = pred_boxes
 
-        assert pred_logits.shape is not None
+        if pred_logits.shape is None:
+            raise ValueError(
+                "pred_logits must have a defined shape with at least batch and query dimensions"
+            )
+        if len(pred_logits.shape) < 2:
+            raise ValueError(
+                f"pred_logits must have at least 2 dimensions, got shape {pred_logits.shape}"
+            )
         bs, num_queries = pred_logits.shape[:2]
 
         # Early return for shape-only mode (no data)

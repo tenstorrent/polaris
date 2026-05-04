@@ -5,6 +5,7 @@ import pytest
 import os
 import sys
 from loguru import logger
+from functools import lru_cache
 
 # Silence the ttsim-related log messages
 try:
@@ -709,13 +710,16 @@ def test_split_data_ordering():
 
     logger.debug("  Data ordering preserved -- OK")
 
+@lru_cache(maxsize=1)
+def _get_split_memory_validation_device():
+     config_path = os.path.join(polaris_root, "config", "tt_wh.yaml")
+     _ipgroups, packages = get_arspec_from_yaml(config_path)
+     return Device(packages["n150"])
+
 
 def calculate_split_memory_stats(shape, axis=0, num_outputs=2, dtype="float32"):
     """Calculate memory and compute statistics for a split operation"""
-    # Get device configuration
-    config_path = os.path.join(polaris_root, "config", "tt_wh.yaml")
-    ipgroups, packages = get_arspec_from_yaml(config_path)
-    device = Device(packages["n150"])
+    device = _get_split_memory_validation_device()
 
     # Create input tensors (equal split, no split_sizes tensor)
     np_dtype = getattr(np, dtype)

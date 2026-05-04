@@ -13,7 +13,7 @@ addopts = "--durations=0 --ignore=tests/test_ttnn/reference/"
 [tool.mypy]
 check_untyped_defs = true
 explicit_package_bases = true
-exclude = "^__.*/|^tests/|ttsim/back/tensix_neo|ttsim/front/llk|/reference/|^workloads/si_ttnn|^workloads/diffusers|^workloads/llm/|^workloads/llama2|^workloads/ttnn/llama3|^workloads/ttnn/vit/|^workloads/mamba2/|^workloads/basicresnet.py|^tools/profiling/|^tools/compare_csv\\.py$|^tools/compare_profiler_to_polaris\\.py$"
+exclude = "^__.*/|^tests/|ttsim/back/tensix_neo|ttsim/front/llk|/reference/|^workloads/EA-LSS/|^workloads/si_ttnn|^workloads/diffusers|^workloads/llm/|^workloads/llama2|^workloads/ttnn/llama3|^workloads/ttnn/vit/|^workloads/mamba2/|^workloads/basicresnet.py|^tools/profiling/|^tools/compare_csv\\.py$|^tools/compare_profiler_to_polaris\\.py$"
 # disallow_untyped_calls = true
 # disallow_untyped_defs = true
 warn_unreachable = true

@@ -271,7 +271,7 @@ class MSDeformAttn(SimNN.Module):
         attention_weights = attention_weights_softmax
 
         # .view(N, Len_q, self.n_heads, self.n_levels, self.n_points)
-        attention_weights.shape = [N, Len_q, self.n_heads, self.n_levels, self.n_points]  # type: ignore[assignment]
+        attention_weights.set_shape([N, Len_q, self.n_heads, self.n_levels, self.n_points])
         if attention_weights.data is not None:
             attention_weights.data = attention_weights.data.reshape(
                 attention_weights.shape

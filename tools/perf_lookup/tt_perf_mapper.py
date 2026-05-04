@@ -650,7 +650,7 @@ def fit_1d_power(cores: np.ndarray, y: np.ndarray) -> tuple[np.ndarray, float]:
         return a * (x ** b)
 
     try:
-        a0 = np.nanmean(y_safe) / (np.nanmean(cores_safe) ** 0.5)
+        a0 = float(np.nanmean(y_safe) / (np.nanmean(cores_safe) ** 0.5))
         (a, b), _ = curve_fit(
             model, cores_safe, y_safe, p0=[max(float(a0), 1e-6), -0.5], maxfev=10000
         )

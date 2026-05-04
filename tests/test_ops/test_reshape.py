@@ -5,6 +5,7 @@ import pytest
 import os
 import sys
 import logging
+from functools import lru_cache
 from loguru import logger
 
 # Silence the ttsim-related log messages
@@ -489,12 +490,16 @@ def test_reshape_constant_input():
     logger.debug("  Constant input -> constant output -- OK")
 
 
-def calculate_reshape_memory_stats(input_shape, target_shape, dtype="float32"):
-    """Calculate memory and compute statistics for a reshape operation"""
-    # Get device configuration
+@lru_cache(maxsize=1)
+def _get_reshape_test_device():
+    """Load and cache the device used by reshape memory tests."""
     config_path = os.path.join(polaris_root, "config", "tt_wh.yaml")
     ipgroups, packages = get_arspec_from_yaml(config_path)
-    device = Device(packages["n150"])
+    return Device(packages["n150"])
+
+def calculate_reshape_memory_stats(input_shape, target_shape, dtype="float32"):
+    """Calculate memory and compute statistics for a reshape operation"""
+    device = _get_reshape_test_device()
 
     # Create input tensors (X and shape)
     np_dtype = getattr(np, dtype)
