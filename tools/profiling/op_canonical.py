@@ -70,6 +70,9 @@ PROFILER_PREFIX_RULES: tuple[tuple[str, str], ...] = (
     ("Gelu", "gelu"),
     ("Binary", "eltwise"),
     ("Fold", "fold"),
+    ("Reshard", "reshard"),
+    ("ShardedToInterleaved", "shardedtointerleaved"),
+    ("InterleavedToSharded", "interleavedtosharded"),
 )
 
 # BinaryOpType::ENUM (uppercase) → canonical layer type.
@@ -128,7 +131,8 @@ _UNKNOWN_PROFILER_BASES: set[str] = set()
 POLARIS_SYNONYMS: Dict[str, str] = {
     "layernormalization": "layernorm",
     "reshapeview": "reshape",
-    "nlpcreateqkvheads": "createqkvheads",  # Normalize NLP-prefixed form
+    "nlpcreateqkvheads": "createqkvheads",  # backward-compat: old CSVs used NLP prefix
+    "nlpconcatheads": "concatheads",
     "untilizewithvalunpadding": "untilizewithunpadding",  # Polaris uses "Val", profiler uses plain form
 }
 
@@ -171,7 +175,7 @@ CANONICAL_TO_STATS_DISPLAY: Dict[str, str] = {
     "embedding": "Embedding",
     "reduce": "Reduce",
     "fold": "Fold",
-    "createqkvheads": "NLPCreateQKVHeads",  # Display with NLP prefix
+    "createqkvheads": "CreateQKVHeads",
     "concatheads": "ConcatHeads",
     "gelu": "Gelu",
     "relu": "Relu",
@@ -179,6 +183,9 @@ CANONICAL_TO_STATS_DISPLAY: Dict[str, str] = {
     "pow": "Pow",
     "sqrt": "Sqrt",
     "eltwise": "Eltwise",
+    "reshard": "Reshard",
+    "shardedtointerleaved": "ShardedToInterleaved",
+    "interleavedtosharded": "InterleavedToSharded",
 }
 
 
@@ -193,11 +200,16 @@ def _strip_device_operation_suffix(name: str) -> str:
 
 
 def _apply_prefix_rules(base: str) -> str:
-    """Map a profiler base name (DeviceOperation stripped) via prefix rules."""
+    """Map a profiler base name (DeviceOperation stripped) via prefix rules.
+
+    The match is case-insensitive because profiler OP CODEs may appear in
+    PascalCase (``Matmul``), UPPER (``ADD``), or mixed case.
+    """
     if not base:
         return "other"
+    base_lower = base.lower()
     for prefix, layer_type in PROFILER_PREFIX_RULES:
-        if base.startswith(prefix):
+        if base_lower.startswith(prefix.lower()):
             return layer_type
     if base not in _UNKNOWN_PROFILER_BASES:
         _UNKNOWN_PROFILER_BASES.add(base)

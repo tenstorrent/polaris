@@ -4,8 +4,8 @@ Package YAML under `config/` specifies **tt-perf master** lookup tables using `l
 
 | Architecture package | Config key | LFC Path |
 |----------------------|------------|----------|
-| Wormhole `n150` (`config/tt_wh.yaml`) | `operator_lookup_file` | `lfc://hlm-lut/whb0_n150_lut.yaml` |
-| Blackhole `p100a` (`config/tt_bh.yaml`) | `operator_lookup_file` | `lfc://hlm-lut/bh_p100_lut.yaml` |
+| Wormhole `n150` (`config/tt_wh.yaml`) | `operator_lookup_file` | `lfc://hlm-lut/whb0_n150_lut_v2.yaml` |
+| Blackhole `p100a` (`config/tt_bh.yaml`) | `operator_lookup_file` | `lfc://hlm-lut/bh_p100a_lut_v2.yaml` |
 
 When using `lfc://` paths, files are **automatically downloaded** from LFC on first use and cached locally under `__ext/hlm-lut/`. The cache is checked for freshness (1 week) and re-downloaded if stale.
 
@@ -33,8 +33,8 @@ Sync to `__ext/hlm-lut/` to match the automatic cache layout:
 
 After a successful sync you should have at least:
 
-- `__ext/hlm-lut/whb0_n150_lut.yaml`
-- `__ext/hlm-lut/bh_p100_lut.yaml`
+- `__ext/hlm-lut/whb0_n150_lut_v2.yaml`
+- `__ext/hlm-lut/bh_p100a_lut_v2.yaml`
 
 (Additional files may appear if the `hlm-lut` bundle grows; the simulator only loads the path named in package YAML.)
 
@@ -52,7 +52,7 @@ If `hlm-lut` is shipped as a `.tar.gz` on the server, download and extract from 
 ./tools/ci/lfc_downloader.sh --type file --extract hlm-lut/<archive>.tar.gz __ext/hlm-lut/
 ```
 
-The archive layout must place `whb0_n150_lut.yaml` and `bh_p100_lut.yaml` under `__ext/hlm-lut/`.
+The archive layout must place `whb0_n150_lut_v2.yaml` and `bh_p100a_lut_v2.yaml` under `__ext/hlm-lut/`.
 
 ## Wire format
 

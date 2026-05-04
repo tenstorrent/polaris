@@ -14,8 +14,8 @@ from typing import Any, DefaultDict, Dict, List, Optional, Tuple, Union
 from dataclasses import dataclass
 
 try:
-    from op_canonical import normalize_polaris_optype, to_comparison_group
-    from shape_canonical import (
+    from op_canonical import normalize_polaris_optype, to_comparison_group  # type: ignore[import-not-found]
+    from shape_canonical import (  # type: ignore[import-not-found]
         parse_shape_string as parse_shape,
         normalize_shape,
         compare_tensor_shapes,
@@ -39,8 +39,8 @@ DEFAULT_MAX_SEARCH_DISTANCE = 10
 
 # Import layer extraction functions
 try:
-    from show_layers_polaris import layers_polaris
-    from show_layers_profiler import layers_profiler
+    from show_layers_polaris import layers_polaris  # type: ignore[import-not-found]
+    from show_layers_profiler import layers_profiler  # type: ignore[import-not-found]
 except ImportError:
     # Try relative imports
     from .show_layers_polaris import layers_polaris  # type: ignore
@@ -77,18 +77,18 @@ def sanitize_file_path(filepath: str) -> Path:
     # Check for malicious patterns before any path operations
     if not filepath or not isinstance(filepath, str):
         raise ValueError("File path must be a non-empty string")
-    
+
     # Check for null bytes (path traversal attack vector)
     if '\0' in filepath:
         raise ValueError("File path contains null bytes")
-    
+
     # Check for excessively long paths (potential DoS)
     # Using hardcoded 4096 (typical POSIX PATH_MAX) rather than os.pathconf
     # for simplicity and portability. This is a pre-validation security check;
     # the actual OS limit will be enforced by Path.resolve() anyway.
     if len(filepath) > 4096:
         raise ValueError("File path exceeds maximum allowed length")
-    
+
     # Input validation complete - filepath is now safe to process
     validated_input = filepath
 
@@ -97,7 +97,7 @@ def sanitize_file_path(filepath: str) -> Path:
     base_dir_env = os.environ.get('POLARIS_BASE_DIR') or os.getenv('HOME')
     if not base_dir_env:
         raise ValueError("Cannot determine safe base directory (HOME not set)")
-    
+
     try:
         base_dir = Path(base_dir_env).resolve(strict=True)
         if not base_dir.is_dir():
@@ -221,6 +221,19 @@ def parse_args() -> argparse.Namespace:
              'one table per file. With --perf, adds summed duration (and Polaris LUT '
              'hits when available), and the profiler-vs-Polaris performance comparison '
              'is grouped by type+signature instead of by optype alone.',
+    )
+    parser.add_argument(
+        '--xlsx',
+        type=str,
+        default=None,
+        metavar='PATH',
+        help='Also write an .xlsx report with three sheets: '
+             '"Summary" (network-wide totals + shape/attr counts), '
+             '"By Layer Type" (per canonical optype), and '
+             '"By Layer Signature" (per optype + normalized in/out shape signature). '
+             'In two-file mode each sheet includes Profiler vs Polaris columns and gap; '
+             'in single-file mode only that source\'s counts/ms are emitted. '
+             'Requires openpyxl (already a polarisdev dep).',
     )
     return parser.parse_args()
 
@@ -901,6 +914,423 @@ def _print_perf_comparison(
     print()
 
 
+# ---------------------------------------------------------------------------
+# XLSX report (three sheets: Summary, By Layer Type, By Layer Signature)
+# ---------------------------------------------------------------------------
+
+def _write_xlsx_report(
+    path: str,
+    *,
+    polaris_layers: Optional[List[Dict[str, Any]]],
+    profiler_layers: Optional[List[Dict[str, Any]]],
+    stats: Optional[ComparisonStats],
+    polaris_label: str,
+    profiler_label: str,
+    polaris_source: Optional[str],
+    profiler_source: Optional[str],
+    strip_leading_ones: bool,
+    strip_singleton_dims: bool,
+) -> None:
+    """Write a 3-sheet XLSX comparison report.
+
+    Sheets:
+      1. "Summary"          — model-wide totals, comparison, shape/attr stats.
+      2. "By Layer Type"    — per canonical optype rollup with comparison.
+      3. "By Layer Signature" — per (optype + normalized shape signature).
+
+    In two-file mode (both ``polaris_layers`` and ``profiler_layers`` provided)
+    each sheet includes Profiler vs Polaris columns and the absolute / percent
+    gap.  In single-file mode only the side that was loaded is emitted.
+    """
+    try:
+        from openpyxl import Workbook
+        from openpyxl.styles import Alignment, Font, PatternFill
+        from openpyxl.utils import get_column_letter
+    except ImportError as e:  # pragma: no cover - import guarded at call site
+        raise RuntimeError(
+            "openpyxl is required for --xlsx output. Install it via "
+            "`pip install openpyxl` (already present in the polarisdev env)."
+        ) from e
+
+    have_polaris = polaris_layers is not None
+    have_profiler = profiler_layers is not None
+    two_sided = have_polaris and have_profiler
+
+    header_font = Font(bold=True)
+    header_fill = PatternFill("solid", fgColor="DDEBF7")
+    total_font = Font(bold=True, italic=True)
+    total_fill = PatternFill("solid", fgColor="FFF2CC")
+    center = Alignment(horizontal="center")
+    left = Alignment(horizontal="left", vertical="top", wrap_text=True)
+
+    def _style_header(ws, row_idx: int, n_cols: int) -> None:
+        for c in range(1, n_cols + 1):
+            cell = ws.cell(row=row_idx, column=c)
+            cell.font = header_font
+            cell.fill = header_fill
+            cell.alignment = center
+
+    def _style_total(ws, row_idx: int, n_cols: int) -> None:
+        for c in range(1, n_cols + 1):
+            cell = ws.cell(row=row_idx, column=c)
+            cell.font = total_font
+            cell.fill = total_fill
+
+    def _autosize(ws, n_cols: int, max_width: int = 60) -> None:
+        for c in range(1, n_cols + 1):
+            letter = get_column_letter(c)
+            best = 8
+            for row in ws.iter_rows(min_col=c, max_col=c, values_only=True):
+                v = row[0]
+                if v is None:
+                    continue
+                if isinstance(v, float):
+                    s = f"{v:.4f}"
+                else:
+                    s = str(v)
+                if len(s) > best:
+                    best = len(s)
+            ws.column_dimensions[letter].width = min(best + 2, max_width)
+
+    def _pct(reference: float, other: float) -> Optional[float]:
+        if reference == 0.0:
+            return None
+        return (other - reference) / reference * 100.0
+
+    wb = Workbook()
+
+    # ------------------ Sheet 1: Summary ------------------
+    ws1 = wb.active
+    assert ws1 is not None
+    ws1.title = "Summary"
+
+    ws1.cell(row=1, column=1, value="Compare Layers — XLSX Report").font = Font(bold=True, size=13)
+    r = 2
+    if profiler_source:
+        ws1.cell(row=r, column=1, value="Profiler CSV"); ws1.cell(row=r, column=2, value=profiler_source); r += 1
+    if polaris_source:
+        ws1.cell(row=r, column=1, value="Polaris CSV"); ws1.cell(row=r, column=2, value=polaris_source); r += 1
+    ws1.cell(row=r, column=1, value="strip_leading_ones"); ws1.cell(row=r, column=2, value=bool(strip_leading_ones)); r += 1
+    ws1.cell(row=r, column=1, value="strip_singleton_dims"); ws1.cell(row=r, column=2, value=bool(strip_singleton_dims)); r += 1
+    r += 1
+
+    # Network totals
+    ws1.cell(row=r, column=1, value="Network totals").font = Font(bold=True); r += 1
+    if two_sided:
+        headers = ["Metric", profiler_label, polaris_label, "Abs Gap", "Gap %"]
+    elif have_profiler:
+        headers = ["Metric", profiler_label]
+    else:
+        headers = ["Metric", polaris_label]
+    for c, h in enumerate(headers, start=1):
+        ws1.cell(row=r, column=c, value=h)
+    _style_header(ws1, r, len(headers))
+    r += 1
+
+    def _layer_totals(layers: List[Dict[str, Any]]) -> Tuple[int, float, int]:
+        cnt = len(layers)
+        ms = sum((float(l["duration_ms"]) for l in layers if l.get("duration_ms") is not None), 0.0)
+        lut = sum(1 for l in layers if l.get("uses_perf_lookup"))
+        return cnt, ms, lut
+
+    prof_cnt = prof_ms = prof_lut = 0
+    pol_cnt = pol_ms = pol_lut = 0
+    if have_profiler:
+        prof_cnt, prof_ms, prof_lut = _layer_totals(profiler_layers)  # type: ignore[assignment,arg-type]
+    if have_polaris:
+        pol_cnt, pol_ms, pol_lut = _layer_totals(polaris_layers)  # type: ignore[assignment,arg-type]
+
+    def _write_metric(metric: str, prof_v, pol_v, *, fmt_ms: bool = False, percent: bool = False) -> None:
+        nonlocal r
+        ws1.cell(row=r, column=1, value=metric)
+        if two_sided:
+            ws1.cell(row=r, column=2, value=prof_v)
+            ws1.cell(row=r, column=3, value=pol_v)
+            if isinstance(prof_v, (int, float)) and isinstance(pol_v, (int, float)):
+                ws1.cell(row=r, column=4, value=pol_v - prof_v)
+                p = _pct(float(prof_v), float(pol_v))
+                ws1.cell(row=r, column=5, value=(p if p is not None else "N/A"))
+                if fmt_ms:
+                    ws1.cell(row=r, column=2).number_format = "0.0000"
+                    ws1.cell(row=r, column=3).number_format = "0.0000"
+                    ws1.cell(row=r, column=4).number_format = "+0.0000;-0.0000"
+                if p is not None:
+                    ws1.cell(row=r, column=5).number_format = "+0.00\"%\";-0.00\"%\""
+        elif have_profiler:
+            ws1.cell(row=r, column=2, value=prof_v)
+            if fmt_ms and isinstance(prof_v, (int, float)):
+                ws1.cell(row=r, column=2).number_format = "0.0000"
+        else:
+            ws1.cell(row=r, column=2, value=pol_v)
+            if fmt_ms and isinstance(pol_v, (int, float)):
+                ws1.cell(row=r, column=2).number_format = "0.0000"
+        r += 1
+
+    _write_metric("Total layers", prof_cnt, pol_cnt)
+    _write_metric("Total duration (ms)", prof_ms, pol_ms, fmt_ms=True)
+    if have_polaris:
+        # Polaris-only metric — display only on Polaris column when single-sided.
+        pol_miss = pol_cnt - pol_lut
+        if two_sided:
+            ws1.cell(row=r, column=1, value="Polaris LUT hits (count / total)")
+            ws1.cell(row=r, column=2, value="—")
+            ws1.cell(row=r, column=3, value=f"{pol_lut} / {pol_cnt}")
+            r += 1
+            ws1.cell(row=r, column=1, value="Polaris LUT misses (count / total)")
+            ws1.cell(row=r, column=2, value="—")
+            ws1.cell(row=r, column=3, value=f"{pol_miss} / {pol_cnt}")
+            r += 1
+        else:
+            ws1.cell(row=r, column=1, value="Polaris LUT hits (count / total)")
+            ws1.cell(row=r, column=2, value=f"{pol_lut} / {pol_cnt}")
+            r += 1
+            ws1.cell(row=r, column=1, value="Polaris LUT misses (count / total)")
+            ws1.cell(row=r, column=2, value=f"{pol_miss} / {pol_cnt}")
+            r += 1
+
+    # Shape/attr stats (two-file only)
+    if two_sided and stats is not None:
+        r += 1
+        ws1.cell(row=r, column=1, value="Shape / attribute comparison").font = Font(bold=True); r += 1
+        for c, h in enumerate(["Metric", "Count"], start=1):
+            ws1.cell(row=r, column=c, value=h)
+        _style_header(ws1, r, 2); r += 1
+        for label, val in [
+            ("Total matches", stats.total_matches),
+            ("Name mismatches", stats.name_mismatches),
+            ("Shape mismatches", stats.shape_mismatches),
+            ("  input shape mismatches", stats.input_shape_mismatches),
+            ("  output shape mismatches", stats.output_shape_mismatches),
+            ("Attribute mismatches", stats.attr_mismatches),
+            ("Unmatched (Polaris)", stats.unmatched_polaris),
+            ("Unmatched (Profiler)", stats.unmatched_profiler),
+            ("Ambiguous", stats.ambiguous),
+        ]:
+            ws1.cell(row=r, column=1, value=label)
+            ws1.cell(row=r, column=2, value=val)
+            r += 1
+
+    _autosize(ws1, 5 if two_sided else 2)
+
+    # ---------- Sheet 2: By Layer Type ----------
+    ws2 = wb.create_sheet("By Layer Type")
+    prof_by_op: Dict[str, Tuple[int, float, int]] = (
+        _aggregate_duration_by_optype(profiler_layers) if have_profiler else {}  # type: ignore[arg-type]
+    )
+    pol_by_op: Dict[str, Tuple[int, float, int]] = (
+        _aggregate_duration_by_optype(polaris_layers) if have_polaris else {}  # type: ignore[arg-type]
+    )
+    keys_op = list(dict.fromkeys(list(prof_by_op.keys()) + list(pol_by_op.keys())))
+    keys_op.sort(
+        key=lambda k: max(prof_by_op.get(k, (0, 0.0, 0))[1], pol_by_op.get(k, (0, 0.0, 0))[1]),
+        reverse=True,
+    )
+    if two_sided:
+        op_headers = [
+            "Layer Type",
+            f"# {profiler_label}", f"{profiler_label} ms",
+            f"# {polaris_label}", f"{polaris_label} ms",
+            "Polaris LUT hit", "Polaris LUT miss", "Polaris LUT total",
+            "Only in Polaris", "Only in Hardware",
+            "Abs Gap (ms)", "Gap %",
+        ]
+    elif have_profiler:
+        op_headers = ["Layer Type", f"# {profiler_label}", f"{profiler_label} ms"]
+    else:
+        op_headers = [
+            "Layer Type", f"# {polaris_label}", f"{polaris_label} ms",
+            "Polaris LUT hit", "Polaris LUT miss", "Polaris LUT total",
+        ]
+    for c, h in enumerate(op_headers, start=1):
+        ws2.cell(row=1, column=c, value=h)
+    _style_header(ws2, 1, len(op_headers))
+
+    rr = 2
+    only_pol_op_total = 0
+    only_hw_op_total = 0
+    for k in keys_op:
+        p_cnt, p_ms, _ = prof_by_op.get(k, (0, 0.0, 0))
+        s_cnt, s_ms, s_lut = pol_by_op.get(k, (0, 0.0, 0))
+        s_miss = s_cnt - s_lut
+        only_pol = max(0, s_cnt - p_cnt)
+        only_hw = max(0, p_cnt - s_cnt)
+        only_pol_op_total += only_pol
+        only_hw_op_total += only_hw
+        if two_sided:
+            ws2.cell(row=rr, column=1, value=k)
+            ws2.cell(row=rr, column=2, value=p_cnt)
+            ws2.cell(row=rr, column=3, value=p_ms).number_format = "0.0000"
+            ws2.cell(row=rr, column=4, value=s_cnt)
+            ws2.cell(row=rr, column=5, value=s_ms).number_format = "0.0000"
+            ws2.cell(row=rr, column=6, value=s_lut)
+            ws2.cell(row=rr, column=7, value=s_miss)
+            ws2.cell(row=rr, column=8, value=s_cnt)
+            ws2.cell(row=rr, column=9, value=only_pol)
+            ws2.cell(row=rr, column=10, value=only_hw)
+            ws2.cell(row=rr, column=11, value=(s_ms - p_ms)).number_format = "+0.0000;-0.0000"
+            p = _pct(p_ms, s_ms)
+            cell = ws2.cell(row=rr, column=12, value=(p if p is not None else "N/A"))
+            if p is not None:
+                cell.number_format = "+0.00\"%\";-0.00\"%\""
+        elif have_profiler:
+            ws2.cell(row=rr, column=1, value=k)
+            ws2.cell(row=rr, column=2, value=p_cnt)
+            ws2.cell(row=rr, column=3, value=p_ms).number_format = "0.0000"
+        else:
+            ws2.cell(row=rr, column=1, value=k)
+            ws2.cell(row=rr, column=2, value=s_cnt)
+            ws2.cell(row=rr, column=3, value=s_ms).number_format = "0.0000"
+            ws2.cell(row=rr, column=4, value=s_lut)
+            ws2.cell(row=rr, column=5, value=s_miss)
+            ws2.cell(row=rr, column=6, value=s_cnt)
+        rr += 1
+
+    # TOTAL row
+    pol_miss_total = pol_cnt - pol_lut
+    ws2.cell(row=rr, column=1, value="TOTAL")
+    if two_sided:
+        ws2.cell(row=rr, column=2, value=prof_cnt)
+        ws2.cell(row=rr, column=3, value=prof_ms).number_format = "0.0000"
+        ws2.cell(row=rr, column=4, value=pol_cnt)
+        ws2.cell(row=rr, column=5, value=pol_ms).number_format = "0.0000"
+        ws2.cell(row=rr, column=6, value=pol_lut)
+        ws2.cell(row=rr, column=7, value=pol_miss_total)
+        ws2.cell(row=rr, column=8, value=pol_cnt)
+        ws2.cell(row=rr, column=9, value=only_pol_op_total)
+        ws2.cell(row=rr, column=10, value=only_hw_op_total)
+        ws2.cell(row=rr, column=11, value=(pol_ms - prof_ms)).number_format = "+0.0000;-0.0000"
+        p = _pct(prof_ms, pol_ms)
+        cell = ws2.cell(row=rr, column=12, value=(p if p is not None else "N/A"))
+        if p is not None:
+            cell.number_format = "+0.00\"%\";-0.00\"%\""
+    elif have_profiler:
+        ws2.cell(row=rr, column=2, value=prof_cnt)
+        ws2.cell(row=rr, column=3, value=prof_ms).number_format = "0.0000"
+    else:
+        ws2.cell(row=rr, column=2, value=pol_cnt)
+        ws2.cell(row=rr, column=3, value=pol_ms).number_format = "0.0000"
+        ws2.cell(row=rr, column=4, value=pol_lut)
+        ws2.cell(row=rr, column=5, value=pol_miss_total)
+        ws2.cell(row=rr, column=6, value=pol_cnt)
+    _style_total(ws2, rr, len(op_headers))
+    ws2.freeze_panes = "A2"
+    _autosize(ws2, len(op_headers))
+
+    # ---------- Sheet 3: By Layer Signature ----------
+    ws3 = wb.create_sheet("By Layer Signature")
+    prof_by_sig: Dict[Tuple[str, str], Tuple[int, float, int]] = (
+        _aggregate_duration_by_optype_signature(
+            profiler_layers, strip_leading_ones, strip_singleton_dims  # type: ignore[arg-type]
+        ) if have_profiler else {}
+    )
+    pol_by_sig: Dict[Tuple[str, str], Tuple[int, float, int]] = (
+        _aggregate_duration_by_optype_signature(
+            polaris_layers, strip_leading_ones, strip_singleton_dims  # type: ignore[arg-type]
+        ) if have_polaris else {}
+    )
+    keys_sig = list(dict.fromkeys(list(prof_by_sig.keys()) + list(pol_by_sig.keys())))
+    keys_sig.sort(
+        key=lambda k: max(
+            prof_by_sig.get(k, (0, 0.0, 0))[1], pol_by_sig.get(k, (0, 0.0, 0))[1]
+        ),
+        reverse=True,
+    )
+    if two_sided:
+        sig_headers = [
+            "Layer Type", "Signature",
+            f"# {profiler_label}", f"{profiler_label} ms",
+            f"# {polaris_label}", f"{polaris_label} ms",
+            "Polaris LUT hit", "Polaris LUT miss", "Polaris LUT total",
+            "Only in Polaris", "Only in Hardware",
+            "Abs Gap (ms)", "Gap %",
+        ]
+    elif have_profiler:
+        sig_headers = ["Layer Type", "Signature", f"# {profiler_label}", f"{profiler_label} ms"]
+    else:
+        sig_headers = [
+            "Layer Type", "Signature",
+            f"# {polaris_label}", f"{polaris_label} ms",
+            "Polaris LUT hit", "Polaris LUT miss", "Polaris LUT total",
+        ]
+    for c, h in enumerate(sig_headers, start=1):
+        ws3.cell(row=1, column=c, value=h)
+    _style_header(ws3, 1, len(sig_headers))
+
+    rr = 2
+    only_pol_sig_total = 0
+    only_hw_sig_total = 0
+    for sig_key in keys_sig:
+        op, sig = sig_key
+        p_cnt, p_ms, _ = prof_by_sig.get(sig_key, (0, 0.0, 0))
+        s_cnt, s_ms, s_lut = pol_by_sig.get(sig_key, (0, 0.0, 0))
+        s_miss = s_cnt - s_lut
+        only_pol = max(0, s_cnt - p_cnt)
+        only_hw = max(0, p_cnt - s_cnt)
+        only_pol_sig_total += only_pol
+        only_hw_sig_total += only_hw
+        ws3.cell(row=rr, column=1, value=op)
+        ws3.cell(row=rr, column=2, value=sig).alignment = left
+        if two_sided:
+            ws3.cell(row=rr, column=3, value=p_cnt)
+            ws3.cell(row=rr, column=4, value=p_ms).number_format = "0.0000"
+            ws3.cell(row=rr, column=5, value=s_cnt)
+            ws3.cell(row=rr, column=6, value=s_ms).number_format = "0.0000"
+            ws3.cell(row=rr, column=7, value=s_lut)
+            ws3.cell(row=rr, column=8, value=s_miss)
+            ws3.cell(row=rr, column=9, value=s_cnt)
+            ws3.cell(row=rr, column=10, value=only_pol)
+            ws3.cell(row=rr, column=11, value=only_hw)
+            ws3.cell(row=rr, column=12, value=(s_ms - p_ms)).number_format = "+0.0000;-0.0000"
+            p = _pct(p_ms, s_ms)
+            cell = ws3.cell(row=rr, column=13, value=(p if p is not None else "N/A"))
+            if p is not None:
+                cell.number_format = "+0.00\"%\";-0.00\"%\""
+        elif have_profiler:
+            ws3.cell(row=rr, column=3, value=p_cnt)
+            ws3.cell(row=rr, column=4, value=p_ms).number_format = "0.0000"
+        else:
+            ws3.cell(row=rr, column=3, value=s_cnt)
+            ws3.cell(row=rr, column=4, value=s_ms).number_format = "0.0000"
+            ws3.cell(row=rr, column=5, value=s_lut)
+            ws3.cell(row=rr, column=6, value=s_miss)
+            ws3.cell(row=rr, column=7, value=s_cnt)
+        rr += 1
+
+    pol_miss_total = pol_cnt - pol_lut
+    ws3.cell(row=rr, column=1, value="TOTAL")
+    ws3.cell(row=rr, column=2, value="")
+    if two_sided:
+        ws3.cell(row=rr, column=3, value=prof_cnt)
+        ws3.cell(row=rr, column=4, value=prof_ms).number_format = "0.0000"
+        ws3.cell(row=rr, column=5, value=pol_cnt)
+        ws3.cell(row=rr, column=6, value=pol_ms).number_format = "0.0000"
+        ws3.cell(row=rr, column=7, value=pol_lut)
+        ws3.cell(row=rr, column=8, value=pol_miss_total)
+        ws3.cell(row=rr, column=9, value=pol_cnt)
+        ws3.cell(row=rr, column=10, value=only_pol_sig_total)
+        ws3.cell(row=rr, column=11, value=only_hw_sig_total)
+        ws3.cell(row=rr, column=12, value=(pol_ms - prof_ms)).number_format = "+0.0000;-0.0000"
+        p = _pct(prof_ms, pol_ms)
+        cell = ws3.cell(row=rr, column=13, value=(p if p is not None else "N/A"))
+        if p is not None:
+            cell.number_format = "+0.00\"%\";-0.00\"%\""
+    elif have_profiler:
+        ws3.cell(row=rr, column=3, value=prof_cnt)
+        ws3.cell(row=rr, column=4, value=prof_ms).number_format = "0.0000"
+    else:
+        ws3.cell(row=rr, column=3, value=pol_cnt)
+        ws3.cell(row=rr, column=4, value=pol_ms).number_format = "0.0000"
+        ws3.cell(row=rr, column=5, value=pol_lut)
+        ws3.cell(row=rr, column=6, value=pol_miss_total)
+        ws3.cell(row=rr, column=7, value=pol_cnt)
+    _style_total(ws3, rr, len(sig_headers))
+    ws3.freeze_panes = "C2"
+    _autosize(ws3, len(sig_headers))
+
+    Path(path).parent.mkdir(parents=True, exist_ok=True)
+    wb.save(path)
+
+
 def main() -> int:
     """Main entry point."""
     args = parse_args()
@@ -972,6 +1402,25 @@ def main() -> int:
                 )
             else:
                 _print_perf_standalone(layers, label)
+
+        if args.xlsx:
+            try:
+                _write_xlsx_report(
+                    args.xlsx,
+                    polaris_layers=layers if ftype == 'polaris' else None,
+                    profiler_layers=layers if ftype == 'profiler' else None,
+                    stats=None,
+                    polaris_label="Polaris",
+                    profiler_label="Profiler",
+                    polaris_source=args.file1 if ftype == 'polaris' else None,
+                    profiler_source=args.file1 if ftype == 'profiler' else None,
+                    strip_leading_ones=args.strip_leading_ones,
+                    strip_singleton_dims=args.strip_singleton_dims,
+                )
+                print(f"\nWrote XLSX report: {args.xlsx}")
+            except Exception as e:
+                print(f"Error writing XLSX report: {e}", file=sys.stderr)
+                return 1
         return 0
 
     # --- Two-file mode ---
@@ -1060,6 +1509,25 @@ def main() -> int:
             strip_leading_ones=args.strip_leading_ones,
             strip_singleton_dims=args.strip_singleton_dims,
         )
+
+    if args.xlsx:
+        try:
+            _write_xlsx_report(
+                args.xlsx,
+                polaris_layers=polaris_layers,
+                profiler_layers=profiler_layers,
+                stats=stats,
+                polaris_label="Polaris",
+                profiler_label="Profiler",
+                polaris_source=polaris_file,
+                profiler_source=profiler_file,
+                strip_leading_ones=args.strip_leading_ones,
+                strip_singleton_dims=args.strip_singleton_dims,
+            )
+            print(f"\nWrote XLSX report: {args.xlsx}")
+        except Exception as e:
+            print(f"Error writing XLSX report: {e}", file=sys.stderr)
+            return 1
 
     return 0
 

@@ -254,7 +254,6 @@ def test_normalize_memory_tag_semantic_mismatch_still_differs():
 
 
 @pytest.mark.unit
-@pytest.mark.skip(reason="Depends on MemoryConfig class refactoring in PR1+PR2")
 def test_memory_config_str_matches_canonical_tag():
     """New CSV exports use ``str(mc)`` → short profiler-style tag."""
     from ttsim.front.ttnn.buffer import BufferType, TensorMemoryLayout

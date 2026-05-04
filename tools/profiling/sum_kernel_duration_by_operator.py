@@ -94,7 +94,7 @@ def _canonicalize_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
     for header in rows[0].keys():
         if header is None:
             continue
-        normalized = _normalize_header(str(header))
+        normalized = _normalize_header(header)
         if normalized in required_norm:
             header_map[required_norm[normalized]] = str(header)
 
@@ -132,9 +132,10 @@ def _load_rows(input_path: Path, sheet_name: str | None = None) -> list[dict[str
                 raise KeyError(f"Sheet '{sheet_name}' not found. Available sheets: {available}")
             ws = wb[sheet_name]
         else:
-            ws = wb.active
-        if ws is None:
-            return []
+            _active = wb.active
+            if _active is None:
+                return []
+            ws = _active
         rows_iter = ws.iter_rows(values_only=True)
         headers = next(rows_iter, None)
         if not headers:

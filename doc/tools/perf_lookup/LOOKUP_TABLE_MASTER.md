@@ -2,7 +2,7 @@
 
 ## Wire format
 
-Normative schema: [YAML_MASTER_FORMAT.md](../../YAML_MASTER_FORMAT.md) (`schema_name: correqn.tt-perf-master`, `schema_version: 1`).
+Normative schema: [YAML_MASTER_FORMAT.md](../../YAML_MASTER_FORMAT.md) (`schema_name: correqn.tt-perf-master`, `schema_version: 2`; v1 files accepted with `DeprecationWarning`).
 
 Loaded by [lookup_operator_perf.py](../../../tools/perf_lookup/lookup_operator_perf.py) via [`tools.perf_lookup.tt_perf_master_loader.load_existing_yaml`](../../../tools/perf_lookup/tt_perf_master_loader.py). Legacy top-level **list** YAML is **not** supported.
 
@@ -76,6 +76,21 @@ Extended `KEY_TUPLE_YAML_KEYS` order (`op_code`, `input_0_*`, `input_1_*`, `inpu
 Ops with **0** or **more than 3** graph inputs are **not** looked up (no 8/15/22 key). The simulator skips them **without** a warning; use DEBUG logs if needed.
 
 A **miss** for unary/binary/ternary (key built but no matching row) logs a **WARNING** with op name, optype, key tuple, core count, and LUT path.
+
+## Timing and guardband interaction
+
+LUT-determined timing is **not derated** by the analytical guardband (`G_GUARDBAND = 0.25`).
+
+The analytical path computes `msecs = (1 + G_GUARDBAND) × ideal_msecs` (a 25% pessimistic
+adjustment). On a LUT hit, `Device.get_exec_stats` instead takes the hardware-measured `msecs`
+directly and back-calculates `ideal_msecs = LUT_msecs / (1 + G_GUARDBAND)`. When the graph
+aggregate later applies `tot_msecs = (1 + G_GUARDBAND) × tot_ideal_msecs`, the factor cancels
+and the original LUT value is reproduced exactly. Analytical ops that miss the LUT still receive
+the full guardband deration as normal.
+
+Consequence: in a mixed run (some LUT hits, some misses), per-op `exec_stats['msecs']` and
+the graph `tot_msecs` reflect hardware timing for LUT-matched ops and guarded analytical
+estimates for unmatched ops, with no double-counting or extra deration on either side.
 
 ## Simulator output when `uses_perf_lookup`
 

@@ -9,7 +9,7 @@ import json
 from typing import Any, Dict, List
 
 try:
-    from op_canonical import normalize_polaris_optype
+    from op_canonical import normalize_polaris_optype  # type: ignore[import-not-found]
 except ImportError:
     from .op_canonical import normalize_polaris_optype  # type: ignore
 

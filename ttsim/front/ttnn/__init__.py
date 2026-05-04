@@ -94,3 +94,6 @@ def prepare_conv_bias(bias_tensor, input_memory_config, input_layout, input_dtyp
 def deallocate(x): pass
 def reallocate(x): return x
 
+def copy_host_to_device_tensor(src, dst): return dst
+def synchronize_device(device): pass
+

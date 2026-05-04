@@ -74,8 +74,9 @@ def test_build_master_key_tuple_rank3_and_rank2():
     assert key[0] == "matmul"
     assert key[1:5] == (1, 8, 224, 768)
     assert key[5:8] == ("TILE", "BFLOAT16", "DEV_1_DRAM_INTERLEAVED")
-    assert key[8:12] == (1, 1, 768, 768)
-    assert key[12:15] == ("TILE", "BFLOAT16", "DEV_1_DRAM_INTERLEAVED")
+    assert key[8] == "N/A"
+    assert key[9:13] == (1, 1, 768, 768)
+    assert key[13:16] == ("TILE", "BFLOAT16", "DEV_1_DRAM_INTERLEAVED")
 
 
 @pytest.mark.unit
@@ -87,11 +88,12 @@ def test_build_master_key_tuple_22():
     t2 = SimTensor({"name": "c", "shape": [1, 4, 5], "op_in": [], "op_out": []})
     op = SimpleNamespace(optype="Add", precision="BF16", inList=["a", "b", "c"])
     key = build_master_key_tuple_22(op, t0, t1, t2)
-    assert len(key) == 22
+    assert len(key) == 23
     assert key[0] == "add"
     assert key[1:5] == (1, 1, 2, 3)
-    assert key[8:12] == (1, 1, 3, 4)
-    assert key[15:19] == (1, 1, 4, 5)
+    assert key[8] == "N/A"
+    assert key[9:13] == (1, 1, 3, 4)
+    assert key[16:20] == (1, 1, 4, 5)
 
 
 @pytest.mark.unit
@@ -121,7 +123,8 @@ def test_build_master_key_tuple_ignores_padded_shape_for_keys():
     op = SimpleNamespace(optype="Matmul", precision="BF16", inList=["a", "b"])
     key = build_master_key_tuple_15(op, t0, t1)
     assert key[1:5] == (8, 14, 14, 1024)
-    assert key[8:12] == (1, 1, 1024, 768)
+    assert key[8] == "N/A"
+    assert key[9:13] == (1, 1, 1024, 768)
 
 
 @pytest.mark.unit
@@ -138,10 +141,11 @@ def test_build_master_key_tuple_8():
     )
     op = SimpleNamespace(optype="Softmax", precision="BF16", inList=["x"])
     key = build_master_key_tuple_8(op, t0)
-    assert len(key) == 8
+    assert len(key) == 9
     assert key[0] == "softmax"
     assert key[1:5] == (1, 1, 197, 768)
     assert key[5:8] == ("TILE", "BFLOAT16", "DEV_1_DRAM_INTERLEAVED")
+    assert key[8] == "N/A"
 
 
 @pytest.mark.unit
@@ -176,7 +180,7 @@ def test_reshape_master_key_packs_input0_wzyx():
     k15 = build_master_key_tuple_15(op15, t0, t1)
     assert k15[0] == "reshape"
     assert k15[1:5] == (1, 1, 1792, 768)
-    assert k15[8:12] == (1, 1, 1, 4)
+    assert k15[9:13] == (1, 1, 1, 4)
 
 
 @pytest.mark.unit
@@ -222,7 +226,7 @@ def test_unary_single_lookup_hit(tmp_path: Path):
 
     doc = {
         "schema_name": "correqn.tt-perf-master",
-        "schema_version": 1,
+        "schema_version": 2,
         "entries": [
             {
                 "key": {
@@ -234,6 +238,7 @@ def test_unary_single_lookup_hit(tmp_path: Path):
                     "input_0_layout": "TILE",
                     "input_0_datatype": "BFLOAT16",
                     "input_0_memory": "DEV_1_DRAM_INTERLEAVED",
+                    "math_fidelity": "N/A",
                 },
                 "value": _flat_single_value(8, msecs=0.03, mem_util=20.0),
             }
@@ -261,7 +266,7 @@ def test_lut_yaml_missing_matrix_pipe_util_rejected_at_load(tmp_path: Path):
     bad_value = {k: v for k, v in _flat_single_value(8).items() if k != "matrix_pipe_util"}
     doc = {
         "schema_name": "correqn.tt-perf-master",
-        "schema_version": 1,
+        "schema_version": 2,
         "entries": [
             {
                 "key": {
@@ -273,6 +278,7 @@ def test_lut_yaml_missing_matrix_pipe_util_rejected_at_load(tmp_path: Path):
                     "input_0_layout": "TILE",
                     "input_0_datatype": "BFLOAT16",
                     "input_0_memory": "DEV_1_DRAM_INTERLEAVED",
+                "math_fidelity": "N/A",
                 },
                 "value": bad_value,
             }
@@ -291,7 +297,7 @@ def test_curve_hit_missing_vector_pipe_util_raises_at_lookup(tmp_path: Path):
 
     doc = {
         "schema_name": "correqn.tt-perf-master",
-        "schema_version": 1,
+        "schema_version": 2,
         "entries": [
             {
                 "key": {
@@ -303,6 +309,7 @@ def test_curve_hit_missing_vector_pipe_util_raises_at_lookup(tmp_path: Path):
                     "input_0_layout": "TILE",
                     "input_0_datatype": "BFLOAT16",
                     "input_0_memory": "DEV_1_DRAM_INTERLEAVED",
+                    "math_fidelity": "N/A",
                     "input_1_w_pad_logical": 1,
                     "input_1_z_pad_logical": 1,
                     "input_1_y_pad_logical": 1,
@@ -337,7 +344,7 @@ def test_lut_util_percent_out_of_range_raises(tmp_path: Path):
 
     doc = {
         "schema_name": "correqn.tt-perf-master",
-        "schema_version": 1,
+        "schema_version": 2,
         "entries": [
             {
                 "key": {
@@ -349,6 +356,7 @@ def test_lut_util_percent_out_of_range_raises(tmp_path: Path):
                     "input_0_layout": "TILE",
                     "input_0_datatype": "BFLOAT16",
                     "input_0_memory": "DEV_1_DRAM_INTERLEAVED",
+                "math_fidelity": "N/A",
                 },
                 "value": _flat_single_value(8, msecs=0.03, matrix_pipe_util=100.01),
             }
@@ -370,7 +378,7 @@ def test_lut_optional_noc_util_out_of_range_raises(tmp_path: Path):
 
     doc = {
         "schema_name": "correqn.tt-perf-master",
-        "schema_version": 1,
+        "schema_version": 2,
         "entries": [
             {
                 "key": {
@@ -382,6 +390,7 @@ def test_lut_optional_noc_util_out_of_range_raises(tmp_path: Path):
                     "input_0_layout": "TILE",
                     "input_0_datatype": "BFLOAT16",
                     "input_0_memory": "DEV_1_DRAM_INTERLEAVED",
+                "math_fidelity": "N/A",
                 },
                 "value": _flat_single_value(8, msecs=0.03, noc_util=-0.1),
             }
@@ -404,7 +413,7 @@ def test_binary_mul_falls_back_to_unary_lut_key(tmp_path: Path):
 
     doc = {
         "schema_name": "correqn.tt-perf-master",
-        "schema_version": 1,
+        "schema_version": 2,
         "entries": [
             {
                 "key": {
@@ -416,6 +425,7 @@ def test_binary_mul_falls_back_to_unary_lut_key(tmp_path: Path):
                     "input_0_layout": "TILE",
                     "input_0_datatype": "BFLOAT16",
                     "input_0_memory": "DEV_1_DRAM_INTERLEAVED",
+                "math_fidelity": "N/A",
                 },
                 "value": _flat_single_value(64, msecs=0.095, vector_pipe_util=51.0),
             }
@@ -442,7 +452,7 @@ def test_ternary_lookup_22_tuple_hit(tmp_path: Path):
 
     doc = {
         "schema_name": "correqn.tt-perf-master",
-        "schema_version": 1,
+        "schema_version": 2,
         "entries": [
             {
                 "key": {
@@ -454,6 +464,7 @@ def test_ternary_lookup_22_tuple_hit(tmp_path: Path):
                     "input_0_layout": "TILE",
                     "input_0_datatype": "BFLOAT16",
                     "input_0_memory": "DEV_1_DRAM_INTERLEAVED",
+                    "math_fidelity": "N/A",
                     "input_1_w_pad_logical": 1,
                     "input_1_z_pad_logical": 1,
                     "input_1_y_pad_logical": 3,
@@ -499,7 +510,7 @@ def test_add_broadcast_fallback_second_operand_is_1_1_1_x(tmp_path: Path):
 
     doc = {
         "schema_name": "correqn.tt-perf-master",
-        "schema_version": 1,
+        "schema_version": 2,
         "entries": [
             {
                 "key": {
@@ -511,6 +522,7 @@ def test_add_broadcast_fallback_second_operand_is_1_1_1_x(tmp_path: Path):
                     "input_0_layout": "TILE",
                     "input_0_datatype": "BFLOAT16",
                     "input_0_memory": "DEV_1_DRAM_INTERLEAVED",
+                    "math_fidelity": "N/A",
                     "input_1_w_pad_logical": 8,
                     "input_1_z_pad_logical": 14,
                     "input_1_y_pad_logical": 14,
@@ -546,7 +558,7 @@ def test_add_broadcast_fallback_first_operand_is_1_1_1_x(tmp_path: Path):
 
     doc = {
         "schema_name": "correqn.tt-perf-master",
-        "schema_version": 1,
+        "schema_version": 2,
         "entries": [
             {
                 "key": {
@@ -558,6 +570,7 @@ def test_add_broadcast_fallback_first_operand_is_1_1_1_x(tmp_path: Path):
                     "input_0_layout": "TILE",
                     "input_0_datatype": "BFLOAT16",
                     "input_0_memory": "DEV_1_DRAM_INTERLEAVED",
+                    "math_fidelity": "N/A",
                     "input_1_w_pad_logical": 8,
                     "input_1_z_pad_logical": 14,
                     "input_1_y_pad_logical": 14,
@@ -593,7 +606,7 @@ def test_binary_reshape_falls_back_to_unary_lut_key(tmp_path: Path):
 
     doc = {
         "schema_name": "correqn.tt-perf-master",
-        "schema_version": 1,
+        "schema_version": 2,
         "entries": [
             {
                 "key": {
@@ -605,6 +618,7 @@ def test_binary_reshape_falls_back_to_unary_lut_key(tmp_path: Path):
                     "input_0_layout": "ROW_MAJOR",
                     "input_0_datatype": "BFLOAT16",
                     "input_0_memory": "DEV_1_DRAM_INTERLEAVED",
+                "math_fidelity": "N/A",
                 },
                 "value": _flat_single_value(64, msecs=0.012, vector_pipe_util=10.0),
             }
@@ -650,7 +664,7 @@ def test_unary_lookup_miss_returns_none(tmp_path: Path):
 
     doc = {
         "schema_name": "correqn.tt-perf-master",
-        "schema_version": 1,
+        "schema_version": 2,
         "entries": [],
     }
     p = tmp_path / "empty.yaml"
@@ -670,7 +684,7 @@ def test_arity_zero_skips_lookup(tmp_path: Path):
 
     doc = {
         "schema_name": "correqn.tt-perf-master",
-        "schema_version": 1,
+        "schema_version": 2,
         "entries": [],
     }
     p = tmp_path / "e2.yaml"
@@ -707,7 +721,7 @@ def test_hybrid_matmul_lookup_mocked_master_load(tmp_path: Path):
 
     doc = {
         "schema_name": "correqn.tt-perf-master",
-        "schema_version": 1,
+        "schema_version": 2,
         "entries": [
             {
                 "key": {
@@ -719,6 +733,7 @@ def test_hybrid_matmul_lookup_mocked_master_load(tmp_path: Path):
                     "input_0_layout": "TILE",
                     "input_0_datatype": "BFLOAT16",
                     "input_0_memory": "DEV_1_DRAM_INTERLEAVED",
+                    "math_fidelity": "N/A",
                     "input_1_w_pad_logical": 1,
                     "input_1_z_pad_logical": 1,
                     "input_1_y_pad_logical": 768,
@@ -792,7 +807,7 @@ def test_single_entry_multi_stat_lookup(tmp_path: Path):
 
     doc = {
         "schema_name": "correqn.tt-perf-master",
-        "schema_version": 1,
+        "schema_version": 2,
         "entries": [
             {
                 "key": {
@@ -804,6 +819,7 @@ def test_single_entry_multi_stat_lookup(tmp_path: Path):
                     "input_0_layout": "TILE",
                     "input_0_datatype": "BFLOAT16",
                     "input_0_memory": "DEV_1_DRAM_INTERLEAVED",
+                    "math_fidelity": "N/A",
                     "input_1_w_pad_logical": 1,
                     "input_1_z_pad_logical": 1,
                     "input_1_y_pad_logical": 3,
@@ -848,7 +864,7 @@ def test_curve_linear_multi_stat(tmp_path: Path):
     doc = textwrap.dedent(
         """
         schema_name: correqn.tt-perf-master
-        schema_version: 1
+        schema_version: 2
         entries:
           - key:
               op_code: add
@@ -859,6 +875,7 @@ def test_curve_linear_multi_stat(tmp_path: Path):
               input_0_layout: TILE
               input_0_datatype: BFLOAT16
               input_0_memory: DEV_1_DRAM_INTERLEAVED
+              math_fidelity: N/A
               input_1_w_pad_logical: 1
               input_1_z_pad_logical: 1
               input_1_y_pad_logical: 3
@@ -909,7 +926,7 @@ def test_curve_power_msecs(tmp_path: Path):
 
     doc = {
         "schema_name": "correqn.tt-perf-master",
-        "schema_version": 1,
+        "schema_version": 2,
         "entries": [
             {
                 "key": {
@@ -921,6 +938,7 @@ def test_curve_power_msecs(tmp_path: Path):
                     "input_0_layout": "TILE",
                     "input_0_datatype": "BFLOAT16",
                     "input_0_memory": "DEV_1_DRAM_INTERLEAVED",
+                    "math_fidelity": "N/A",
                     "input_1_w_pad_logical": 1,
                     "input_1_z_pad_logical": 1,
                     "input_1_y_pad_logical": 1,
@@ -961,7 +979,7 @@ def test_hybrid_matmul_uses_single_when_use_hybrid_curve_false(tmp_path: Path):
 
     doc = {
         "schema_name": "correqn.tt-perf-master",
-        "schema_version": 1,
+        "schema_version": 2,
         "entries": [
             {
                 "key": {
@@ -973,6 +991,7 @@ def test_hybrid_matmul_uses_single_when_use_hybrid_curve_false(tmp_path: Path):
                     "input_0_layout": "TILE",
                     "input_0_datatype": "BFLOAT16",
                     "input_0_memory": "DEV_1_DRAM_INTERLEAVED",
+                    "math_fidelity": "N/A",
                     "input_1_w_pad_logical": 1,
                     "input_1_z_pad_logical": 1,
                     "input_1_y_pad_logical": 3,
@@ -1020,7 +1039,7 @@ def test_hybrid_matmul_uses_curve_when_use_hybrid_curve_true(tmp_path: Path):
 
     doc = {
         "schema_name": "correqn.tt-perf-master",
-        "schema_version": 1,
+        "schema_version": 2,
         "entries": [
             {
                 "key": {
@@ -1032,6 +1051,7 @@ def test_hybrid_matmul_uses_curve_when_use_hybrid_curve_true(tmp_path: Path):
                     "input_0_layout": "TILE",
                     "input_0_datatype": "BFLOAT16",
                     "input_0_memory": "DEV_1_DRAM_INTERLEAVED",
+                    "math_fidelity": "N/A",
                     "input_1_w_pad_logical": 1,
                     "input_1_z_pad_logical": 1,
                     "input_1_y_pad_logical": 3,
@@ -1084,7 +1104,7 @@ def test_loader_normalizes_non_finite_util_to_zero(tmp_path: Path):
 
     doc = {
         "schema_name": "correqn.tt-perf-master",
-        "schema_version": 1,
+        "schema_version": 2,
         "entries": [
             {
                 "key": {
@@ -1096,6 +1116,7 @@ def test_loader_normalizes_non_finite_util_to_zero(tmp_path: Path):
                     "input_0_layout": "TILE",
                     "input_0_datatype": "BFLOAT16",
                     "input_0_memory": "DEV_1_DRAM_INTERLEAVED",
+                "math_fidelity": "N/A",
                 },
                 "value": _flat_single_value(
                     8,

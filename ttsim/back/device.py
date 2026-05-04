@@ -146,7 +146,7 @@ class Device:
                         e,
                     )
                     lookup_file = None
-            
+
             if lookup_file:
                 lookup_file_path = Path(os.getcwd()) / lookup_file
                 if lookup_file_path.exists():
@@ -193,6 +193,13 @@ class Device:
         wlgraph.remove_nodes(wlmapspec.removal_spec)
 
         # 5) GRAPH OPTIMIZATION: FUSE NODES IF POSSIBLE
+        # Note: even when a LUT is loaded, fusion still runs here.  The
+        # per-op correction happens later in get_exec_stats: any fused op
+        # that receives a LUT hit has its fused_in_optimization flag cleared
+        # so it keeps its real hardware timing.  This is preferable to a
+        # global --disable-fusion because it only reverts fusion for ops
+        # that have actual measured data, while ops without LUT entries
+        # still benefit from analytical fusion.
         if disable_fusion:
             DEBUG('Skipping graph op fusion (--disable-fusion)')
         else:
@@ -347,6 +354,12 @@ class Device:
         for opnum,opname in enumerate(graph_ordered_nodes):
             op           = wlgraph.get_op(opname)
 
+            # Logical completeness: covers both possible fusion states for every op.
+            # Use fused_op_cycles as the analytical base whenever fusion ran.
+            # If the LUT hits, msecs is overridden below regardless.
+            # If the LUT misses, fused_op_cycles is the correct fallback:
+            # inner ops are zeroed out (fused_in_optimization=True), so
+            # using only standalone cycles for the head would undercount.
             if op.fused_op_cycles is None:
                 compute_cycles = op.compute_cycles
                 mem_rd_cycles  = op.mem_rd_cycles
@@ -373,26 +386,33 @@ class Device:
                 op, opname, wlgraph, msecs
             )
 
-            # If msecs came from lookup, adjust cycles, ideal_cycles, and ideal_msecs accordingly
+            # If msecs came from lookup, adjust cycles, ideal_cycles, and ideal_msecs accordingly.
+            # LUT timing is NOT derated: the raw hardware-measured msecs is used as-is.
+            # ideal_cycles is back-calculated by dividing out G_GUARDBAND so that when the
+            # graph aggregate applies tot_msecs = (1 + G_GUARDBAND) * tot_ideal_msecs, the
+            # guardband cancels out and the original LUT value is reproduced exactly.
+            # Analytical ops (LUT miss) do get the full guardband deration as normal.
             if uses_perf_lookup:
                 # Calculate cycles from the lookup msecs value
                 cycles = int(math.ceil(msecs * dev_freq_MHz * 1e3))
-                # Calculate ideal_cycles by removing the guardband (round to int)
+                # Divide out guardband so the aggregate re-multiplication restores the LUT value.
                 ideal_cycles = int(math.ceil(cycles / (1 + self.G_GUARDBAND)))
                 # Calculate ideal_msecs from ideal_cycles
                 ideal_msecs = ideal_cycles / dev_freq_MHz / 1e3
 
+                # The LUT provides measured per-op hardware timing where the
+                # device executes each op individually (no fusion).  When a
+                # fused op gets a LUT hit, revert its fused_in_optimization
+                # flag so it keeps its real duration instead of being zeroed
+                # out below.  The parent op likewise uses standalone cycles
+                # (see use_fused above) so there is no double-counting.
+                # This is preferred over the global --disable-fusion knob
+                # because non-LUT ops still benefit from analytical fusion.
+                if op.fused_in_optimization:
+                    op.fused_in_optimization = False
+
             assert ideal_cycles > 0, f"Error: ideal_cycles = {ideal_cycles}!!"
             assert ideal_msecs > 0, f"Error: ideal_msecs = {ideal_msecs}!!"
-
-            matrix_pipe_util = matrix_cycles / ideal_cycles * self.DG_COMPUTE_UTIL_CONSTANT
-            vector_pipe_util = vector_cycles / ideal_cycles * self.DG_COMPUTE_UTIL_CONSTANT
-            mem_rd_util      = mem_rd_cycles / ideal_cycles * self.DG_MEMORY_UTIL_CONSTANT
-            mem_wr_util      = mem_wr_cycles / ideal_cycles * self.DG_MEMORY_UTIL_CONSTANT
-            if uses_perf_lookup:
-                # Analytical mem_*_cycles vs LUT-rescaled ideal_cycles are inconsistent; mem_util comes from master.
-                mem_rd_util = 0.0
-                mem_wr_util = 0.0
 
             memory_traffic = 0.0
             mem_util = 0.0
@@ -403,10 +423,23 @@ class Device:
                 vector_pipe_util = self._profiler_pct_to_exec_fraction(
                     master_stats.vector_pipe_util
                 )
+                matrix_cycles = int(math.ceil(matrix_pipe_util * ideal_cycles / self.DG_COMPUTE_UTIL_CONSTANT))
+                vector_cycles = int(math.ceil(vector_pipe_util * ideal_cycles / self.DG_COMPUTE_UTIL_CONSTANT))
+                mem_rd_cycles = 0
+                mem_wr_cycles = 0
+                op.mem_rd_cycles_fractional = 0.0
+                op.mem_wr_cycles_fractional = 0.0
+                mem_rd_util = 0.0
+                mem_wr_util = 0.0
                 if master_stats.memory_traffic is not None:
                     memory_traffic = float(master_stats.memory_traffic)
                 if master_stats.mem_util is not None:
                     mem_util = self._profiler_pct_to_exec_fraction(master_stats.mem_util)
+            else:
+                matrix_pipe_util = matrix_cycles / ideal_cycles * self.DG_COMPUTE_UTIL_CONSTANT
+                vector_pipe_util = vector_cycles / ideal_cycles * self.DG_COMPUTE_UTIL_CONSTANT
+                mem_rd_util      = mem_rd_cycles / ideal_cycles * self.DG_MEMORY_UTIL_CONSTANT
+                mem_wr_util      = mem_wr_cycles / ideal_cycles * self.DG_MEMORY_UTIL_CONSTANT
 
             # Flag errors and raise exceptions if utilization > 1.0 (skip checks when using LUT timing:
             # mem_rd_util/mem_wr_util are zeroed above; matrix/vector may come from master without a >1 guard.)
@@ -541,6 +574,9 @@ class Device:
         fits_device      = tot_mem_size_GB <= device_mem_GB
 
         #total perf metrics
+        # G_GUARDBAND derates analytical ops only.  LUT-hit ops store
+        # ideal_msecs = LUT_msecs / (1 + G_GUARDBAND), so the multiplication
+        # below restores their original hardware-measured value exactly.
         tot_ideal_throughput = bs * 1000 / tot_ideal_msecs
         tot_msecs            = (1 + self.G_GUARDBAND) * tot_ideal_msecs
         tot_throughput       = bs * 1000 / tot_msecs
@@ -583,10 +619,15 @@ class Device:
                 'device_peak_bw_GBps'   : self.simconfig_obj.peak_bandwidth(freq_units="GHz"),
                 'device_peak_fp8_tflops': self.simconfig_obj.peak_flops('matrix', 'mac', 'fp8', mul_factor=2),
                 }
-        if tot_mem_rd_cycles > 0 or tot_mem_wr_cycles > 0:
-            # Validate that the memory bandwidth accounting is correct
-            # Since we now use fractional cycles and ceil at aggregate level,
-            # the validation should be much more accurate
+        any_lut = any(
+            wlgraph.get_op(n).exec_stats.get('uses_perf_lookup', False)
+            for n in graph_ordered_nodes
+            if not wlgraph.get_op(n).removed_in_optimization
+        )
+        if (tot_mem_rd_cycles > 0 or tot_mem_wr_cycles > 0) and not any_lut:
+            # Validate that the memory bandwidth accounting is correct.
+            # Skipped when any op uses the LUT, since LUT ops zero out
+            # analytical mem cycles, making the aggregate inconsistent.
             mem_to_dev_ratio = self.freq_MHz / self.memfreq_MHz
             expected_bytes_per_device_clock = self.eff_bw_bytes_per_cycle / mem_to_dev_ratio
 

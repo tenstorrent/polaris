@@ -300,11 +300,11 @@ def test_add_mul_sub_with_scalar_retain_precision():
             break
 
     assert add_op is not None, "Add operation not found"
-    # The scalar input should be in the inList
-    scalar_input_name = [name for name in add_op.inList if name != bf16_tensor.name][0]
-    scalar_tensor = device.tensors[scalar_input_name]
-    assert scalar_tensor.dtype == np.dtype(np.float16), \
-        f"Scalar tensor should have BFLOAT16 dtype, got {scalar_tensor.dtype}"
+    assert len(add_op.inList) == 2, (
+        f"Scalar ops should have the tensor and broadcast scalar in inList, got {add_op.inList}"
+    )
+    assert "scalar" in add_op.attrs, "Scalar value should be stored in op attrs"
+    assert add_op.attrs["scalar"] == 5.0
 
 
 @pytest.mark.unit

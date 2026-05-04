@@ -176,7 +176,7 @@ def test_ttnn_reshard_package_level():
 
 
 # =========================================================================
-# NLPConcatHeads
+# ConcatHeads
 # =========================================================================
 
 @pytest.mark.unit
@@ -188,7 +188,7 @@ def test_nlp_concat_heads_op_shape_and_perf():
     )
     out = nlp_concat_heads_op(inp)
     assert out.logical_shape().as_list() == [1, 128, 8 * 64]
-    ops = [op for op in device.ops.values() if op.optype == "NLPConcatHeads"]
+    ops = [op for op in device.ops.values() if op.optype == "ConcatHeads"]
     assert len(ops) == 1
     ps = ops[0].perf_stats
     assert ps is not None
@@ -207,7 +207,7 @@ def test_nlp_concat_heads_shim_delegates_to_op():
     )
     out = nlp_concat_heads(inp)
     assert out.logical_shape().as_list() == [1, 128, 512]
-    ops = [op for op in device.ops.values() if op.optype == "NLPConcatHeads"]
+    ops = [op for op in device.ops.values() if op.optype == "ConcatHeads"]
     assert len(ops) == 1
     assert inp.name in ops[0].inList
 
@@ -244,7 +244,7 @@ def test_ttnn_experimental_nlp_concat_heads():
 
 
 # =========================================================================
-# NLPCreateQKVHeads
+# CreateQKVHeads
 # =========================================================================
 
 @pytest.mark.unit
@@ -265,7 +265,7 @@ def test_nlp_create_qkv_heads_op_shape_and_perf():
     assert k.logical_shape().as_list() == [1, num_kv_heads, 128, head_dim]
     assert v.logical_shape().as_list() == [1, num_kv_heads, 128, head_dim]
 
-    ops = [op for op in device.ops.values() if op.optype == "NLPCreateQKVHeads"]
+    ops = [op for op in device.ops.values() if op.optype == "CreateQKVHeads"]
     assert len(ops) == 1
     op = ops[0]
     assert len(op.outList) == 3
@@ -295,7 +295,7 @@ def test_nlp_create_qkv_heads_shim_delegates_to_op():
     assert q.logical_shape().as_list() == [1, num_heads, 16, head_dim]
     assert k.logical_shape().as_list() == [1, num_kv_heads, 16, head_dim]
     assert v.logical_shape().as_list() == [1, num_kv_heads, 16, head_dim]
-    ops = [op for op in device.ops.values() if op.optype == "NLPCreateQKVHeads"]
+    ops = [op for op in device.ops.values() if op.optype == "CreateQKVHeads"]
     assert len(ops) == 1
     assert inp.name in ops[0].inList
 
@@ -377,7 +377,7 @@ def test_nlp_head_ops_device_sequence():
     q, k, v = nlp_create_qkv_heads_op(inp, num_heads=4, num_kv_heads=2)
     _out = nlp_concat_heads_op(q)
     seq = [op.optype for op in device.ops.values()]
-    assert seq == ["NLPCreateQKVHeads", "NLPConcatHeads"]
+    assert seq == ["CreateQKVHeads", "ConcatHeads"]
 
 
 # =========================================================================
@@ -386,7 +386,7 @@ def test_nlp_head_ops_device_sequence():
 
 @pytest.mark.unit
 def test_utils_nlp_create_qkv_heads_fused_true():
-    """fused=True dispatches to the single NLPCreateQKVHeads shim op."""
+    """fused=True dispatches to the single CreateQKVHeads shim op."""
     import workloads.ttnn.tt_transformers.utils as utils
     device = _make_device()
     num_heads, num_kv_heads, head_dim = 4, 2, 32

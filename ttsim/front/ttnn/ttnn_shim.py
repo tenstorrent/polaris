@@ -1788,6 +1788,14 @@ def untilize_with_unpadding_op(input_tensor, output_shape,
     opobj.get_perf_counts([input_tensor], [out_tensor])
     opobj.update_tensor_counts([input_tensor], [out_tensor])
     _propagate_ttnn_dtype([input_tensor], [out_tensor])
+    # Memory config propagation: explicit kwarg wins; otherwise inherit the input's
+    # memory_config so direct callers (e.g. BH ViT patch embeddings) don't silently
+    # land in DRAM_INTERLEAVED when the HW path is L1_INTERLEAVED.  Mirrors
+    # untilize_op / tilize_op / tilize_with_val_padding_op behavior.
+    if memory_config is not None:
+        out_tensor._memory_config = memory_config
+    elif getattr(input_tensor, "_memory_config", None) is not None:
+        out_tensor._memory_config = input_tensor._memory_config
     input_tensor.device.add_op(opobj)
     return out_tensor
 
@@ -2064,10 +2072,16 @@ def to_layout(tensor, layout, dtype=None, memory_config=None, sub_core_grids=Non
                             padded_output_shape._shape,
                         )
                         elem_sz = tensor.element_size() if hasattr(tensor, 'element_size') else 2
-                        return tilize_with_val_padding_op(
+                        out = tilize_with_val_padding_op(
                             tensor, padded_output_shape._shape, pad_value,
                             use_multicore=True, element_size=elem_sz, memory_config=output_memory_config,
                         )
+                        # Symmetry with the no-padding-change tilize_op branch above:
+                        # honor the `dtype` kwarg in track-only mode by tagging
+                        # ``_ttnn_dtype`` on the SimOp output.
+                        if dtype is not None and isinstance(dtype, DataType):
+                            out._ttnn_dtype = dtype
+                        return out
                     else:
                         if should_track:
                             _tracker.track_to_layout(tensor.get_layout(), layout)
@@ -2093,9 +2107,15 @@ def to_layout(tensor, layout, dtype=None, memory_config=None, sub_core_grids=Non
                             pad_value,
                         )
                         elem_sz = tensor.element_size() if hasattr(tensor, 'element_size') else 2
-                        return tilize_with_val_padding_op(
+                        out = tilize_with_val_padding_op(
                             tensor, padded_output_shape._shape, pad_value, use_multicore=True, element_size=elem_sz, memory_config=output_memory_config
                         )
+                        # Symmetry with the no-padding-change tilize_op branch above:
+                        # honor the `dtype` kwarg in track-only mode by tagging
+                        # ``_ttnn_dtype`` on the SimOp output.
+                        if dtype is not None and isinstance(dtype, DataType):
+                            out._ttnn_dtype = dtype
+                        return out
                     else:
                         # Not using tilize_with_val_padding_op: input is not a ttsim Tensor or has no device; preserve API with tracker + manual tensor.
                         if should_track:
@@ -2563,7 +2583,7 @@ def nlp_concat_heads_op(input_tensor, memory_config=None, element_size=2):
     input_tensor.op_in.append(op_name)
     opinfo = {
         'name': op_name,
-        'optype': 'NLPConcatHeads',
+        'optype': 'ConcatHeads',
         'inList': [input_tensor.name],
         'outList': [out_tensor.name],
         'attrs': {'element_size': element_size},
@@ -2573,13 +2593,13 @@ def nlp_concat_heads_op(input_tensor, memory_config=None, element_size=2):
     opobj.update_tensor_counts([input_tensor], [out_tensor])
     _propagate_ttnn_dtype([input_tensor], [out_tensor])
 
-    if memory_config is not None:
-        out_tensor._memory_config = memory_config
-    else:
-        _propagate_memory_config([input_tensor], [out_tensor])
+    # nlp_concat_heads always produces L1_BLOCK_SHARDED output on hardware regardless of input.
+    out_tensor._memory_config = memory_config if memory_config is not None else MemoryConfig(
+        TensorMemoryLayout.BLOCK_SHARDED, BufferType.L1,
+    )
 
     input_tensor.device.add_op(opobj)
-    
+
     # Execute the computation if in EXECUTE mode and input has data
     mode = get_execution_mode()
     should_execute = (mode == ExecutionMode.EXECUTE or mode == ExecutionMode.EXECUTE_AND_TRACK)
@@ -2589,7 +2609,7 @@ def nlp_concat_heads_op(input_tensor, memory_config=None, element_size=2):
         arr = _np.array(data).reshape(in_shape)
         arr = arr.transpose(0, 2, 1, 3).reshape(out_shape_list)
         out_tensor.data = arr
-    
+
     return out_tensor
 
 
@@ -2722,7 +2742,7 @@ def nlp_create_qkv_heads_op(input_tensor, kv_input_tensor=None, *,
 
     opinfo = {
         'name': op_name,
-        'optype': 'NLPCreateQKVHeads',
+        'optype': 'CreateQKVHeads',
         'inList': in_list,
         'outList': [q_tensor.name, k_tensor.name, v_tensor.name],
         'attrs': {
@@ -2746,7 +2766,7 @@ def nlp_create_qkv_heads_op(input_tensor, kv_input_tensor=None, *,
         t._memory_config = out_mc
 
     input_tensor.device.add_op(opobj)
-    
+
     # Execute the computation if in EXECUTE mode and input has data
     mode = get_execution_mode()
     should_execute = (mode == ExecutionMode.EXECUTE or mode == ExecutionMode.EXECUTE_AND_TRACK)
@@ -2779,7 +2799,7 @@ def nlp_create_qkv_heads_op(input_tensor, kv_input_tensor=None, *,
             q_tensor.data = q_arr
             k_tensor.data = k_arr
             v_tensor.data = v_arr
-    
+
     return q_tensor, k_tensor, v_tensor
 
 

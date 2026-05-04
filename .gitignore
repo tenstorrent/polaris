@@ -14,6 +14,10 @@ __pycache__/
 __*/
 # Temporary files
 __*
+# correlate_perf.sh outputs
+correlate_*.out
+correlate_*.err
+correlate_*.xlsx
 # But do not ignore __init__.py and __main__.py
 !__init__.py
 !__main__.py

@@ -26,6 +26,7 @@ KEY_TUPLE_YAML_KEYS = [
     "input_0_layout",
     "input_0_datatype",
     "input_0_memory",
+    "math_fidelity",
     "input_1_w_pad_logical",
     "input_1_z_pad_logical",
     "input_1_y_pad_logical",
@@ -90,10 +91,12 @@ MASTER_CURVE_FAMILY_KEY = "curve_family"
 MASTER_CURVE_FAMILY_LINEAR = "linear"
 MASTER_CURVE_FAMILY_POWER = "power"
 
+MATH_FIDELITY_NA = "N/A"
+
 MASTER_YAML_SCHEMA_NAME = "correqn.tt-perf-master"
 MASTER_YAML_SCHEMA_NAME_KEY = "schema_name"
-# Bump only at first release (or later) when the on-disk layout changes incompatibly.
-MASTER_YAML_SCHEMA_VERSION = 1
+# v2: math_fidelity added to key tuple (v1 files still load via default-fill in labeled_key_map_to_tuple).
+MASTER_YAML_SCHEMA_VERSION = 2
 MASTER_YAML_SCHEMA_VERSION_KEY = "schema_version"
 MASTER_YAML_ENTRIES_KEY = "entries"
 MASTER_YAML_RECORD_KEY_FIELD = "key"
@@ -103,8 +106,8 @@ MASTER_YAML_ENTRY_VALUE_FIELD = "value"
 def tuple_to_labeled_key_map(key_t: tuple) -> dict:
     """Serialize logical key tuple to YAML mapping (under ``entries[i]['key']``)."""
     n = len(key_t)
-    if n not in (8, 15, 22):
-        raise ValueError(f"Key tuple length must be 8, 15, or 22, got {n}")
+    if n not in (9, 16, 23):
+        raise ValueError(f"Key tuple length must be 9, 16, or 23, got {n}")
     return dict(zip(KEY_TUPLE_YAML_KEYS[:n], key_t))
 
 
@@ -122,31 +125,33 @@ def labeled_key_map_to_tuple(d: dict) -> tuple:
             unknown.append(k)
     if unknown:
         raise ValueError(f"Unknown labeled-key field(s): {unknown}")
+    if "math_fidelity" not in filtered:
+        filtered["math_fidelity"] = MATH_FIDELITY_NA
     has_i2 = any(str(k).startswith("input_2_") for k in filtered)
     has_i1 = any(str(k).startswith("input_1_") for k in filtered)
     if has_i2:
-        names22 = KEY_TUPLE_YAML_KEYS
-        missing = [nm for nm in names22 if nm not in filtered]
+        names23 = KEY_TUPLE_YAML_KEYS
+        missing = [nm for nm in names23 if nm not in filtered]
         if missing:
             raise ValueError(
-                "Labeled key with any input_2 field must define all 22 fields; "
+                "Labeled key with any input_2 field must define all 23 fields; "
                 f"missing: {missing}"
             )
-        return tuple(filtered[nm] for nm in names22)
+        return tuple(filtered[nm] for nm in names23)
     if has_i1:
-        names15 = KEY_TUPLE_YAML_KEYS[:15]
-        missing = [nm for nm in names15 if nm not in filtered]
+        names16 = KEY_TUPLE_YAML_KEYS[:16]
+        missing = [nm for nm in names16 if nm not in filtered]
         if missing:
             raise ValueError(
-                "Labeled key with any input_1 field must define all 15 fields; "
+                "Labeled key with any input_1 field must define all 16 fields; "
                 f"missing: {missing}"
             )
-        return tuple(filtered[nm] for nm in names15)
-    names8 = KEY_TUPLE_YAML_KEYS[:8]
-    missing = [nm for nm in names8 if nm not in filtered]
+        return tuple(filtered[nm] for nm in names16)
+    names9 = KEY_TUPLE_YAML_KEYS[:9]
+    missing = [nm for nm in names9 if nm not in filtered]
     if missing:
-        raise ValueError(f"Labeled key (8-field) missing: {missing}")
-    return tuple(filtered[nm] for nm in names8)
+        raise ValueError(f"Labeled key (9-field) missing: {missing}")
+    return tuple(filtered[nm] for nm in names9)
 
 
 def yaml_labeled_key_to_tuple(k: dict) -> tuple:
@@ -155,8 +160,8 @@ def yaml_labeled_key_to_tuple(k: dict) -> tuple:
         raise TypeError(f"Entry key must be a mapping, got {type(k)!r}")
     key_t = labeled_key_map_to_tuple(k)
     n = len(key_t)
-    if n not in (8, 15, 22):
-        raise ValueError(f"Key tuple length must be 8, 15, or 22, got {n}")
+    if n not in (9, 16, 23):
+        raise ValueError(f"Key tuple length must be 9, 16, or 23, got {n}")
     return key_t
 
 

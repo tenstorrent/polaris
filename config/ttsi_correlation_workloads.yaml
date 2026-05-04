@@ -115,12 +115,11 @@ workloads:
       llama3_8b: { bs: 1, model_name: llama3-8B }
 
   - api: TTNN
-    name: vit
-    basedir: workloads/ttnn/vit
-    module : run_vit@test_ttnn_functional_vit.py
+    name: vitoptim_wh_perf_report
+    basedir: workloads/ttnn/vit/wh
+    module : run_vit_perf_device@test_vit_device_perf_wh.py
     instances:
-      vit_b16: { bs: 1, model_name: vit-b16 }
-      vit_base_224x224: { bs: 1, model_name: vit-b16 }
+      vitoptim_wh_b16_perf_report: { bs: 8, model_name: vitoptim-wh-b16-perf-report }
 
   # TODO: Enable after SD full run works
   # - api: TTSIM

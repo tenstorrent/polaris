@@ -10,7 +10,7 @@ import yaml
 from typing import Any, Dict, List, Optional, Tuple
 
 try:
-    from op_canonical import normalize_profiler_opcode
+    from op_canonical import normalize_profiler_opcode  # type: ignore[import-not-found]
 except ImportError:
     from .op_canonical import normalize_profiler_opcode  # type: ignore
 

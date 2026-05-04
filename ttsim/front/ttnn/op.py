@@ -258,7 +258,7 @@ def argmax_pp(args_list, kwargs_dict):
 
 
 def reshape_pp(args_list, kwargs_dict):
-    assert len(args_list) <= 3, f"ttnn.reshape has 3 inputs (special case for TT h/w)"
+    assert len(args_list) <= 3, "ttnn.reshape has 3 inputs (special case for TT h/w)"
     inT = require_ttnn_tensor(args_list[0], "ttnn.reshape input")
     outShape = args_list[1]
     if isinstance(outShape, Shape):
@@ -271,7 +271,7 @@ def reshape_pp(args_list, kwargs_dict):
         )
     assert all(
         isinstance(x, (int, np.integer)) for x in outShape
-    ), f"ttnn.reshape 2nd input should be a sequence of integer sizes"
+    ), "ttnn.reshape 2nd input should be a sequence of integer sizes"
 
     in_dtype = DataType.from_numpy(inT.dtype)
     if len(args_list) == 3:
@@ -322,14 +322,14 @@ def permute_pp(args_list, kwargs_dict):
     inT = require_ttnn_tensor(args_list[0], "ttnn.permute input")
     assert isinstance(
         args_list[1], (list, tuple)
-    ), f"ttnn.permute 2nd input should be a list|tuple of ints"
+    ), "ttnn.permute 2nd input should be a list|tuple of ints"
     kwargs_dict["perm"] = list(args_list[1])
     return (inT,), kwargs_dict
 
 
 def embedding_pp(args_list, kwargs_dict):
     # TTNN passes in the order indices, weights while Polaris takes weights, indices
-    assert len(args_list) == 2, f"ttnn.embedding has 2 inputs"
+    assert len(args_list) == 2, "ttnn.embedding has 2 inputs"
     input_tensor = require_ttnn_tensor(args_list[0], "ttnn.embedding indices")
     weight_tensor = require_ttnn_tensor(args_list[1], "ttnn.embedding weight")
     return (weight_tensor, input_tensor), kwargs_dict
@@ -339,6 +339,7 @@ def layer_norm_pp(args_list, kwargs_dict):
     input_tensor = args_list[0]
     weight_tensor = kwargs_dict["weight"] if "weight" in kwargs_dict else None
     bias_tensor = kwargs_dict["bias"] if "bias" in kwargs_dict else None
+    axis = kwargs_dict["axis"] if "axis" in kwargs_dict else None
     epsilon = kwargs_dict["epsilon"] if "epsilon" in kwargs_dict else None
     memory_config = (
         kwargs_dict["memory_config"] if "memory_config" in kwargs_dict else None
@@ -356,6 +357,17 @@ def layer_norm_pp(args_list, kwargs_dict):
         bias_tensor = require_ttnn_tensor(bias_tensor, "ttnn.layer_norm bias")
 
     kwargs_dict = {}
+    if axis is not None:
+        kwargs_dict['axis'] = axis
+    if epsilon is not None:
+        kwargs_dict['epsilon'] = epsilon
+    if memory_config is not None:
+        kwargs_dict['memory_config'] = memory_config
+    if compute_kernel_config is not None:
+        mf = getattr(compute_kernel_config, 'math_fidelity', None)
+        if mf is not None:
+            kwargs_dict['math_fidelity'] = mf.name
+
     if bias_tensor is not None:
         return (input_tensor, weight_tensor, bias_tensor), kwargs_dict
     else:
@@ -385,7 +397,7 @@ def conv2d_pp(args_list, kwargs_dict):
 
 def outer_pp(args_list, kwargs_dict):
     """Preprocessor for outer product operation."""
-    assert len(args_list) == 2, f"ttnn.outer has 2 inputs"
+    assert len(args_list) == 2, "ttnn.outer has 2 inputs"
     tensor_a = require_ttnn_tensor(args_list[0], "ttnn.outer input a")
     tensor_b = require_ttnn_tensor(args_list[1], "ttnn.outer input b")
     assert tensor_a.shape is not None and tensor_b.shape is not None
@@ -409,7 +421,7 @@ def outer_pp(args_list, kwargs_dict):
 
 def torchgather_pp(args_list, kwargs_dict):
     """Preprocessor for torch gather operation. Torch Gather differs vs. ONNX Gather."""
-    assert len(args_list) == 3, f"ttnn.gather has 3 inputs"
+    assert len(args_list) == 3, "ttnn.gather has 3 inputs"
     input_tensor = require_ttnn_tensor(args_list[0], "ttnn.gather input")
     dim = args_list[1]
     index_tensor = require_ttnn_tensor(args_list[2], "ttnn.gather index")
@@ -694,7 +706,7 @@ def moe(gate_logits, expert_mask, topE_mask, k, k_tensor):
     k_tensor = require_ttnn_tensor(k_tensor, "ttnn.moe k_tensor")
     N, C, H, W = gate_logits.shape
     assert expert_mask.shape == [N, C, 1, W], "expert_mask must be [N, C, 1, W]"
-    assert topE_mask.shape[-1] == k, f"topE_mask last dim must be k"
+    assert topE_mask.shape[-1] == k, "topE_mask last dim must be k"
 
     # 1) Apply expert_mask to zero out padded experts (set to -inf)
     #    Broadcast over H: [N,C,H,W] + [N,C,1,W] -> [N,C,H,W]
@@ -878,12 +890,12 @@ def fold(
     stride_w: int,
     *,
     use_transpose_as_fold=False,
-    output_shape=None,  # ttnn.Shape
+    output_shape=None,  # ttnn.Shape  -- accepted for ttnn API compat, unused
     pad_c: int = 0,
     pad_h: int = 0,
     pad_w: int = 0,
-    grid_size=None,  # ttnn.CoreRangeSet
-    override_memory_config: MemoryConfig = None,  # type: ignore
+    grid_size=None,  # ttnn.CoreRangeSet  -- accepted for ttnn API compat, unused
+    override_memory_config: MemoryConfig | None = None,  # accepted for ttnn API compat, unused
 ):
     """Fold: (N,H,W,C) → (N, H//stride_h, W//stride_w, C*stride_h*stride_w).
 
@@ -940,17 +952,15 @@ def fold(
         # ttnn::fold conditionally reshapes back to [N,Hs,Ws,Cs] for tiled
         # or DRAM-interleaved inputs (see fold.cpp / fold_device_op.cpp).
         #
-        # The choice of `(mc is not None) and not (is_tiled or is_dram)` means:
-        #   - L1-sharded ROW_MAJOR (explicit memcfg) → flatten_nd=True  (ViT, typical models)
+        # The choice of `(device is not None) and not (is_tiled or is_dram)` means:
+        #   - Device ROW_MAJOR (any memcfg, including None) → flatten_nd=True  (ViT, typical models)
         #   - DRAM-interleaved     → flatten_nd=False  (preserve 4D)
         #   - TILE_LAYOUT          → flatten_nd=False  (preserve 4D)
-        #   - Unknown/no memcfg    → flatten_nd=False  (mathematical 4D default)
+        # (Host tensors are excluded by the assert above; device is always non-None here.)
         #
         # This attr is forwarded to fold_sinf in tensor.py, which is
         # frontend-agnostic; see the comment there for the default rationale.
         is_tiled = getattr(ttnn_tensor_like, 'layout', None) == Layout.TILE_LAYOUT
-        # Tensor.memory_config() returns None when no config has been set;
-        # hasattr guards against non-Tensor inputs.
         mc = ttnn_tensor_like.memory_config() if hasattr(ttnn_tensor_like, 'memory_config') else None
         is_dram = (getattr(mc, 'buffer_type', None) is BufferType.DRAM) if mc is not None else False
         fold_attrs = {
@@ -959,7 +969,7 @@ def fold(
             'pad_h': pad_h,
             'pad_w': pad_w,
             'pad_c': pad_c,
-            'flatten_nd': (mc is not None) and not (is_tiled or is_dram),
+            'flatten_nd': (ttnn_tensor_like.device is not None) and not (is_tiled or is_dram),
         }
         out_tensor = Tensor(
             name=op_name + '.out',

@@ -6,7 +6,7 @@
 Layout, shard, and transformer head op descriptors:
   Tilize, Untilize, TilizeWithValPadding, UntilizeWithUnpadding,
   InterleavedToSharded, ShardedToInterleaved, Reshard,
-  NLPConcatHeads, NLPCreateQKVHeads.
+  ConcatHeads, CreateQKVHeads.
 Used by the TTNN front-end tracking-only operator APIs (*_op helpers) in ttnn_shim.
 """
 
@@ -265,14 +265,14 @@ def reshard_sinf(iTList, oTList, op, **kwargs):
 
 
 def nlp_concat_heads_sinf(iTList, oTList, op, **kwargs):
-    """Shape inference for NLPConcatHeads: [B, num_heads, S, head_dim] -> [B, S, num_heads*head_dim]."""
+    """Shape inference for ConcatHeads: [B, num_heads, S, head_dim] -> [B, S, num_heads*head_dim]."""
     assert len(iTList) == 1 and len(oTList) == 1
     X = iTList[0]
     in_shape = require_shape_list(
         X.shape,
-        "NLPConcatHeads shape inference: input tensor shape must be known",
+        "ConcatHeads shape inference: input tensor shape must be known",
     )
-    assert len(in_shape) == 4, f"NLPConcatHeads expects rank-4 input, got rank {len(in_shape)}"
+    assert len(in_shape) == 4, f"ConcatHeads expects rank-4 input, got rank {len(in_shape)}"
     B, num_heads, S, head_dim = in_shape
     out_shape = [B, S, num_heads * head_dim]
 
@@ -292,7 +292,7 @@ def nlp_concat_heads_sinf(iTList, oTList, op, **kwargs):
 
 
 def nlp_create_qkv_heads_sinf(iTList, oTList, op, **kwargs):
-    """Shape inference for NLPCreateQKVHeads: 1-2 inputs -> 3 outputs (Q, K, V).
+    """Shape inference for CreateQKVHeads: 1-2 inputs -> 3 outputs (Q, K, V).
 
     Input: [B, S, (num_heads + 2*num_kv_heads) * head_dim] (fused QKV)
     Optional second input: [B, S, 2*num_kv_heads * head_dim] (separate KV)
@@ -304,7 +304,7 @@ def nlp_create_qkv_heads_sinf(iTList, oTList, op, **kwargs):
     X = iTList[0]
     in_shape = require_shape_list(
         X.shape,
-        "NLPCreateQKVHeads shape inference: input tensor shape must be known",
+        "CreateQKVHeads shape inference: input tensor shape must be known",
     )
 
     num_heads = op.attrs.get('num_heads', 1)
@@ -358,8 +358,8 @@ def register_layout_ops():
         ['InterleavedToSharded', 'ARITY_1->1', d, 'COMMON', 24, 21, 1, 1, 1, 1, interleaved_to_sharded_sinf, True, True, True, True, True],
         ['ShardedToInterleaved', 'ARITY_1->1', d, 'COMMON', 24, 21, 1, 1, 1, 1, sharded_to_interleaved_sinf, True, True, True, True, True],
         ['Reshard', 'ARITY_1->1', d, 'COMMON', 24, 21, 1, 1, 1, 1, reshard_sinf, True, True, True, True, True],
-        ['NLPConcatHeads', 'ARITY_1->1', d, 'COMMON', 24, 21, 1, 1, 1, 1, nlp_concat_heads_sinf, True, True, True, True, True],
-        ['NLPCreateQKVHeads', 'ARITY_VARIADIC[1-2]->3', d, 'COMMON', 24, 21, 2, 1, 3, 3, nlp_create_qkv_heads_sinf, True, True, True, True, True],
+        ['ConcatHeads', 'ARITY_1->1', d, 'COMMON', 24, 21, 1, 1, 1, 1, nlp_concat_heads_sinf, True, True, True, True, True],
+        ['CreateQKVHeads', 'ARITY_VARIADIC[1-2]->3', d, 'COMMON', 24, 21, 2, 1, 3, 3, nlp_create_qkv_heads_sinf, True, True, True, True, True],
     ]
     register_ops('layout', _optbl)
     return

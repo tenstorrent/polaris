@@ -6,7 +6,7 @@
 Operator performance lookup: tt-perf **master** YAML only (``correqn.tt-perf-master``).
 
 Loads via ``tools.perf_lookup.tt_perf_master_loader.load_existing_yaml``. Maps workload ops + tensors to a
-logical **8-tuple** (one input), **15-tuple** (two inputs), or **22-tuple** (three inputs) key. Resolves ``single`` (flat
+logical **9-tuple** (one input), **16-tuple** (two inputs), or **23-tuple** (three inputs) key. Resolves ``single`` (flat
 ``num_cores`` + stat scalars), ``curve``, and ``hybrid``. For hybrid rows, whether ``curve`` is used
 is controlled by :class:`OperatorPerfMap` ``use_hybrid_curve`` (default ``False``: ``single`` only).
 See ``doc/tools/perf_lookup/LOOKUP_TABLE_MASTER.md``.
@@ -47,6 +47,7 @@ if str(_REPO_ROOT) not in sys.path:
 from tools.perf_lookup.tt_perf_master_loader import load_existing_yaml
 from tools.profiling.shape_canonical import (
     coerce_shape_to_list,
+    createqkvheads_input0_wzyx,
     promote_to_rank4,
     reshape_input0_wzyx,
     tensor_layout_str,
@@ -67,6 +68,7 @@ from tools.perf_lookup.tt_perf_master_schema import (
     MASTER_HYBRID_SINGLE_KEY,
     MASTER_SINGLE_NUM_CORES_KEY,
     tuple_to_labeled_key_map,
+    MATH_FIDELITY_NA,
 )
 
 from loguru import logger
@@ -284,7 +286,9 @@ def _build_stat_resolver(
 
 
 def _op_code(op: Any) -> str:
-    return str(getattr(op, "optype", "")).strip().lower()
+    from tools.profiling.op_canonical import normalize_polaris_optype
+
+    return normalize_polaris_optype(str(getattr(op, "optype", "")).strip())
 
 
 def _shape_wzyx(tensor: Any) -> Tuple[int, int, int, int]:
@@ -300,11 +304,34 @@ def _input0_wzyx_for_master_key(op: Any, tensor_0: Any) -> Tuple[int, int, int, 
     w, z, y, x = _shape_wzyx(tensor_0)
     if _op_code(op) == "reshape":
         return reshape_input0_wzyx(w, z, y, x)
+    if _op_code(op) == "createqkvheads":
+        return createqkvheads_input0_wzyx(w, z, y, x)
     return (w, z, y, x)
 
 
+_MATH_FIDELITY_CALLER_CONTROLLED_OPS = frozenset({"layernorm"})
+
+
+def _op_math_fidelity(op: Any) -> str:
+    """Extract math fidelity from SimOp attrs.
+
+    For ops in ``_MATH_FIDELITY_CALLER_CONTROLLED_OPS`` (e.g. layernorm),
+    returns the explicit value from attrs when present, or ``HiFi4`` (the
+    hardware default) when omitted. For all other ops, returns ``N/A``
+    matching the mapper's normalization.
+    """
+    attrs = getattr(op, "attrs", None)
+    if isinstance(attrs, dict):
+        mf = attrs.get("math_fidelity")
+        if mf is not None:
+            return str(mf)
+    if _op_code(op) in _MATH_FIDELITY_CALLER_CONTROLLED_OPS:
+        return "HiFi4"
+    return MATH_FIDELITY_NA
+
+
 def build_master_key_tuple_8(op: Any, tensor_0: Any) -> Tuple[Any, ...]:
-    """Logical 8-tuple (first input only); order matches ``KEY_TUPLE_YAML_KEYS[:8]``."""
+    """Logical 9-tuple (first input + math fidelity); order matches ``KEY_TUPLE_YAML_KEYS[:9]``."""
     w0, z0, y0, x0 = _input0_wzyx_for_master_key(op, tensor_0)
     return (
         _op_code(op),
@@ -315,6 +342,7 @@ def build_master_key_tuple_8(op: Any, tensor_0: Any) -> Tuple[Any, ...]:
         tensor_layout_str(tensor_0),
         tensor_datatype(tensor_0, getattr(op, "precision", None)),
         tensor_memory_str(tensor_0),
+        _op_math_fidelity(op),
     )
 
 
@@ -323,7 +351,7 @@ def build_master_key_tuple_15(
     tensor_0: Any,
     tensor_1: Any,
 ) -> Tuple[Any, ...]:
-    """Logical 15-tuple matching ``tools.perf_lookup.tt_perf_master_schema.KEY_TUPLE_YAML_KEYS`` order."""
+    """Logical 16-tuple matching ``tools.perf_lookup.tt_perf_master_schema.KEY_TUPLE_YAML_KEYS`` order."""
     w0, z0, y0, x0 = _input0_wzyx_for_master_key(op, tensor_0)
     w1, z1, y1, x1 = _shape_wzyx(tensor_1)
     return (
@@ -335,6 +363,7 @@ def build_master_key_tuple_15(
         tensor_layout_str(tensor_0),
         tensor_datatype(tensor_0, getattr(op, "precision", None)),
         tensor_memory_str(tensor_0),
+        _op_math_fidelity(op),
         w1,
         z1,
         y1,
@@ -351,7 +380,7 @@ def build_master_key_tuple_22(
     tensor_1: Any,
     tensor_2: Any,
 ) -> Tuple[Any, ...]:
-    """Logical 22-tuple matching ``tools.perf_lookup.tt_perf_master_schema.KEY_TUPLE_YAML_KEYS`` order."""
+    """Logical 23-tuple matching ``tools.perf_lookup.tt_perf_master_schema.KEY_TUPLE_YAML_KEYS`` order."""
     w0, z0, y0, x0 = _input0_wzyx_for_master_key(op, tensor_0)
     w1, z1, y1, x1 = _shape_wzyx(tensor_1)
     w2, z2, y2, x2 = _shape_wzyx(tensor_2)
@@ -365,6 +394,7 @@ def build_master_key_tuple_22(
         tensor_layout_str(tensor_0),
         tensor_datatype(tensor_0, prec),
         tensor_memory_str(tensor_0),
+        _op_math_fidelity(op),
         w1,
         z1,
         y1,
@@ -388,7 +418,7 @@ def build_master_key_tuple_15_add_broadcast_duplicate_full(
     tensor_1: Any,
 ) -> Optional[Tuple[Any, ...]]:
     """
-    15-tuple key with the broadcast operand's WZYX replaced by the full operand's WZYX.
+    16-tuple key with the broadcast operand's WZYX replaced by the full operand's WZYX.
 
     Used when the master row stored both inputs with the full logical shape while the graph has
     ``(1, 1, 1, X)`` on one operand (either ``tensor_0`` or ``tensor_1``). Layout, datatype, and
@@ -406,6 +436,7 @@ def build_master_key_tuple_15_add_broadcast_duplicate_full(
     full0 = not b0
     full1 = not b1
     prec = getattr(op, "precision", None)
+    mf = _op_math_fidelity(op)
     lay0, dt0, mem0 = (
         tensor_layout_str(tensor_0),
         tensor_datatype(tensor_0, prec),
@@ -427,6 +458,7 @@ def build_master_key_tuple_15_add_broadcast_duplicate_full(
             lay0,
             dt0,
             mem0,
+            mf,
             wf,
             zf,
             yf,
@@ -446,6 +478,7 @@ def build_master_key_tuple_15_add_broadcast_duplicate_full(
             lay0,
             dt0,
             mem0,
+            mf,
             wf,
             zf,
             yf,
@@ -476,36 +509,36 @@ def _lut_keys_matching_op_and_wzyx(entries: Dict[tuple, dict], key_t: tuple) -> 
     Layout, datatype, and memory may differ — useful diagnostics when the full key misses.
     """
     n = len(key_t)
-    if n not in (8, 15, 22):
+    if n not in (9, 16, 23):
         return ()
     oc = key_t[0]
     matched: list[tuple] = []
-    if n == 8:
+    if n == 9:
         w0 = _wzyx_int_tuple(key_t[1:5])
         for k in entries:
-            if len(k) != 8 or k[0] != oc:
+            if len(k) != 9 or k[0] != oc:
                 continue
             if _wzyx_int_tuple(k[1:5]) == w0:
                 matched.append(k)
-    elif n == 15:
+    elif n == 16:
         w0 = _wzyx_int_tuple(key_t[1:5])
-        w1 = _wzyx_int_tuple(key_t[8:12])
+        w1 = _wzyx_int_tuple(key_t[9:13])
         for k in entries:
-            if len(k) != 15 or k[0] != oc:
+            if len(k) != 16 or k[0] != oc:
                 continue
-            if _wzyx_int_tuple(k[1:5]) == w0 and _wzyx_int_tuple(k[8:12]) == w1:
+            if _wzyx_int_tuple(k[1:5]) == w0 and _wzyx_int_tuple(k[9:13]) == w1:
                 matched.append(k)
     else:
         w0 = _wzyx_int_tuple(key_t[1:5])
-        w1 = _wzyx_int_tuple(key_t[8:12])
-        w2 = _wzyx_int_tuple(key_t[15:19])
+        w1 = _wzyx_int_tuple(key_t[9:13])
+        w2 = _wzyx_int_tuple(key_t[16:20])
         for k in entries:
-            if len(k) != 22 or k[0] != oc:
+            if len(k) != 23 or k[0] != oc:
                 continue
             if (
                 _wzyx_int_tuple(k[1:5]) == w0
-                and _wzyx_int_tuple(k[8:12]) == w1
-                and _wzyx_int_tuple(k[15:19]) == w2
+                and _wzyx_int_tuple(k[9:13]) == w1
+                and _wzyx_int_tuple(k[16:20]) == w2
             ):
                 matched.append(k)
     return tuple(sorted(matched))
@@ -519,7 +552,7 @@ def _lut_keys_matching_op_code_only(entries: Dict[tuple, dict], key_t: tuple) ->
     with :func:`_lut_keys_matching_op_and_wzyx` which also requires WZYX match.
     """
     n = len(key_t)
-    if n not in (8, 15, 22):
+    if n not in (9, 16, 23):
         return ()
     oc = key_t[0]
     matched = [k for k in entries if len(k) == n and k[0] == oc]
@@ -582,7 +615,7 @@ def _warn_labeled_lut_key_candidates(
 
 class OperatorPerfMap:
     """
-    Master-format operator performance table: lookup by constructed 8-, 15-, or 22-tuple key
+    Master-format operator performance table: lookup by constructed 9-, 16-, or 23-tuple key
     and core count.
     """
 
@@ -661,7 +694,7 @@ class OperatorPerfMap:
         core_count: int,
     ) -> Optional[MasterPerfStats]:
         """
-        Return resolved stats when the table has a matching 8-, 15-, or 22-tuple key, else ``None``.
+        Return resolved stats when the table has a matching 9-, 16-, or 23-tuple key, else ``None``.
 
         ``core_count`` should match profiler Core_Count bucketing (see package config).
         """

@@ -1,0 +1,17 @@
+# SPDX-FileCopyrightText: (C) 2025 Tenstorrent AI ULC
+# SPDX-License-Identifier: Apache-2.0
+# Run Configuration yaml file, to be used with polproj.py
+title: Run vitoptim (optimized sharded ViT) workloads on Wormhole n150
+study: runvitoptim_wh
+odir: __runvitoptim_wh
+wlspec: config/all_workloads.yaml
+archspec: config/tt_wh.yaml
+wlmapspec: config/wl2archmapping.yaml
+filterwlg: TTNN
+filterarch: n150
+datatype: bf16
+# filterwl: vitoptim_wh_patch_embeddings,vitoptim_wh_embeddings,vitoptim_wh_attention,vitoptim_wh_intermediate,vitoptim_wh_output,vitoptim_wh_layer,vitoptim_wh_encoder,vitoptim_wh,vitoptim_wh_device_perf,vitoptim_wh_perf_report
+# filterwl: vitoptim_wh_device_perf,vitoptim_wh_perf_report
+filterwl: vitoptim_wh_perf_report
+dump_stats_csv: true
+log_level: info

@@ -109,8 +109,6 @@ def test_profiler_op_signature_tilize_prefers_output_padded_columns() -> None:
 @pytest.mark.unit
 def test_profiler_untilize_unpadding_opcode_identity_mapping() -> None:
     """``UntilizeWithUnpadding`` maps to itself (names now aligned between profiler and Polaris)."""
-    from tools.profiling.profiler_polaris_opname_mapping import _map_profiler_opcode_to_polaris_optype
-
     assert _map_profiler_opcode_to_polaris_optype('UntilizeWithUnpadding', {}) == 'UntilizeWithUnpadding'
     assert (
         _map_profiler_opcode_to_polaris_optype('UntilizeWithUnpaddingDeviceOperation', {})
@@ -163,9 +161,9 @@ def test_legacy_bare_add_mul_still_works() -> None:
 
 
 @pytest.mark.unit
-def test_create_qkv_heads_maps_to_nlp_create_qkv_heads() -> None:
-    """CreateQKVHeadsDeviceOperation maps to NLPCreateQKVHeads via stem_to_lookup."""
+def test_create_qkv_heads_maps_to_create_qkv_heads() -> None:
+    """CreateQKVHeadsDeviceOperation maps to CreateQKVHeads via stem_to_lookup."""
     assert (
         _map_profiler_opcode_to_polaris_optype('CreateQKVHeadsDeviceOperation', {})
-        == 'NLPCreateQKVHeads'
+        == 'CreateQKVHeads'
     )

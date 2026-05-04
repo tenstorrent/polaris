@@ -8,6 +8,14 @@ from typing import ClassVar
 
 from .buffer import BufferType, TensorMemoryLayout, ShardSpec, ShardOrientation
 
+# Matches profiler / tools.profiling.shape_canonical canonical memory tags.
+_CANONICAL_LAYOUT_SUFFIX: dict[str, str] = {
+    "INTERLEAVED": "INTERLEAVED",
+    "HEIGHT_SHARDED": "HEIGHT_SHARDED",
+    "BLOCK_SHARDED": "BLOCK_SHARDED",
+    "WIDTH_SHARDED": "WIDTH_SHARDED",
+}
+
 
 class MemoryConfig:
     """Mirrors tt-metal's ``ttnn.MemoryConfig``.
@@ -42,6 +50,16 @@ class MemoryConfig:
     def __repr__(self):
         return (f"MemoryConfig(memory_layout={self.memory_layout!r}, "
                 f"buffer_type={self.buffer_type!r})")
+
+    def to_canonical_memory_tag(self) -> str:
+        """Short form matching HW profiler memory strings (e.g. ``L1_BLOCK_SHARDED``)."""
+        buf = self.buffer_type.name.upper()
+        lay = self.memory_layout.name.upper()
+        suffix = _CANONICAL_LAYOUT_SUFFIX.get(lay, "INTERLEAVED")
+        return f"{buf}_{suffix}"
+
+    def __str__(self) -> str:
+        return self.to_canonical_memory_tag()
 
 
 # Singleton defaults matching real TTNN's ttnn.DRAM_MEMORY_CONFIG / L1_MEMORY_CONFIG.

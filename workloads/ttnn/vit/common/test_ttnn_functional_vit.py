@@ -11,7 +11,7 @@ from loguru import logger
 import ttsim.front.ttnn as ttnn
 from ttsim.front.ttnn.device import Device as TTNNDevice
 from ttsim.utils.common import setup_logger
-from workloads.ttnn.vit.ttnn_functional_vit import vit
+from workloads.ttnn.vit.common.ttnn_functional_vit import vit
 
 
 def run_vit(wlname: str, device: TTNNDevice, cfg: dict):

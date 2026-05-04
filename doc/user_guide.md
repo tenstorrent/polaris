@@ -62,6 +62,17 @@ python polaris.py [options] --archspec <arch_config> --wlspec <workload_spec> --
 - `--enable_memalloc`: Enable memory allocation simulation
 - `--instr_profile`: Enable instruction profiling
 - `--enable_cprofile`: Enable Python cProfile for performance analysis
+- `--disable-fusion`: Skip graph op fusion (`op_fusion_spec` in the workload mapping is ignored).
+  Note: when a LUT file is loaded, disabling fusion is **not** needed to preserve LUT accuracy.
+  Polaris automatically clears the `fused_in_optimization` flag on any fused op that receives a
+  LUT hit, so it keeps its real hardware timing. Ops without LUT entries continue to benefit from
+  analytical fusion. Use `--disable-fusion` only to debug fusion behaviour itself.
+
+**LUT timing and the analytical guardband:** LUT-sourced timing is **not** subject to the 25%
+analytical guardband (`G_GUARDBAND`) that Polaris applies to estimated op durations. When a LUT
+hit occurs, the hardware-measured `msecs` value is used directly; the guardband is applied only
+to ops that miss the LUT. In a mixed run both effects coexist with no double-counting. See
+[LOOKUP_TABLE_MASTER.md](../doc/tools/perf_lookup/LOOKUP_TABLE_MASTER.md) for details.
 
 #### Logging Options
 - `--log_level,    -l`: Set logging level (debug/info/warning/error/critical, default: info)
@@ -313,6 +324,43 @@ result = main([
 - Verify architecture configuration matches hardware
 - Check data types and precision settings
 - Consider hardware-specific optimizations not modeled
+
+### ViT Device-Perf Correlation (Polaris vs HW Profiler)
+
+For the optimized sharded ViT workload, `tools/profiling/correlate_perf.sh` compares a
+Polaris opstats CSV against a Tracy HW profiler CSV (`merged_ops.csv`) and produces a
+3-sheet XLSX workbook (Summary / By Layer Type / By Layer Signature).
+
+Reference profiler CSVs are stored on LFC under `hlm-refrun/` and are fetched automatically.
+
+**Quick start (from repo root):**
+
+```bash
+# Wormhole n150 — uses lfc://hlm-refrun/n150_vit_opt_sharded_wh_refrun_260415.csv
+tools/profiling/correlate_perf_wh.sh
+
+# Blackhole p100a — uses lfc://hlm-refrun/p100a_vit_opt_sharded_bh_refrun_260426.csv
+tools/profiling/correlate_perf_bh.sh
+
+# Re-run polproj first, then compare
+tools/profiling/correlate_perf_wh.sh --regen
+```
+
+**Generic form** (custom arch or profiler CSV):
+
+```bash
+tools/profiling/correlate_perf.sh <arch> <hw_csv> [--regen] [--polaris-csv <path>]
+#   arch      wh or bh
+#   hw_csv    local path or lfc:// URL to merged_ops.csv
+```
+
+**Outputs** (gitignored, written to workspace root):
+
+| File | Content |
+|------|---------|
+| `correlate_{arch}.xlsx` | 3-sheet comparison workbook |
+| `correlate_{arch}.out` | Full text report |
+| `correlate_{arch}.err` | Stderr / warnings |
 
 ## Output and Analysis
 

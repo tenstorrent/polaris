@@ -93,6 +93,9 @@ def _series_for_key_slots(*, input1: str, input2: str) -> dict:
     """``input1`` / ``input2``: ``'fill'`` (valid pads+metadata), ``'blank'``, or ``'mixed'`` (invalid)."""
     d: dict = {"OP CODE": "layernormalization"}
     for col in KEY_TUPLE_COLUMN_NAMES[1:]:
+        if col == "MATH FIDELITY":
+            d[col] = "HiFi4"
+            continue
         slot = (
             "0"
             if col.startswith("INPUT_0_")
@@ -199,7 +202,7 @@ def test_build_stats_row_keys_match_schema_order():
 
 
 def test_load_minimal_master_yaml(tmp_path: Path):
-    key_map = {k: f"v_{k}" for k in KEY_TUPLE_YAML_KEYS[:8]}
+    key_map = {k: f"v_{k}" for k in KEY_TUPLE_YAML_KEYS[:9]}
     val = {
         MASTER_ENTRY_TYPE_KEY: MASTER_ENTRY_TYPE_SINGLE,
         MASTER_SINGLE_NUM_CORES_KEY: 1,
@@ -218,13 +221,13 @@ def test_load_minimal_master_yaml(tmp_path: Path):
     p = tmp_path / "m.yaml"
     p.write_text(yaml.safe_dump(doc, sort_keys=False))
     m = load_existing_yaml(p)
-    kt = tuple(key_map[k] for k in KEY_TUPLE_YAML_KEYS[:8])
+    kt = tuple(key_map[k] for k in KEY_TUPLE_YAML_KEYS[:9])
     assert kt in m
     assert m[kt][MASTER_SINGLE_NUM_CORES_KEY] == 1
 
 
 def test_loader_warns_on_extra_single_key(tmp_path: Path):
-    key_map = {k: f"v_{k}" for k in KEY_TUPLE_YAML_KEYS[:8]}
+    key_map = {k: f"v_{k}" for k in KEY_TUPLE_YAML_KEYS[:9]}
     val = {
         MASTER_ENTRY_TYPE_KEY: MASTER_ENTRY_TYPE_SINGLE,
         MASTER_SINGLE_NUM_CORES_KEY: 1,
@@ -250,7 +253,7 @@ def test_loader_warns_on_extra_single_key(tmp_path: Path):
 
 
 def test_loader_rejects_curve_stat_missing_equation(tmp_path: Path):
-    key_map = {k: f"v_{k}" for k in KEY_TUPLE_YAML_KEYS[:8]}
+    key_map = {k: f"v_{k}" for k in KEY_TUPLE_YAML_KEYS[:9]}
     bad_curve = {
         MASTER_ENTRY_TYPE_KEY: MASTER_ENTRY_TYPE_CURVE,
         MASTER_CURVE_FAMILY_KEY: MASTER_CURVE_FAMILY_LINEAR,
@@ -273,7 +276,7 @@ def test_loader_rejects_curve_stat_missing_equation(tmp_path: Path):
 
 
 def test_merge_matmul_single_and_curve_to_hybrid():
-    kt = (POLARIS_LAYER_MATMUL,) + tuple(f"x{i}" for i in range(7))
+    kt = (POLARIS_LAYER_MATMUL,) + tuple(f"x{i}" for i in range(8))
     single = {
         MASTER_ENTRY_TYPE_KEY: MASTER_ENTRY_TYPE_SINGLE,
         MASTER_SINGLE_NUM_CORES_KEY: 2,
@@ -304,13 +307,13 @@ def test_normalize_flat_single_payload_requires_dict():
         normalize_flat_single_payload("not-a-dict")  # type: ignore[arg-type]
 
 
-def test_tuple_to_labeled_key_map_round_trip_8_15_and_22():
-    t8 = tuple(f"a{i}" for i in range(8))
-    assert labeled_key_map_to_tuple(tuple_to_labeled_key_map(t8)) == t8
-    t15 = tuple(f"b{i}" for i in range(15))
-    assert labeled_key_map_to_tuple(tuple_to_labeled_key_map(t15)) == t15
-    t22 = tuple(f"c{i}" for i in range(22))
-    assert labeled_key_map_to_tuple(tuple_to_labeled_key_map(t22)) == t22
+def test_tuple_to_labeled_key_map_round_trip_9_16_and_23():
+    t9 = tuple(f"a{i}" for i in range(9))
+    assert labeled_key_map_to_tuple(tuple_to_labeled_key_map(t9)) == t9
+    t16 = tuple(f"b{i}" for i in range(16))
+    assert labeled_key_map_to_tuple(tuple_to_labeled_key_map(t16)) == t16
+    t23 = tuple(f"c{i}" for i in range(23))
+    assert labeled_key_map_to_tuple(tuple_to_labeled_key_map(t23)) == t23
 
 
 def test_tuple_to_labeled_key_map_rejects_bad_length():
@@ -319,31 +322,31 @@ def test_tuple_to_labeled_key_map_rejects_bad_length():
 
 
 def test_labeled_key_map_rejects_unknown_field():
-    km = {k: f"v_{k}" for k in KEY_TUPLE_YAML_KEYS[:8]}
+    km = {k: f"v_{k}" for k in KEY_TUPLE_YAML_KEYS[:9]}
     km["not_a_valid_key"] = 1
     with pytest.raises(ValueError, match="Unknown"):
         labeled_key_map_to_tuple(km)
 
 
-def test_labeled_key_map_input2_partial_requires_all_22():
-    km = {k: f"v_{k}" for k in KEY_TUPLE_YAML_KEYS[:16]}
+def test_labeled_key_map_input2_partial_requires_all_23():
+    km = {k: f"v_{k}" for k in KEY_TUPLE_YAML_KEYS[:17]}
     km["input_2_w_pad_logical"] = 1
-    with pytest.raises(ValueError, match="22"):
+    with pytest.raises(ValueError, match="23"):
         labeled_key_map_to_tuple(km)
 
 
-def test_build_key_tuple_8_15_and_22():
-    row8 = _series_for_key_slots(input1="blank", input2="blank")
-    kt8, err8 = build_key_tuple(row8, KEY_TUPLE_COLUMN_NAMES, _PAD_SUFFIXES)
-    assert err8 is None and len(kt8) == 8
+def test_build_key_tuple_9_16_and_23():
+    row9 = _series_for_key_slots(input1="blank", input2="blank")
+    kt9, err9 = build_key_tuple(row9, KEY_TUPLE_COLUMN_NAMES, _PAD_SUFFIXES)
+    assert err9 is None and len(kt9) == 9
 
-    row15 = _series_for_key_slots(input1="fill", input2="blank")
-    kt15, err15 = build_key_tuple(row15, KEY_TUPLE_COLUMN_NAMES, _PAD_SUFFIXES)
-    assert err15 is None and len(kt15) == 15
+    row16 = _series_for_key_slots(input1="fill", input2="blank")
+    kt16, err16 = build_key_tuple(row16, KEY_TUPLE_COLUMN_NAMES, _PAD_SUFFIXES)
+    assert err16 is None and len(kt16) == 16
 
-    row22 = _series_for_key_slots(input1="fill", input2="fill")
-    kt22, err22 = build_key_tuple(row22, KEY_TUPLE_COLUMN_NAMES, _PAD_SUFFIXES)
-    assert err22 is None and len(kt22) == 22
+    row23 = _series_for_key_slots(input1="fill", input2="fill")
+    kt23, err23 = build_key_tuple(row23, KEY_TUPLE_COLUMN_NAMES, _PAD_SUFFIXES)
+    assert err23 is None and len(kt23) == 23
 
 
 def test_build_key_tuple_rejects_input2_without_input1():
@@ -410,7 +413,7 @@ def test_load_rejects_missing_entries(tmp_path: Path):
 
 
 def test_load_rejects_wrong_schema_version(tmp_path: Path):
-    key_map = {k: f"v_{k}" for k in KEY_TUPLE_YAML_KEYS[:8]}
+    key_map = {k: f"v_{k}" for k in KEY_TUPLE_YAML_KEYS[:9]}
     doc = _versioned_doc(
         [
             {
@@ -431,7 +434,7 @@ def test_load_rejects_wrong_schema_version(tmp_path: Path):
 
 
 def test_load_rejects_bad_schema_name(tmp_path: Path):
-    key_map = {k: f"v_{k}" for k in KEY_TUPLE_YAML_KEYS[:8]}
+    key_map = {k: f"v_{k}" for k in KEY_TUPLE_YAML_KEYS[:9]}
     doc = _versioned_doc(
         [
             {
@@ -452,7 +455,7 @@ def test_load_rejects_bad_schema_name(tmp_path: Path):
 
 
 def test_load_rejects_matmul_non_hybrid(tmp_path: Path):
-    key_map = {k: f"v_{k}" for k in KEY_TUPLE_YAML_KEYS[:8]}
+    key_map = {k: f"v_{k}" for k in KEY_TUPLE_YAML_KEYS[:9]}
     key_map["op_code"] = POLARIS_LAYER_MATMUL
     p = tmp_path / "m.yaml"
     p.write_text(
@@ -477,7 +480,7 @@ def test_load_rejects_matmul_non_hybrid(tmp_path: Path):
 
 
 def test_load_hybrid_matmul_single_and_curve(tmp_path: Path):
-    key_map = {k: f"v_{k}" for k in KEY_TUPLE_YAML_KEYS[:8]}
+    key_map = {k: f"v_{k}" for k in KEY_TUPLE_YAML_KEYS[:9]}
     key_map["op_code"] = POLARIS_LAYER_MATMUL
     curve_inner = {
         MASTER_CURVE_FAMILY_KEY: MASTER_CURVE_FAMILY_POWER,
@@ -508,7 +511,7 @@ def test_load_hybrid_matmul_single_and_curve(tmp_path: Path):
 
 
 def test_load_rejects_entry_item_with_extra_top_level_keys(tmp_path: Path):
-    key_map = {k: f"v_{k}" for k in KEY_TUPLE_YAML_KEYS[:8]}
+    key_map = {k: f"v_{k}" for k in KEY_TUPLE_YAML_KEYS[:9]}
     p = tmp_path / "m.yaml"
     p.write_text(
         yaml.safe_dump(
@@ -533,7 +536,7 @@ def test_load_rejects_entry_item_with_extra_top_level_keys(tmp_path: Path):
 
 
 def test_load_rejects_non_mapping_value(tmp_path: Path):
-    key_map = {k: f"v_{k}" for k in KEY_TUPLE_YAML_KEYS[:8]}
+    key_map = {k: f"v_{k}" for k in KEY_TUPLE_YAML_KEYS[:9]}
     p = tmp_path / "m.yaml"
     p.write_text(
         yaml.safe_dump(
@@ -581,7 +584,7 @@ def test_entry_type_predicates():
 
 
 def test_merge_non_matmul_overwrites_same_kind():
-    kt = ("add",) + tuple(f"k{i}" for i in range(7))
+    kt = ("add",) + tuple(f"k{i}" for i in range(8))
     first = {
         MASTER_ENTRY_TYPE_KEY: MASTER_ENTRY_TYPE_SINGLE,
         MASTER_SINGLE_NUM_CORES_KEY: 1,
@@ -596,7 +599,7 @@ def test_merge_non_matmul_overwrites_same_kind():
 
 
 def test_merge_non_matmul_rejects_entry_type_change():
-    kt = ("mul",) + tuple(f"k{i}" for i in range(7))
+    kt = ("mul",) + tuple(f"k{i}" for i in range(8))
     single = {
         MASTER_ENTRY_TYPE_KEY: MASTER_ENTRY_TYPE_SINGLE,
         MASTER_SINGLE_NUM_CORES_KEY: 1,
@@ -608,20 +611,20 @@ def test_merge_non_matmul_rejects_entry_type_change():
 
 
 def test_merge_matmul_rejects_empty_hybrid():
-    kt = (POLARIS_LAYER_MATMUL,) + tuple(f"k{i}" for i in range(7))
+    kt = (POLARIS_LAYER_MATMUL,) + tuple(f"k{i}" for i in range(8))
     empty_hybrid = {MASTER_ENTRY_TYPE_KEY: MASTER_ENTRY_TYPE_HYBRID}
     with pytest.raises(ValueError, match="neither single nor curve"):
         merge_entry_for_key(kt, None, empty_hybrid)
 
 
 def test_merge_matmul_rejects_unknown_entry_type():
-    kt = (POLARIS_LAYER_MATMUL,) + tuple(f"k{i}" for i in range(7))
+    kt = (POLARIS_LAYER_MATMUL,) + tuple(f"k{i}" for i in range(8))
     with pytest.raises(ValueError, match="Matmul merge expected"):
         merge_entry_for_key(kt, None, {MASTER_ENTRY_TYPE_KEY: "other"})
 
 
 def test_canonicalize_master_promotes_matmul_single_to_hybrid():
-    kt = (POLARIS_LAYER_MATMUL,) + tuple(f"k{i}" for i in range(7))
+    kt = (POLARIS_LAYER_MATMUL,) + tuple(f"k{i}" for i in range(8))
     single = {
         MASTER_ENTRY_TYPE_KEY: MASTER_ENTRY_TYPE_SINGLE,
         MASTER_SINGLE_NUM_CORES_KEY: 3,
@@ -633,8 +636,8 @@ def test_canonicalize_master_promotes_matmul_single_to_hybrid():
 
 
 def test_merge_master_merges_disjoint_keys():
-    ka = ("add",) + tuple(f"a{i}" for i in range(7))
-    kb = ("mul",) + tuple(f"b{i}" for i in range(7))
+    ka = ("add",) + tuple(f"a{i}" for i in range(8))
+    kb = ("mul",) + tuple(f"b{i}" for i in range(8))
     a_val = {
         MASTER_ENTRY_TYPE_KEY: MASTER_ENTRY_TYPE_SINGLE,
         MASTER_SINGLE_NUM_CORES_KEY: 1,
@@ -646,7 +649,7 @@ def test_merge_master_merges_disjoint_keys():
 
 
 def test_serialize_master_for_yaml_round_trip_document_shape():
-    kt = ("add",) + tuple(f"s{i}" for i in range(7))
+    kt = ("add",) + tuple(f"s{i}" for i in range(8))
     val = {
         MASTER_ENTRY_TYPE_KEY: MASTER_ENTRY_TYPE_SINGLE,
         MASTER_SINGLE_NUM_CORES_KEY: 2,
@@ -661,7 +664,7 @@ def test_serialize_master_for_yaml_round_trip_document_shape():
 
 
 def test_format_dry_run_report_includes_curve_summary():
-    kt = (POLARIS_LAYER_MATMUL,) + tuple(f"d{i}" for i in range(7))
+    kt = (POLARIS_LAYER_MATMUL,) + tuple(f"d{i}" for i in range(8))
     curve_inner = {
         MASTER_CURVE_FAMILY_KEY: MASTER_CURVE_FAMILY_LINEAR,
         MASTER_DURATION_MS_KEY: _curve_stat(equation="msecs = 1*c+0"),

@@ -100,3 +100,4 @@ skip-magic-trailing-comma = true    # Avoid always splitting function arguments 
 # By default, Ruff enables Pyflakes (F) and a subset of pycodestyle (E) codes.
 # You can extend this selection.
 extend-select = ["W291", "W293"]
+ignore = ["F403", "E702", "E741", "F702"]

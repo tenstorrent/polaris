@@ -61,7 +61,7 @@ packages:
     -   name: Blackhole
         instances:
         -   name: p100a
-            operator_lookup_file: __ext/perf_lookup/bh_p100_lut.yaml
+            operator_lookup_file: lfc://hlm-lut/bh_p100a_lut_v2.yaml
             ipgroups:
             -   ipname: tensix
                 iptype: compute

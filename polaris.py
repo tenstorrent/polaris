@@ -201,7 +201,7 @@ def setup_cmdline_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument('--batchsize', nargs=3, metavar=('start', 'end', 'step'), type=int,
                         action='append', help='batchsize range specification (geom-seq)')
     parser.add_argument('--outputformat', choices=['none', 'yaml', 'json', 'pickle'], default='json', type=str.lower)
-    parser.add_argument('--dump_stats_csv', dest='dump_stats_csv', action='store_true', 
+    parser.add_argument('--dump_stats_csv', dest='dump_stats_csv', action='store_true',
                         default=False, help='Dump stats in CSV format')
     parser.add_argument(
         '--operator-lookup-hybrid-curve',
@@ -215,7 +215,13 @@ def setup_cmdline_args(argv: list[str] | None = None) -> argparse.Namespace:
         dest='disable_fusion',
         action='store_true',
         default=False,
-        help='Skip graph op fusion (wlmap op_fusion_spec ignored for matching/applying fusions)',
+        help=(
+            'Skip graph op fusion (wlmap op_fusion_spec ignored). '
+            'Note: when a LUT is loaded, fusion is NOT needed to preserve LUT accuracy — '
+            'any fused op that gets a LUT hit already has its fused_in_optimization flag '
+            'cleared automatically, keeping real hardware timing while unfused ops still '
+            'benefit from analytical fusion. Use --disable-fusion only to debug fusion itself.'
+        ),
     )
 
     #cmdline args processing

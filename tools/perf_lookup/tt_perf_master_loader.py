@@ -4,7 +4,7 @@
 """Load tt-perf master YAML into ``dict[tuple, dict]`` (logical key → entry payload).
 
 Contract: ``doc/YAML_MASTER_FORMAT.md``. CLI and Excel pipeline: ``tools/perf_lookup/tt_perf_mapper.py``. Accepts
-``schema_version`` must match ``MASTER_YAML_SCHEMA_VERSION`` (``1`` until first release); matmul entries must use ``entry_type: hybrid``.
+``schema_version`` 1 (legacy, emits deprecation warning) or 2 (current); matmul entries must use ``entry_type: hybrid``.
 """
 
 from __future__ import annotations
@@ -316,10 +316,18 @@ def load_existing_yaml(path: Path) -> dict[tuple, dict]:
         raise ValueError(
             f"{MASTER_YAML_SCHEMA_VERSION_KEY!r} must be an integer, got {ver!r}"
         ) from e
-    if ver_int != MASTER_YAML_SCHEMA_VERSION:
+    _MASTER_YAML_SCHEMA_MIN_VERSION = 1
+    if ver_int < _MASTER_YAML_SCHEMA_MIN_VERSION or ver_int > MASTER_YAML_SCHEMA_VERSION:
         raise ValueError(
             f"{MASTER_YAML_SCHEMA_VERSION_KEY!r} is {ver_int}, expected "
-            f"{MASTER_YAML_SCHEMA_VERSION}"
+            f"{_MASTER_YAML_SCHEMA_MIN_VERSION}–{MASTER_YAML_SCHEMA_VERSION}"
+        )
+    if ver_int < MASTER_YAML_SCHEMA_VERSION:
+        warnings.warn(
+            f"Loading legacy schema_version={ver_int} LUT file; "
+            f"re-export to version {MASTER_YAML_SCHEMA_VERSION} to suppress this warning.",
+            DeprecationWarning,
+            stacklevel=2,
         )
     sid = raw.get(MASTER_YAML_SCHEMA_NAME_KEY)
     if sid != MASTER_YAML_SCHEMA_NAME:

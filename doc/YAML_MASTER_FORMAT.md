@@ -2,7 +2,7 @@
 
 Repository path: **`doc/YAML_MASTER_FORMAT.md`**. Excel/key-tuple and CLI pipeline: **`tools/perf_lookup/tt_perf_mapper.py`**.
 
-Normative description of the YAML written by the **`tools/perf_lookup/tt_perf_mapper.py`** CLI when **`--update`** is set (inputs: repeatable **`--model-run`** / **`--sweep-run`**, optional existing **`--output`** file merged first). **`schema_version`** must equal **`MASTER_YAML_SCHEMA_VERSION`** in code (**`1`** until the first release; bump only then for incompatible changes). **Constants and parsing** live in **`tools/perf_lookup/tt_perf_master_schema.py`**; **reading** a file is **`tools.perf_lookup.tt_perf_master_loader.load_existing_yaml`**. Use this document to implement loaders, JSON Schema, Pydantic models, or contract tests in **other repositories**.
+Normative description of the YAML written by the **`tools/perf_lookup/tt_perf_mapper.py`** CLI when **`--update`** is set (inputs: repeatable **`--model-run`** / **`--sweep-run`**, optional existing **`--output`** file merged first). Files produced by the current tool carry **`schema_version: 2`** (`MASTER_YAML_SCHEMA_VERSION`); the loader also accepts **`schema_version: 1`** (legacy, emits `DeprecationWarning`). **Constants and parsing** live in **`tools/perf_lookup/tt_perf_master_schema.py`**; **reading** a file is **`tools.perf_lookup.tt_perf_master_loader.load_existing_yaml`**. Use this document to implement loaders, JSON Schema, Pydantic models, or contract tests in **other repositories**.
 
 **Producer:** `tools/perf_lookup/tt_perf_mapper.py` — **`serialize_master_for_yaml`** builds a mapping; **`yaml.dump`** (`default_flow_style=False`, `sort_keys=False`, `allow_unicode=True`). **Loader:** `tools/perf_lookup/tt_perf_master_loader.py` — **`load_existing_yaml`**.
 
@@ -18,7 +18,7 @@ Stable names and keys (defined in `tt_perf_master_schema.py`):
 |----------|-------|------|
 | **`MASTER_YAML_SCHEMA_NAME`** | **`correqn.tt-perf-master`** | **Unique format name** (reverse-DNS style). Use in loaders, Pydantic, or **`$id`**-style docs to detect the correct file type before deep parsing. **Do not reuse** this string for unrelated YAML. |
 | **`MASTER_YAML_SCHEMA_NAME_KEY`** | **`schema_name`** | Top-level YAML key for the string above. |
-| **`MASTER_YAML_SCHEMA_VERSION`** | **`1`** (integer, pre-release) | **Stays 1 until the first release**; **bump** only then when the document or entry layout changes incompatibly (same **`schema_name`** family). Loaders must reject any other **`schema_version`**. |
+| **`MASTER_YAML_SCHEMA_VERSION`** | **`2`** (integer, current) | **v2** added **`math_fidelity`** to the key tuple (9th field, between `input_0_memory` and `input_1_*`). Loaders must reject versions outside the range **1–2**; v1 files load with a **`DeprecationWarning`** (default fill: `math_fidelity: N/A`). |
 | **`MASTER_YAML_SCHEMA_VERSION_KEY`** | **`schema_version`** | Top-level YAML key for the integer above. |
 | **`MASTER_YAML_ENTRIES_KEY`** | **`entries`** | Top-level YAML key holding the list of records. |
 | **`MASTER_YAML_RECORD_KEY_FIELD`** | **`key`** | On each **`entries[i]`**: nested mapping for the labeled **logical record key** (see **Record key**). |
@@ -30,9 +30,9 @@ Stable names and keys (defined in `tt_perf_master_schema.py`):
 | **`MASTER_CURVE_FAMILY_KEY`** | **`curve_family`** | **`curve`** and **`hybrid.curve`**: **`linear`** or **`power`** (same family for every stat; chosen from duration vs core count). |
 | **`MASTER_DURATION_MS_KEY`** | **`msecs`** | Device kernel duration in YAML (**milliseconds**); Excel column is nanoseconds. |
 
-**Consumers:** require **`schema_name`** **`correqn.tt-perf-master`**, **`schema_version`** equal to **`MASTER_YAML_SCHEMA_VERSION`**, and **`entries`** as defined below. Mismatch or missing fields → **`ValueError`** in **`tt_perf_master_loader.load_existing_yaml`**.
+**Consumers:** require **`schema_name`** **`correqn.tt-perf-master`**, **`schema_version`** in range **1–2**, and **`entries`** as defined below. Wrong **`schema_name`**, out-of-range **`schema_version`**, or missing fields → **`ValueError`**; **`schema_version: 1`** → **`DeprecationWarning`** (see **`tt_perf_master_loader.load_existing_yaml`**).
 
-**Record key wire shape:** **`entries[i]['key']`** is a **labeled mapping** (see **Record key**). **`yaml_labeled_key_to_tuple`** / **`labeled_key_map_to_tuple`** in **`tt_perf_master_schema`** parse it to an internal 8-, 15-, or 22-tuple.
+**Record key wire shape:** **`entries[i]['key']`** is a **labeled mapping** (see **Record key**). **`yaml_labeled_key_to_tuple`** / **`labeled_key_map_to_tuple`** in **`tt_perf_master_schema`** parse it to an internal 9-, 16-, or 23-tuple.
 
 **Excel vs YAML:** The Excel sheet still uses full column titles (e.g. **`DEVICE KERNEL DURATION [ns]`**); the serialized master uses short stat keys (**`msecs`**, **`mem_util`**, …). That mapping is applied when **building** the master from Excel, not when loading YAML.
 
@@ -63,7 +63,7 @@ Example shape (matmul after merge; **`schema_version`** = **`MASTER_YAML_SCHEMA_
 
 ```yaml
 schema_name: correqn.tt-perf-master
-schema_version: 1
+schema_version: 2
 entries:
   - key:
       op_code: matmul
@@ -74,6 +74,7 @@ entries:
       input_0_layout: TILE
       input_0_datatype: BFLOAT16
       input_0_memory: DEV_1_DRAM_INTERLEAVED
+      math_fidelity: N/A
       input_1_w_pad_logical: 1
       input_1_z_pad_logical: 1
       input_1_y_pad_logical: 768
@@ -118,21 +119,22 @@ entries:
 
 ## Unsupported top-level shapes
 
-Only the **versioned** mapping (**`schema_name`**, **`schema_version`**, **`entries`**) is accepted by **`tt_perf_master_loader.load_existing_yaml`** (used by the **`tt_perf_mapper`** CLI when merging). Bare top-level lists, plain dicts without **`entries`**, **`entries`** items that are not **`{key, value}`** mappings, wrong **`schema_name`**, or **`schema_version` ≠ `MASTER_YAML_SCHEMA_VERSION`** are rejected on load.
+Only the **versioned** mapping (**`schema_name`**, **`schema_version`**, **`entries`**) is accepted by **`tt_perf_master_loader.load_existing_yaml`** (used by the **`tt_perf_mapper`** CLI when merging). Bare top-level lists, plain dicts without **`entries`**, **`entries`** items that are not **`{key, value}`** mappings, wrong **`schema_name`**, or **`schema_version`** outside the accepted range **1–2** are rejected on load. **`schema_version: 1`** (legacy) loads with a **`DeprecationWarning`**; re-export with the current tool to upgrade to v2.
 
 ---
 
 ## Record key (`entries[i]['key']`)
 
-The logical key is an **8-, 15-, or 22-tuple** (built from Excel columns in **`tt_perf_mapper.build_key_tuple`**). Under **`key`**, the wire form is a **YAML mapping** whose field names are **`KEY_TUPLE_YAML_KEYS`** in `tt_perf_master_schema.py` (fixed order; values are the same scalars as the Excel-driven tuple).
+The logical key is a **9-, 16-, or 23-tuple** (built from Excel columns in **`tt_perf_mapper.build_key_tuple`**). Under **`key`**, the wire form is a **YAML mapping** whose field names are **`KEY_TUPLE_YAML_KEYS`** in `tt_perf_master_schema.py` (fixed order; values are the same scalars as the Excel-driven tuple).
 
 - **`op_code`:** Polaris **layer type** (e.g. `matmul`, `eltwise`, `tilize`, `tilizewithvalpadding`, `untilize`, `untilizewithunpadding`).
 - **`input_0_w_pad_logical`**, **`input_0_z_pad_logical`**, **`input_0_y_pad_logical`**, **`input_0_x_pad_logical`:** logical pad integers (aligned with **`INPUT_0_*_PAD[LOGICAL]`**).
 - **`input_0_layout`**, **`input_0_datatype`**, **`input_0_memory`**
-- If the tuple has a second input (**15** or **22** fields), all seven **`input_1_*`** keys with the same naming pattern; if **8** fields, **omit** every **`input_1_*`** and **`input_2_*`** key (the producer omits them rather than emitting nulls).
-- If the tuple has a third input (**22** fields), all seven **`input_2_*`** keys are present; **`input_2_*` must not appear** unless every **`input_1_*`** field is also present.
+- **`math_fidelity`:** math fidelity string (e.g. `HiFi4`, `LoFi`); **`N/A`** for ops where it does not apply. Added in **v2**; v1 files missing this field are back-filled with **`N/A`** on load.
+- If the tuple has a second input (**16** or **23** fields), all seven **`input_1_*`** keys with the same naming pattern; if **9** fields, **omit** every **`input_1_*`** and **`input_2_*`** key (the producer omits them rather than emitting nulls).
+- If the tuple has a third input (**23** fields), all seven **`input_2_*`** keys are present; **`input_2_*` must not appear** unless every **`input_1_*`** field is also present.
 
-Unknown fields in a labeled mapping: **`labeled_key_map_to_tuple`** raises **`ValueError`**. If any **`input_1_*`** field is present, **all** seven **`input_1_*`** fields are **required** (15- or 22-tuple). If any **`input_2_*`** field is present, **all** seven **`input_2_*`** and **all** **`input_1_*`** fields are **required** (22-tuple).
+Unknown fields in a labeled mapping: **`labeled_key_map_to_tuple`** raises **`ValueError`**. If any **`input_1_*`** field is present, **all** seven **`input_1_*`** fields are **required** (16- or 23-tuple). If any **`input_2_*`** field is present, **all** seven **`input_2_*`** and **all** **`input_1_*`** fields are **required** (23-tuple).
 
 ---
 
@@ -216,7 +218,7 @@ Special cases: all-NaN/zero stats use **`_curve_zero_law_entry`**-style payloads
 ## Suggested consumer algorithm
 
 1. `raw = yaml.safe_load(stream)`; handle **`None`** → no entries.
-2. Require `raw` is a **dict** with **`schema_name`**, **`schema_version`**, and **`entries`**. Reject if **`schema_name`** ≠ **`correqn.tt-perf-master`** or **`schema_version`** ≠ **`MASTER_YAML_SCHEMA_VERSION`** (see **`tt_perf_master_schema.py`**; **`1`** until first release).
+2. Require `raw` is a **dict** with **`schema_name`**, **`schema_version`**, and **`entries`**. Reject if **`schema_name`** ≠ **`correqn.tt-perf-master`** or **`schema_version`** is outside **1–2** (see **`tt_perf_master_schema.py`**, **`tt_perf_master_loader.py`**). Emit **`DeprecationWarning`** for **`schema_version: 1`** and back-fill **`math_fidelity: N/A`** on any key entry that omits it.
 3. Let `records = raw["entries"]` (a list).
 4. For each `item` in `records`: require `item` is a **dict** with exactly **`key`** and **`value`** (and no other keys). Let `key_wire = item["key"]`, `entry = item["value"]`. Require **`entry`** is a **mapping**. Require **`key_wire`** is a **dict**; map fields in **`KEY_TUPLE_YAML_KEYS`** order (8, 15, or 22 keys per rules above) to `key_tuple` (same rules as **`labeled_key_map_to_tuple`**).
 5. Require `entry["entry_type"]` is **`single`**, **`curve`**, or **`hybrid`** (do not guess from keys).

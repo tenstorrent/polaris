@@ -22,7 +22,7 @@ else:
     torch = ttnn
     from ttsim.front.ttnn.device import set_default_device
     from ttsim.front.ttnn.tensor import ttnn_random
-    import workloads.ttnn.vit.ttnn_functional_vit as ttnn_functional_vit
+    import workloads.ttnn.vit.common.ttnn_functional_vit as ttnn_functional_vit
     import types
     torch_random = ttnn_random
     torch_bfloat16 = ttnn.DataType.BFLOAT16

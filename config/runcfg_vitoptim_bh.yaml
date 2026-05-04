@@ -1,0 +1,21 @@
+# SPDX-FileCopyrightText: (C) 2025 Tenstorrent AI ULC
+# SPDX-License-Identifier: Apache-2.0
+# Run Configuration yaml file, to be used with polproj.py
+#
+# Blackhole (p100a) counterpart of runcfg_vitoptim_wh.yaml.
+# Drives the BH dual-mode files added under workloads/ttnn/vit/:
+#   ttnn_optimized_sharded_vit_bh.py, run_ttnn_optimized_sharded_vit_bh.py,
+#   test_vit_device_perf_bh.py.
+title: Run vitoptim (optimized sharded ViT) workloads on Blackhole p100a
+study: runvitoptim_bh
+odir: __runvitoptim_bh
+wlspec: config/all_workloads.yaml
+archspec: config/tt_bh.yaml
+wlmapspec: config/wl2archmapping.yaml
+filterwlg: TTNN
+filterarch: p100a
+datatype: bf16
+#filterwl: vitoptim_bh_patch_embeddings,vitoptim_bh_embeddings,vitoptim_bh_attention,vitoptim_bh_intermediate,vitoptim_bh_output,vitoptim_bh_layer,vitoptim_bh_encoder,vitoptim_bh,vitoptim_bh_device_perf,vitoptim_bh_perf_report
+filterwl: vitoptim_bh_device_perf,vitoptim_bh_perf_report
+dump_stats_csv: true
+log_level: info

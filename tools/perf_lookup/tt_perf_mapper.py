@@ -8,9 +8,9 @@ After load, OP CODE cells are normalized to Polaris-style layer *types* (e.g. ma
 ``TilizeWithValPadding*`` → ``tilizewithvalpadding`` (other ``Tilize*`` → ``tilize``); ``UntilizeWithUnpadding*``
 → ``untilizewithunpadding`` (other ``Untilize*`` → ``untilize``). ``BinaryNgDeviceOperation`` and ``UnaryDeviceOperation`` rows use
 ``ATTRIBUTES`` (``binary_op_type`` / ``UnaryOpType::…`` in ``op_chain``) when present; all keys, grouping, and mode checks use these types — not
-full profiler class names. Key tuple length is **8** if all INPUT_1_* and INPUT_2_* are blank, **15** if
-INPUT_1_* is all set and INPUT_2_* all blank, **22** if INPUT_1_* and INPUT_2_* are all set (ternary ops
-e.g. LayerNorm). Matmul uses ``entry_type:
+full profiler class names. Key tuple length is **9** if all INPUT_1_* and INPUT_2_* are blank, **16** if
+INPUT_1_* is all set and INPUT_2_* all blank, **23** if INPUT_1_* and INPUT_2_* are all set (ternary ops
+e.g. LayerNorm). The key includes ``MATH FIDELITY`` after the INPUT_0 slot. Matmul uses ``entry_type:
 hybrid`` in YAML (``single`` + ``curve`` branches) when combining model and sweep data; see
 ``doc/YAML_MASTER_FORMAT.md``. CLI: repeatable ``--model-run`` and ``--sweep-run`` to merge Excel or CSV in one
 invocation (CSV is read with stdlib ``csv``; Excel ``.xlsx`` / ``.xlsm`` with **openpyxl**). Writes ``schema_name`` ``correqn.tt-perf-master``, ``schema_version`` (``tt_perf_master_schema.MASTER_YAML_SCHEMA_VERSION``, **1** until first release).
@@ -73,6 +73,7 @@ from tools.perf_lookup.tt_perf_master_schema import (
     MASTER_YAML_SCHEMA_VERSION,
     MASTER_YAML_SCHEMA_VERSION_KEY,
     tuple_to_labeled_key_map,
+    MATH_FIDELITY_NA,
 )
 
 
@@ -100,9 +101,17 @@ class InputTable:
         return set(self.columns)
 
 
-# Key tuple columns in order: OP CODE, INPUT_0 (7), INPUT_1 (7), INPUT_2 (7). See ``build_key_tuple``.
-KEY_TUPLE_PREFIX_LEN = 1 + 7  # OP CODE + INPUT_0
+# Key tuple columns in order: OP CODE, INPUT_0 (7), MATH FIDELITY, INPUT_1 (7), INPUT_2 (7).
+# See ``build_key_tuple``.
+KEY_TUPLE_PREFIX_LEN = 1 + 7 + 1  # OP CODE + INPUT_0 + MATH FIDELITY
 KEY_TUPLE_INPUT_SLOT_LEN = 7  # fields per logical input (pads + layout + datatype + memory)
+_MATH_FIDELITY_KEY_IDX = 8  # position of MATH FIDELITY in the key tuple
+
+# Op codes for which the TTNN API caller controls math fidelity via
+# ``compute_kernel_config``.  For all other ops the hardware kernel
+# determines fidelity internally; the LUT key stores ``N/A`` so that
+# the runtime default (also ``N/A``) matches unconditionally.
+_MATH_FIDELITY_CALLER_CONTROLLED_OPS = frozenset({"layernorm"})
 KEY_TUPLE_COLUMN_NAMES = [
     "OP CODE",
     "INPUT_0_W_PAD[LOGICAL]",
@@ -112,6 +121,7 @@ KEY_TUPLE_COLUMN_NAMES = [
     "INPUT_0_LAYOUT",
     "INPUT_0_DATATYPE",
     "INPUT_0_MEMORY",
+    "MATH FIDELITY",
     "INPUT_1_W_PAD[LOGICAL]",
     "INPUT_1_Z_PAD[LOGICAL]",
     "INPUT_1_Y_PAD[LOGICAL]",
@@ -425,6 +435,11 @@ def _append_key_field(
         return None
     v = row.get(col)
     if is_na(v) or (isinstance(v, str) and not v.strip()):
+        if col == "MATH FIDELITY":
+            op_code = str(row.get("OP CODE", "")).strip().lower()
+            mf_default = "HiFi4" if op_code in _MATH_FIDELITY_CALLER_CONTROLLED_OPS else MATH_FIDELITY_NA
+            values.append(mf_default)
+            return None
         return (
             f"blank or whitespace-only value in column {col!r} "
             f"(actual cell value: {_cell_repr(v)})"
@@ -441,12 +456,12 @@ def build_key_tuple(
     key_cols: list[str],
     pad_suffixes: tuple[str, ...],
 ) -> tuple[tuple | None, str | None]:
-    """Build key tuple: 8, 15, or 22 fields (OP + INPUT_0; optional INPUT_1; optional INPUT_2).
+    """Build key tuple: 9, 16, or 23 fields (OP + INPUT_0 + MATH_FIDELITY; optional INPUT_1; optional INPUT_2).
 
     Rules: each of INPUT_1_* and INPUT_2_* is either all blank or all valid (no mixing).
-    If INPUT_1_* is all blank, INPUT_2_* must be all blank (length 8).
-    If INPUT_1_* is all set and INPUT_2_* all blank → length 15.
-    If both slots are all set → length 22. INPUT_2 without INPUT_1 is invalid.
+    If INPUT_1_* is all blank, INPUT_2_* must be all blank (length 9).
+    If INPUT_1_* is all set and INPUT_2_* all blank → length 16.
+    If both slots are all set → length 23. INPUT_2 without INPUT_1 is invalid.
 
     Returns (tuple, None) on success, or (None, failure_reason) on skip.
     """
@@ -483,7 +498,7 @@ def build_key_tuple(
                 "INPUT_2_* is set but INPUT_1_* is blank; ternary ops require both "
                 "INPUT_1_* and INPUT_2_* when the third input is used."
             )
-        return tuple(values), None
+        return _normalize_math_fidelity(tuple(values)), None
 
     if not i1_filled:
         blank_cols = [c for c in input1_cols if not _input1_cell_filled(c, row, pad_suffixes)]
@@ -498,7 +513,7 @@ def build_key_tuple(
             return None, err
 
     if i2_blank:
-        return tuple(values), None
+        return _normalize_math_fidelity(tuple(values)), None
     if not i2_filled:
         blank2 = [c for c in input2_cols if not _input1_cell_filled(c, row, pad_suffixes)]
         filled2 = [c for c in input2_cols if _input1_cell_filled(c, row, pad_suffixes)]
@@ -510,7 +525,19 @@ def build_key_tuple(
         err = _append_key_field(values, col, row, pad_suffixes)
         if err is not None:
             return None, err
-    return tuple(values), None
+    return _normalize_math_fidelity(tuple(values)), None
+
+
+def _normalize_math_fidelity(key_t: tuple) -> tuple:
+    """Replace math fidelity with ``N/A`` for ops where the caller doesn't control it."""
+    if len(key_t) <= _MATH_FIDELITY_KEY_IDX:
+        return key_t
+    op_code = str(key_t[0]).strip().lower()
+    if op_code not in _MATH_FIDELITY_CALLER_CONTROLLED_OPS:
+        lst = list(key_t)
+        lst[_MATH_FIDELITY_KEY_IDX] = MATH_FIDELITY_NA
+        return tuple(lst)
+    return key_t
 
 
 def build_stats_row(
@@ -813,8 +840,23 @@ def build_master_dict(
         n_cores = len(core_counts)
         if mode == "single":
             if n_cores != 1:
-                continue
-            cc = float(core_counts[0])
+                cc_counts: defaultdict[float, int] = defaultdict(int)
+                for e in entries:
+                    cc_counts[e[0]] += 1
+                cc = float(max(cc_counts, key=cc_counts.get))  # type: ignore[arg-type]
+                logger.warning(
+                    "key_tuple has {} distinct CORE COUNTs {} in single mode; "
+                    "using most frequent ({}, {} of {} rows); key_tuple={}",
+                    n_cores,
+                    core_counts,
+                    int(cc),
+                    cc_counts[cc],
+                    sum(cc_counts.values()),
+                    list(key_t),
+                )
+                entries = [e for e in entries if float(e[0]) == cc]
+            else:
+                cc = float(core_counts[0])
             core_key = _single_mode_core_count_key(cc, key_t)
             rep = next(e[1] for e in entries if float(e[0]) == cc)
             master[key_t] = {
@@ -1220,7 +1262,25 @@ def process_excel_to_master(
 
     apply_merged_ops_stat_aliases(table)
 
+    original_opcodes = [row.get("OP CODE", "") for row in table.rows]
     apply_polaris_layer_type_column(table)
+
+    other_ops: dict[str, int] = {}
+    for orig, row in zip(original_opcodes, table.rows):
+        if row.get("OP CODE") == "other":
+            key = str(orig).strip() if orig else "<blank>"
+            other_ops[key] = other_ops.get(key, 0) + 1
+    if other_ops:
+        detail = "; ".join(f"{name!r} ({n} row{'s' if n > 1 else ''})" for name, n in sorted(other_ops.items()))
+        logger.error(
+            "Refusing to build LUT: {} profiler OP CODE(s) mapped to 'other' "
+            "(unrecognized by op_canonical.py): {}. "
+            "Add prefix rules for these ops in tools/profiling/op_canonical.py "
+            "before re-running.",
+            len(other_ops),
+            detail,
+        )
+        return 1, {}, {}, excel_path
 
     try:
         core_col, duration_col, key_cols, stat_required, stat_cols = validate_columns(

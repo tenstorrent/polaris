@@ -4,7 +4,7 @@
 
 import numpy as np
 
-from ttsim.ops.desc.helpers import build_tmp_data_tensor, bidir_bcast, unary_fwd, update_output_tensor, multidirectional_broadcast_shape_inference, gridsample_sinf
+from ttsim.ops.desc.helpers import build_tmp_data_tensor, unary_fwd, update_output_tensor, multidirectional_broadcast_shape_inference, gridsample_sinf
 from ttsim.ops.desc.registry import register_ops
 from ttsim.utils.common import prod_ints
 
@@ -200,9 +200,6 @@ def isnan_sinf(iTList, oTList, op, **kwargs):
 def pad_sinf(iTList, oTList, op, **kwargs):
     X = iTList[0]
     pad_tensor = iTList[1]
-    mode = op.attrs.get('mode', 'constant')
-    value = op.attrs.get('value', 0)
-
     assert pad_tensor.data is not None, "PadOp requires pad_tensor with data"
     pads = [int(x) for x in pad_tensor.data.flatten().tolist()]
 
@@ -338,7 +335,8 @@ def unsqueeze_sinf(iTList, oTList, op, **kwargs):
     newshape = list(iTList[0].shape)
     for d in Y.data:
         newrank = len(newshape)
-        if d < 0: d = newrank + d + 1
+        if d < 0:
+            d = newrank + d + 1
         if d < 0 or d > newrank:
             raise ValueError(f"Axis {d} out of bounds: [-{newrank+1}, {newrank}]")
         newshape.insert(d, 1)
@@ -452,10 +450,10 @@ def resize_sinf(iTList, oTList, op, **kwargs):
         pass
     else:
         assert len(iTList) >= 3, f"RESIZE #inputs ({len(iTList)}) should be >= 3"
-        assert iTList[0].check_shape(), f"Illegal Resize Input  Tensor Shape"
-        assert iTList[1].check_shape(), f"Illegal Resize ROI    Tensor Shape"
-        assert iTList[2].check_shape(), f"Illegal Resize SCALES Tensor Shape"
-        assert iTList[2].data is not None, f"SCALES data missing"
+        assert iTList[0].check_shape(), "Illegal Resize Input  Tensor Shape"
+        assert iTList[1].check_shape(), "Illegal Resize ROI    Tensor Shape"
+        assert iTList[2].check_shape(), "Illegal Resize SCALES Tensor Shape"
+        assert iTList[2].data is not None, "SCALES data missing"
         XRank = iTList[0].rank()
         scales = [1.0] * XRank
         scales[-1] = iTList[2].data[-1]
@@ -485,7 +483,6 @@ def upsample_sinf(iTList, oTList, op, **kwargs):
     #scales = op.attrs.get('scales', None)
     scale_factor = op.attrs.get('scale_factor', 1)
     size = op.attrs.get('size', None)
-    align_corners = op.attrs.get('align_corners', False)
 
     # Determine output shape
     if size is not None:
@@ -539,10 +536,11 @@ def upsample_sinf(iTList, oTList, op, **kwargs):
 
 def concat_sinf(iTList, oTList, op, **kwargs):
     axis = op.attrs['axis']
-    assert len(iTList) > 0, f"empty input list in Concat!!"
+    assert len(iTList) > 0, "empty input list in Concat!!"
     base_rank = iTList[0].rank()
     assert all(x.rank() == base_rank for x in iTList), "input tensors rank mismatch"
-    if axis < 0: axis = base_rank + axis
+    if axis < 0:
+        axis = base_rank + axis
     if axis < 0 or axis >= base_rank:
         raise ValueError(f"Axis {axis} is out of bounds for tensors with rank {base_rank}. "
                     f"Valid range is [-{base_rank}, {base_rank-1}].")
@@ -651,7 +649,7 @@ def reshape_sinf(iTList, oTList, op, **kwargs):
 
 def expand_sinf(iTList, oTList, op, **kwargs):
     A = iTList[0]
-    shapeT = iTList[1].clone_by_shape(data_maybe_missing=False)  
+    shapeT = iTList[1].clone_by_shape(data_maybe_missing=False)
     assert shapeT.data is not None, "ExpandOp requires shape tensor with data"
 
     target_shape = [int(x) for x in shapeT.data]
@@ -706,14 +704,6 @@ def split_sinf(iTList, oTList, op, **kwargs):
         tout.dtype = A.dtype
         outBytes += tout.nbytes(op.precision)
         outElems += tout.nelems()
-        
-    # Compute data if input has data
-    if A.data is not None:
-        from ttsim.ops.desc.data_compute import compute_split
- 
-        split_results = compute_split(iTList, op)
-        for tidx, tout in enumerate(oTList):
-            tout.data = split_results[tidx]
 
     # Compute data if input has data
     if A.data is not None:
