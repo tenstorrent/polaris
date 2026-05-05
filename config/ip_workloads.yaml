@@ -545,3 +545,23 @@ workloads:
     module : ScaledYOLOv4Validation@scaled_yolov4_validation.py
     instances:
       yolov4-csp : {yaml_cfg_path: 'https://raw.githubusercontent.com/WongKinYiu/ScaledYOLOv4/refs/heads/yolov4-large/models/yolov4-csp.yaml', in_channels: 3, in_resolution: 640, bs: 1}
+
+  - api: TTSIM
+    name: FusionAD_Validation
+    basedir: workloads/FusionAD/projects/mmdet_plugin/fusionad/detectors
+    module: FusionADValidation@fusionad_validation.py
+    params:
+      embed_dims       : 256
+      num_query        : 900
+      num_classes      : 10
+      num_cams         : 6
+      queue_length     : 3
+      predict_steps    : 12
+      predict_modes    : 6
+      planning_steps   : 6
+      occ_n_future     : 4
+      pc_range         : [-54.0, -54.0, -5.0, 54.0, 54.0, 3.0]
+      video_test_mode  : true
+      bs               : 1
+    instances:
+      fusionad_validation : { bev_h: 25,  bev_w: 25,  img_height: 256,  img_width: 256  }
