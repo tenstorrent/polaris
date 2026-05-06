@@ -29,6 +29,7 @@ import numpy as np
 import ttsim.front.functional.op as F
 import ttsim.front.functional.sim_nn as SimNN
 from ttsim.front.functional.op import SimOpHandle, _from_shape, _from_data, Sigmoid
+from ttsim.ops import SimTensor
 
 
 # ---------------------------------------------------------------------------
@@ -109,6 +110,13 @@ class BatchNorm1d(SimNN.Module):
             SimTensor: Normalized output of shape (N, C, L).
         """
         return self.bn_op(x)
+    
+    def set_weights(self, weight_np, bias_np, running_mean_np, running_var_np):
+        """Inject inference-mode BN statistics and affine params."""
+        self.scale.data = np.array(weight_np, dtype=np.float32)
+        self.bias_bn.data = np.array(bias_np, dtype=np.float32)
+        self.running_mean.data = np.array(running_mean_np, dtype=np.float32)
+        self.running_var.data = np.array(running_var_np, dtype=np.float32)
 
     def analytical_param_count(self, lvl: int = 0) -> int:
         # scale + bias (gamma + beta); running stats are not "trainable" params
@@ -192,7 +200,7 @@ class ConvModule1d(SimNN.Module):
             )
             conv_bias.op_in.append(name + ".conv")
             conv_params.append((2, conv_bias))
-            self.conv_bias = conv_bias
+            self.conv_bias: SimTensor | None = conv_bias
         else:
             self.conv_bias = None  # type: ignore[assignment]
 
@@ -214,7 +222,7 @@ class ConvModule1d(SimNN.Module):
         # (Optional) BatchNorm1d
         # ------------------------------------------------------------------
         if with_bn:
-            self.bn = BatchNorm1d(name + ".bn", out_channels)
+            self.bn: BatchNorm1d | None = BatchNorm1d(name + ".bn", out_channels)
         else:
             self.bn = None  # type: ignore[assignment]
 

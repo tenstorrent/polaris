@@ -126,8 +126,8 @@ class QuickCumsum(SimNN.Module):
                 x_out.data = xv.astype(np.float32)
                 g_out.data = gv.astype(np.float32)
                 # Update shape to actual output size
-                x_out.shape = list(xv.shape)  # type: ignore[assignment]
-                g_out.shape = list(gv.shape)  # type: ignore[assignment] 
+                x_out.set_shape(list(xv.shape))  # type: ignore[assignment]
+                g_out.set_shape(list(gv.shape))  # type: ignore[assignment] 
 
         return x_out, g_out
 

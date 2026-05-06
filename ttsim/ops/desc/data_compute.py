@@ -620,23 +620,23 @@ def compute_batchnorm(iTList, op) -> np.ndarray:
     return scale.reshape(stat_shape) * X_normalized + bias.reshape(stat_shape)
 
 def _normalize_conv1d_pads(pads):
-     """
-     Normalise padding for 1-D convolution helpers.
-     Accepts:
-       - [pad]: symmetric 1-D padding
-       - [left, right]: explicit 1-D padding
-       - [top, left, bottom, right]: 2-D-style padding when 3-D tensors are
-         routed through Conv2d code paths; only left/right are relevant here.
-     """
-     if pads is None:
-         return 0, 0
-     if len(pads) == 1:
-         return pads[0], pads[0]
-     if len(pads) == 2:
-         return pads[0], pads[1]
-     if len(pads) == 4:
-         return pads[1], pads[3]
-     raise ValueError(f"Unsupported 1D convolution pads format: {pads}")
+    """
+    Normalise padding for 1-D convolution helpers.
+    Accepts:
+      - [pad]: symmetric 1-D padding
+      - [left, right]: explicit 1-D padding
+      - [top, left, bottom, right]: 2-D-style padding when 3-D tensors are
+        routed through Conv2d code paths; only left/right are relevant here.
+    """
+    if pads is None:
+        return 0, 0
+    if len(pads) == 1:
+        return pads[0], pads[0]
+    if len(pads) == 2:
+        return pads[0], pads[1]
+    if len(pads) == 4:
+        return pads[1], pads[3]
+    raise ValueError(f"Unsupported 1D convolution pads format: {pads}")
 
 
 def _compute_conv1d_fast(X, W, B, strides, pads, dilations, group):
@@ -704,7 +704,8 @@ def compute_conv2d(iTList, op) -> np.ndarray:
 
     # Route 3-D input (N, C, L) to the vectorised 1-D conv path
     if X.ndim == 3:
-        return _compute_conv1d_fast(X, W, B, strides, pads, dilations, group)
+        if W.ndim != 3:
+            raise ValueError(f'Conv1d expects rank-3 weights for rank-3 input, got W.ndim={W.ndim}')
 
     N, C_in, H_in, W_in = X.shape
     C_out, C_per_group, Kh, Kw = W.shape

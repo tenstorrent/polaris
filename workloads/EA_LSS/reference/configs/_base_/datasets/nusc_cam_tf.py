@@ -1,6 +1,8 @@
 # SPDX-FileCopyrightText: © 2026 Tenstorrent USA, Inc.
 # SPDX-License-Identifier: Apache-2.0
 
+import os
+
 point_cloud_range = [-54.0, -54.0, -5.0, 54.0, 54.0, 3.0]
 class_names = [
     'car', 'truck', 'construction_vehicle', 'bus', 'trailer', 'barrier',
@@ -9,7 +11,7 @@ class_names = [
 evaluation = dict(interval=20)
 
 dataset_type = 'NuScenesDataset'
-data_root = '/dahuafs/groupdata/share/openset/nuscenes/'
+data_root = os.getenv('NUSCENES_DATA_ROOT', 'data/nuscenes/')
 input_modality = dict(
     use_lidar=True,
     use_camera=True,

@@ -481,11 +481,11 @@ workloads:
       fusionad_tiny  : { bev_h: 25,  bev_w: 25,  img_height: 256,  img_width: 256  }
       fusionad_small : { bev_h: 50,  bev_w: 50,  img_height: 512,  img_width: 512  }
       # fusionad_base  : { bev_h: 200, bev_w: 200, img_height: 900,  img_width: 1600 }
-
+  
   - api: TTSIM
-    name: EALSS
-    basedir: workloads/EA-LSS
-    module : EALSS@ealss_ttsim.py
+    name: EA_LSS
+    basedir: workloads/EA_LSS
+    module : EA_LSS@ealss_ttsim.py
     params :
       imc           : 256
       lic           : 384
@@ -498,7 +498,6 @@ workloads:
       bs            : 1
     instances:
       ealss_nuscenes: { img_height: 256, img_width: 704 }
-  
 
   - api: TTSIM
     name: DiffusionDrive_Validation

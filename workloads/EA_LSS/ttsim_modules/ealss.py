@@ -47,6 +47,7 @@ No torch / mmcv imports.
 import os
 import sys
 from typing import Optional
+from typing import Any
 
 current_dir = os.path.dirname(os.path.abspath(__file__))
 polaris_root = os.path.abspath(os.path.join(current_dir, "..", "..", ".."))
@@ -167,7 +168,7 @@ class EALSS(SimNN.Module):
         # ------------------------------------------------------------------
         # Camera path: CBSwinTransformer → FPNC → LiftSplatShoot
         # ------------------------------------------------------------------
-        _swin_kwargs = dict(
+        _swin_kwargs: dict[str, Any] = dict(
             pretrain_img_size=224,
             depths=[2, 2, 6, 2],
             num_heads=[3, 6, 12, 24],

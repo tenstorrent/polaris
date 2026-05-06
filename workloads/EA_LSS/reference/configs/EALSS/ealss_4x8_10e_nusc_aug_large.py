@@ -85,9 +85,6 @@ model = dict(
         block_type='basicblock'),
     pts_backbone=dict(
         type='SECOND',
-        #in_channels=256,
-        #out_channels=[128, 256],
-        #layer_nums=[5, 5],
         in_channels=512,
         out_channels=[256, 512],
         layer_nums=[15, 15],
@@ -96,8 +93,6 @@ model = dict(
         conv_cfg=dict(type='Conv2d', bias=False)),
     pts_neck=dict(
         type='SECONDFPN',
-        #in_channels=[128, 256],
-        #out_channels=[256, 256],
         in_channels=[256, 512],
         out_channels=[512, 512],
         upsample_strides=[1, 2],
@@ -204,8 +199,7 @@ log_config = dict(
             dict(type='TensorboardLoggerHook')])
 dist_params = dict(backend='nccl')
 log_level = 'INFO'
-load_from = None # 'model/lidar_branch/XX.pth'
-#load_lift_from = 'model/camera_branch/XX.pth'
+load_from = None
 
 resume_from = None
 workflow = [('train', 1)]
@@ -220,8 +214,3 @@ data = dict(
 
 checkpoint_config = dict(interval=5)
 work_dir = './model/ealss_large'
-
-#cbgs
-#custom_hooks = [
-#    dict(type='MindFreeHook')
-#]
