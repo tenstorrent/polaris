@@ -5,6 +5,7 @@
 from enum import Enum, auto
 from itertools import count
 
+import numbers
 import numpy as np
 from loguru import logger
 
@@ -767,7 +768,37 @@ nonzero = single_output_immediate_op("NonZero")
 argmax = single_output_immediate_op("ArgMax", preprocess=argmax_pp)
 
 # Data Movement
-concat = single_output_immediate_op("Concat")
+_concat_impl = single_output_immediate_op("Concat")
+
+
+def concat(first, *rest, **kwargs):
+    """Concatenate tensors along a dimension.
+
+    Accepts both calling conventions so that Polaris matches the tt-metal canonical form:
+
+        ttnn.concat([t1, t2], dim, memory_config=cfg)   # tt-metal list-first form
+        ttnn.concat(t1, t2, axis=dim)                    # existing positional form
+
+    ``dim`` keyword is normalised to ``axis`` for the underlying implementation.
+    """
+    if 'dim' in kwargs and 'axis' not in kwargs:
+        kwargs['axis'] = kwargs.pop('dim')
+    if isinstance(first, (list, tuple)):
+        tensors = list(first)
+        # bool-before-Integral order is intentional: bool is a subclass of int (and therefore
+        # numbers.Integral), so isinstance(True, numbers.Integral) is True.  We want to treat
+        # a bare True/False as an unknown positional arg, not as a dimension.  Checking the bool
+        # identity first also avoids a mypy false-positive ("unreachable" branch) that triggers
+        # when the narrowing order is reversed.
+        if rest and type(rest[0]) is not bool and isinstance(rest[0], numbers.Integral):
+            if 'axis' in kwargs:
+                raise TypeError(f'concat() got conflicting values for axis: positional {rest[0]} and keyword {kwargs["axis"]}')
+            kwargs['axis'] = rest[0]
+            rest = rest[1:]
+        return _concat_impl(*tensors, *rest, **kwargs)
+    return _concat_impl(first, *rest, **kwargs)
+
+
 reshape = single_output_immediate_op("Reshape", preprocess=reshape_pp)
 expand = single_output_immediate_op("Expand", preprocess=expand_pp)
 embedding = single_output_immediate_op("Gather", preprocess=embedding_pp)
