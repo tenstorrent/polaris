@@ -125,7 +125,8 @@ def check_environment_sanity() -> tuple[bool, str]:
     for module, package_name in critical_imports.items():
         try:
             __import__(module)
-        except ImportError:
+        except ImportError as e:
+            print(f"ERROR: {e} module {module} {package_name}")
             missing_packages.append(package_name)
 
     if missing_packages:
