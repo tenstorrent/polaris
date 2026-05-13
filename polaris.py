@@ -10,7 +10,7 @@ import time
 import tracemalloc
 from itertools import product
 from pathlib import Path
-from typing import Any, Set
+from typing import Any, Set, Optional
 
 from ttsim.config import TTSimHLRunSummary, get_arspec_from_yaml, get_wlmapspec_from_yaml, get_wlspec_from_yaml
 from ttsim.front.onnx.onnx2nx import onnx2graph  # NOTE: import from ttsim.front had potential cyclic dependency
@@ -129,19 +129,56 @@ def get_wlgraph(TBL, wlg, wln, wli, gcfg, wpath, enable_memalloc):
                 close_device(ttnn_device)
         elif wlg == 'ONNX':
             logger.info(">>onnx-wl = {}.{}.{}.b{} = {}", wlg, wln, wli, wlb, wpath)
-            onnx_graph = onnx2graph(wli, wpath)
+            dim_overrides: dict = {}
+            if isinstance(gcfg, dict):
+                for k, v in gcfg.items():
+                    if k == 'path':
+                        continue
+                    coerced: Optional[int] = None
+                    if isinstance(v, bool):
+                        pass
+                    elif isinstance(v, int):
+                        coerced = v
+                    elif isinstance(v, str) and v.strip().lstrip('-').isdigit():
+                        coerced = int(v)
+                    if coerced is not None:
+                        dim_overrides[k] = coerced
+                    elif isinstance(v, (float, str)):
+                        logger.debug(
+                            "ONNX dim_overrides: skipping non-integer cfg key "
+                            "'{}' = {!r} for {}.{}.{}.b{}",
+                            k, v, wlg, wln, wli, wlb,
+                        )
+
+                for legacy_key in ('dim_overrides', 'onnx_params'):
+                    legacy_val = gcfg.get(legacy_key)
+                    if isinstance(legacy_val, dict) and legacy_val:
+                        logger.warning(
+                            "ONNX cfg for {}.{}.{}.b{} uses unsupported '{}:' "
+                            "block with keys {}. Lift those keys to the top of "
+                            "the instance dict, e.g. `bs: 1, data_dynamic_axes_2: 128`. "
+                            "They will NOT be applied as written.",
+                            wlg, wln, wli, wlb,
+                            legacy_key, list(legacy_val.keys()),
+                        )
+
+            logger.debug("ONNX dim_overrides for {}.{}.{}.b{} = {}",
+                         wlg, wln, wli, wlb, dim_overrides)
+
+            onnx_graph = onnx2graph(wli, wpath, dim_overrides=dim_overrides)
             TBL[(wlg,wln,wli,wlb)] = (None, onnx_graph)
             for _,op in onnx_graph._ops.items():
                 itensors = [onnx_graph._tensors[x] for x in op.inList]
                 otensors = [onnx_graph._tensors[x] for x in op.outList]
                 logger.info("CALLING get_perf_counts for: {}", op.name)
-                #for x in itensors: print(x)
-                #for x in otensors: print(x)
                 op.get_perf_counts(itensors, otensors)
                 op.update_tensor_counts(itensors,otensors)
-                #logger.info(op.perf_stats)
+
         else:
-            assert False, f"Workload Group: {wlg} is not supported; Current Support only for (TTSIM,TTNN,ONNX)"
+            assert False, (
+                    f"Workload Group: {wlg} is not supported; "
+                    f"Current Support only for (TTSIM, TTNN, ONNX)"
+            )
 
     return TBL[(wlg,wln,wli,wlb)]
 

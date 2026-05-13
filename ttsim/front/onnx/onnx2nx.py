@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # SPDX-FileCopyrightText: (C) 2025 Tenstorrent AI ULC
 # SPDX-License-Identifier: Apache-2.0
-from typing import Any
+from typing import Any, Optional
 from collections import defaultdict
 
 import onnx
@@ -12,6 +12,45 @@ from loguru import logger
 from ttsim.graph import WorkloadGraph
 from ttsim.ops import SimOp, SimTensor
 
+_DIM_NAME_ALIASES: dict[str, str] = {
+    "batch_size": "bs", "batch": "bs", "N": "bs",
+    "sequence_length": "seq_len", "S": "seq_len",
+    "height": "img_height", "H": "img_height",
+    "width":  "img_width",  "W": "img_width",
+    "channels": "img_channels", "C": "img_channels",
+}
+
+def _resolve_symbolic_dim(name: str,
+                          dim_overrides: Optional[dict],
+                          tensor_name: str = "<unknown>",
+                          axis: int = -1) -> int:
+    """Resolve a single symbolic ONNX dim name to an int using YAML overrides.
+
+    Lookup order:
+      1. Exact match in dim_overrides (e.g. data_dynamic_axes_2: 128).
+      2. Canonical alias match (e.g. batch_size -> bs -> 8).
+      3. If axis == 0 and 'bs' is in overrides, use it (batch heuristic).
+      4. Fallback: 1, with a warning (matches legacy behavior).
+    """
+    if dim_overrides:
+        if name in dim_overrides:
+            return int(dim_overrides[name])
+        canonical = _DIM_NAME_ALIASES.get(name)
+        if canonical and canonical in dim_overrides:
+            return int(dim_overrides[canonical])
+        if axis == 0 and "bs" in dim_overrides:
+            logger.info(
+                "Resolving symbolic dim '{}' on axis 0 of tensor '{}' to bs={} "
+                "(axis-0 batch heuristic — no exact/alias match found).",
+                name, tensor_name, dim_overrides["bs"],
+            )
+            return int(dim_overrides["bs"])
+    logger.warning(
+        "No override for symbolic dim '{}' in tensor '{}' (axis={}), defaulting to 1",
+        name, tensor_name, axis,
+    )
+    return 1
+
 def get_io_errstr(xarg, xdim, xdim1, is_init, is_val, is_in, is_out, ginfo):
     errstr  = f"shape mismatch: {xarg} : {xdim} != {xdim1}\n"
     errstr += f"initializer: {ginfo['initializer'][xarg]}\n" if is_init else ""
@@ -20,7 +59,7 @@ def get_io_errstr(xarg, xdim, xdim1, is_init, is_val, is_in, is_out, ginfo):
     errstr += f"output     : {ginfo['output'][xarg]}\n"      if is_out  else ""
     return errstr
 
-def parse_onnx_model(wlname, wlpath):
+def parse_onnx_model(wlname, wlpath, dim_overrides: Optional[dict] = None):
     """
     #Follows spec at https://github.com/onnx/onnx/blob/main/docs/IR.md
     # ir_version        int64                The ONNX version assumed by the model.
@@ -51,6 +90,21 @@ def parse_onnx_model(wlname, wlpath):
             )
         else:
             raise
+
+    # Apply YAML-driven overrides to the model graph inputs *before* shape inference
+    if dim_overrides:
+        for ginput in modelpb.graph.input:
+            tname = ginput.name
+            shape = ginput.type.tensor_type.shape
+            for axis, dim in enumerate(shape.dim):
+                if dim.HasField("dim_param"):
+                    new_val = _resolve_symbolic_dim(
+                        dim.dim_param, dim_overrides,
+                        tensor_name=tname, axis=axis,
+                    )
+                    dim.Clear()
+                    dim.dim_value = int(new_val)
+        del modelpb.graph.value_info[:]
 
     modelpb_inferred = shape_inference.infer_shapes(modelpb)
     modelpb = modelpb_inferred
@@ -158,7 +212,7 @@ def parse_onnx_model(wlname, wlpath):
         onnxgraphinfo['node'].append(nodeinfo)
 
     #resolve graph tensors
-    tensorinfo = get_resolved_tensors(onnxgraphinfo)
+    tensorinfo = get_resolved_tensors(onnxgraphinfo, dim_overrides=dim_overrides)
     #add_edges(onnxgraphinfo)
 
     ##############################################
@@ -190,18 +244,17 @@ def parse_value_info(vinfo):
             }
 
 def get_tensor_type_info(t):
-    dims: list[int] = []
+    dims: list = []
     for dim in t.tensor_type.shape.dim:
-        value = getattr(dim, dim.WhichOneof("value"))
         if dim.HasField("dim_param"):
-            value = 1 if not dims else str(value)
+            value: Any = str(dim.dim_param)
         elif dim.HasField("dim_value"):
-            value = int(value)
+            value = int(dim.dim_value)
         else:
             raise ValueError(f"Unknown field type for dim {dim}")
         dims.append(value)
     dtype = helper.tensor_dtype_to_np_dtype(t.tensor_type.elem_type)
-    return { 'dtype': dtype, 'dims': dims }
+    return {'dtype': dtype, 'dims': dims}
 
 def onnx_get_value_from_attrs(attr, **kwargs):
     """
@@ -239,7 +292,7 @@ def onnx_get_value_from_attrs(attr, **kwargs):
     else:
         raise ValueError(f"Found some unknown type of attribute for key {attr.name}\n{dir(attr)}\n{attr}")
 
-def resolve_tensor(_tname, _info):
+def resolve_tensor(_tname, _info, dim_overrides: Optional[dict] = None):
     INIT_TBL    = _info['initializer']
     VALINFO_TBL = _info['value_info']
     IN_TBL      = _info['input']
@@ -336,17 +389,16 @@ def resolve_tensor(_tname, _info):
         )
         dims = [1]
 
-    # Dynamic or symbolic dimensions (non-integer) are not supported.
-    # If we see them, coerce to 1 with a warning .
     if any(not isinstance(d, int) for d in dims):
-        logger.warning(
-            "Dynamic/symbolic dimensions {} in tensor '{}', "
-            "coercing all non-int dims to 1 for shape-only Polaris mode.",
-            dims,
-            _tname,
+        logger.info(
+            "Resolving symbolic dims {} in tensor '{}' using YAML overrides.",
+            dims, _tname,
         )
-        # data_dynamic_axes_2 is an input size parameter for PANW model. For Polaris simulation, this is being set to 128.
-        dims = [d if isinstance(d, int) else 128 if d == 'data_dynamic_axes_2' else 1 for d in dims]
+        dims = [
+            d if isinstance(d, int)
+            else _resolve_symbolic_dim(str(d), dim_overrides, tensor_name=_tname, axis=i)
+            for i, d in enumerate(dims)
+        ]
 
     dims = [int(d) for d in dims]
     return {
@@ -360,7 +412,7 @@ def resolve_tensor(_tname, _info):
     }
 
 
-def get_resolved_tensors(G):
+def get_resolved_tensors(G, dim_overrides: Optional[dict] = None):
     """
     # The occurrence of a name as a graph input, a graph initializer, or as a node output is said to be a definition
     # and the occurrence of a name as a node input or as a graph output is said to be a use.
@@ -384,7 +436,7 @@ def get_resolved_tensors(G):
     TENSORS = {}
     for node in G['node']:
         for itensor in node['inList']:
-            itensor_info = resolve_tensor(itensor, G)
+            itensor_info = resolve_tensor(itensor, G, dim_overrides=dim_overrides)
             if itensor not in TENSORS:
                 TENSORS[itensor] = itensor_info
             else:
@@ -397,7 +449,7 @@ def get_resolved_tensors(G):
             TENSORS[itensor]['op_in'].append(node['name'])
 
         for otensor in node['outList']:
-            itensor_info = resolve_tensor(otensor, G)
+            itensor_info = resolve_tensor(otensor, G, dim_overrides=dim_overrides)
             if otensor not in TENSORS:
                 TENSORS[otensor] = itensor_info
             else:
@@ -411,8 +463,8 @@ def get_resolved_tensors(G):
     return TENSORS
 
 
-def onnx2graph(_wlname, _wlpath):
-    H,G,T = parse_onnx_model(_wlname, _wlpath)
+def onnx2graph(_wlname, _wlpath, dim_overrides: Optional[dict] = None):
+    H, G, T = parse_onnx_model(_wlname, _wlpath, dim_overrides=dim_overrides)
 
     gg = WorkloadGraph(H['name'])
 

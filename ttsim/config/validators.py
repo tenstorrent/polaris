@@ -85,12 +85,17 @@ class PYDWorkloadONNXModelValidator(PYDWorkloadBaseModel):
     name: str
     basedir: str
     instances: dict
+    params: Optional[dict] = {}
 
     def get_instances(self):
         result = {}
         for iname, icfg in self.instances.items():
-            xcfg = {xx: icfg[xx] for xx in icfg}
-            result[iname] = {'group': self.name, 'cfg': xcfg }
+            xcfg = {}
+            if self.params:
+                xcfg.update(self.params)
+            for xx, xv in icfg.items():
+                xcfg[xx] = xv
+            result[iname] = {'group': self.name, 'cfg': xcfg}
             result[iname]['path'] = os.path.join(self.basedir, xcfg['path'])
         return result
 

@@ -44,13 +44,13 @@ workloads:
     name: model_20240914_fp16
     basedir: workloads
     instances:
-      model_20240914_fp16 : { path: 'onnx/mlexp_header_model_fp16_20240914_003924.onnx', bs: 1 }
+      model_20240914_fp16 : { path: 'onnx/mlexp_header_model_fp16_20240914_003924.onnx', bs: 1, data_dynamic_axes_2: 128 }
 
   - api: ONNX
     name: model_20240914_base
     basedir: workloads
     instances:
-      model_20240914_base : { path: 'onnx/mlexp_header_model_20240914_003924.onnx', bs: 1 }
+      model_20240914_base : { path: 'onnx/mlexp_header_model_20240914_003924.onnx', bs: 1, data_dynamic_axes_2: 128 }
 
   - api: TTSIM
     name: DeformableDETR

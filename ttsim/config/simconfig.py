@@ -223,9 +223,11 @@ class WorkloadTTNN(WorkloadCfgBlk):
 class WorkloadONNX(WorkloadCfgBlk):
     # Type declarations for INSTANCE attributes
     instances: dict
+    params: dict
     basedir: str
     # Class attributes
     required_fields = ['basedir', 'instances']
+    optional_fields: dict[str, Any] = {'params': {}}
 
     def __init__(self, wlname, **kwargs):
         super().__init__(wlname, **kwargs)
@@ -234,7 +236,11 @@ class WorkloadONNX(WorkloadCfgBlk):
     def get_instances(self):
         result = {}
         for iname, icfg in self.instances.items():
-            xcfg = {xx: icfg[xx] for xx in icfg}
+            xcfg = {}
+            if self.params:
+                xcfg.update(self.params)
+            for xx, xv in icfg.items():
+                xcfg[xx] = xv
             result[iname] = {'group': self.name, 'cfg': xcfg}
             result[iname]['path'] = os.path.join(self.basedir, xcfg['path'])
         return result
