@@ -95,7 +95,7 @@ class SimCfgBlk: #Generic Sim Configuration Block
         #search the obj hierachy for name match. child objects may be SimCfgBlk or dict
         cur_child_obj = getattr(self, cur_attr)
         cur_child_pos = 1
-        while not isinstance(cur_child_obj, SimCfgBlk) and cur_child_pos < len(pname):
+        while not isinstance(cur_child_obj, SimCfgBlk) and cur_child_pos < len(parts):
             if isinstance(cur_child_obj, dict):
                 if '.' in next_pname:
                     cur_attr       = parts[cur_child_pos]
