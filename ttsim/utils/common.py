@@ -219,7 +219,7 @@ def convert_units(val, from_unit, to_unit):
     return new_val
 
 def make_tuple(value, tuple_len):
-    if isinstance(value, tuple([tuple, list])):
+    if isinstance(value, (tuple, list)):
         if len(value) != tuple_len:
             raise RuntimeError(f'incompatible tuple/list with {len(value)} instead of {tuple_len} elements')
         return value

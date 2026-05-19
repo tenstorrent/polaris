@@ -686,7 +686,7 @@ class MyCustomBaseTransformerLayer(SimNN.Module):
 
         # Get embed_dims from first attention
         if len(self.attentions) > 0:
-            self.embed_dims = self.attentions[0].embed_dims
+            self.embed_dims = self.attentions[0].embed_dims # type: ignore[union-attr]
         else:
             self.embed_dims = ffn_cfgs.get("embed_dims", 256)
 

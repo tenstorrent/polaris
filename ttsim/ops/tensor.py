@@ -144,6 +144,9 @@ class SimTensor:
 
     def set_module(self, m): self.link_module = m
 
+    def memory_config(self):
+        return getattr(self, '_memory_config', None)
+
     def __str__(self):
         s  = f"SimTensor({self.name}) shape={self.shape}, dtype={self.dtype}, "
         s += f"is_param={self.is_param}, "
@@ -176,8 +179,9 @@ class SimTensor:
             assert False, f"What kinda tensor {self.name} is this? {self.shape}"
         if self.data is not None:
             assert isinstance(self.data, tuple([np.ndarray, np.float32, np.bool_])), f'data should be ndarray, is {type(self.data)}'
-            res1 = self.data.size
-            assert res1 == res, f"Mismatch SimTensor({self.name}).nelems = {res} and np.size={res1}"
+            if isinstance(self.data, np.ndarray):
+                res1 = self.data.size
+                assert res1 == res, f"Mismatch SimTensor({self.name}).nelems = {res} and np.size={res1}"
         return res
 
     def numel(self):
