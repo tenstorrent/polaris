@@ -387,6 +387,8 @@ class HLMStats:
         _graph_ordered_nodes = self.wlgraph.get_ordered_nodes()
         for opnum, opname in enumerate(_graph_ordered_nodes):
             op = self.wlgraph.get_op(opname)
+            if op.perf_stats['inElems'] == 0:
+                continue
             val_in_bpe = op.perf_stats['inBytes'] // op.perf_stats['inElems']
             if (not op.removed_in_optimization) and val_in_bpe != get_bpe(get_sim_dtype(op.precision)):
                 WARNING(

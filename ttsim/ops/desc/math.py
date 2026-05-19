@@ -666,8 +666,10 @@ def matmul_shape_inf(iTList, oTList, op, **kwargs):
     # ttnn.linear fuses bias as a 3rd input on the same MatMul SimOp (see
     # op.py linear()).  Summing over iTList ensures the bias tensor's memory
     # footprint is reflected in inElems/inBytes.
-    in_elems = sum(t.nelems() for t in iTList)
-    in_bytes = sum(t.nbytes(op.precision) for t in iTList)
+    import ttsim.front.ttnn.memory as ttnn_memory
+    iTList_residency = [t.memory_config().buffer_type if isinstance(t.memory_config(), ttnn_memory.MemoryConfig) else None for t in iTList]
+    in_elems = sum(t.nelems() if ir != ttnn_memory.BufferType.L1 else 0 for t, ir in zip(iTList, iTList_residency))
+    in_bytes = sum(t.nbytes(op.precision) if ir != ttnn_memory.BufferType.L1 else 0 for t, ir in zip(iTList, iTList_residency))
     instrs: dict = {"mac": oTList[0].nelems() * reduced_dim}
     if len(iTList) > 2:
         instrs["add"] = oTList[0].nelems()
@@ -691,11 +693,12 @@ def matmul_shape_inf(iTList, oTList, op, **kwargs):
             instrs["div"] = instrs.get("div", 0) + nelem
             instrs["mul"] = instrs.get("mul", 0) + nelem
 
+    oTList_residency = oTList[0].memory_config().buffer_type if isinstance(oTList[0].memory_config(), ttnn_memory.MemoryConfig) else None
     op.perf_stats = {
         "inElems": in_elems,
-        "outElems": oTList[0].nelems(),
+        "outElems": oTList[0].nelems() if oTList_residency != ttnn_memory.BufferType.L1 else 0,
         "inBytes": in_bytes,
-        "outBytes": oTList[0].nbytes(op.precision),
+        "outBytes": oTList[0].nbytes(op.precision) if oTList_residency != ttnn_memory.BufferType.L1 else 0,
         "instrs": instrs,
     }
     return
