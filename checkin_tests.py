@@ -4,6 +4,7 @@
 import os
 import sys
 import argparse
+import importlib
 import re
 import subprocess
 from itertools import product
@@ -121,16 +122,20 @@ def check_environment_sanity() -> tuple[bool, str]:
         'networkx': 'networkx',
         'numpy': 'numpy',
     }
+    broken_packages = []
 
     for module, package_name in critical_imports.items():
         try:
-            __import__(module)
-        except ImportError as e:
-            print(f"ERROR: {e} module {module} {package_name}")
+            importlib.import_module(module)
+        except ImportError:
             missing_packages.append(package_name)
+        except Exception as e:
+            print(f"ERROR: {e} module {module} {package_name}")
+            broken_packages.append(package_name)
 
+    messages = []
     if missing_packages:
-        return False, (
+        messages.append(
             f"ERROR: Missing required packages: {', '.join(missing_packages)}\n"
             f"Current environment: {conda_env}\n\n"
             f"Options to fix:\n"
@@ -139,6 +144,17 @@ def check_environment_sanity() -> tuple[bool, str]:
             f"  3. Create environment from environment.yaml:\n"
             f"     conda env create -f environment.yaml"
         )
+    if broken_packages:
+        messages.append(
+            f"ERROR: Installed packages failed to import (version/runtime conflict): {', '.join(broken_packages)}\n"
+            f"Current environment: {conda_env}\n\n"
+            f"Options to fix:\n"
+            f"  1. Use --environment/-e to specify a different environment\n"
+            f"  2. Recreate environment from environment.yaml:\n"
+            f"     conda env create -f environment.yaml"
+        )
+    if messages:
+        return False, "\n\n".join(messages)
 
     return True, f"Environment check passed (using: {conda_env})"
 
