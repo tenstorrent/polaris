@@ -32,6 +32,32 @@ workloads:
       rn50_b1_hd : { img_height: 1024, img_width: 1024 }
       rn50_b1_uhd: { img_height: 2828, img_width: 2828 }
 
+  - api: TTSIM
+    name: TitansMAC
+    basedir: workloads/Titans
+    module : TitansMAC@mac_transformer.py
+    params :
+      vocab_sz                  : 256
+      drop_prob                 : 0.0
+      ff_mult                   : 4
+      segment_len               : 32
+      num_persist_mem_tokens    : 4
+      num_longterm_mem_tokens   : 4
+      neural_memory_layers      : [2, 4, 6]
+      neural_memory_segment_len : 4
+      mem_depth                 : 2
+      mem_expansion_factor      : 2.0
+      mem_heads                 : 4
+      mem_dim_head              : 64
+      mem_chunk_size            : 4
+      bs                        : 1
+    instances:
+      titans_mac_nano  : { nL: 2,  nH: 4,  dE: 128, dim_head: 32, nW: 64   }
+      titans_mac_micro : { nL: 4,  nH: 4,  dE: 256, dim_head: 64, nW: 128  }
+
+      titans_mac_small : { nL: 8,  nH: 8,  dE: 384, dim_head: 48, nW: 512  }   # matches train_mac.py
+      titans_mac_base  : { nL: 12, nH: 12, dE: 768, dim_head: 64, nW: 1024 }
+
   # generate resnet50.onnx using code in workloads/onnx/examples/:
   - api: ONNX
     name: RESNET50
