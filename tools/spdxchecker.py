@@ -214,17 +214,32 @@ def collect_all_files(dirname: str) -> list[str]:
     files: list[str] = []
     filename: str
     root: str
-    _dirs: list[str]
+    dirs: list[str]
     filenames: list[str]
     # Normalize dirname to use forward slashes
     dirname_normalized = dirname.replace('\\', '/')
-    for root, _dirs, filenames in os.walk(dirname):
+    for root, dirs, filenames in os.walk(dirname):
+        # Prune .git from the walk so os.walk doesn't recurse into the
+        # (potentially large) .git/objects subtree on non-worktree checkouts.
+        # In linked worktrees .git is a one-line pointer file rather than a
+        # directory, so it's not in `dirs` and this no-ops there.  Mutating
+        # `dirs` in-place during top-down walk is the os.walk-documented way
+        # to skip a subtree.
+        if '.git' in dirs:
+            dirs.remove('.git')
         # Normalize root path
         root_normalized = root.replace('\\', '/')
-        # Skip .git directory; Only the startswith condition will wrongly match .gitHub directory
+        # Belt-and-suspenders: even with the prune above, keep the path-prefix
+        # skip in case os.walk is invoked elsewhere or a symlink reintroduces
+        # the directory.  The trailing slash on '/.git/' is intentional: it
+        # prevents the startswith from also matching '.gitHub' / '.gitignore_local/'.
         if root_normalized == dirname_normalized + '/.git' or root_normalized.startswith(dirname_normalized + '/.git/'):
             continue
         for filename in filenames:
+            # Skip the .git file at the worktree root (git creates this as a
+            # one-line pointer file in linked worktrees instead of a .git dir).
+            if filename == '.git' and root_normalized == dirname_normalized:
+                continue
             # Build relative path with forward slashes
             full_path = os.path.join(root, filename).replace('\\', '/')
             rel_path = os.path.relpath(full_path, dirname).replace(os.sep, '/')
