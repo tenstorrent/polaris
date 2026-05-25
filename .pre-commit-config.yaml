@@ -11,23 +11,21 @@ repos:
         -   id: spdx-checker
             name: Check SPDX License and Copyright
             description: Check SPDX License and Copyright
-            language: python
-            entry: tools/spdxchecker.py
+            language: system
+            entry: python tools/spdxchecker.py
             args: [--config, .github/spdxchecker-config.yml, --loglevel, error]
-            additional_dependencies: [pyyaml, loguru, pydantic]
             pass_filenames: false
         -   id: static checker
             name: Run static checks on the repository
             description: Check static checks
-            language: python
-            entry: ./checkin_tests.py
+            language: system
+            entry: python ./checkin_tests.py
             args:  [static]
-            # additional_dependencies: [pyyaml, loguru, pydantic]
             pass_filenames: false
         -   id: unit tests
             name: Run unit tests
             description: Run unit tests
-            language: python
+            language: system
             entry: pytest
             args: [-m, 'unit and not slow and not tools_secondary']
             pass_filenames: false
