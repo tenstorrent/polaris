@@ -72,6 +72,32 @@ def test_collects_all_files_in_directory(tmp_path):
     (tmp_path / ".git" / "ignored_file").write_text("")
     assert collect_all_files(str(tmp_path)) == ["file1.py", "file2.js"]
 
+
+def test_collects_all_files_skips_git_pointer_file_in_worktree(tmp_path):
+    """In a linked git worktree, ``.git`` is a one-line pointer file at the root, not a directory.
+
+    The walker must skip it just like it skips the ``.git`` directory in a normal checkout.
+    """
+    (tmp_path / "file1.py").write_text("")
+    (tmp_path / "file2.js").write_text("")
+    # .git as a regular file (linked-worktree case)
+    (tmp_path / ".git").write_text("gitdir: /path/to/main-repo/.git/worktrees/some-name\n")
+    assert collect_all_files(str(tmp_path)) == ["file1.py", "file2.js"]
+
+
+def test_collects_all_files_does_not_descend_into_git_directory(tmp_path):
+    """os.walk should be pruned at .git so deep .git/ subtrees don't slow the SPDX check.
+
+    Confirms files nested several levels deep inside .git are not even visited (not just
+    skipped after visiting).  Regression guard for the `dirs.remove('.git')` prune.
+    """
+    (tmp_path / "file1.py").write_text("")
+    (tmp_path / ".git").mkdir()
+    nested = tmp_path / ".git" / "objects" / "ab" / "cd"
+    nested.mkdir(parents=True)
+    (nested / "deep_file.py").write_text("")
+    assert collect_all_files(str(tmp_path)) == ["file1.py"]
+
 def test_collects_git_status_files(tmp_path):
     res = get_active_files(True, ConfigFileModel()) # collect_git_status_files(True) != []
     assert isinstance(res, list)
