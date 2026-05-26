@@ -1,3 +1,6 @@
+# Claude Code session state (settings.local.json, scheduled_tasks.lock, etc.)
+.claude/
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]

@@ -6,11 +6,15 @@ import tempfile
 import time
 import urllib.error
 from pathlib import Path
-from unittest.mock import mock_open, patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 
-from ttsim.utils.lfc import CACHE_AGE_SECONDS, resolve_lfc_path
+from ttsim.utils.lfc import (
+    CACHE_AGE_SECONDS,
+    _get_lfc_base_urls,
+    resolve_lfc_path,
+)
 
 
 @pytest.mark.unit
@@ -48,7 +52,8 @@ def test_resolve_lfc_path_stale_download_success():
             old_time = time.time() - CACHE_AGE_SECONDS - 1
             os.utime(local_path, (old_time, old_time))
             with patch('urllib.request.urlopen') as mock_urlopen:
-                mock_response = mock_open(read_data=b"content").return_value
+                mock_response = MagicMock()
+                mock_response.read.return_value = b"content"
                 mock_response.status = 200
                 mock_urlopen.return_value.__enter__.return_value = mock_response
                 result = resolve_lfc_path("lfc://test/file.yaml")
@@ -61,7 +66,8 @@ def test_resolve_lfc_path_stale_download_success():
         os.chdir(original_cwd)
 
 @pytest.mark.unit
-def test_resolve_lfc_path_download_fail_fallback():
+def test_resolve_lfc_path_download_fail_fallback(monkeypatch):
+    monkeypatch.delenv('GITHUB_ACTIONS', raising=False)
     original_cwd = os.getcwd()
     try:
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -89,26 +95,10 @@ def test_resolve_lfc_path_download_fail_no_local():
         with tempfile.TemporaryDirectory() as tmpdir:
             os.chdir(tmpdir)
             with patch('urllib.request.urlopen', side_effect=Exception("Network error")):
-                with pytest.raises(RuntimeError, match="Download failed and no local file exists"):
+                with pytest.raises(RuntimeError, match=r"Download failed.*no local file exists"):
                     resolve_lfc_path("lfc://test/file.yaml")
     finally:
         os.chdir(original_cwd)
-
-@pytest.mark.unit
-def test_resolve_lfc_path_auth_required():
-    original_cwd = os.getcwd()
-    try:
-        with tempfile.TemporaryDirectory() as tmpdir:
-            os.chdir(tmpdir)
-            with patch('urllib.request.urlopen') as mock_urlopen:
-                mock_response = mock_open().return_value
-                mock_response.status = 401
-                mock_urlopen.return_value.__enter__.return_value = mock_response
-                with pytest.raises(RuntimeError, match="Authentication required"):
-                    resolve_lfc_path("lfc://test/file.yaml")
-    finally:
-        os.chdir(original_cwd)
-
 
 # Security validation tests
 
@@ -173,8 +163,9 @@ def test_resolve_lfc_path_allows_valid_nested_path():
 
 
 @pytest.mark.unit
-def test_resolve_lfc_path_http_404_with_local_fallback():
-    """Test that 404 errors fall back to stale local cache"""
+def test_resolve_lfc_path_http_404_with_local_fallback(monkeypatch):
+    """Test that 404 errors fall back to stale local cache in dev mode"""
+    monkeypatch.delenv('GITHUB_ACTIONS', raising=False)
     original_cwd = os.getcwd()
     try:
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -205,8 +196,9 @@ def test_resolve_lfc_path_http_404_with_local_fallback():
 
 
 @pytest.mark.unit
-def test_resolve_lfc_path_http_500_with_local_fallback():
-    """Test that 500 errors fall back to stale local cache"""
+def test_resolve_lfc_path_http_500_with_local_fallback(monkeypatch):
+    """Test that 500 errors fall back to stale local cache in dev mode"""
+    monkeypatch.delenv('GITHUB_ACTIONS', raising=False)
     original_cwd = os.getcwd()
     try:
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -283,5 +275,113 @@ def test_resolve_lfc_path_http_401_no_fallback():
                 # 401 should raise immediately, not fall back to cache
                 with pytest.raises(RuntimeError, match="Authentication required"):
                     resolve_lfc_path("lfc://test/file.yaml")
+    finally:
+        os.chdir(original_cwd)
+
+
+# _get_lfc_base_urls() — env var resolution
+
+
+@pytest.mark.unit
+def test_get_lfc_base_urls_dev_default(monkeypatch):
+    """Dev mode (no GITHUB_ACTIONS, no LFC_SERVER_URLS) → yyz2 then aus2."""
+    monkeypatch.delenv('LFC_SERVER_URLS', raising=False)
+    monkeypatch.delenv('GITHUB_ACTIONS', raising=False)
+    urls = _get_lfc_base_urls()
+    assert urls == [
+        'http://yyz2-lfcache.yyz2.tenstorrent.com/simulators-ai-perf/',
+        'http://aus2-lfcache.aus2.tenstorrent.com/simulators-ai-perf/',
+    ]
+
+
+@pytest.mark.unit
+def test_get_lfc_base_urls_ci_default(monkeypatch):
+    """CI mode (GITHUB_ACTIONS=true, no LFC_SERVER_URLS) → single in-cluster URL."""
+    monkeypatch.delenv('LFC_SERVER_URLS', raising=False)
+    monkeypatch.setenv('GITHUB_ACTIONS', 'true')
+    urls = _get_lfc_base_urls()
+    assert urls == [
+        'http://large-file-cache.large-file-cache.svc.cluster.local/simulators-ai-perf/',
+    ]
+
+
+@pytest.mark.unit
+def test_get_lfc_base_urls_env_override(monkeypatch):
+    """LFC_SERVER_URLS overrides defaults; trims whitespace; strips trailing slashes."""
+    monkeypatch.setenv(
+        'LFC_SERVER_URLS',
+        ' http://a.example/ , http://b.example, , http://c.example/ ',
+    )
+    monkeypatch.delenv('GITHUB_ACTIONS', raising=False)
+    urls = _get_lfc_base_urls()
+    assert urls == [
+        'http://a.example/simulators-ai-perf/',
+        'http://b.example/simulators-ai-perf/',
+        'http://c.example/simulators-ai-perf/',
+    ]
+
+
+@pytest.mark.unit
+def test_get_lfc_base_urls_env_override_applies_in_ci(monkeypatch):
+    """LFC_SERVER_URLS override applies regardless of CI mode."""
+    monkeypatch.setenv('LFC_SERVER_URLS', 'http://x.example,http://y.example')
+    monkeypatch.setenv('GITHUB_ACTIONS', 'true')
+    urls = _get_lfc_base_urls()
+    assert urls == [
+        'http://x.example/simulators-ai-perf/',
+        'http://y.example/simulators-ai-perf/',
+    ]
+
+
+@pytest.mark.unit
+def test_get_lfc_base_urls_env_empty_after_parsing_raises(monkeypatch):
+    """LFC_SERVER_URLS that yields zero usable URLs raises RuntimeError."""
+    monkeypatch.setenv('LFC_SERVER_URLS', ',,   ,  ,')
+    with pytest.raises(RuntimeError, match="no usable URLs"):
+        _get_lfc_base_urls()
+
+
+# Multi-URL fallback download path
+
+
+@pytest.mark.unit
+def test_download_first_url_fails_second_succeeds(monkeypatch):
+    """When the first URL raises and the second succeeds, the file lands and
+    the second URL is the one actually used."""
+    original_cwd = os.getcwd()
+    try:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            os.chdir(tmpdir)
+            monkeypatch.setenv(
+                'LFC_SERVER_URLS',
+                'http://first.invalid,http://second.invalid',
+            )
+            monkeypatch.delenv('GITHUB_ACTIONS', raising=False)
+
+            seen_urls: list[str] = []
+
+            def fake_urlopen(url, timeout):
+                seen_urls.append(url)
+                if 'first.invalid' in url:
+                    raise Exception('first URL down')
+                # Second URL succeeds
+                mock_response = MagicMock()
+                mock_response.read.return_value = b"v2-content"
+                mock_response.status = 200
+                cm = MagicMock()
+                cm.__enter__.return_value = mock_response
+                return cm
+
+            with patch('urllib.request.urlopen', side_effect=fake_urlopen):
+                result = resolve_lfc_path("lfc://multi/file.yaml")
+                assert result == "__ext/multi/file.yaml"
+
+            # First URL retried 3 times, then second URL tried once (and succeeded)
+            first_attempts = sum(1 for u in seen_urls if 'first.invalid' in u)
+            second_attempts = sum(1 for u in seen_urls if 'second.invalid' in u)
+            assert first_attempts == 3, f"expected 3 retries on first URL, got {first_attempts}"
+            assert second_attempts == 1, f"expected 1 attempt on second URL, got {second_attempts}"
+            # Content was written from the second URL
+            assert Path("__ext/multi/file.yaml").read_text() == "v2-content"
     finally:
         os.chdir(original_cwd)

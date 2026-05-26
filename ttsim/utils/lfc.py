@@ -8,6 +8,7 @@ import time
 import urllib.error
 import urllib.request
 from pathlib import Path
+from typing import Optional
 
 try:
     import fcntl
@@ -103,24 +104,91 @@ def resolve_lfc_path(lfc_path: str) -> str:
     download_lfc_file(server_path, local_path)
     return local_path
 
+def _get_lfc_base_urls() -> list[str]:
+    """Return the ordered list of LFC base URLs to try, each ending in
+    ``/simulators-ai-perf/``.
+
+    Env var ``LFC_SERVER_URLS`` (comma-separated host URLs) overrides the
+    default; otherwise CI mode uses the in-cluster URL and dev mode uses
+    yyz2-then-aus2.  Same three-way priority (override > CI > dev) and same
+    normalization (strip whitespace, drop empty) as ``tools/ci/lfc_downloader.sh``.
+
+    Behavioral difference from the shell script: the shell script probes each
+    candidate host up front and commits to the first one that passes; this
+    function returns all candidates and lets :func:`download_lfc_file` try them
+    in order, falling back to the next URL only on a per-file HTTP or network
+    error.  The end result is the same for a healthy primary URL; the difference
+    is observable only when the primary host responds to the probe but then fails
+    on the actual file request.
+    """
+    env = os.getenv('LFC_SERVER_URLS')
+    if env:
+        candidates = [u.strip().rstrip('/') for u in env.split(',') if u.strip()]
+        if not candidates:
+            raise RuntimeError(
+                f'LFC_SERVER_URLS is set but contains no usable URLs: {env!r}'
+            )
+    elif os.getenv('GITHUB_ACTIONS') == 'true':
+        candidates = ['http://large-file-cache.large-file-cache.svc.cluster.local']
+    else:
+        candidates = [
+            'http://yyz2-lfcache.yyz2.tenstorrent.com',
+            'http://aus2-lfcache.aus2.tenstorrent.com',
+        ]
+    return [c + '/simulators-ai-perf/' for c in candidates]
+
+
+def _attempt_download(url: str, local_file: Path, local_path: str) -> None:
+    """Single download attempt for one URL.
+
+    Atomic temp-file write + rename.  Raises ``urllib.error.HTTPError`` on any
+    HTTP error status — including 401, since ``urllib.request.urlopen`` raises
+    before returning a response object — or other exceptions on failure.  The
+    caller (:func:`download_lfc_file`) catches ``HTTPError``, normalizes 401 to
+    ``RuntimeError("Authentication required...")`` so auth errors are not
+    retried, and decides retry / next-URL behavior for other errors.
+    """
+    tmp_path = None
+    try:
+        with urllib.request.urlopen(url, timeout=30) as response:
+            with tempfile.NamedTemporaryFile(
+                mode='wb',
+                dir=local_file.parent,
+                prefix=f'.{local_file.name}.',
+                suffix='.tmp',
+                delete=False,
+            ) as tmp_file:
+                tmp_path = tmp_file.name
+                tmp_file.write(response.read())
+            os.replace(tmp_path, local_path)
+    except BaseException:
+        if tmp_path is not None:
+            try:
+                os.unlink(tmp_path)
+            except FileNotFoundError:
+                pass
+        raise
+
+
 def download_lfc_file(server_path: str, local_path: str):
     """
     Download a file from LFC server to local path.
+
+    Tries each base URL in ``_get_lfc_base_urls()`` in order.  For each URL,
+    makes up to 3 attempts before moving on.  First URL whose attempt succeeds
+    wins.  If every URL exhausts its retries: in dev mode, an existing local
+    file is used as a stale fallback (preferable to a hard failure when VPN is
+    temporarily down); in CI (``GITHUB_ACTIONS=true``), the function raises
+    ``RuntimeError`` immediately — a stale cached file in CI silently produces
+    wrong results, so failing fast is the safer choice.
 
     Args:
         server_path: Path relative to simulators-ai-perf, e.g., 'hlm-lut/whb0_n150_lut.yaml'
         local_path: Local path, e.g., '__ext/hlm-lut/whb0_n150_lut.yaml'
     """
-    # Determine server base URL
+    base_urls = _get_lfc_base_urls()
     is_ci = os.getenv('GITHUB_ACTIONS') == 'true'
-    if is_ci:
-        base_url = 'http://large-file-cache.large-file-cache.svc.cluster.local/simulators-ai-perf/'
-    else:
-        base_url = 'http://aus2-lfcache.aus2.tenstorrent.com/simulators-ai-perf/'
 
-    url = base_url + server_path
-
-    # Create local directory
     local_file = Path(local_path)
     local_file.parent.mkdir(parents=True, exist_ok=True)
 
@@ -131,67 +199,55 @@ def download_lfc_file(server_path: str, local_path: str):
         if HAS_FCNTL:
             lock_file = open(lock_path, 'w')
             fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX)
-        
+
         # Check again if file exists and is fresh (another process may have downloaded it)
         if local_file.exists():
             mtime = os.path.getmtime(local_path)
             if time.time() - mtime < CACHE_AGE_SECONDS:
                 return  # Fresh file exists, no need to download
 
-        # Try download with retries
-        for attempt in range(3):
-            try:
-                with urllib.request.urlopen(url, timeout=30) as response:
-                    if response.status == 401:
-                        raise RuntimeError(f"Authentication required for {url}")
-                    
-                    # Download to temporary file in same directory (ensures atomic rename)
-                    with tempfile.NamedTemporaryFile(
-                        mode='wb',
-                        dir=local_file.parent,
-                        prefix=f'.{local_file.name}.',
-                        suffix='.tmp',
-                        delete=False
-                    ) as tmp_file:
-                        tmp_path = tmp_file.name
-                        tmp_file.write(response.read())
-                    
-                    # Atomically replace the target file
-                    os.replace(tmp_path, local_path)
-                return  # Success
-            except urllib.error.HTTPError as e:
-                if e.code == 401:
-                    raise RuntimeError(f"Authentication required for {url}")
-                if attempt == 2:
-                    # On final attempt, check for local fallback (except 401)
-                    if local_file.exists():
-                        print(f"Download failed after 3 attempts (HTTP {e.code}), using existing local file: {local_path}", file=sys.stderr)
-                        return
-                    else:
-                        # Provide Tailscale diagnostic for non-CI environments
-                        if not is_ci:
-                            print("Direct access failed. Ensure Tailscale VPN is connected.", file=sys.stderr)
-                        raise RuntimeError(f"Download failed (HTTP {e.code}) and no local file exists: {local_path}") from e
-            except Exception as e:
-                # Clean up temp file if it exists
-                if 'tmp_path' in locals():
-                    try:
-                        os.unlink(tmp_path)
-                    except FileNotFoundError:
-                        pass
-                
-                if isinstance(e, RuntimeError) and "Authentication required" in str(e):
-                    raise  # Re-raise auth errors immediately
-                if attempt == 2:
-                    # Check if local exists
-                    if local_file.exists():
-                        print(f"Download failed after 3 attempts, using existing local file: {local_path}", file=sys.stderr)
-                        return
-                    else:
-                        # Provide Tailscale diagnostic for non-CI environments
-                        if not is_ci:
-                            print("Direct access failed. Ensure Tailscale VPN is connected.", file=sys.stderr)
-                        raise RuntimeError(f"Download failed and no local file exists: {local_path}") from e
+        last_err: Optional[BaseException] = None
+        for base_url in base_urls:
+            url = base_url + server_path
+            for attempt in range(3):
+                try:
+                    _attempt_download(url, local_file, local_path)
+                    return  # Success — first URL/attempt that works wins
+                except urllib.error.HTTPError as e:
+                    if e.code == 401:
+                        # All LFC hosts share the same auth domain, so a 401 on
+                        # one host will repeat on every other host — bail early
+                        # rather than burning retries on a credential problem.
+                        raise RuntimeError(f"Authentication required for {url}") from e
+                    last_err = e
+                    # Retry within this URL unless it's the last attempt
+                except Exception as e:
+                    last_err = e
+
+        # All URLs exhausted.
+        # In dev, fall back to an existing local file (may be stale, but far
+        # preferable to a hard failure when VPN is temporarily down).
+        # In CI, skip the fallback and fail fast — a stale cached file in CI
+        # silently produces wrong results, which is worse than a clear failure.
+        if local_file.exists() and not is_ci:
+            err_desc = f" ({last_err})" if last_err else ""
+            print(
+                f"Download failed across {len(base_urls)} LFC URL(s){err_desc}; "
+                f"using existing local file: {local_path}",
+                file=sys.stderr,
+            )
+            return
+        if not is_ci:
+            print("Direct access failed. Ensure Tailscale VPN is connected.", file=sys.stderr)
+        http_detail = (
+            f" (HTTP {last_err.code})"
+            if isinstance(last_err, urllib.error.HTTPError)
+            else ""
+        )
+        raise RuntimeError(
+            f"Download failed across {len(base_urls)} LFC URL(s){http_detail} "
+            f"and no local file exists: {local_path}"
+        ) from last_err
     finally:
         # Release lock and clean up lock file
         if lock_file:
