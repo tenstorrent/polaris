@@ -247,12 +247,61 @@ if [[ "$EXTRACT" == true ]]; then
     fi
 fi
 
-# Check if CI mode is enabled
-if [[ "$CI" == true ]]; then
-    SERVER_BASE_URL="http://large-file-cache.large-file-cache.svc.cluster.local"
+# Build the ordered list of LFC base URLs to try.  Env var LFC_SERVER_URLS
+# (comma-separated) overrides; otherwise defaults to one in-cluster URL for CI
+# and a yyz2-then-aus2 list for dev. The connectivity check below iterates
+# through the list and picks the first base URL that passes the HTTP probe
+# (ping is used for diagnostics only); once chosen, that URL is used for the
+# entire download.
+if [[ -n "${LFC_SERVER_URLS:-}" ]]; then
+    IFS=',' read -r -a LFC_BASE_URLS <<< "$LFC_SERVER_URLS"
+elif [[ "$CI" == true ]]; then
+    LFC_BASE_URLS=(
+        "http://large-file-cache.large-file-cache.svc.cluster.local"
+    )
 else
-    SERVER_BASE_URL="http://aus2-lfcache.aus2.tenstorrent.com"
+    LFC_BASE_URLS=(
+        "http://yyz2-lfcache.yyz2.tenstorrent.com"
+        "http://aus2-lfcache.aus2.tenstorrent.com"
+    )
 fi
+
+# Normalize each entry: trim leading/trailing whitespace, strip trailing slash,
+# drop empty entries. Necessary because LFC_SERVER_URLS like "http://a, http://b"
+# would leave a leading space on the second URL, and entries like ",," would
+# produce empty array elements.
+_NORMALIZED_URLS=()
+for url in "${LFC_BASE_URLS[@]}"; do
+    # Strip leading whitespace
+    url="${url#"${url%%[![:space:]]*}"}"
+    # Strip trailing whitespace
+    url="${url%"${url##*[![:space:]]}"}"
+    # Strip trailing slash
+    url="${url%/}"
+    if [[ -n "$url" ]]; then
+        _NORMALIZED_URLS+=("$url")
+    fi
+done
+# Reassign — guard against assigning from an empty array under ``set -u``.
+if [[ ${#_NORMALIZED_URLS[@]} -gt 0 ]]; then
+    LFC_BASE_URLS=("${_NORMALIZED_URLS[@]}")
+else
+    LFC_BASE_URLS=()
+fi
+
+# Validate at least one URL survived normalization.
+if [[ ${#LFC_BASE_URLS[@]} -eq 0 ]]; then
+    echo "Error: no usable LFC base URLs after parsing. LFC_SERVER_URLS='${LFC_SERVER_URLS:-(unset)}'." >&2
+    exit 1
+fi
+
+# Initial choice — first candidate.  The dev-mode and CI-multi-URL probes
+# below may re-assign SERVER_BASE_URL / SERVER_URL to a different reachable
+# candidate.  Probe matrix:
+#   - Dev mode (CI != true):            always probe
+#   - CI mode with >1 LFC_BASE_URLS:    probe to pick the first reachable URL
+#   - CI mode with exactly 1 URL:       skip probe (use index 0 as-is)
+SERVER_BASE_URL="${LFC_BASE_URLS[0]}"
 SERVER_URL="$SERVER_BASE_URL/simulators-ai-perf/$SERVER_PATH"
 
 # Set wget verbosity based on verbose flag
@@ -391,91 +440,108 @@ else
     }
 fi
 
-# Network connectivity check (only when not in CI mode)
-if [[ "$CI" != true ]]; then
+# Network connectivity check.  Iterates through LFC_BASE_URLS in order — the
+# first candidate that passes the HTTP probe becomes the chosen SERVER_BASE_URL
+# (and SERVER_URL is rebuilt accordingly); ping is diagnostic only.
+#
+# When to run the probe:
+#   - Dev mode (CI != true): always.  If no candidate is reachable, fall
+#     through to the Tailscale check below.
+#   - CI mode with multiple candidates: probe to pick the first reachable URL
+#     (so an LFC_SERVER_URLS override with multiple entries actually falls back
+#     in CI, matching the documented behavior).  Skip Tailscale fallback —
+#     CI doesn't have it.
+#   - CI mode with a single candidate (the default in-cluster service): skip
+#     the probe entirely and use the URL directly; reachability failures
+#     surface from the actual wget call below.
+if [[ "$CI" != true || ${#LFC_BASE_URLS[@]} -gt 1 ]]; then
     if [[ "$VERBOSE" == true ]]; then
-        echo "Checking connectivity to LFC server..."
+        echo "Checking connectivity to LFC server(s) (${#LFC_BASE_URLS[@]} candidate(s))..."
     fi
 
-    # Extract hostname from SERVER_BASE_URL
-    SERVER_HOST="${SERVER_BASE_URL#http*://}"
-    SERVER_HOST="${SERVER_HOST%%/*}"
-
-    # Validate hostname extraction succeeded
-    if [[ -z "$SERVER_HOST" ]]; then
-        echo "Error: Failed to extract hostname from SERVER_BASE_URL: $SERVER_BASE_URL" >&2
-        exit 1
-    fi
-
-    # Perform connectivity diagnostics - check both ICMP and HTTP
-    # This provides better user feedback than optimizing for speed
     SERVER_ACCESSIBLE=false
-    PING_SUCCESS=false
-    HTTP_SUCCESS=false
+    PING_SUCCESS=false      # last-candidate ping result (reset each iteration)
+    HTTP_SUCCESS=false      # last-candidate HTTP result (reset each iteration)
+    ANY_PING_SUCCESS=false  # true if any candidate responded to ping
+    ANY_HTTP_SUCCESS=false  # true if any candidate passed the HTTP probe
 
-    if [[ "$VERBOSE" == true ]]; then
-        echo "Running connectivity diagnostics..."
-    fi
-
-    # Step 1: Check ICMP ping (network layer reachability)
-    # Platform-specific ping flags
-    if [[ "$OS_TYPE" == "macos" ]]; then
-        # macOS: -W in milliseconds, -o exits after one reply
-        PING_RESULT=$(ping -c 1 -W 2000 -o "$SERVER_HOST" >/dev/null 2>&1 && echo "success" || echo "fail")
-    else
-        # Linux: -W in seconds
-        PING_RESULT=$(ping -c 1 -W 2 "$SERVER_HOST" >/dev/null 2>&1 && echo "success" || echo "fail")
-    fi
-
-    if [[ "$PING_RESULT" == "success" ]]; then
-        PING_SUCCESS=true
-        if [[ "$VERBOSE" == true ]]; then
-            echo "  [PING] Network layer reachable (ICMP succeeded)"
+    for CANDIDATE_BASE_URL in "${LFC_BASE_URLS[@]}"; do
+        # Extract hostname from this candidate
+        CANDIDATE_HOST="${CANDIDATE_BASE_URL#http*://}"
+        CANDIDATE_HOST="${CANDIDATE_HOST%%/*}"
+        if [[ -z "$CANDIDATE_HOST" ]]; then
+            echo "Warning: Skipping invalid LFC base URL (no host): $CANDIDATE_BASE_URL" >&2
+            continue
         fi
-    else
+
         if [[ "$VERBOSE" == true ]]; then
+            echo "Trying $CANDIDATE_BASE_URL"
+        fi
+
+        # Reset per-candidate flags
+        PING_SUCCESS=false
+        HTTP_SUCCESS=false
+
+        # Step 1: ICMP ping (platform-specific)
+        if [[ "$OS_TYPE" == "macos" ]]; then
+            PING_RESULT=$(ping -c 1 -W 2000 -o "$CANDIDATE_HOST" >/dev/null 2>&1 && echo "success" || echo "fail")
+        else
+            PING_RESULT=$(ping -c 1 -W 2 "$CANDIDATE_HOST" >/dev/null 2>&1 && echo "success" || echo "fail")
+        fi
+        if [[ "$PING_RESULT" == "success" ]]; then
+            PING_SUCCESS=true
+            ANY_PING_SUCCESS=true
+            if [[ "$VERBOSE" == true ]]; then
+                echo "  [PING] Network layer reachable (ICMP succeeded)"
+            fi
+        elif [[ "$VERBOSE" == true ]]; then
             echo "  [PING] Network layer unreachable or ICMP blocked"
         fi
-    fi
 
-    # Step 2: Check HTTP connectivity (what we actually need for downloads)
-    # Note: wget is guaranteed to be available at this point (checked earlier)
-    if [[ "$VERBOSE" == true ]]; then
-        echo "  [HTTP] Testing HTTP connectivity..."
-    fi
-
-    # Capture wget exit status without triggering set -e
-    if wget --spider --timeout=3 --tries=1 "$SERVER_BASE_URL" >/dev/null 2>&1; then
-        WGET_STATUS=0
-    else
-        WGET_STATUS=$?
-    fi
-
-    # Exit codes: 0 = success, 8 = HTTP error (4xx/5xx) but server reachable
-    if [[ $WGET_STATUS -eq 0 || $WGET_STATUS -eq 8 ]]; then
-        HTTP_SUCCESS=true
-        SERVER_ACCESSIBLE=true
-        if [[ "$VERBOSE" == true ]]; then
-            echo "  [HTTP] Application layer accessible (wget exit code: $WGET_STATUS)"
+        # Step 2: HTTP probe (capture exit status without tripping set -e)
+        if wget --spider --timeout=3 --tries=1 "$CANDIDATE_BASE_URL" >/dev/null 2>&1; then
+            WGET_STATUS=0
+        else
+            WGET_STATUS=$?
         fi
-    else
-        if [[ "$VERBOSE" == true ]]; then
+        # Exit codes: 0 = success, 8 = HTTP error (4xx/5xx) but server reachable
+        if [[ $WGET_STATUS -eq 0 || $WGET_STATUS -eq 8 ]]; then
+            HTTP_SUCCESS=true
+            ANY_HTTP_SUCCESS=true
+            SERVER_ACCESSIBLE=true
+            SERVER_BASE_URL="$CANDIDATE_BASE_URL"
+            SERVER_URL="$SERVER_BASE_URL/simulators-ai-perf/$SERVER_PATH"
+            if [[ "$VERBOSE" == true ]]; then
+                echo "  [HTTP] Application layer accessible (wget exit code: $WGET_STATUS) — selected"
+            fi
+            break  # first reachable wins
+        elif [[ "$VERBOSE" == true ]]; then
             echo "  [HTTP] Application layer NOT accessible (wget exit code: $WGET_STATUS)"
         fi
-    fi
+    done
 
     # Provide diagnostic summary and check Tailscale if needed
     if [[ "$SERVER_ACCESSIBLE" == true ]]; then
         if [[ "$VERBOSE" == true ]]; then
-            echo "Connectivity check: Server is accessible via HTTP"
+            echo "Connectivity check: $SERVER_BASE_URL is accessible via HTTP"
         fi
     else
-        # Server not accessible - provide diagnostic info and check Tailscale
-        if [[ "$PING_SUCCESS" == true && "$HTTP_SUCCESS" == false ]]; then
-            echo "Warning: Server responds to ping but HTTP is not accessible."
+        # Server not accessible - provide diagnostic info
+        if [[ "$ANY_PING_SUCCESS" == true && "$ANY_HTTP_SUCCESS" == false ]]; then
+            echo "Warning: At least one candidate responds to ping but none passed the HTTP probe."
             echo "This typically means HTTP traffic is blocked by firewall or routing policy."
         elif [[ "$VERBOSE" == true ]]; then
-            echo "Server not accessible: Both ping and HTTP checks failed."
+            echo "Server not accessible: No candidate passed ping or HTTP checks."
+        fi
+
+        # CI mode: no Tailscale fallback exists.  Bail with a clear error
+        # listing the URLs that were tried.
+        if [[ "$CI" == true ]]; then
+            echo "Error: none of the ${#LFC_BASE_URLS[@]} candidate LFC URL(s) are reachable from CI:" >&2
+            for u in "${LFC_BASE_URLS[@]}"; do
+                echo "  - $u" >&2
+            done
+            exit 1
         fi
 
         echo "Checking Tailscale connectivity..."
