@@ -220,23 +220,46 @@ class MemoryAsContextTransformer(SimNN.Module):
         else:
             self.longterm_mems = None
 
-        # proxy block (will be replicated nL times via repeat_count)
+        # Two proxy blocks: one represents memory-bearing layers, the other plain
+        # transformer layers. Each gets its own repeat_count equal to the actual
+        # number of layers of that type in the full stack. The BasicLLM single-proxy
+        # trick would silently drop memory ops because (i+1=1) is not in [2,4,6].
+        mem_layer_set = set(self.neural_memory_layers)
+        all_layers    = set(range(1, self.nL + 1))
+        self._n_mem_layers   = len(mem_layer_set & all_layers)
+        self._n_nomem_layers = self.nL - self._n_mem_layers
+
         self.blocks = SimNN.ModuleList([
             MACBlock(
-                name=f't{i}',
+                name='t_mem',
                 dim=self.dim, segment_len=self.segment_len,
                 dim_head=self.dim_head, heads=self.nH, ff_mult=self.ff_mult,
                 num_persist_mem_tokens=self.num_persist_mem_tokens,
                 num_longterm_mem_tokens=self.num_longterm_mem_tokens,
-                use_neural_memory=(i + 1) in self.neural_memory_layers,
+                use_neural_memory=True,
                 neural_memory_segment_len=self.neural_memory_segment_len,
                 mem_depth=self.mem_depth,
                 mem_expansion_factor=self.mem_expansion,
                 mem_heads=self.mem_heads,
                 mem_dim_head=self.mem_dim_head,
                 mem_chunk_size=self.mem_chunk_size,
-            ) for i in range(self.nL_proxy)
+            ),
+            MACBlock(
+                name='t_nomem',
+                dim=self.dim, segment_len=self.segment_len,
+                dim_head=self.dim_head, heads=self.nH, ff_mult=self.ff_mult,
+                num_persist_mem_tokens=self.num_persist_mem_tokens,
+                num_longterm_mem_tokens=self.num_longterm_mem_tokens,
+                use_neural_memory=False,
+                neural_memory_segment_len=self.neural_memory_segment_len,
+                mem_depth=self.mem_depth,
+                mem_expansion_factor=self.mem_expansion,
+                mem_heads=self.mem_heads,
+                mem_dim_head=self.mem_dim_head,
+                mem_chunk_size=self.mem_chunk_size,
+            ),
         ])
+        self._block_repeat_counts = [self._n_mem_layers, self._n_nomem_layers]
 
         self.final_norm = _RMSNorm('final_norm', self.dim)
         self.to_logits  = SimNN.Linear('to_logits', self.dim, self.vocab_sz, bias=False) \
@@ -266,15 +289,20 @@ class MemoryAsContextTransformer(SimNN.Module):
         if self.longterm_mems is not None:
             x = T.cat([self.longterm_mems, x], dim=1)   # rely on broadcast over batch dim
 
-        mem_state = None
+        # Run each proxy block once to build the graph. Each block carries its own
+        # NeuralMemState (None on first call -- D3 will thread it across
+        # MemoryAsContextTransformer.__call__ invocations for autoregressive decode).
         for blk in self.blocks:
-            x, mem_state = blk(x, mem_state=mem_state)
+            x, _ = blk(x, mem_state=None)
 
-        for blk in self.blocks:
+        # Set repeat_count per block to the actual count of layers of that type.
+        for blk, rc in zip(self.blocks, self._block_repeat_counts):
+            if rc == 0:
+                continue   # nothing to count for this proxy
             repeated_ops: dict[str, Any] = {}
             blk.get_ops(repeated_ops)
             for _, op_obj in repeated_ops.items():
-                op_obj.repeat_count = self.nL
+                op_obj.repeat_count = rc
 
         x = self.final_norm(x)
         return self.to_logits(x)

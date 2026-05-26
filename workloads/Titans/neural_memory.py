@@ -131,9 +131,11 @@ class NeuralMemory(SimNN.Module):
         post_rmsnorm = False,
         qk_rmsnorm   = False,
         attn_pool_chunks = False,
+        max_chunks_unroll = 16
     ):
         super().__init__()
         self.name = name
+        self.max_chunks_unroll = max_chunks_unroll
         dim_head = dim_head if dim_head is not None else dim
         assert not (heads == 1 and dim_head != dim)
 
@@ -187,6 +189,7 @@ class NeuralMemory(SimNN.Module):
         self._mem_depth       = depth
 
         # ----- store-path op handles (use SimOpHandleList so link_op2module sees them) -----
+        # Gradient-chain ops (per-chunk via repeat_count, no state recurrence) -- unchanged
         self.store_mm_fwd     = F.SimOpHandleList([F.MatMul(f'{name}.store_fwd_W{i}')          for i in range(depth)])
         self.store_gelu_fwd   = F.SimOpHandleList([F.Gelu  (f'{name}.store_fwd_gelu{i}')       for i in range(depth - 1)])
         self.sub_err          = F.Sub(f'{name}.sub_err')
@@ -194,11 +197,55 @@ class NeuralMemory(SimNN.Module):
         self.store_mm_bwd_dW  = F.SimOpHandleList([F.MatMul(f'{name}.store_bwd_dW{i}')         for i in range(depth)])
         self.store_mm_bwd_dh  = F.SimOpHandleList([F.MatMul(f'{name}.store_bwd_dh{i}')         for i in range(depth - 1)])
         self.gelu_grad        = F.SimOpHandleList([F.Mul   (f'{name}.store_bwd_geluprime{i}')  for i in range(depth - 1)])
-        self.mom_mul          = F.SimOpHandleList([F.Mul   (f'{name}.mom_mul_W{i}')            for i in range(depth)])
-        self.mom_add          = F.SimOpHandleList([F.Add   (f'{name}.mom_add_W{i}')            for i in range(depth)])
-        self.decay_mul        = F.SimOpHandleList([F.Mul   (f'{name}.decay_mul_W{i}')          for i in range(depth)])
-        self.weight_add       = F.SimOpHandleList([F.Add   (f'{name}.weight_add_W{i}')         for i in range(depth)])
-        self.weight_sub       = F.SimOpHandleList([F.Sub   (f'{name}.weight_sub_W{i}')         for i in range(depth)])
+
+        # D1: Per-chunk recurrence ops (paper eqs. 13 & 14).
+        # Flattened to ONE SimOpHandleList per op type so link_op2module sees them.
+        # Index with self._mc(i, c) == i * max_chunks_unroll + c
+        # where i = mem-MLP layer index (W0, W1, ...) and c = chunk index.
+        self.mom_mul   = F.SimOpHandleList([
+            F.Mul(f'{name}.mom_mul_W{i}_c{c}')
+            for i in range(depth) for c in range(self.max_chunks_unroll)
+        ])
+        self.mom_add   = F.SimOpHandleList([
+            F.Add(f'{name}.mom_add_W{i}_c{c}')
+            for i in range(depth) for c in range(self.max_chunks_unroll)
+        ])
+        self.decay_mul = F.SimOpHandleList([
+            F.Mul(f'{name}.decay_mul_W{i}_c{c}')
+            for i in range(depth) for c in range(self.max_chunks_unroll)
+        ])
+        self.weight_add = F.SimOpHandleList([
+            F.Add(f'{name}.weight_add_W{i}_c{c}')
+            for i in range(depth) for c in range(self.max_chunks_unroll)
+        ])
+        self.weight_sub = F.SimOpHandleList([
+            F.Sub(f'{name}.weight_sub_W{i}_c{c}')
+            for i in range(depth) for c in range(self.max_chunks_unroll)
+        ])
+
+        # D1: Per-chunk split ops. SplitOpHandle.count is fixed at construction time,
+        # but our actual num_ch depends on (seq_len / chunk_size) and varies per instance.
+        # We pre-allocate one Split op per possible num_ch value (1..max_chunks_unroll).
+        # At call time we pick self._grads_splits[i][num_ch - 1] etc.
+        # Wasted ops for unused num_ch values become dead nodes that Polaris prunes.
+        self._grads_splits = []
+        for i in range(depth):
+            row = []
+            for k in range(1, self.max_chunks_unroll + 1):
+                op = F.SplitOpHandle(f'{name}.grads_split_W{i}_n{k}', count=k, axis=1)
+                setattr(self, f'grads_split_W{i}_n{k}', op)
+                row.append(op)
+            self._grads_splits.append(row)
+
+        self._momentum_coef_splits = []
+        self._decay_factor_splits  = []
+        for k in range(1, self.max_chunks_unroll + 1):
+            mop = F.SplitOpHandle(f'{name}.momentum_coef_split_n{k}', count=k, axis=1)
+            dop = F.SplitOpHandle(f'{name}.decay_factor_split_n{k}',  count=k, axis=1)
+            setattr(self, f'momentum_coef_split_n{k}', mop)
+            setattr(self, f'decay_factor_split_n{k}',  dop)
+            self._momentum_coef_splits.append(mop)
+            self._decay_factor_splits.append(dop)
 
         # ----- per-chunk pooling on input seq -----
         # We model AveragePool as a Mean reduce over chunk dim (chunk-size set at call-time).
@@ -212,6 +259,13 @@ class NeuralMemory(SimNN.Module):
     # -----------------------------------------------------------------
     # State helpers
     # -----------------------------------------------------------------
+
+    def _mc(self, i, c):
+        """D1: flat-index helper for per-chunk recurrence ops.
+        Maps (layer_idx i, chunk_idx c) -> position in the flat SimOpHandleList."""
+        return i * self.max_chunks_unroll + c
+
+
     def init_weights(self, batch):
         """Returns dict[name -> SimTensor] mirroring lucidrains init_weights.
         Shape per param: [batch*heads, dim_in, dim_out]."""
@@ -348,29 +402,67 @@ class NeuralMemory(SimNN.Module):
                 # apply GELU'(a_in) elementwise — modeled as a Mul (GELU' is a known fn shape-wise)
                 d_h = self.gelu_grad[i - 1](d_h, a_in)
 
-        # ---------- momentum + decay (per-chunk recurrence) ----------
+        # ----------------------------------------------------------------
+        # D1: Per-chunk recurrence (paper eqs. 13 & 14)
+        #   S_t = η_t · S_{t-1} + g_t                  (momentum,  eq. 14)
+        #   W_t = (1 - α_t) · W_{t-1} + S_t            (decay,     eq. 13)
+        # Each chunk's state tensor (m_prev, w_prev) is reassigned to the
+        # output of the previous chunk's ops -- this is the explicit
+        # sequential dependency edge that Polaris needs to see.
+        # ----------------------------------------------------------------
+        assert num_ch <= self.max_chunks_unroll, \
+            f"num_chunks={num_ch} exceeds max_chunks_unroll={self.max_chunks_unroll}. " \
+            f"Either raise max_chunks_unroll or bump mem_chunk_size in the YAML."
+
         prev_update, prev_momentum = past_state
         new_update, new_momentum = {}, {}
+
+        # Reshape coefs to [B*H, num_ch, 1, 1] so per-chunk slices are clean broadcasts
+        decay_factor_r  = decay_factor.reshape(B * H, num_ch, 1, 1)
+        momentum_coef_r = momentum_coef.reshape(B * H, num_ch, 1, 1)
+
+        # Pick the Split op matching the actual num_ch for this call
+        decay_chunks    = self._decay_factor_splits[num_ch - 1](decay_factor_r)
+        momentum_chunks = self._momentum_coef_splits[num_ch - 1](momentum_coef_r)
+
+
         for i in range(self._mem_depth):
-            g = grads[f'W{i}']
-            # momentum: M_t = momentum_coef * M_{t-1} + g
-            mom_coef_reduced = self.momentum_chunk_mean(
-                momentum_coef.reshape(B * H, num_ch, 1, 1))           # -> [B*H, 1, 1]
-            m_prev_scaled = self.mom_mul[i](prev_momentum[f'W{i}'], mom_coef_reduced)
-
-            m_new = self.mom_add[i](m_prev_scaled, g)
-            new_momentum[f'W{i}'] = m_new
-
-            # decay-based weight delta: W_t = (1 - decay) * W_{t-1} - lr * M_t  (lr folded into adaptive_lr)
+            # Constant '1' for the (1 - α) computation per layer
             one_const = F._from_data(f'{self.name}.one_W{i}', np.float32(1.0))
             one_const.set_module(self); self._tensors[one_const.name] = one_const
-            decay_reduced = self.decay_chunk_mean(
-                decay_factor.reshape(B * H, num_ch, 1, 1))            # -> [B*H, 1, 1]
-            one_minus_decay = self.weight_sub[i](one_const, decay_reduced)
 
-            one_minus_decay.set_module(self); self._tensors[one_minus_decay.name] = one_minus_decay
-            w_decayed = self.decay_mul[i](prev_update[f'W{i}'], one_minus_decay)
-            new_update[f'W{i}'] = self.weight_add[i](w_decayed, m_new)
+            # NOTE (D1 interim): the existing forward+backward path produces ONE
+            # gradient per sequence (shape [B*H, di, dj]), not per chunk. True
+            # per-chunk gradients require restructuring forward+backward to operate
+            # on [B*H, num_ch, chunk_size, ...] tensors -- tracked as follow-up D1b.
+            # For now we use the same g across all chunks of the recurrence. This
+            # still correctly models the recurrence STRUCTURE (per-chunk Mul/Add
+            # ops, sequential dependency edges, per-chunk learned coefs eta_c/alpha_c).
+            g = grads[f'W{i}']                  # [B*H, di, dj]
+
+            # Initial state for this layer (carried across chunks below)
+            m_prev = prev_momentum[f'W{i}']     # [B*H, di, dj]
+            w_prev = prev_update[f'W{i}']       # [B*H, di, dj]
+
+            for c in range(num_ch):
+                eta_c   = momentum_chunks[c].squeeze(1)       # [B*H, 1, 1]
+                alpha_c = decay_chunks[c].squeeze(1)          # [B*H, 1, 1]
+
+                # eq. 14: S_t = η_t · S_{t-1} + g    (g is whole-seq gradient, D1b TODO)
+                m_scaled = self.mom_mul[self._mc(i, c)](m_prev, eta_c)
+                m_new    = self.mom_add[self._mc(i, c)](m_scaled, g)
+
+                # eq. 13: W_t = (1 - α_t) · W_{t-1} + S_t
+                one_minus_alpha = self.weight_sub[self._mc(i, c)](one_const, alpha_c)
+                w_decayed       = self.decay_mul[self._mc(i, c)](w_prev, one_minus_alpha)
+                w_new           = self.weight_add[self._mc(i, c)](w_decayed, m_new)
+
+                # Carry state forward to next chunk -- THIS IS THE RECURRENCE EDGE
+                m_prev = m_new
+                w_prev = w_new
+
+            new_momentum[f'W{i}'] = m_prev
+            new_update[f'W{i}']   = w_prev
 
         next_state = (new_update, new_momentum)
         next_mem_state = NeuralMemState(

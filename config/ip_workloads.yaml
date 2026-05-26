@@ -42,7 +42,7 @@ workloads:
       ff_mult                   : 4
       segment_len               : 32
       num_persist_mem_tokens    : 4
-      num_longterm_mem_tokens   : 4
+      num_longterm_mem_tokens   : 0
       neural_memory_layers      : [2, 4, 6]
       neural_memory_segment_len : 4
       mem_depth                 : 2
@@ -52,11 +52,11 @@ workloads:
       mem_chunk_size            : 4
       bs                        : 1
     instances:
-      titans_mac_nano  : { nL: 2,  nH: 4,  dE: 128, dim_head: 32, nW: 64   }
-      titans_mac_micro : { nL: 4,  nH: 4,  dE: 256, dim_head: 64, nW: 128  }
+      titans_mac_nano  : { nL: 2,  nH: 4,  dE: 128, dim_head: 32, nW: 64,   mem_chunk_size: 8  }
+      titans_mac_micro : { nL: 4,  nH: 4,  dE: 256, dim_head: 64, nW: 128, mem_chunk_size: 8  }
 
-      titans_mac_small : { nL: 8,  nH: 8,  dE: 384, dim_head: 48, nW: 512  }   # matches train_mac.py
-      titans_mac_base  : { nL: 12, nH: 12, dE: 768, dim_head: 64, nW: 1024 }
+      titans_mac_small : { nL: 8,  nH: 8,  dE: 384, dim_head: 48, nW: 512, mem_chunk_size: 32  }  
+      titans_mac_base  : { nL: 12, nH: 12, dE: 768, dim_head: 64, nW: 1024, mem_chunk_size: 64  }
 
   # generate resnet50.onnx using code in workloads/onnx/examples/:
   - api: ONNX

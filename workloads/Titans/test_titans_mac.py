@@ -31,6 +31,45 @@ def test_neural_memory_forward_graph():
     assert out.shape == [1, 16, 64]
     print(f'OK : NeuralMemory forward (params={nm.analytical_param_count()})')
 
+def test_neural_memory_chunk_state_propagation():
+    """
+    D1 verification:
+      - seq_len=16, chunk_size=4 -> num_ch=4 chunks
+      - max_chunks_unroll=8, depth=2 -> 16 per-chunk handles per op type total
+    Confirms per-chunk handles are allocated AND the constructor wires them
+    correctly. The actual graph traversal (with state propagation) is
+    validated end-to-end by the full Polaris pipeline.
+    """
+    nm = NeuralMemory('nm_state', dim=32, chunk_size=4, dim_head=16, heads=2,
+                      depth=2, max_chunks_unroll=8)
+    seq = F._from_shape('seq_state', shape=[1, 16, 32])
+    out, state = nm(seq)
+    assert out.shape == [1, 16, 32], f'bad out shape {out.shape}'
+
+    # Each per-chunk op list = depth * max_chunks_unroll = 2 * 8 = 16 handles
+    expected = 2 * 8
+    assert len(nm.mom_mul)   == expected, f'mom_mul:   want {expected}, got {len(nm.mom_mul)}'
+    assert len(nm.mom_add)   == expected, f'mom_add:   want {expected}, got {len(nm.mom_add)}'
+    assert len(nm.decay_mul) == expected, f'decay_mul: want {expected}, got {len(nm.decay_mul)}'
+    assert len(nm.weight_add)== expected, f'weight_add: want {expected}, got {len(nm.weight_add)}'
+    assert len(nm.weight_sub)== expected, f'weight_sub: want {expected}, got {len(nm.weight_sub)}'
+
+    # Index helper is correct
+    assert nm._mc(0, 0) == 0
+    assert nm._mc(0, 7) == 7
+    assert nm._mc(1, 0) == 8
+    assert nm._mc(1, 7) == 15
+
+    # Variant Splits cover all num_ch values from 1 to max_chunks_unroll
+    assert len(nm._grads_splits) == 2, 'grads_splits should be per-layer (depth=2)'
+    assert len(nm._grads_splits[0]) == 8, 'grads_splits[0] should have max_chunks_unroll variants'
+    assert len(nm._momentum_coef_splits) == 8
+    assert len(nm._decay_factor_splits) == 8
+    assert nm._decay_factor_splits[3].count == 4, 'Split variant for num_ch=4 should have count=4'
+
+    print('OK : NeuralMemory chunk-state propagation (D1)')
+
+
 def test_titans_mac_forward_graph_and_onnx(tmpdir='./__titans_mac_test'):
     os.makedirs(tmpdir, exist_ok=True)
     cfg = dict(
@@ -54,5 +93,6 @@ def test_titans_mac_forward_graph_and_onnx(tmpdir='./__titans_mac_test'):
 if __name__ == '__main__':
     test_memory_mlp_shapes()
     test_neural_memory_forward_graph()
+    test_neural_memory_chunk_state_propagation()
     test_titans_mac_forward_graph_and_onnx()
     print('\nAll Titans MAC smoke tests passed.')
