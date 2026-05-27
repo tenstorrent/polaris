@@ -288,6 +288,18 @@ class TTSimHLWlDevRunOpCSVPerfStats(BaseModel, extra='forbid'):
     uses_perf_lookup: bool = Field(
         description = 'True when timing and pipe util were obtained from operator performance master lookup (matrix/vector util required in LUT row)'
     )
+    lut_key: Optional[str] = Field(
+        default = None,
+        description = 'Literal LUT key (str(tuple)) built from this operator + its tensor state, before any fallback substitution; emitted on both hit AND miss (diagnostic) whenever a LUT is configured and the literal key can be built. None only when no LUT is configured or key construction fails (unsupported arity, missing tensor/shape, etc.).'
+    )
+    lut_key_resolved: Optional[str] = Field(
+        default = None,
+        description = 'Resolved LUT key (str(tuple)) the lookup actually matched after any HEIGHT→BLOCK / L1→DRAM / ROW_MAJOR→TILE / arity-1→arity-2 fallback substitution; equals lut_key when no fallback was needed; None on LUT miss or when no LUT is configured for this device.'
+    )
+    lut_hit_source: Optional[str] = Field(
+        default = None,
+        description = 'Which lookup path produced the hit: "direct", one of the fallback names (e.g. "halo_height_to_block", "its_l1_to_dram", "move_arity_dup"), or "analytical" when a LUT is configured but no entry matched (LUT miss). None only when no LUT is configured for this device. See MasterPerfStats.hit_source for full enum.'
+    )
 
 # Option 2 - Structured Stats
 
@@ -339,6 +351,16 @@ class TTSimHLWlDevRunOperatorPerfStats(BaseModel, extra='forbid'):
     memory_traffic: float
     mem_util: float
     uses_perf_lookup: bool
+    # Literal / resolved LUT key.  See TTSimHLWlDevRunOpCSVPerfStats for full semantics.
+    # ``lut_key`` is the tuple built from this op + tensor state (pre-fallback) —
+    # emitted on both hit AND miss whenever a LUT is configured (diagnostic).
+    # ``lut_key_resolved`` is the tuple the lookup chain actually matched
+    # (post-fallback substitution) — emitted only on hit.
+    # ``lut_hit_source`` records which path produced the hit, or 'analytical' on
+    # miss with a configured LUT. All three are None only when no LUT is configured.
+    lut_key: Optional[str] = None
+    lut_key_resolved: Optional[str] = None
+    lut_hit_source: Optional[str] = None
 
 class TTSimHLWlDevRunPerfStats(BaseModel, extra='forbid'):
     """

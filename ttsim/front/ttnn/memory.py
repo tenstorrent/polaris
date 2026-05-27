@@ -131,12 +131,6 @@ def create_sharded_memory_config_(shape, grid, mem_layout, orientation, tile_lay
     return MemoryConfig(mem_layout, BufferType.L1, shard_spec=shard_spec)
 
 
-def to_memory_config(input_tensor, memory_config=None):
-    if memory_config is not None and hasattr(input_tensor, '_memory_config'):
-        input_tensor._memory_config = memory_config
-    return input_tensor
-
-
 def get_memory_config(x):
     mc = getattr(x, '_memory_config', None)
     if mc is not None:

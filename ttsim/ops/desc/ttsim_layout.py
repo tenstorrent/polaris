@@ -5,7 +5,7 @@
 """
 Layout, shard, and transformer head op descriptors:
   Tilize, Untilize, TilizeWithValPadding, UntilizeWithUnpadding,
-  InterleavedToSharded, ShardedToInterleaved, Reshard,
+  InterleavedToSharded, ShardedToInterleaved, Reshard, Halo, Move,
   ConcatHeads, CreateQKVHeads.
 Used by the TTNN front-end tracking-only operator APIs (*_op helpers) in ttnn_shim.
 """
@@ -18,6 +18,51 @@ TILE_WIDTH = 32
 
 # SimOp domain for layout ops (TTNN / device kernel names; not standard ONNX opset).
 _TTNN_OP_DOMAIN = "com.tenstorrent.ttnn"
+
+# ---------------------------------------------------------------------------
+# Halo geometry: physical halo-extended Y dimension lookup table.
+#
+# Key: (NHW, C, kH, kW, pH, pW, is_transpose)
+#   NHW         = N * H * W  (logical spatial volume from NCHW input shape)
+#   C           = channel count
+#   kH, kW      = kernel height/width
+#   pH, pW      = padding height/width
+#   is_transpose= True for conv_transpose2d (SlidingWindowConfig is_transpose flag)
+#
+# Value: halo_ext_y = max_out_nsticks_per_core × num_cores_nhw
+#
+# Source: VGG UNet WH profiler trace (2026-04-23); shape verified against
+# SlidingWindowConfig ATTRIBUTES in HaloDeviceOperation profiler rows.
+# MaxPool 2×2 (is_transpose=False, kH=kW=2, pH=pW=0) is intentionally absent:
+# no border-pixel exchange is needed for non-overlapping strides, so the halo
+# buffer equals the input (pass-through).
+# ---------------------------------------------------------------------------
+_HALO_EXT_Y: dict[tuple[int, int, int, int, int, int, bool], int] = {
+    # --- Regular 3×3 conv, pad=1, stride=1 ---
+    # Stage 1 (256×256, NHW=65536)
+    (65536, 16,  3, 3, 1, 1, False): 99072,
+    (65536, 64,  3, 3, 1, 1, False): 99072,
+    (65536, 128, 3, 3, 1, 1, False): 99072,
+    # Stage 2 (128×128, NHW=16384)
+    (16384, 64,  3, 3, 1, 1, False): 33280,
+    (16384, 128, 3, 3, 1, 1, False): 33280,
+    (16384, 256, 3, 3, 1, 1, False): 33280,
+    # Stage 3 (64×64, NHW=4096)
+    (4096,  128, 3, 3, 1, 1, False): 12672,
+    (4096,  256, 3, 3, 1, 1, False): 5280,
+    (4096,  512, 3, 3, 1, 1, False): 5280,
+    # Stage 4 (32×32, NHW=1024)
+    (1024,  256,  3, 3, 1, 1, False): 1632,
+    (1024,  512,  3, 3, 1, 1, False): 1632,
+    (1024,  1024, 3, 3, 1, 1, False): 1632,
+    # Bottleneck (16×16, NHW=256)
+    (256,   512,  3, 3, 1, 1, False): 576,
+    # --- ConvTranspose 2×2, pad=0, stride=2 (decoder upsampling) ---
+    (256,   512, 2, 2, 0, 0, True): 1320,
+    (1024,  512, 2, 2, 0, 0, True): 4680,
+    (4096,  256, 2, 2, 0, 0, True): 24768,
+    (16384, 128, 2, 2, 0, 0, True): 82240,
+}
 
 
 # Per-arch overrides to ``_HALO_EXT_Y``. The base table is empirical (WH n150 trace);
@@ -229,6 +274,7 @@ def interleaved_to_sharded_sinf(iTList, oTList, op, **kwargs):
     )
     oTList[0].shape = list(in_shape)
     oTList[0].dtype = X.dtype
+    oTList[0].hw_shape = getattr(X, 'hw_shape', None)  # propagate NHWC-flattened hw shape
 
     elem_size = op.attrs.get('element_size', 2)
     elems = _nelems(in_shape)
@@ -252,6 +298,7 @@ def sharded_to_interleaved_sinf(iTList, oTList, op, **kwargs):
     )
     oTList[0].shape = list(in_shape)
     oTList[0].dtype = X.dtype
+    oTList[0].hw_shape = getattr(X, 'hw_shape', None)  # propagate NHWC-flattened hw shape
 
     elem_size = op.attrs.get('element_size', 2)
     elems = _nelems(in_shape)
@@ -275,6 +322,7 @@ def reshard_sinf(iTList, oTList, op, **kwargs):
     )
     oTList[0].shape = list(in_shape)
     oTList[0].dtype = X.dtype
+    oTList[0].hw_shape = getattr(X, 'hw_shape', None)  # propagate NHWC-flattened hw shape
 
     elem_size = op.attrs.get('element_size', 2)
     elems = _nelems(in_shape)
@@ -372,6 +420,113 @@ def nlp_create_qkv_heads_sinf(iTList, oTList, op, **kwargs):
     return
 
 
+def _halo_ext_y(in_shape: list[int], attrs: dict) -> 'int | None':
+    """Look up the halo-extended Y dimension from _HALO_EXT_Y.
+
+    ``in_shape`` is the NCHW logical shape [N, C, H, W] of the Halo input.
+    ``attrs`` contains 'kernel_size', 'padding', and 'is_transpose' set by
+    ``_with_halo`` in ``ttsim/front/ttnn/op.py``.
+
+    Returns the extended Y (= max_out_nsticks_per_core × num_cores_nhw) or
+    None when the combination is not in the table (e.g. MaxPool 2×2).
+    """
+    if len(in_shape) < 4:
+        return None
+    N, C, H, W = in_shape[0], in_shape[1], in_shape[2], in_shape[3]
+    nhw = N * H * W
+
+    ks = attrs.get('kernel_size')
+    pad = attrs.get('padding')
+    is_tp = bool(attrs.get('is_transpose', False))
+    if ks is None or pad is None:
+        return None
+
+    kH = int(ks[0]) if hasattr(ks, '__getitem__') else int(ks)
+    kW = int(ks[1]) if hasattr(ks, '__getitem__') else int(ks)
+    pH = int(pad[0]) if hasattr(pad, '__getitem__') else int(pad)
+    pW = int(pad[1]) if hasattr(pad, '__getitem__') else int(pad)
+
+    return _HALO_EXT_Y.get((nhw, C, kH, kW, pH, pW, is_tp))
+
+
+def halo_sinf(iTList, oTList, op, **kwargs):
+    """Shape inference for Halo: logical shape passthrough with halo-extended hw_shape.
+
+    The logical tensor shape is unchanged (halo extraction is transparent to
+    the compute graph).  The hardware physical buffer grows by shard-border
+    overlap rows; ``hw_shape`` is set to [1, 1, halo_ext_y, C] so that
+    downstream Conv/Move LUT keys match the hardware profiler's recorded shapes.
+
+    When ``op.attrs`` carries 'kernel_size', 'padding', and 'is_transpose'
+    (set by ``_with_halo`` in ``op.py``), the extended Y is looked up in
+    ``_HALO_EXT_Y``.  If the combination is absent (e.g. MaxPool 2×2 pass-through),
+    the pre-halo hw_shape is propagated unchanged.
+    """
+    assert len(iTList) == 1 and len(oTList) == 1
+    X = iTList[0]
+    in_shape = require_shape_list(
+        X.shape,
+        "Halo shape inference: input tensor shape must be known",
+    )
+    oTList[0].shape = list(in_shape)
+    oTList[0].dtype = X.dtype
+
+    attrs = getattr(op, 'attrs', None) or {}
+    elem_size = op.attrs.get('element_size', 2)
+    elems = _nelems(in_shape)  # logical NCHW element count (inElems)
+
+    ext_y = _halo_ext_y(in_shape, attrs)
+    if ext_y is not None:
+        # Halo extracts beyond the logical NCHW input — the output buffer
+        # carries the halo-extended physical layout [1, 1, ext_y, C].
+        # outElems must reflect this physical buffer so memory-traffic / util
+        # estimates from analytical fallback are consistent with hw_shape.
+        C = in_shape[1]  # NCHW channel dim
+        oTList[0].hw_shape = [1, 1, ext_y, C]
+        out_elems = ext_y * C
+    else:
+        oTList[0].hw_shape = getattr(X, 'hw_shape', None)
+        out_elems = elems  # logical passthrough
+
+    op.perf_stats = {
+        'inElems': elems,
+        'outElems': out_elems,
+        'inBytes': elems * elem_size,
+        'outBytes': out_elems * elem_size,
+        'instrs': {'mov': out_elems},
+    }
+    return
+
+
+def move_sinf(iTList, oTList, op, **kwargs):
+    """Shape inference for Move: logical shape passthrough.
+
+    MoveDeviceOperation copies the activation buffer to a new memory region
+    (triggered by deallocate_activation=True in conv args).  The logical
+    tensor shape and dtype are unchanged; cost is two memory transfers.
+    """
+    assert len(iTList) == 1 and len(oTList) == 1
+    X = iTList[0]
+    in_shape = require_shape_list(
+        X.shape,
+        'Move shape inference: input tensor shape must be known',
+    )
+    oTList[0].shape = list(in_shape)
+    oTList[0].dtype = X.dtype
+    oTList[0].hw_shape = getattr(X, 'hw_shape', None)  # propagate NHWC-flattened hw shape
+
+    elem_size = op.attrs.get('element_size', 2)
+    elems = _nelems(in_shape)
+    op.perf_stats = {
+        'inElems': elems,
+        'outElems': elems,
+        'inBytes': elems * elem_size,
+        'outBytes': elems * elem_size,
+        'instrs': {'mov': elems},
+    }
+    return
+
+
 def register_layout_ops():
     d = _TTNN_OP_DOMAIN
     _optbl = [
@@ -382,6 +537,8 @@ def register_layout_ops():
         ['InterleavedToSharded', 'ARITY_1->1', d, 'COMMON', 24, 21, 1, 1, 1, 1, interleaved_to_sharded_sinf, True, True, True, True, True],
         ['ShardedToInterleaved', 'ARITY_1->1', d, 'COMMON', 24, 21, 1, 1, 1, 1, sharded_to_interleaved_sinf, True, True, True, True, True],
         ['Reshard', 'ARITY_1->1', d, 'COMMON', 24, 21, 1, 1, 1, 1, reshard_sinf, True, True, True, True, True],
+        ['Halo', 'ARITY_1->1', d, 'COMMON', 24, 21, 1, 1, 1, 1, halo_sinf, True, True, True, True, True],
+        ['Move', 'ARITY_1->1', d, 'COMMON', 24, 21, 1, 1, 1, 1, move_sinf, True, True, True, True, True],
         ['ConcatHeads', 'ARITY_1->1', d, 'COMMON', 24, 21, 1, 1, 1, 1, nlp_concat_heads_sinf, True, True, True, True, True],
         ['CreateQKVHeads', 'ARITY_VARIADIC[1-2]->3', d, 'COMMON', 24, 21, 2, 1, 3, 3, nlp_create_qkv_heads_sinf, True, True, True, True, True],
     ]

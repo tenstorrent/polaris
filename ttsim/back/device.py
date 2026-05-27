@@ -560,6 +560,22 @@ class Device:
 
         return (msecs, uses_perf_lookup, master_stats)
 
+    def _compute_lut_key_str(self, op: Any, wlgraph: Any, master_stats: Optional[Any]) -> Optional[str]:
+        """Stringified literal LUT key for ``op``, emitted regardless of LUT hit/miss.
+
+        On hit, ``master_stats.key_literal`` already carries the tuple — use it.
+        On miss, ``master_stats`` is None, but the literal key can still be built
+        from the op + tensor state via ``OperatorPerfMap.build_literal_key``.
+        Returns None only when no LUT is configured or key construction fails
+        (unsupported arity, missing tensor, missing shape, etc.).
+        """
+        if master_stats is not None and master_stats.key_literal is not None:
+            return str(master_stats.key_literal)
+        if self.operator_perf_map is None:
+            return None
+        key_t = self.operator_perf_map.build_literal_key(op, wlgraph)
+        return str(key_t) if key_t is not None else None
+
     def get_exec_stats(self, wlgraph, bs):
         graph_ordered_nodes = wlgraph.get_ordered_nodes()
 
@@ -704,6 +720,32 @@ class Device:
                     'memory_traffic'   : memory_traffic,
                     'mem_util'         : mem_util,
                     'uses_perf_lookup' : uses_perf_lookup,
+                    # LUT-key trail: ``lut_key`` is the literal key built from the
+                    # op + tensor state; ``lut_key_resolved`` is the entry the
+                    # lookup chain actually matched after any fallback
+                    # substitution (HEIGHT→BLOCK, L1→DRAM, ROW_MAJOR→TILE, arity
+                    # dup, …).  Downstream compare_layers ``--by-lut-key`` groups
+                    # by the resolved key so polaris + profiler rows that
+                    # semantically share a LUT entry align in the rollup, even
+                    # when their literal shapes differ in fallback-tolerable ways.
+                    # ``lut_key`` is emitted unconditionally (even on miss) so
+                    # the rollup can diagnose mismatches on workloads with low
+                    # hit rates; ``lut_key_resolved`` is only meaningful on hit.
+                    'lut_key'          : self._compute_lut_key_str(op, wlgraph, master_stats),
+                    'lut_key_resolved' : (
+                        str(master_stats.key_resolved)
+                        if (uses_perf_lookup and master_stats is not None
+                            and master_stats.key_resolved is not None) else None
+                    ),
+                    # Diagnostic: which lookup path produced the hit, "analytical"
+                    # when a LUT was loaded but the lookup returned no entry, or None
+                    # when no LUT is loaded at all for this device. See
+                    # MasterPerfStats.hit_source for the enum of hit-path values.
+                    'lut_hit_source'   : (
+                        master_stats.hit_source
+                        if (uses_perf_lookup and master_stats is not None and master_stats.hit_source)
+                        else ('analytical' if self.operator_perf_map is not None else None)
+                    ),
                     }
 
         #compute aggregate stats

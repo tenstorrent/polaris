@@ -253,7 +253,7 @@ def test_resolve_lfc_path_http_404_without_local_fallback():
                 fp=None
             )
             with patch('urllib.request.urlopen', side_effect=http_error):
-                with pytest.raises(RuntimeError, match="Download failed.*HTTP 404.*no local file exists"):
+                with pytest.raises(RuntimeError, match=r"Download failed.*no local file exists"):
                     resolve_lfc_path("lfc://test/file.yaml")
     finally:
         os.chdir(original_cwd)

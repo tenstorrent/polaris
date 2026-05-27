@@ -141,7 +141,15 @@ def save_data(model: BaseModel, filename, outputfmt: OutputFormat)->None:
             pickle.dump(model, foutbin)
 
 def format_tensor_for_stats(tensor, shape_override=None) -> str:
-    """Format a single tensor as name[dim1xdim2xdim3]:precision for stats output.
+    """Format a single tensor as name[dim1xdim2xdim3{|hw:dim1xdim2}]:precision for stats output.
+
+    The optional ``|hw:`` suffix encodes the hardware NHWC-flattened shape
+    (tensor.hw_shape) alongside the logical NCHW shape. This suffix is
+    **diagnostic-only**: it appears in the raw stats CSV for human / post-hoc
+    inspection but is NOT consumed by downstream layer-comparison tooling.
+    ``show_layers_polaris._parse_tensor_fields`` strips it before returning
+    shapes, so compare_layers (and anything else built on layers_polaris) sees
+    only the logical NCHW shape.
 
     Args:
         tensor: The tensor to format.
@@ -165,10 +173,16 @@ def format_tensor_for_stats(tensor, shape_override=None) -> str:
         precision = tensor.dtype.lower()
     else:
         precision = str(tensor.dtype).lower()
-    if shape:
-        shape_str = 'x'.join(str(d) for d in shape)
-        return f"{name}[{shape_str}]:{precision}"
-    return f"{name}[]:{precision}"
+    shape_str = 'x'.join(str(d) for d in shape) if shape else ''
+    # Append hw_shape (NHWC-flattened) as a `|hw:` suffix for diagnostic
+    # visibility in the raw stats CSV. The suffix is stripped by
+    # ``show_layers_polaris._parse_tensor_fields`` before downstream tooling
+    # sees the shape — see ``format_tensor_for_stats`` docstring for details.
+    hw_shape = getattr(tensor, 'hw_shape', None)
+    if hw_shape is not None:
+        hw_str = 'x'.join(str(d) for d in hw_shape)
+        shape_str = f'{shape_str}|hw:{hw_str}'
+    return f'{name}[{shape_str}]:{precision}'
 
 class HLMStats:
     def __init__(self, _dev, _wlgraph, _wlinfo, _sinfo):

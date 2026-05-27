@@ -4,7 +4,7 @@
 
 from .device import open_device, close_device, ARCH, num_cores_to_corerangeset, create_sharded_memory_config, ReadDeviceProfiler
 from .device import USE_DEFAULT_DEVICE, resolve_device, set_default_device, get_default_device
-from .ttnn_shim import interleaved_to_sharded, sharded_to_interleaved, reshard
+from .ttnn_shim import interleaved_to_sharded, sharded_to_interleaved, reshard, to_memory_config
 from .tensor import (
     Tensor,
     _rand,
@@ -24,7 +24,7 @@ from .tensor import Layout, as_tensor, arange, stack, ShardStrategy, unsqueeze_t
 from .config import Conv2dConfig, WormholeComputeKernelConfig, init_device_compute_kernel_config
 from .config import MatmulMultiCoreReuseMultiCast1DProgramConfig
 from .buffer import TensorMemoryLayout, ShardOrientation, BufferType, ShardSpec
-from .memory import MemoryConfig, create_sharded_memory_config_, get_memory_config, to_memory_config
+from .memory import MemoryConfig, create_sharded_memory_config_, get_memory_config
 from .types import TILE_HEIGHT, TILE_WIDTH
 from .core   import CoreCoord, CoreRange, CoreRangeSet, CoreGrid
 from .op     import *

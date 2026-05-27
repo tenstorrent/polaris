@@ -82,6 +82,35 @@ _DEFAULT_CORE_COUNT_FALLBACK = 64
 # ``reshape``: second input is often a small shape/constant tensor, not profiled as input_1.
 _BINARY_LUT_FALLBACK_TO_INPUT0_KEY_OPCODES = frozenset({"mul", "reshape"})
 
+# Hardware ops that are arity-1 in Polaris but arity-2 in profiler output (src + dst with
+# same shape/layout/memory).  After an arity-1 (9-tuple) miss, try a 16-tuple with t0 used
+# for both input_0 and input_1 positions.
+_UNARY_POLARIS_BINARY_HW_OPCODES = frozenset({"move"})
+
+# InterleavedToSharded: hardware records ITS from DRAM in most VGG UNet decoder stages
+# (ShardedToInterleaved output lands in DRAM on device), but Polaris models the STI output
+# as L1_INTERLEAVED (per model code using ttnn.L1_MEMORY_CONFIG).  After an L1_INTERLEAVED
+# arity-1 miss, try DRAM_INTERLEAVED — same shape/layout, just different input staging.
+_ITS_MEM_FALLBACK_OPCODES = frozenset({"interleavedtosharded"})
+_L1_INTERLEAVED_STR = "DEV_1_L1_INTERLEAVED"
+_DRAM_INTERLEAVED_STR = "DEV_1_DRAM_INTERLEAVED"
+
+# Halo and element-wise ops (Sigmoid): the LUT was built with TILE layout while Polaris models
+# VGG UNet tensors as ROW_MAJOR throughout.  After a ROW_MAJOR arity-1 miss, retry with TILE
+# — position 5 of the 9-tuple.  Timing should be layout-insensitive for these data-movement /
+# element-wise ops.
+_LAYOUT_ROWMAJOR_TO_TILE_FALLBACK_OPCODES = frozenset({"halo", "sigmoid"})
+_ROW_MAJOR_STR = "ROW_MAJOR"
+_TILE_STR = "TILE"
+
+# VGG UNet decoder: Polaris propagates HEIGHT_SHARDED through the post-concat ITS path, but
+# the LUT records those ops as BLOCK_SHARDED (hardware auto-selects BLOCK for smaller tensors).
+# Applies to arity-1 (halo, move) and arity-3 (conv2d, convtranspose) ops — position 7 of the
+# lookup key is input_0_memory in both 9-tuple and 23-tuple formats.
+_HALO_HEIGHT_TO_BLOCK_FALLBACK_OPCODES = frozenset({"halo", "move", "conv2d", "convtranspose"})
+_HEIGHT_SHARDED_STR = "DEV_1_L1_HEIGHT_SHARDED"
+_BLOCK_SHARDED_STR = "DEV_1_L1_BLOCK_SHARDED"
+
 # Percentages 0–100 inclusive in master YAML / curve-evaluated stats (not 0–1 fractions).
 LUT_OPTIONAL_UTIL_PERCENT_KEYS = frozenset(
     {"mem_util", "noc_util", "noc_multicast_util", "npe_cong_impact_pct"}
@@ -101,14 +130,24 @@ def _raise_lut_validation(lut_path: Path, key_t: tuple, detail: str) -> None:
 def _validate_required_util_percent(
     name: str, raw: Any, lut_path: Path, key_t: tuple
 ) -> float:
-    """Require a finite percentage in [0, 100]. ``raw`` is the resolved scalar from the LUT row."""
+    """Require a finite, non-negative percentage. ``raw`` is the resolved scalar from the LUT row.
+
+    Values above 100 are accepted with a single one-time warning per field name —
+    TT-Metal records multicast/overcount cases where DRAM BW UTIL etc. can exceed
+    100% legitimately.
+
+    TODO(util-over-100): mirrors the placeholder in
+    ``tools/profiling/ops_perf_three_csv_merge.py::validate_utilization_cells``.
+    When the merge step is updated to clip / fix-at-source, this loader-side
+    relaxation should be tightened back to a hard error.
+    """
     if raw is None:
         _raise_lut_validation(
             lut_path,
             key_t,
             f"required field {name!r} is missing or null; when a LUT row matches, "
             "matrix_pipe_util and vector_pipe_util must both be provided "
-            "(percentages 0–100 inclusive; 0 is allowed).",
+            "(percentages >= 0; 0 is allowed).",
         )
     if isinstance(raw, bool):
         _raise_lut_validation(
@@ -123,12 +162,14 @@ def _validate_required_util_percent(
     v = float(raw)
     if not math.isfinite(v):
         _raise_lut_validation(lut_path, key_t, f"field {name!r} must be finite, got {raw!r}")
-    if v < 0.0 or v > 100.0:
+    if v < 0.0:
         _raise_lut_validation(
             lut_path,
             key_t,
-            f"field {name!r} must be a percentage in [0, 100] inclusive, got {v!r}",
+            f"field {name!r} must be non-negative, got {v!r}",
         )
+    if v > 100.0:
+        _warn_util_over_100_once(name, v, lut_path)
     return v
 
 
@@ -153,21 +194,52 @@ def _validate_optional_util_percent(
         _raise_lut_validation(
             lut_path, key_t, f"field {name!r} must be finite when present, got {raw!r}"
         )
-    if v < 0.0 or v > 100.0:
+    if v < 0.0:
         _raise_lut_validation(
             lut_path,
             key_t,
-            f"field {name!r} must be a percentage in [0, 100] inclusive when present, got {v!r}",
+            f"field {name!r} must be non-negative when present, got {v!r}",
         )
+    if v > 100.0:
+        _warn_util_over_100_once(name, v, lut_path)
     return v
+
+
+# One-shot warning bookkeeping: keep the log quiet when many rows of the same
+# field exceed 100 (common for DRAM BW UTIL on multicast-heavy ops).
+_OVER_100_WARNED: set[str] = set()
+
+
+def _warn_util_over_100_once(name: str, v: float, lut_path: Path) -> None:
+    if name in _OVER_100_WARNED:
+        return
+    _OVER_100_WARNED.add(name)
+    logger.warning(
+        "LUT field {!r} value {} >100 in {} (TT-Metal multicast/overcount; "
+        "warning shown once per field — subsequent occurrences silent)",
+        name, v, lut_path,
+    )
 
 
 @dataclass(frozen=True)
 class MasterPerfStats:
     """Resolved profiler row for one op (after single/curve/hybrid evaluation).
 
-    ``matrix_pipe_util`` and ``vector_pipe_util`` are percentages in **[0, 100]** (not fractions).
-    ``Device.get_exec_stats`` divides by 100 for exec_stats / CSV. Optional ``mem_util`` is the same.
+    ``matrix_pipe_util`` and ``vector_pipe_util`` are percentages, typically in
+    **[0, 100]** (not fractions). Values >100 are accepted with a one-time warning
+    per field — TT-Metal multicast/overcount can legitimately exceed 100% (see
+    ``_warn_util_over_100_once`` above). Downstream consumers must not assume a
+    hard 100% cap. ``Device.get_exec_stats`` divides by 100 for exec_stats / CSV.
+    Optional ``mem_util`` is the same.
+
+    ``key_literal`` is the tuple originally built from the workload op + its tensor state
+    (the *would-have-been* key before any fallback substitution).  ``key_resolved`` is the
+    tuple the lookup actually matched in the LUT — i.e. the literal key after any
+    HEIGHT→BLOCK, L1→DRAM, ROW_MAJOR→TILE, or arity-1→arity-2 fallback chain in
+    ``OperatorPerfMap.lookup``.  Downstream tooling (compare_layers ``--by-lut-key``)
+    uses ``key_resolved`` so polaris and profiler ops that semantically share a LUT
+    entry group together regardless of the literal-shape divergence the runtime
+    fallback chain papers over.
     """
 
     msecs: float
@@ -175,6 +247,23 @@ class MasterPerfStats:
     vector_pipe_util: float
     memory_traffic: Optional[float] = None
     mem_util: Optional[float] = None
+    key_literal: Optional[tuple] = None
+    key_resolved: Optional[tuple] = None
+    # Diagnostic label for which lookup path produced the hit. One of:
+    #   "direct"                   — literal key matched on the first lookup
+    #   "add_broadcast_dup"        — add op: broadcast operand duplicated to full shape
+    #   "move_arity_dup"           — Move/STS/ITS/Reshard: arity-1 → arity-2 duplicate
+    #   "move_arity_dup_tile"      — above + ROW_MAJOR→TILE substitution
+    #   "move_arity_dup_block"     — above + HEIGHT→BLOCK substitution
+    #   "its_l1_to_dram"           — ITS: input_0_memory L1_INTERLEAVED → DRAM_INTERLEAVED
+    #   "halo_rowmajor_to_tile"    — Halo/Sigmoid: input_0_layout ROW_MAJOR → TILE
+    #   "halo_height_to_block"     — Halo/Conv/ConvTranspose: input_0_memory HEIGHT → BLOCK
+    #   "halo_tile_block_combined" — above + ROW_MAJOR→TILE simultaneously
+    #   "binary_to_unary"          — mul/reshape: drop input_1 from 15-tuple to 9-tuple
+    # When the literal key matched directly the value is "direct"; when ``lookup``
+    # returns None entirely (analytical fallback in the caller), no MasterPerfStats
+    # is produced, so device.py emits "analytical" in the CSV based on the absence.
+    hit_source: Optional[str] = None
 
 
 def _eval_curve_value(family: str, a: float, b: float, core_count: int) -> float:
@@ -564,8 +653,7 @@ def _wzyx_int_tuple(t4: tuple) -> tuple:
 def _lut_keys_matching_op_and_wzyx(entries: Dict[tuple, dict], key_t: tuple) -> Tuple[tuple, ...]:
     """
     LUT keys with same ``op_code`` and WZYX as ``key_t``
-    (input 0 for 9/10/15-tuple and halo 16-tuple; inputs 0 and 1 for binary 16-tuple;
-    inputs 0, 1, and 2 for 23-tuple).
+    (input 0 for 9/10/15-tuple; inputs 0 and 1 for 16-tuple; inputs 0, 1, and 2 for 23-tuple).
 
     Layout, datatype, and memory may differ — useful diagnostics when the full key misses.
     """
@@ -574,8 +662,10 @@ def _lut_keys_matching_op_and_wzyx(entries: Dict[tuple, dict], key_t: tuple) -> 
         return ()
     oc = key_t[0]
     matched: list[tuple] = []
-    if n in (9, 10, 15) or (n == 16 and oc == 'halo'):
-        # Halo v4 16-tuple has one input slot at [1:5]; positions [9:] are geometry+is_transpose.
+    if n in (9, 10, 15) or (n == 16 and oc == "halo"):
+        # Unary ops (9/10-tuple), Halo v3 (15-tuple), and Halo v4 (16-tuple).
+        # Halo v4's positions 9:13 carry kernel/stride geometry fields (not a
+        # second input's WZYX), so we match only on input_0 WZYX here.
         w0 = _wzyx_int_tuple(key_t[1:5])
         for k in entries:
             if len(k) != n or k[0] != oc:
@@ -583,6 +673,7 @@ def _lut_keys_matching_op_and_wzyx(entries: Dict[tuple, dict], key_t: tuple) -> 
             if _wzyx_int_tuple(k[1:5]) == w0:
                 matched.append(k)
     elif n == 16:
+        # Non-halo 16-tuple key (binary op) — positions 9:13 are input_1 WZYX.
         w0 = _wzyx_int_tuple(key_t[1:5])
         w1 = _wzyx_int_tuple(key_t[9:13])
         for k in entries:
@@ -698,7 +789,14 @@ class OperatorPerfMap:
     def __len__(self) -> int:
         return len(self._entries)
 
-    def _stats_from_entry(self, key_t: tuple, entry_val: dict, core_count: int) -> Optional[MasterPerfStats]:
+    def _stats_from_entry(
+        self,
+        key_t: tuple,
+        entry_val: dict,
+        core_count: int,
+        key_literal: Optional[tuple] = None,
+        hit_source: Optional[str] = None,
+    ) -> Optional[MasterPerfStats]:
         et = entry_val.get(MASTER_ENTRY_TYPE_KEY)
         if not isinstance(et, str):
             return None
@@ -747,18 +845,22 @@ class OperatorPerfMap:
             vector_pipe_util=vector_pipe_util,
             memory_traffic=resolve("memory_traffic"),
             mem_util=mem_util,
+            key_literal=key_literal if key_literal is not None else key_t,
+            key_resolved=key_t,
+            hit_source=hit_source,
         )
 
-    def lookup(
+    def _build_literal_key_with_tensors(
         self,
         op: Any,
         wlgraph: Any,
-        core_count: int,
-    ) -> Optional[MasterPerfStats]:
-        """
-        Return resolved stats when the table has a matching 9-, 16-, or 23-tuple key, else ``None``.
+    ) -> Optional[Tuple[tuple, Tuple[Any, ...]]]:
+        """Build the literal LUT key tuple and capture the input tensors used.
 
-        ``core_count`` should match profiler Core_Count bucketing (see package config).
+        Returns ``(key_t, (t0,) | (t0, t1) | (t0, t1, t2))`` on success, ``None`` on
+        any of: unsupported arity, missing tensor, missing shape, key-build failure.
+        Internal helper; ``lookup`` uses this then proceeds with entry matching, while
+        ``build_literal_key`` exposes just the key half publicly.
         """
         in_list = getattr(op, "inList", [])
         n_in = len(in_list)
@@ -773,7 +875,6 @@ class OperatorPerfMap:
             )
             return None
 
-        t0 = t1 = t2 = None
         if n_in == 1:
             t0_name = in_list[0]
             if t0_name not in tensors:
@@ -792,8 +893,8 @@ class OperatorPerfMap:
                             getattr(op, "name", "?"),
                         )
                         return None
-                    key_t = halo_key
-                elif op_code_norm == "interleavedtosharded":
+                    return halo_key, (t0,)
+                if op_code_norm == "interleavedtosharded":
                     out_list = getattr(op, "outList", [])
                     t_out = tensors.get(out_list[0]) if out_list else None
                     if t_out is None or getattr(t_out, "shape", None) is None:
@@ -803,13 +904,12 @@ class OperatorPerfMap:
                             getattr(op, "name", "?"),
                         )
                         return None
-                    key_t = build_master_key_tuple_its(op, t0, t_out)
-                else:
-                    key_t = build_master_key_tuple_8(op, t0)
+                    return build_master_key_tuple_its(op, t0, t_out), (t0,)
+                return build_master_key_tuple_8(op, t0), (t0,)
             except Exception as e:
                 logger.debug("Perf lookup key build failed for op {}: {}", getattr(op, "name", "?"), e)
                 return None
-        elif n_in == 2:
+        if n_in == 2:
             t0_name, t1_name = in_list[0], in_list[1]
             if t0_name not in tensors or t1_name not in tensors:
                 return None
@@ -817,25 +917,54 @@ class OperatorPerfMap:
             if t0.shape is None or t1.shape is None:
                 return None
             try:
-                key_t = build_master_key_tuple_15(op, t0, t1)
+                return build_master_key_tuple_15(op, t0, t1), (t0, t1)
             except Exception as e:
                 logger.debug("Perf lookup key build failed for op {}: {}", getattr(op, "name", "?"), e)
                 return None
-        else:
-            t0_name, t1_name, t2_name = in_list[0], in_list[1], in_list[2]
-            if t0_name not in tensors or t1_name not in tensors or t2_name not in tensors:
-                return None
-            t0, t1, t2 = tensors[t0_name], tensors[t1_name], tensors[t2_name]
-            if t0.shape is None or t1.shape is None or t2.shape is None:
-                return None
-            try:
-                key_t = build_master_key_tuple_22(op, t0, t1, t2)
-            except Exception as e:
-                logger.debug("Perf lookup key build failed for op {}: {}", getattr(op, "name", "?"), e)
-                return None
+        t0_name, t1_name, t2_name = in_list[0], in_list[1], in_list[2]
+        if t0_name not in tensors or t1_name not in tensors or t2_name not in tensors:
+            return None
+        t0, t1, t2 = tensors[t0_name], tensors[t1_name], tensors[t2_name]
+        if t0.shape is None or t1.shape is None or t2.shape is None:
+            return None
+        try:
+            return build_master_key_tuple_22(op, t0, t1, t2), (t0, t1, t2)
+        except Exception as e:
+            logger.debug("Perf lookup key build failed for op {}: {}", getattr(op, "name", "?"), e)
+            return None
+
+    def build_literal_key(self, op: Any, wlgraph: Any) -> Optional[tuple]:
+        """Public: return the literal LUT key tuple for ``op`` (pre-fallback), or ``None``.
+
+        Same as the key ``lookup`` builds internally — exposed so callers (e.g. device.py's
+        per-op stats writer) can emit ``lut_key`` even when the entry lookup misses.
+        """
+        built = self._build_literal_key_with_tensors(op, wlgraph)
+        return built[0] if built is not None else None
+
+    def lookup(
+        self,
+        op: Any,
+        wlgraph: Any,
+        core_count: int,
+    ) -> Optional[MasterPerfStats]:
+        """
+        Return resolved stats when the table has a matching 9-, 16-, or 23-tuple key, else ``None``.
+
+        ``core_count`` should match profiler Core_Count bucketing (see package config).
+        """
+        built = self._build_literal_key_with_tensors(op, wlgraph)
+        if built is None:
+            return None
+        key_t, ts = built
+        n_in = len(ts)
+        t0 = ts[0]
+        t1 = ts[1] if n_in >= 2 else None
+        t2 = ts[2] if n_in >= 3 else None
 
         entry_val = self._entries.get(key_t)
         lookup_key = key_t
+        hit_source: Optional[str] = "direct" if entry_val is not None else None
 
         if entry_val is None and n_in == 2 and _op_code(op) == "add":
             try:
@@ -852,6 +981,7 @@ class OperatorPerfMap:
                 if ev_add is not None:
                     entry_val = ev_add
                     lookup_key = key_add_bc
+                    hit_source = "add_broadcast_dup"
                     logger.debug(
                         "Perf lookup: 15-tuple miss for add op={!r}; using broadcast-duplicated "
                         "LUT key {} (lut={})",
@@ -859,6 +989,97 @@ class OperatorPerfMap:
                         key_add_bc,
                         self._source_path,
                     )
+
+        # Move: arity-1 in Polaris, arity-2 in hardware profiler (src + dst same tensor).
+        # After 9-tuple miss, try 16-tuple with t0 duplicated for both positions.
+        if entry_val is None and n_in == 1 and _op_code(op) in _UNARY_POLARIS_BINARY_HW_OPCODES:
+            try:
+                key16 = build_master_key_tuple_15(op, t0, t0)
+            except Exception as e:
+                logger.debug('Perf lookup move dup-key build failed for op {}: {}', getattr(op, 'name', '?'), e)
+                key16 = None
+            if key16 is not None:
+                ev16 = self._entries.get(key16)
+                if ev16 is not None:
+                    entry_val = ev16
+                    lookup_key = key16
+                    hit_source = "move_arity_dup"
+                elif len(key16) >= 16 and key16[5] == _ROW_MAJOR_STR:
+                    # Also try TILE layout for both input_0 (pos 5) and input_1 (pos 13).
+                    key16_tile = key16[:5] + (_TILE_STR,) + key16[6:13] + (_TILE_STR,) + key16[14:]
+                    ev16_tile = self._entries.get(key16_tile)
+                    if ev16_tile is not None:
+                        entry_val = ev16_tile
+                        lookup_key = key16_tile
+                        hit_source = "move_arity_dup_tile"
+                # HEIGHT→BLOCK fallback for 16-tuple dup keys: substitute BLOCK_SHARDED at
+                # both input_0_memory (pos 7) and input_1_memory (pos 15) simultaneously.
+                if entry_val is None and len(key16) >= 16 and key16[7] == _HEIGHT_SHARDED_STR:
+                    key16_block = key16[:7] + (_BLOCK_SHARDED_STR,) + key16[8:15] + (_BLOCK_SHARDED_STR,)
+                    ev16_block = self._entries.get(key16_block)
+                    if ev16_block is not None:
+                        entry_val = ev16_block
+                        lookup_key = key16_block
+                        hit_source = "move_arity_dup_block"
+
+        # InterleavedToSharded: hardware stages through DRAM in most VGG UNet decoder paths,
+        # but Polaris models the predecessor STI output as L1_INTERLEAVED.  After L1 miss,
+        # substitute DRAM_INTERLEAVED in position 7 of the 9-tuple and retry.
+        if (
+            entry_val is None
+            and n_in == 1
+            and _op_code(op) in _ITS_MEM_FALLBACK_OPCODES
+            and len(lookup_key) >= 9
+            and lookup_key[7] == _L1_INTERLEAVED_STR
+        ):
+            key_dram = lookup_key[:7] + (_DRAM_INTERLEAVED_STR,) + lookup_key[8:]
+            ev_dram = self._entries.get(key_dram)
+            if ev_dram is not None:
+                entry_val = ev_dram
+                lookup_key = key_dram
+                hit_source = "its_l1_to_dram"
+
+        # Halo / Sigmoid: LUT was built with TILE layout; Polaris models VGG UNet as ROW_MAJOR.
+        # After ROW_MAJOR arity-1 miss, substitute TILE in position 5 of the 9-tuple.
+        if (
+            entry_val is None
+            and n_in == 1
+            and _op_code(op) in _LAYOUT_ROWMAJOR_TO_TILE_FALLBACK_OPCODES
+            and len(lookup_key) >= 9
+            and lookup_key[5] == _ROW_MAJOR_STR
+        ):
+            key_tile = lookup_key[:5] + (_TILE_STR,) + lookup_key[6:]
+            ev_tile = self._entries.get(key_tile)
+            if ev_tile is not None:
+                entry_val = ev_tile
+                lookup_key = key_tile
+                hit_source = "halo_rowmajor_to_tile"
+
+        # VGG UNet decoder HEIGHT→BLOCK fallback: after HEIGHT_SHARDED miss, substitute
+        # DEV_1_L1_BLOCK_SHARDED at position 7 (input_0_memory) of the lookup key.
+        # Works for arity-1 (9-tuple: halo, move) and arity-3 (23-tuple: conv2d, convtranspose)
+        # since position 7 is input_0_memory in both formats.
+        if (
+            entry_val is None
+            and n_in in (1, 3)
+            and _op_code(op) in _HALO_HEIGHT_TO_BLOCK_FALLBACK_OPCODES
+            and len(lookup_key) >= 9
+            and lookup_key[7] == _HEIGHT_SHARDED_STR
+        ):
+            key_block = lookup_key[:7] + (_BLOCK_SHARDED_STR,) + lookup_key[8:]
+            ev_block = self._entries.get(key_block)
+            if ev_block is not None:
+                entry_val = ev_block
+                lookup_key = key_block
+                hit_source = "halo_height_to_block"
+            elif lookup_key[5] == _ROW_MAJOR_STR:
+                # Also try TILE layout + BLOCK memory combined
+                key_tile_block = lookup_key[:5] + (_TILE_STR,) + lookup_key[6:7] + (_BLOCK_SHARDED_STR,) + lookup_key[8:]
+                ev_tb = self._entries.get(key_tile_block)
+                if ev_tb is not None:
+                    entry_val = ev_tb
+                    lookup_key = key_tile_block
+                    hit_source = "halo_tile_block_combined"
 
         if (
             entry_val is None
@@ -879,6 +1100,7 @@ class OperatorPerfMap:
                 if ev8 is not None:
                     entry_val = ev8
                     lookup_key = key8
+                    hit_source = "binary_to_unary"
                     logger.debug(
                         "Perf lookup: 15-tuple miss for {} op={!r}; using unary LUT key {} (lut={})",
                         _op_code(op),
@@ -921,7 +1143,7 @@ class OperatorPerfMap:
             self._source_path,
             entry_val,
         )
-        return self._stats_from_entry(lookup_key, entry_val, core_count)
+        return self._stats_from_entry(lookup_key, entry_val, core_count, key_literal=key_t, hit_source=hit_source)
 
 
 def resolve_operator_lookup_core_count(simcfg_obj: Any, package_model: Any) -> int:

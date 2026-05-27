@@ -49,8 +49,10 @@ op_rsrc_spec:
              Equal, Erf, Exp, Expand,
              Flatten, Fold,
              Gather, GatherND, Gelu, GlobalAveragePool, GridSample, Greater, GroupNormalization,
+             Halo,
              HardSigmoid, Hardswish,
              Identity, If, InterleavedToSharded, IsNaN,
+             Move,
              LayerNormalization, LeakyRelu, Log, Less,
              Max, MaxPool, Mean, Min, Mish, Mul,
              Neg, ConcatHeads, CreateQKVHeads, NonMaxSuppression, NonZero, # transformer head ops from ttnn_shim

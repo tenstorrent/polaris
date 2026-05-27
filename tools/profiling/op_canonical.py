@@ -141,6 +141,7 @@ POLARIS_SYNONYMS: Dict[str, str] = {
     "nlpcreateqkvheads": "createqkvheads",  # backward-compat: old CSVs used NLP prefix
     "nlpconcatheads": "concatheads",
     "untilizewithvalunpadding": "untilizewithunpadding",  # Polaris uses "Val", profiler uses plain form
+    "conv": "conv2d",  # Polaris emits op.type='Conv'; LUT op_code='conv2d'
     "maxpool": "pool2d",  # Polaris emits op.type='MaxPool'; profiler/LUT uses 'Pool2D' → 'pool2d'
 }
 

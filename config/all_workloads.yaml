@@ -463,3 +463,35 @@ workloads:
     module : run_vit_perf_device@test_vit_device_perf_bh.py
     instances:
       vitoptim_bh_b16_perf_report: { bs: 10, model_name: vitoptim-bh-b16-perf-report }
+
+  # ----- VGG UNet — Wormhole (n150) -----
+
+  - api: TTNN
+    name: vgg_unet_wh_device_perf
+    basedir: workloads/ttnn/vgg_unet/wh
+    module : run_vgg_unet_e2e_entry@test_vgg_unet_device_perf_wh.py
+    instances:
+      vgg_unet_wh_b1_device_perf: { bs: 1, model_name: vgg-unet-wh-b1-device-perf }
+
+  - api: TTNN
+    name: vgg_unet_wh_perf_report
+    basedir: workloads/ttnn/vgg_unet/wh
+    module : run_vgg_unet_perf_device@test_vgg_unet_device_perf_wh.py
+    instances:
+      vgg_unet_wh_b1_perf_report: { bs: 1, model_name: vgg-unet-wh-b1-perf-report }
+
+  # ----- VGG UNet — Blackhole (p100a) -----
+
+  - api: TTNN
+    name: vgg_unet_bh_device_perf
+    basedir: workloads/ttnn/vgg_unet/bh
+    module : run_vgg_unet_e2e_entry@test_vgg_unet_device_perf_bh.py
+    instances:
+      vgg_unet_bh_b1_device_perf: { bs: 1, model_name: vgg-unet-bh-b1-device-perf }
+
+  - api: TTNN
+    name: vgg_unet_bh_perf_report
+    basedir: workloads/ttnn/vgg_unet/bh
+    module : run_vgg_unet_perf_device@test_vgg_unet_device_perf_bh.py
+    instances:
+      vgg_unet_bh_b1_perf_report: { bs: 1, model_name: vgg-unet-bh-b1-perf-report }

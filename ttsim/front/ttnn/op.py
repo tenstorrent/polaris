@@ -811,15 +811,491 @@ split = multiple_output_immediate_op("Split", preprocess=split_pp)
 layer_norm = single_output_immediate_op("LayerNormalization", preprocess=layer_norm_pp)
 batch_norm = single_output_immediate_op("BatchNormalization")
 
-# Convolution
-conv2d = single_output_immediate_op("Conv", preprocess=conv2d_pp)
-conv_transpose2d = single_output_immediate_op(
-    "ConvTranspose", preprocess=conv_transpose2d_pp
-)
+# Halo: auto-emitted by the shim before every conv2d / pool2d / conv_transpose2d,
+# mirroring the hardware dispatch where halo extraction is implicit inside those ops.
+halo = single_output_immediate_op("Halo")
 
-# Pooling
+# InterleavedToSharded: auto-emitted when conv/pool receives an interleaved tensor,
+# mirroring the hardware dispatch where the kernel internally converts to sharded
+# before halo extraction.
+_interleaved_to_sharded = single_output_immediate_op("InterleavedToSharded")
+
+# Move: auto-emitted after conv2d / conv_transpose2d when deallocate_activation=True.
+# On hardware, MoveDeviceOperation copies the output buffer to a new memory region
+# to free the old one.  The shim mirrors this by emitting a Move SimOp after the
+# conv output, matching the hardware profiler op sequence.
+_move = single_output_immediate_op("Move")
+
+
+# Producers whose output is already a freshly allocated buffer — tt-metal's conv
+# kernel skips its internal Move when the input came from one of these, because
+# no reallocation is needed.  Used by ``_with_halo`` to suppress the Move that
+# would otherwise be emitted before the conv.  (See HW Move LUT entries: the
+# first conv of every stage following a MaxPool has no matching Move row.)
+_HW_FRESH_BUFFER_PRODUCERS: frozenset[str] = frozenset({"MaxPool", "ConvTranspose"})
+
+
+def _producer_optype(tensor) -> str:
+    """Return the optype of the op that produced ``tensor``, or '' if unknown."""
+    if tensor is None or getattr(tensor, "device", None) is None:
+        return ""
+    op_out = getattr(tensor, "op_out", None)
+    if not op_out:
+        return ""
+    producer = tensor.device.ops.get(op_out[0])
+    if producer is None:
+        return ""
+    return str(getattr(producer, "optype", ""))
+
+# Pad: used by VGG UNet entry path to model the C=3 → C=16 channel pad that the
+# hardware applies before the first conv (the LUT records this Pad).
+_pad = single_output_immediate_op("Pad")
+
+
+def pad_channels_nchw(input_tensor: 'Tensor', target_channels: int) -> 'Tensor':
+    """Emit a Pad SimOp that grows the NCHW channel dim from in_shape[1] to target_channels.
+
+    VGG UNet enters with C=3 but the canonical hardware form pads to C=16 before
+    the first conv (see HW ttnn_vgg_unet.py).  The profiler records this Pad with
+    the pre-pad input shape; emitting it here makes the LUT entry hit and shifts
+    downstream Halo/Move/Conv onto the C=16 LUT entries that the hardware uses.
+
+    The op is emitted as arity-1 (no pads_tensor in inList) so the LUT key matches
+    the profiler's 9-tuple recording, with pad values carried in attrs.  The output
+    is given an NCHW ``hw_shape`` ``[N, target_channels, H, W]`` so the *next*
+    op's LUT key sees the post-Pad NCHW shape — the HW emits two Transposes
+    after the Pad (NCHW → NHWC), and those Transposes' LUT entries record the
+    NCHW input shape.  The Halo / Conv path then receives an NHWC-flat shape
+    via the second Transpose's ``hw_shape``.  See ``permute_reshape_to_nhwc_flat``.
+    """
+    in_shape = list(input_tensor.shape)  # type: ignore[arg-type]
+    assert len(in_shape) == 4 and in_shape[1] < target_channels, (
+        f"pad_channels_nchw: NCHW input with C<target required; "
+        f"got shape={in_shape}, target={target_channels}"
+    )
+    N, _, H, W = in_shape
+    pad_amount = target_channels - in_shape[1]
+    out_shape = [N, target_channels, H, W]
+
+    op_name = generate_new_op_name()
+    out_tensor = Tensor(
+        name=op_name + '.out',
+        shape=out_shape,
+        dtype=input_tensor.dtype,
+        layout=input_tensor.get_layout(),
+        op_out=[op_name],
+        device=input_tensor.device,
+    )
+    # hw_shape mirrors the logical NCHW shape so the first entry-path Transpose
+    # presents a (1, C, H, W) input to its LUT lookup.
+    #
+    # TODO(batch>1): the entry-path Transpose LUT keys are documented with W=1
+    # (batch folded into later NHWC-flat N*H*W). Multi-batch use needs either
+    # (a) extending the LUT entries to cover N>1 keys, or (b) folding N into
+    # H/W here so the existing keys still match. Today only batch_size=1 is
+    # exercised; assert that explicitly so multi-batch use fails fast rather
+    # than producing silent LUT-key mismatches downstream.
+    assert int(out_shape[0]) == 1, (
+        f"pad_channels_nchw currently supports batch_size=1 only "
+        f"(got N={out_shape[0]}). See TODO above."
+    )
+    out_tensor.hw_shape = list(out_shape)
+    input_tensor.op_in.append(op_name)
+
+    opinfo = {
+        'name': op_name,
+        'optype': 'Pad',
+        'inList': [input_tensor.name],
+        'outList': [out_tensor.name],
+        'attrs': {'pads': [0, 0, 0, 0, 0, pad_amount, 0, 0], 'mode': 'constant', 'value': 0},
+    }
+    opobj = SimOp(opinfo)
+
+    # Manual perf stats (bypass pad_sinf which requires a pad_tensor input).
+    # Pad is dtype-preserving; query the input tensor for the correct byte
+    # width (handles BFLOAT8_B, BFLOAT4_B etc.) instead of hardcoding bfloat16.
+    elem_size = input_tensor.element_size()
+    nelems_in = 1
+    for d in in_shape:
+        nelems_in *= int(d)
+    nelems_out = 1
+    for d in out_shape:
+        nelems_out *= int(d)
+    opobj.perf_stats = {
+        'inElems': nelems_in,
+        'outElems': nelems_out,
+        'inBytes': nelems_in * elem_size,
+        'outBytes': nelems_out * elem_size,
+        'instrs': {'mov': nelems_out},
+    }
+    # Pre-populating ``perf_stats`` short-circuits ``SimOp.get_perf_counts()``
+    # and skips its post-shape-inference snapshot block. Mirror that snapshot
+    # here so downstream stats serialization reads the frozen (post-pad) shapes
+    # rather than live tensor state that later ops may mutate.
+    opobj._frozen_input_shapes = [list(in_shape)]
+    opobj._frozen_output_shapes = [list(out_shape)]
+    opobj.update_tensor_counts([input_tensor], [out_tensor])
+
+    _propagate_ttnn_dtype([input_tensor], [out_tensor])
+    _propagate_memory_config([input_tensor], [out_tensor])
+
+    input_tensor.device.add_op(opobj)  # type: ignore[union-attr]
+    return out_tensor
+
+
+def _emit_entry_transpose(input_tensor: 'Tensor', output_hw_shape: list) -> 'Tensor':
+    """Emit a tracking-only Transpose SimOp with an explicit output ``hw_shape``.
+
+    Used by ``permute_reshape_to_nhwc_flat`` to model the two HW transposes that
+    convert NCHW (post-Pad) to NHWC-flat (pre-Halo).  Logical shape is a
+    passthrough (Polaris models conv math in NCHW); only ``hw_shape`` is
+    advanced so the downstream LUT keys land on the right entries.
+    """
+    in_shape = list(input_tensor.shape)  # type: ignore[arg-type]
+    op_name = generate_new_op_name()
+    out_tensor = Tensor(
+        name=op_name + '.out',
+        shape=in_shape,
+        dtype=input_tensor.dtype,
+        layout=input_tensor.get_layout(),
+        op_out=[op_name],
+        device=input_tensor.device,
+    )
+    out_tensor.hw_shape = list(output_hw_shape)
+    input_tensor.op_in.append(op_name)
+
+    opinfo = {
+        'name': op_name,
+        'optype': 'Transpose',
+        'inList': [input_tensor.name],
+        'outList': [out_tensor.name],
+        'attrs': {},
+    }
+    opobj = SimOp(opinfo)
+
+    # Transpose is dtype-preserving; query the input tensor for the correct
+    # byte width (handles BFLOAT8_B, BFLOAT4_B etc.) instead of hardcoding bfloat16.
+    elem_size = input_tensor.element_size()
+    nelems = 1
+    for d in in_shape:
+        nelems *= int(d)
+    opobj.perf_stats = {
+        'inElems': nelems,
+        'outElems': nelems,
+        'inBytes': nelems * elem_size,
+        'outBytes': nelems * elem_size,
+        'instrs': {'mov': nelems},
+    }
+    # Pre-populating ``perf_stats`` short-circuits ``SimOp.get_perf_counts()``
+    # and skips its post-shape-inference snapshot block. Mirror that snapshot
+    # here. Transpose's logical shape is a passthrough (only ``hw_shape``
+    # differs), so input and output frozen shapes are both ``in_shape``.
+    opobj._frozen_input_shapes = [list(in_shape)]
+    opobj._frozen_output_shapes = [list(in_shape)]
+    opobj.update_tensor_counts([input_tensor], [out_tensor])
+
+    _propagate_ttnn_dtype([input_tensor], [out_tensor])
+    _propagate_memory_config([input_tensor], [out_tensor])
+
+    input_tensor.device.add_op(opobj)  # type: ignore[union-attr]
+    return out_tensor
+
+
+def permute_reshape_to_nhwc_flat(input_tensor: 'Tensor') -> 'Tensor':
+    """Emit the two Transpose SimOps that follow Pad in the VGG UNet entry path.
+
+    The HW profiler shows two TransposeDeviceOperation rows between Pad and the
+    first Halo, converting NCHW [N, C, H, W] to NHWC-flat [1, 1, N*H*W, C].
+    LUT entries record:
+      T1 input: (1, C, H, W)         — post-Pad NCHW
+      T2 input: (1, H, C, W)         — intermediate
+    Output of T2 has hw_shape ``[1, 1, N*H*W, C]`` (NHWC-flat) for downstream
+    Halo to consume.  Logical (NCHW) shape is preserved through both transposes
+    so Polaris's conv shape inference continues to operate in NCHW.
+    """
+    in_shape = list(input_tensor.shape)  # type: ignore[arg-type]
+    assert len(in_shape) == 4, (
+        f"permute_reshape_to_nhwc_flat expects rank-4 NCHW input; got shape={in_shape}"
+    )
+    N, C, H, W = in_shape
+    t1 = _emit_entry_transpose(input_tensor, [1, H, C, W])
+    t2 = _emit_entry_transpose(t1, [1, 1, N * H * W, C])
+    return t2
+
+
+def _with_halo(op_fn, is_transpose: bool = False, move_before_conv: bool = False):
+    """Return a wrapper that auto-emits a Halo SimOp before the main op.
+
+    Halo is skipped for 1×1 kernels: hardware implements those as matmul
+    and never dispatches a halo extraction step.
+
+    When the input has an interleaved memory config, an InterleavedToSharded
+    SimOp is emitted first, matching the hardware dispatch where conv/pool
+    kernels internally convert interleaved activations to sharded layout
+    before halo extraction.
+
+    Args:
+        is_transpose: True when wrapping conv_transpose2d (sets is_transpose attr on Halo).
+        move_before_conv: When True, emits Move after Halo but before the main op,
+            matching the hardware op sequence ITS → Halo → Move → Conv.
+            Only emits Move when deallocate_activation=True and the original
+            input tensor is L1-sharded (same guard as _with_move).
+    """
+    def _impl(*args, **kwargs):
+        ks = kwargs.get('kernel_size', (3, 3))
+        # Normalise scalar int to 2-tuple — several upstream call sites pass
+        # `kernel_size=3` rather than `kernel_size=(3, 3)`. Without this, the
+        # downstream `tuple(ks)` would raise TypeError at graph-build time.
+        # Write the normalised form back into kwargs so downstream
+        # preprocessors (conv2d_pp / max_pool2d_pp) also see a 2-tuple — they
+        # call `list(kernel_size)` and would otherwise still trip on a scalar.
+        if isinstance(ks, int):
+            ks = (ks, ks)
+        ks = tuple(ks)
+        kwargs['kernel_size'] = ks
+        if ks != (1, 1):
+            # --- 3×3+ kernel: ITS → Halo → [Move] → Conv ---
+            # Capture original input BEFORE ITS/Halo so Move guard uses the right tensor.
+            original_input = kwargs.get('input_tensor') or (args[0] if args else None)
+
+            if original_input is not None:
+                mc = getattr(original_input, '_memory_config', None)
+                if mc is not None and not mc.is_sharded():
+                    its_out = _interleaved_to_sharded(
+                        original_input,
+                        element_size=original_input.element_size(),
+                    )
+                    # Mirror tt-metal: the conv's Conv2dConfig.shard_layout drives the
+                    # auto-emitted ITS's output memory layout. Falls back to
+                    # HEIGHT_SHARDED when shard_layout is unset (None) — matches the
+                    # default the polaris shim has historically used.
+                    conv_cfg_for_its = kwargs.get('conv_config')
+                    its_shard = getattr(conv_cfg_for_its, 'shard_layout', None)
+                    if not isinstance(its_shard, TensorMemoryLayout):
+                        its_shard = TensorMemoryLayout.HEIGHT_SHARDED
+                    its_out._memory_config = MemoryConfig(its_shard, BufferType.L1)
+                    if 'input_tensor' in kwargs:
+                        kwargs['input_tensor'] = its_out
+                    else:
+                        args = (its_out,) + args[1:]
+
+            # Normalise padding/stride scalars to 2-tuples — same shape robustness
+            # as the kernel_size normalisation above. The Halo LUT key builder
+            # treats these as indexable 2-D geometry, and ``halo_sinf`` reads them
+            # from ``op.attrs``; either would break on a scalar int. Write the
+            # normalised values back into kwargs so downstream preprocessors
+            # (conv2d_pp / conv_transpose2d_pp / max_pool2d_pp) — which do
+            # ``padding[0]`` / ``list(stride)`` — also see 2-tuples.
+            padding = kwargs.get('padding', (0, 0))
+            stride = kwargs.get('stride', (1, 1))
+            if isinstance(padding, int):
+                padding = (padding, padding)
+            if isinstance(stride, int):
+                stride = (stride, stride)
+            padding = tuple(padding)
+            stride = tuple(stride)
+            kwargs['padding'] = padding
+            kwargs['stride'] = stride
+
+            # The tensor fed into Halo may be the post-ITS tensor (if input was
+            # interleaved); capture it here so ``element_size`` in halo_attrs is
+            # dtype-accurate for halo_sinf's analytical perf_stats fallback.
+            halo_input = kwargs.get('input_tensor') or args[0]
+
+            # Pass sliding-window config attrs so halo_sinf can compute the
+            # halo-extended hw_shape (matching hardware's physical buffer size).
+            halo_attrs = {
+                'kernel_size': ks,
+                'padding': padding,
+                'stride': stride,
+                'is_transpose': is_transpose,
+                'element_size': halo_input.element_size(),
+            }
+            if 'input_tensor' in kwargs:
+                kwargs['input_tensor'] = halo(kwargs['input_tensor'], **halo_attrs)
+            elif args:
+                args = (halo(args[0], **halo_attrs),) + args[1:]
+
+            # Emit Move AFTER Halo but BEFORE the main op, mirroring hardware's
+            # ITS → Halo → Move → Conv sequence (not Conv → Move as _with_move did).
+            # Three guards in order of precedence:
+            #   1. Workload opts out per-position via ``emit_move_before_conv=False``
+            #      kwarg.  Used for stages where the HW profiler shows no Move row
+            #      despite deallocate_activation being True (constant-shape buffer
+            #      reuse in bottleneck, fresh-from-Concat inputs in decoder d3).
+            #   2. Skip when the conv's input came from a fresh-buffer producer
+            #      (MaxPool / ConvTranspose) — the kernel doesn't need to
+            #      reallocate.
+            #   3. The original deallocate_activation + L1-sharded guard below.
+            emit_move = kwargs.get('emit_move_before_conv', True)
+            if (
+                move_before_conv
+                and emit_move
+                and _producer_optype(original_input) not in _HW_FRESH_BUFFER_PRODUCERS
+            ):
+                conv_cfg = kwargs.get('conv_config')
+                deallocate = kwargs.get(
+                    'deallocate_activation',
+                    getattr(conv_cfg, 'deallocate_activation', False),
+                )
+                if deallocate:
+                    # Check the POST-ITS+Halo input tensor's memory config (not
+                    # original_input). When the original input was L1_INTERLEAVED or
+                    # DRAM_INTERLEAVED, auto-ITS converts it to L1-sharded, and
+                    # tt-metal's conv kernel then fires the Move kernel to reallocate
+                    # the halo output. Using original_input would skip Move at
+                    # decoder convs whose input comes from an explicit STS (e.g.
+                    # d1.conv1, d2.conv1 in VGG UNet).
+                    current_input = kwargs.get('input_tensor') or (args[0] if args else None)
+                    current_mc = getattr(current_input, '_memory_config', None)
+                    is_l1_sharded = (
+                        current_mc is not None
+                        and current_mc.is_sharded()
+                        and getattr(current_mc, 'buffer_type', None) == BufferType.L1
+                    )
+                    if is_l1_sharded:
+                        if 'input_tensor' in kwargs:
+                            kwargs['input_tensor'] = _move(
+                                kwargs['input_tensor'],
+                                element_size=kwargs['input_tensor'].element_size(),
+                            )
+                        elif args:
+                            args = (
+                                _move(args[0], element_size=args[0].element_size()),
+                            ) + args[1:]
+
+            return op_fn(*args, **kwargs)
+
+        else:
+            # --- 1×1 kernel (lowered to MatMul): no Move ---
+            # tt-metal's 1×1-conv→MatMul path does NOT emit MoveDeviceOperation
+            # after the matmul (the HW profiler shows no Move row at the final
+            # 1×1 conv output shape).  Drop the trailing Move that the previous
+            # implementation emitted; emit only the MatMul.
+            return op_fn(*args, **kwargs)
+    return _impl
+
+
+def _with_move(op_fn):
+    """Return a wrapper that auto-emits a Move SimOp after the main op.
+
+    Move is emitted only when two conditions both hold:
+      1. deallocate_activation=True (direct kwarg or via Conv2dConfig.conv_config)
+      2. The input tensor's _memory_config is L1-sharded (HEIGHT or BLOCK sharded
+         on L1 buffer).
+
+    Condition 2 mirrors hardware: MoveDeviceOperation is only dispatched when the
+    activation lives in L1 sharded memory.  Tensors in DRAM or interleaved L1 are
+    left in place and no Move is emitted.
+    """
+    def _impl(*args, **kwargs):
+        # Capture input tensor BEFORE op_fn runs (conv_config/halo may transform it).
+        input_tensor = kwargs.get('input_tensor') or (args[0] if args else None)
+
+        conv_cfg = kwargs.get('conv_config')
+        deallocate = kwargs.get(
+            'deallocate_activation',
+            getattr(conv_cfg, 'deallocate_activation', False),
+        )
+        result = op_fn(*args, **kwargs)
+        if deallocate:
+            mc = getattr(input_tensor, '_memory_config', None)
+            is_l1_sharded = (
+                mc is not None
+                and mc.is_sharded()
+                and getattr(mc, 'buffer_type', None) == BufferType.L1
+            )
+            if is_l1_sharded:
+                result = _move(result)
+        return result
+    return _impl
+
+
+# Convolution (ITS→Halo auto-emitted before, Move auto-emitted after when deallocate_activation=True)
+_conv2d_raw = single_output_immediate_op("Conv", preprocess=conv2d_pp)
+# 1×1 conv: hardware lowers to MatMul; use same conv2d_pp attrs so matmul_shape_inf
+# detects kernel_shape=[1,1] and applies NCHW conv output-shape logic.
+_matmul_1x1_raw = single_output_immediate_op("MatMul", preprocess=conv2d_pp)
+
+
+def _matmul_1x1_with_hw_fields(*args, **kwargs):
+    """1×1 conv lowered to MatMul; apply HW weight/bias preprocessing.
+
+    On hardware, the 1×1 conv kernel pre-processes the weight to NHWC-flat
+    ``[1, 1, C_in*kH*kW, C_out]`` in TILE / BFLOAT8_B / DRAM and the bias to
+    ``[1, 1, 1, C_out]`` in the same layout; the activation is tilized before
+    the matmul.  Setting these ``hw_shape`` / ``_hw_layout`` / ``_hw_dtype``
+    fields on the input/weight/bias tensors makes the LUT key match the
+    profiler's recorded matmul entry for the 1×1 conv (Conv path already does
+    this via ``conv_sinf``; matmul-routed path didn't).
+    """
+    input_t = kwargs.get('input_tensor')
+    weight_t = kwargs.get('weight_tensor')
+    bias_t = kwargs.get('bias_tensor')
+
+    result = _matmul_1x1_raw(*args, **kwargs)
+
+    if weight_t is not None and weight_t.shape is not None and len(weight_t.shape) == 4:
+        C_out = int(weight_t.shape[0])
+        C_in = int(weight_t.shape[1])
+        kH = int(weight_t.shape[2])
+        kW = int(weight_t.shape[3])
+        weight_t.hw_shape = [1, 1, C_in * kH * kW, C_out]
+        weight_t._hw_dtype = DataType.BFLOAT8_B
+        weight_t._hw_layout = Layout.TILE_LAYOUT
+        if bias_t is not None:
+            bias_t.hw_shape = [1, 1, 1, C_out]
+            bias_t._hw_dtype = DataType.BFLOAT8_B
+            bias_t._hw_layout = Layout.TILE_LAYOUT
+    if input_t is not None:
+        input_t._hw_layout = Layout.TILE_LAYOUT
+
+    return result
+
+
+def _apply_conv_output_layout(result, kwargs):
+    """Mirror tt-metal: ``Conv2dConfig.output_layout`` controls the conv output tensor layout.
+
+    Without this, polaris's Conv2d / Conv_transpose2d output defaults to ``Layout.DEFAULT``
+    (= ROW_MAJOR_LAYOUT, see tensor.py), so downstream ops (next halo, etc.) always see
+    ROW_MAJOR input — even when the model code requested ``output_layout=TILE_LAYOUT`` via
+    ``Conv2dConfig``. Mirrors tt-metal: the kernel emits in the layout requested by the
+    config (relevant for VGG UNet's tile_layout convs).
+    """
+    conv_cfg = kwargs.get('conv_config')
+    if conv_cfg is not None:
+        ol = getattr(conv_cfg, 'output_layout', None)
+        if isinstance(ol, Layout):
+            result.layout = ol
+    return result
+
+
+def _conv2d_dispatch(*args, **kwargs):
+    ks = kwargs.get('kernel_size', (3, 3))
+    if tuple(ks) == (1, 1):
+        result = _matmul_1x1_with_hw_fields(*args, **kwargs)
+    else:
+        result = _conv2d_raw(*args, **kwargs)
+    return _apply_conv_output_layout(result, kwargs)
+
+
+conv2d = _with_halo(_conv2d_dispatch, is_transpose=False, move_before_conv=True)
+
+
+_conv_transpose2d_raw_inner = single_output_immediate_op("ConvTranspose", preprocess=conv_transpose2d_pp)
+
+
+def _conv_transpose2d_raw(*args, **kwargs):
+    result = _conv_transpose2d_raw_inner(*args, **kwargs)
+    return _apply_conv_output_layout(result, kwargs)
+
+
+conv_transpose2d = _with_halo(_conv_transpose2d_raw, is_transpose=True, move_before_conv=True)
+
+# Pooling (Halo auto-emitted before max_pool2d, matching hardware sub-op sequence)
 global_avg_pool2d = single_output_immediate_op("GlobalAveragePool")
-max_pool2d = single_output_immediate_op("MaxPool", preprocess=max_pool2d_pp)
+_max_pool2d_raw = single_output_immediate_op("MaxPool", preprocess=max_pool2d_pp)
+max_pool2d = _with_halo(_max_pool2d_raw)
 
 # Matrix Multiplication
 matmul = single_output_immediate_op("MatMul")

@@ -25,7 +25,9 @@ COLUMNS_OF_INTEREST = ['opnum', 'optype', 'input_tensors', 'output_tensors']
 def _parse_tensor_fields(tensor_string: str):
     """Parse a semicolon-separated tensor string into parallel lists of shapes and dtypes.
 
-    Each segment has the format ``name[dim1xdim2]:dtype``.
+    Each segment has the format ``name[dim1xdim2{|hw:dim1xdim2}]:dtype``.
+    The optional ``|hw:`` suffix (NHWC-flattened hw_shape) is stripped before
+    returning so callers receive only the logical shape string.
     Returns (shapes: list[str], dtypes: list[str]).
     """
     shapes = []
@@ -35,6 +37,8 @@ def _parse_tensor_fields(tensor_string: str):
             continue
         before_colon, _, dtype_part = field.rpartition(':')
         shape_part = before_colon.split('[')[1].replace(']', '') if '[' in before_colon else ''
+        # Strip |hw:... suffix — keep only the logical shape portion.
+        shape_part = shape_part.split('|')[0]
         shapes.append(shape_part)
         dtypes.append(dtype_part.strip())
     return shapes, dtypes

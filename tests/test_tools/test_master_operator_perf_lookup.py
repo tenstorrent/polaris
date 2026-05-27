@@ -288,6 +288,81 @@ def test_unary_single_lookup_hit(tmp_path: Path):
     assert st is not None
     assert st.msecs == pytest.approx(0.03)
     assert st.mem_util == pytest.approx(20.0)
+    # Literal == resolved here (lookup hit the first key it tried).
+    assert st.key_literal is not None
+    assert st.key_resolved is not None
+    assert st.key_literal == st.key_resolved
+    # Resolved key must be an actual entry in the LUT.
+    assert st.key_resolved in m._entries
+
+
+@pytest.mark.unit
+def test_lookup_resolved_key_differs_from_literal_on_fallback(tmp_path: Path):
+    """When the literal key misses but a fallback substitution hits, key_literal records
+    the originally-built tuple and key_resolved records the matching LUT entry's key.
+
+    Exercises the Halo HEIGHT_SHARDED → BLOCK_SHARDED fallback: the LUT only has the
+    BLOCK_SHARDED variant; the lookup builds a HEIGHT_SHARDED literal key, then the
+    fallback chain in OperatorPerfMap.lookup substitutes BLOCK at position 7 and finds
+    the entry.
+    """
+    from tools.perf_lookup.lookup_operator_perf import OperatorPerfMap
+
+    doc = {
+        "schema_name": "correqn.tt-perf-master",
+        "schema_version": 4,
+        "entries": [
+            {
+                "key": {
+                    "op_code": "halo",
+                    "input_0_w_pad_logical": 1,
+                    "input_0_z_pad_logical": 1,
+                    "input_0_y_pad_logical": 100,
+                    "input_0_x_pad_logical": 64,
+                    "input_0_layout": "ROW_MAJOR",
+                    "input_0_datatype": "BFLOAT16",
+                    "input_0_memory": "DEV_1_L1_BLOCK_SHARDED",
+                    "math_fidelity": "N/A",
+                    "kernel_h": 3,
+                    "kernel_w": 3,
+                    "stride_h": 1,
+                    "stride_w": 1,
+                    "padding_h": 1,
+                    "padding_w": 1,
+                    "is_transpose": False,
+                },
+                "value": _flat_single_value(8, msecs=0.05),
+            }
+        ],
+    }
+    p = tmp_path / "halo_fallback.yaml"
+    p.write_text(yaml.dump(doc, sort_keys=False), encoding="utf-8")
+    m = OperatorPerfMap(p)
+
+    # Build a polaris-side tensor whose literal key uses HEIGHT_SHARDED (so the
+    # literal lookup misses and the HEIGHT→BLOCK fallback runs).
+    from ttsim.front.ttnn.buffer import BufferType, TensorMemoryLayout
+    from ttsim.front.ttnn.memory import MemoryConfig
+    # Y=100, X=64 matches the LUT entry's input_0_y_pad_logical=100, input_0_x_pad_logical=64.
+    t0 = SimTensor({"name": "a", "shape": [1, 1, 100, 64], "op_in": [], "op_out": []})
+    t0.layout = SimpleNamespace(name="ROW_MAJOR_LAYOUT")
+    t0._memory_config = MemoryConfig(TensorMemoryLayout.HEIGHT_SHARDED, BufferType.L1)
+    # Schema v3 halo keys carry sliding-window geometry; the op.attrs must provide them.
+    op = SimpleNamespace(
+        optype="Halo", precision="BF16", inList=["a"],
+        attrs={"kernel_size": (3, 3), "stride": (1, 1), "padding": (1, 1)},
+    )
+    g = SimpleNamespace(_tensors={"a": t0})
+
+    st = m.lookup(op, g, core_count=8)
+    assert st is not None, "Halo HEIGHT→BLOCK fallback should hit the BLOCK_SHARDED LUT entry"
+    assert st.key_literal is not None and st.key_resolved is not None
+    assert st.key_literal != st.key_resolved, "Literal and resolved keys must differ when a fallback substituted"
+    assert st.key_literal[7] == "DEV_1_L1_HEIGHT_SHARDED"
+    assert st.key_resolved[7] == "DEV_1_L1_BLOCK_SHARDED"
+    # Resolved key must be an actual entry in the LUT; literal must not.
+    assert st.key_resolved in m._entries
+    assert st.key_literal not in m._entries
 
 
 @pytest.mark.unit
@@ -371,8 +446,13 @@ def test_curve_hit_missing_vector_pipe_util_raises_at_lookup(tmp_path: Path):
 
 
 @pytest.mark.unit
-def test_lut_util_percent_out_of_range_raises(tmp_path: Path):
-    from tools.perf_lookup.lookup_operator_perf import OperatorPerfLUTValidationError, OperatorPerfMap
+def test_lut_util_percent_over_100_warns_does_not_raise(tmp_path: Path):
+    """Util fields >100 are accepted (with a one-time per-field warning) — see TODO(util-over-100).
+
+    TT-Metal sometimes reports multicast/overcount util values above 100; the loader
+    used to raise but now warns and continues so real HW data can flow through.
+    """
+    from tools.perf_lookup.lookup_operator_perf import OperatorPerfMap
 
     doc = {
         "schema_name": "correqn.tt-perf-master",
@@ -394,7 +474,44 @@ def test_lut_util_percent_out_of_range_raises(tmp_path: Path):
             }
         ],
     }
-    p = tmp_path / "bad_pct.yaml"
+    p = tmp_path / "over_100_pct.yaml"
+    p.write_text(yaml.dump(doc, sort_keys=False), encoding="utf-8")
+    m = OperatorPerfMap(p)
+    t0 = SimTensor({"name": "a", "shape": [1, 2, 3], "op_in": [], "op_out": []})
+    op = SimpleNamespace(optype="Softmax", precision="BF16", inList=["a"])
+    g = SimpleNamespace(_tensors={"a": t0})
+    # Lookup must succeed; the >100 value is preserved verbatim.
+    stats = m.lookup(op, g, core_count=8)
+    assert stats is not None
+    assert stats.matrix_pipe_util == 100.01
+
+
+@pytest.mark.unit
+def test_lut_util_percent_negative_raises(tmp_path: Path):
+    """Negative util values remain a hard error — only the upper bound was relaxed."""
+    from tools.perf_lookup.lookup_operator_perf import OperatorPerfLUTValidationError, OperatorPerfMap
+
+    doc = {
+        "schema_name": "correqn.tt-perf-master",
+        "schema_version": 2,
+        "entries": [
+            {
+                "key": {
+                    "op_code": "softmax",
+                    "input_0_w_pad_logical": 1,
+                    "input_0_z_pad_logical": 1,
+                    "input_0_y_pad_logical": 2,
+                    "input_0_x_pad_logical": 3,
+                    "input_0_layout": "TILE",
+                    "input_0_datatype": "BFLOAT16",
+                    "input_0_memory": "DEV_1_DRAM_INTERLEAVED",
+                "math_fidelity": "N/A",
+                },
+                "value": _flat_single_value(8, msecs=0.03, matrix_pipe_util=-0.5),
+            }
+        ],
+    }
+    p = tmp_path / "neg_pct.yaml"
     p.write_text(yaml.dump(doc, sort_keys=False), encoding="utf-8")
     m = OperatorPerfMap(p)
     t0 = SimTensor({"name": "a", "shape": [1, 2, 3], "op_in": [], "op_out": []})

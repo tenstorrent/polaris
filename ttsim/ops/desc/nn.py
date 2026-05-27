@@ -269,6 +269,12 @@ def maxpool_sinf(iTList, oTList, op, **kwargs):
         oTList[1].shape = output_shape
         oTList[1].dtype = np.dtype(np.int64)
 
+    # Propagate NHWC-flattened hw_shape through MaxPool so downstream conv/halo LUT keys
+    # use the correct [1, 1, N*H_out*W_out, C] format rather than the NCHW fallback.
+    if len(output_shape) == 4:
+        from ttsim.ops.tensor import nchw_to_nhwc_flat
+        oTList[0].hw_shape = nchw_to_nhwc_flat(output_shape)
+
     # Compute actual data if inputs have data
     from ttsim.ops.desc.data_compute import try_compute_data, compute_maxpool2d
     oTList[0].data = try_compute_data(compute_maxpool2d, iTList, op)
@@ -415,6 +421,19 @@ def conv_transpose_sinf(iTList, oTList, op, **kwargs):
     output_shape = [N, C_out, H_out, W_out]
     oTList[0].shape = output_shape
     oTList[0].dtype = X.dtype
+    # Set hw_shape for 2-D spatial conv_transpose (same NHWC-flattened convention as conv_sinf).
+    from ttsim.ops.tensor import nchw_to_nhwc_flat
+    from ttsim.front.ttnn.tensor import DataType, Layout
+    oTList[0].hw_shape = nchw_to_nhwc_flat(output_shape)
+    # Hardware pre-processes weights to [1, 1, C_in*kH*kW, C_out] BFLOAT8_B TILE DRAM.
+    # Use _hw_dtype/_hw_layout (not _ttnn_dtype/layout) to avoid propagation into activations.
+    W.hw_shape = [1, 1, C_in_w * kH * kW, C_out]
+    W._hw_dtype = DataType.BFLOAT8_B
+    W._hw_layout = Layout.TILE_LAYOUT
+    if B is not None:
+        B.hw_shape = [1, 1, 1, C_out]
+        B._hw_dtype = DataType.BFLOAT8_B
+        B._hw_layout = Layout.TILE_LAYOUT
 
     # Compute actual data if inputs have data
     from ttsim.ops.desc.data_compute import try_compute_data, compute_conv_transpose2d
@@ -480,10 +499,13 @@ def conv_sinf(iTList, oTList, op, **kwargs):
         raise ValueError("Dilations, strides, and pads must match spatial dimensions")
     if group <= 0 or X.shape[1] % group != 0:
         raise ValueError(f"C_in {X.shape[1]} must be divisible by group {group}")
-    if W.shape[1] != X.shape[1] // group:
+    if W.shape[1] > X.shape[1] // group:
         raise ValueError(
-            f"Weight C_in/group {W.shape[1]} must match input C_in/group {X.shape[1] // group}"
+            f"Weight C_in/group {W.shape[1]} exceeds input C_in/group {X.shape[1] // group}"
         )
+    # Allow X.shape[1] > W.shape[1] * group: hardware pads input C for memory
+    # alignment (e.g. VGG UNet C=3 → C=16); the kernel slices only weight C_in
+    # channels, and the LUT records weight at its original (unpadded) C_in.
     if len(iTList) == 3:
         if B.rank() != 1 or B.shape[0] != W.shape[0]:
             raise ValueError(
@@ -557,8 +579,27 @@ def conv_sinf(iTList, oTList, op, **kwargs):
     oTList[0].shape = output_shape
     oTList[0].dtype = X.dtype
 
-    macs_per_output = (C_in // group) * np.prod(kernel_dims)
-    output_elements = N * C_out * np.prod(spatial_dims)
+    # Set hw_shape for 2-D spatial conv (NCHW → [1, 1, N*H*W, C] on hardware).
+    # 1-D / 3-D spatial convolutions do not use this layout so hw_shape is left None.
+    if num_spatial_dims == 2:
+        from ttsim.ops.tensor import nchw_to_nhwc_flat
+        from ttsim.front.ttnn.tensor import DataType, Layout
+        oTList[0].hw_shape = nchw_to_nhwc_flat(output_shape)
+        # Hardware pre-processes weights to [1, 1, kernel_C_in*kH*kW, C_out] BFLOAT8_B TILE DRAM.
+        # Use W.shape[1] (weight's own C_in/group) rather than X.shape[1]//group so the LUT
+        # key matches when input C is padded above weight C (VGG UNet entry: input C=16,
+        # weight C_in=3 → weight hw_shape = 3*3*3 = 27 in the LUT).
+        kH_int, kW_int = int(kernel_dims[0]), int(kernel_dims[1])
+        W.hw_shape = [1, 1, int(W.shape[1]) * kH_int * kW_int, C_out]
+        W._hw_dtype = DataType.BFLOAT8_B
+        W._hw_layout = Layout.TILE_LAYOUT
+        if len(iTList) == 3:
+            B.hw_shape = [1, 1, 1, C_out]
+            B._hw_dtype = DataType.BFLOAT8_B
+            B._hw_layout = Layout.TILE_LAYOUT
+
+    macs_per_output = int(W.shape[1]) * np.prod(kernel_dims)
+    output_elements = N * C_out * np.prod(output_spatial)
     total_macs = output_elements * macs_per_output
     instr_count = {"mac": int(total_macs)}
     if len(iTList) == 3:

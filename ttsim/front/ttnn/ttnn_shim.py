@@ -2510,6 +2510,30 @@ def reshard_op(input_tensor, memory_config=None, element_size=2):
     return out_tensor
 
 
+def to_memory_config(input_tensor, memory_config=None):
+    """Emit STI+ITS SimOps when resharding from one sharded config to another.
+
+    On hardware, transitioning between two sharded layouts goes through an
+    interleaved staging step: ShardedToInterleaved → InterleavedToSharded.
+    This is emitted when both source and target are sharded but differ.
+    """
+    if memory_config is None:
+        return input_tensor
+    mode = get_execution_mode()
+    should_track = (mode == ExecutionMode.TRACK_ONLY or mode == ExecutionMode.EXECUTE_AND_TRACK)
+    if (should_track and memory_config.is_sharded()
+            and isinstance(input_tensor, Tensor) and input_tensor.device is not None):
+        input_mc = getattr(input_tensor, '_memory_config', None)
+        if input_mc is not None and input_mc.is_sharded() and input_mc != memory_config:
+            elem_sz = input_tensor.element_size() if hasattr(input_tensor, 'element_size') else 2
+            input_tensor = sharded_to_interleaved_op(input_tensor, element_size=elem_sz)
+            input_tensor = interleaved_to_sharded_op(input_tensor, memory_config=memory_config, element_size=elem_sz)
+            return input_tensor
+    if hasattr(input_tensor, '_memory_config'):
+        input_tensor._memory_config = memory_config
+    return input_tensor
+
+
 def reshard(input_tensor, memory_config, output_tensor=None):
     """Change shard layout of an already-sharded tensor."""
     mode = get_execution_mode()
