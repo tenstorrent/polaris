@@ -114,6 +114,7 @@ def check_environment_sanity() -> tuple[bool, str]:
 
     # Check critical dependencies
     missing_packages = []
+    broken_packages = []
     critical_imports = {
         'pydantic': 'pydantic',
         'loguru': 'loguru',
@@ -122,7 +123,6 @@ def check_environment_sanity() -> tuple[bool, str]:
         'networkx': 'networkx',
         'numpy': 'numpy',
     }
-    broken_packages = []
 
     for module, package_name in critical_imports.items():
         try:
@@ -146,15 +146,15 @@ def check_environment_sanity() -> tuple[bool, str]:
         )
     if broken_packages:
         messages.append(
-            f"ERROR: Installed packages failed to import (version/runtime conflict): {', '.join(broken_packages)}\n"
+            f"ERROR: Broken packages (installed but failed to import): {', '.join(broken_packages)}\n"
             f"Current environment: {conda_env}\n\n"
             f"Options to fix:\n"
             f"  1. Use --environment/-e to specify a different environment\n"
-            f"  2. Recreate environment from environment.yaml:\n"
+            f"  2. Recreate the environment from environment.yaml:\n"
             f"     conda env create -f environment.yaml"
         )
     if messages:
-        return False, "\n\n".join(messages)
+        return False, '\n'.join(messages)
 
     return True, f"Environment check passed (using: {conda_env})"
 
