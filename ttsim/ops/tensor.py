@@ -117,6 +117,22 @@ def require_shape_list(shape: Optional[Any], msg: str = "shape must be set") -> 
     return _coerce_shape_to_list(shape)
 
 
+def nchw_to_nhwc_flat(shape: list[int]) -> list[int]:
+    """Convert NCHW [N, C, H, W] to hardware NHWC-flattened [1, 1, N*H*W, C].
+
+    Tenstorrent hardware stores activations as [1, 1, N*H*W, C] (spatial dims
+    folded into rows, channels last).  This hw_shape drives LUT key construction
+    and profiler-shape comparison; the logical NCHW shape is kept in tensor.shape.
+
+    Only valid for rank-4 NCHW inputs with 2 spatial dims.
+
+    TODO: extend for rank-5 (3-D conv) if needed.
+    """
+    assert len(shape) == 4, f'nchw_to_nhwc_flat: expected rank-4 NCHW, got {shape}'
+    N, C, H, W = shape
+    return [1, 1, N * H * W, C]
+
+
 class SimTensor:
     def __init__(self, cfg):
         self.name        = cfg['name']                # String

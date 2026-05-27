@@ -47,6 +47,159 @@ except ImportError:
     from .show_layers_profiler import layers_profiler  # type: ignore
 
 
+# Trace-replay dedup: HW captures running with METAL_TRACE_REPLAY emit one
+# `(METAL TRACE REPLAY SESSION ID)` column whose value identifies the replay
+# session for each row. The op sequence is repeated once per session, so the
+# raw profiler CSV is N×ops_per_session rows long. compare_layers picks one
+# representative session (median total duration) and discards the rest.
+_REPLAY_SESSION_COL = 'METAL TRACE REPLAY SESSION ID'
+_DURATION_NS_COL = 'DEVICE KERNEL DURATION [ns]'
+_SEQNO_COL = 'GLOBAL CALL COUNT'
+
+
+@dataclass
+class TraceReplayInfo:
+    """Structure detected in a profiler CSV."""
+    has_trace_replay: bool
+    n_sessions: int          # number of distinct replay session IDs
+    ops_per_session: int     # ops in the largest session (expected uniform)
+    setup_op_count: int      # rows with no session ID (warmup + trace-capture)
+    selected_session: int    # session ID chosen for comparison (0 if N/A)
+    selected_duration_ns: float  # total device-kernel duration of chosen session
+
+
+def _detect_trace_replay(filepath: str) -> Tuple['TraceReplayInfo', Dict[int, List[Tuple[int, float]]]]:
+    """Scan the raw profiler CSV for METAL TRACE REPLAY SESSION ID structure.
+
+    Returns ``(info, sessions)`` where ``sessions`` maps session_id to a list
+    of ``(row_index, duration_ns)`` tuples.  ``row_index`` is the 0-based
+    position of the row in the CSV data (excluding header), which aligns
+    directly with the index in the list returned by ``layers_profiler``.
+
+    Using row index rather than GLOBAL CALL COUNT is necessary because the
+    hardware trace replay re-uses the same GLOBAL CALL COUNT values for every
+    replay session — seqnos are NOT unique across sessions.
+    """
+    sessions: DefaultDict[int, List[Tuple[int, float]]] = defaultdict(list)
+    setup_row_count = 0
+    has_replay_col = False
+
+    with open(filepath, 'r') as fh:
+        reader = csv.DictReader(fh)
+        headers = reader.fieldnames or []
+        has_replay_col = _REPLAY_SESSION_COL in headers
+        for row_idx, row in enumerate(reader):
+            dur_raw = (row.get(_DURATION_NS_COL) or '').strip()
+            try:
+                dur_ns = float(dur_raw) if dur_raw else 0.0
+            except ValueError:
+                dur_ns = 0.0
+            sid_raw = (row.get(_REPLAY_SESSION_COL, '') or '').strip() if has_replay_col else ''
+            if sid_raw:
+                try:
+                    sid = int(float(sid_raw))
+                    sessions[sid].append((row_idx, dur_ns))
+                except ValueError:
+                    setup_row_count += 1
+            else:
+                setup_row_count += 1
+
+    if not sessions:
+        return TraceReplayInfo(
+            has_trace_replay=False,
+            n_sessions=0,
+            ops_per_session=0,
+            setup_op_count=setup_row_count,
+            selected_session=0,
+            selected_duration_ns=0.0,
+        ), {}
+
+    session_totals = {sid: sum(d for _, d in rows) for sid, rows in sessions.items()}
+    sorted_sids = sorted(session_totals, key=lambda s: session_totals[s])
+    selected_sid = sorted_sids[len(sorted_sids) // 2]
+    ops_per_session = max(len(v) for v in sessions.values())
+
+    return TraceReplayInfo(
+        has_trace_replay=True,
+        n_sessions=len(sessions),
+        ops_per_session=ops_per_session,
+        setup_op_count=setup_row_count,
+        selected_session=selected_sid,
+        selected_duration_ns=session_totals[selected_sid],
+    ), dict(sessions)
+
+
+def _maybe_dedup_profiler_layers(
+    layers: List[Dict[str, Any]],
+    filepath: str,
+) -> List[Dict[str, Any]]:
+    """Apply trace-replay deduplication to a profiler layer list if needed.
+
+    Detects trace structure from the raw CSV, picks the median-total-duration
+    replay session, and returns only those layers.  Setup-only ops (warmup,
+    trace-capture) are excluded because they do not contribute to device-only FPS.
+
+    Also performs self-checks:
+    - Warns when dedup appears necessary but the session ID column is absent.
+    - Warns when session sizes are uneven (unexpected replay structure).
+    - Confirms when the file is a clean single-pass run requiring no dedup.
+    """
+    info, sessions = _detect_trace_replay(filepath)
+
+    if not info.has_trace_replay:
+        # Self-check: duplicate GLOBAL CALL COUNT (seqno) values are a reliable
+        # indicator of trace replay without the session-id column — single-pass
+        # profiler runs use unique seqnos; trace replay re-uses the same seqnos
+        # across sessions. Repeated op types alone are NOT reliable (single-pass
+        # runs naturally have many repeated optypes like conv2d).
+        seqno_counts: DefaultDict[int, int] = defaultdict(int)
+        for layer in layers:
+            seqno_counts[layer['seqno']] += 1
+        max_count = max(seqno_counts.values()) if seqno_counts else 0
+        if max_count > 1:
+            print(
+                f"WARNING: '{_REPLAY_SESSION_COL}' column not found, but "
+                f"'{_SEQNO_COL}' values repeat up to {max_count}x in the profiler "
+                f"CSV. If this is a trace-replay run, add the column to enable auto-dedup.",
+                file=sys.stderr,
+            )
+        else:
+            print('Trace replay: not detected - using all profiler layers as-is (single-pass run)')
+        return layers
+
+    print(
+        f'Trace replay detected: {info.n_sessions} session(s) x {info.ops_per_session} ops, '
+        f'{info.setup_op_count} setup-only rows excluded'
+    )
+
+    session_sizes = {sid: len(rows) for sid, rows in sessions.items()}
+    if len(set(session_sizes.values())) > 1:
+        print(
+            f'WARNING: replay sessions have uneven op counts: {session_sizes}  '
+            f'- unexpected structure; using largest session size as reference.',
+            file=sys.stderr,
+        )
+
+    print(
+        f'Selected session {info.selected_session} '
+        f'(median total duration {info.selected_duration_ns / 1e6:.3f} ms)'
+    )
+
+    selected_indices = {row_idx for row_idx, _ in sessions[info.selected_session]}
+    deduped = [layer for i, layer in enumerate(layers) if i in selected_indices]
+
+    expected = info.ops_per_session
+    if len(deduped) != expected:
+        print(
+            f'WARNING: expected {expected} layers after dedup but got {len(deduped)} '
+            f'- row-index alignment between raw CSV and layers_profiler may be off.',
+            file=sys.stderr,
+        )
+
+    print(f'After dedup: {len(deduped)} profiler layers (was {len(layers)} total rows)')
+    return deduped
+
+
 def sanitize_file_path(filepath: str) -> Path:
     """
     Sanitize and validate a user-provided file path.
@@ -1895,6 +2048,9 @@ def main() -> int:
         print(f"{label} CSV: {file1_path}")
         print(f"Loaded {len(layers)} {label.lower()} layers")
 
+        if ftype == 'profiler':
+            layers = _maybe_dedup_profiler_layers(layers, str(file1_path))
+
         if args.filter_optype:
             filter_norm = normalize_optype(args.filter_optype)
             layers = [layer for layer in layers if normalize_optype(layer['optype']) == filter_norm]
@@ -1977,6 +2133,13 @@ def main() -> int:
         return 1
 
     print(f"Loaded {len(layers1)} {label1} layers, {len(layers2)} {label2} layers")
+
+    if type1 == 'profiler':
+        print(f'\n[{label1}] ', end='')
+        layers1 = _maybe_dedup_profiler_layers(layers1, str(file1_path))
+    if type2 == 'profiler':
+        print(f'\n[{label2}] ', end='')
+        layers2 = _maybe_dedup_profiler_layers(layers2, str(file2_path))
 
     # Filter by optype if requested
     if args.filter_optype:

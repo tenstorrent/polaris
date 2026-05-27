@@ -460,16 +460,22 @@ def _storage_is_numpy_float16(dt: Any) -> bool:
 
 
 def tensor_layout_str(t: Any) -> str:
-    """Extract layout string from a tensor object for LUT key."""
-    lay = getattr(t, "layout", None)
-    if lay is None:
-        return "TILE"
-    name = getattr(lay, "name", str(lay))
-    u = name.upper()
-    if "TILE" in u:
-        return "TILE"
-    if "ROW" in u:
-        return "ROW_MAJOR"
+    """Extract layout string from a tensor object for LUT key.
+
+    Checks ``_hw_layout`` first (set on weight/bias tensors to reflect hardware
+    pre-processing format without affecting activation propagation), then falls
+    back to ``layout``.
+    """
+    for attr in ("_hw_layout", "layout"):
+        lay = getattr(t, attr, None)
+        if lay is None:
+            continue
+        name = getattr(lay, "name", str(lay))
+        u = name.upper()
+        if "TILE" in u:
+            return "TILE"
+        if "ROW" in u:
+            return "ROW_MAJOR"
     return "TILE"
 
 
@@ -519,15 +525,16 @@ _KNOWN_TTNN_DTYPES = frozenset({
 def tensor_datatype(t: Any, op_precision: Any) -> str:
     """Extract datatype string from a tensor object for LUT key.
 
-    Prefers the TTNN logical dtype (``_ttnn_dtype``) when present, since
-    numpy storage loses information (e.g. BFLOAT8_B is stored as float32).
-    Falls back to ``t.dtype`` and then *op_precision*.
+    Checks ``_hw_dtype`` first (set on weight/bias tensors to reflect hardware
+    pre-processing format without affecting activation propagation), then
+    ``_ttnn_dtype``, then ``t.dtype``, then *op_precision*.
     """
-    ttnn_dt = getattr(t, "_ttnn_dtype", None)
-    if ttnn_dt is not None:
-        name = getattr(ttnn_dt, "name", str(ttnn_dt)).upper()
-        if name in _KNOWN_TTNN_DTYPES:
-            return name
+    for attr in ("_hw_dtype", "_ttnn_dtype"):
+        dt_obj = getattr(t, attr, None)
+        if dt_obj is not None:
+            name = getattr(dt_obj, "name", str(dt_obj)).upper()
+            if name in _KNOWN_TTNN_DTYPES:
+                return name
 
     dt = getattr(t, "dtype", None)
     if dt is not None:

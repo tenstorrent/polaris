@@ -2244,10 +2244,12 @@ def compute_atan(iTList, op) -> np.ndarray:
 
 
 def compute_pad(iTList, op) -> np.ndarray:
-    """Pad last 2 dims of input tensor.
+    """Pad input tensor.
 
-    iTList[0] = data (N, C, H, W)
-    iTList[1] = pads (4,)  [H_begin, W_begin, H_end, W_end]
+    iTList[0] = data (N, C, H, W) or other rank
+    iTList[1] = pads — 4 values [H_begin, W_begin, H_end, W_end] for last-2-dim
+                padding, or 2*rank values [d0_begin, ..., dN_begin, d0_end, ..., dN_end]
+                for arbitrary-dim padding.
     """
     X = iTList[0].data
     pads = [int(x) for x in iTList[1].data.tolist()]
@@ -2255,8 +2257,16 @@ def compute_pad(iTList, op) -> np.ndarray:
     value = op.attrs.get('value', 0)
 
     rank = X.ndim
-    pad_before = [0] * (rank - 2) + pads[:2]
-    pad_after = [0] * (rank - 2) + pads[2:]
+    if len(pads) == 4:
+        pad_before = [0] * (rank - 2) + pads[:2]
+        pad_after = [0] * (rank - 2) + pads[2:]
+    elif len(pads) == 2 * rank:
+        pad_before = list(pads[:rank])
+        pad_after = list(pads[rank:])
+    else:
+        raise ValueError(
+            f"compute_pad: pads length {len(pads)} != 4 or 2*rank (2*{rank})"
+        )
     pad_widths = [(pb, pa) for pb, pa in zip(pad_before, pad_after)]
 
     if mode == 'constant':

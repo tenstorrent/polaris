@@ -201,7 +201,11 @@ def parse_onnx_model(wlname, wlpath, dim_overrides: Optional[dict] = None):
         if hasattr(node, "attribute"):
             attrhash = {attr.name : onnx_get_value_from_attrs(attr) for attr in node.attribute }
 
-        nodeinfo = {}
+        # ``nodeinfo`` holds heterogeneous values (str names, list[str] in/out,
+        # dict attrs) — annotate as dict[str, Any] so mypy doesn't infer
+        # dict[str, str] from the first scalar assignments. Pre-existing
+        # mypy nag unrelated to PR #434, bundled here to unblock pre-commit.
+        nodeinfo: dict[str, Any] = {}
         nodeinfo['name']    = node.name
         nodeinfo['optype']  = node.op_type
         nodeinfo['domain']  = node.domain

@@ -210,21 +210,11 @@ def pad_sinf(iTList, oTList, op, **kwargs):
         pad_before = [0] * (rank - 2) + [h_beg, w_beg]
         pad_after  = [0] * (rank - 2) + [h_end, w_end]
     elif len(pads) == 2 * rank:
-        before_all = pads[:rank]
-        after_all  = pads[rank:]
-
-        # We only support padding on the last 2 dims; earlier pads must be zero.
-        if any(before_all[i] != 0 or after_all[i] != 0 for i in range(rank - 2)):
-            raise AssertionError(
-                f"Pad supports only last 2 dims; got non-zero pads={pads} for rank={rank}"
-            )
-
-        pad_before = [0] * (rank - 2) + before_all[-2:]
-        pad_after  = [0] * (rank - 2) + after_all[-2:]
+        pad_before = list(pads[:rank])
+        pad_after  = list(pads[rank:])
     else:
         raise AssertionError(
-            f"pads length {len(pads)} != 4 or 2*rank (2*{rank}) "
-            "(Pad supports only last 2 dims)"
+            f"pads length {len(pads)} != 4 or 2*rank (2*{rank})"
         )
 
     output_shape = [
@@ -555,6 +545,17 @@ def concat_sinf(iTList, oTList, op, **kwargs):
     oshape[axis]  = sum(x.shape[axis] for x in iTList)
     oTList[0].shape = oshape
     oTList[0].dtype = iTList[0].dtype
+
+    # Propagate hw_shape when all inputs carry one and we're concatenating along
+    # the NCHW channel axis (axis=1).  For channel-concat: hw_shape is [1, 1, N*H*W, C]
+    # so we sum the last dim (C) across inputs.  Spatial-axis concat is not representable
+    # in the flattened hw_shape format, so hw_shape is left None for those cases.
+    # TODO: if spatial-axis concat becomes LUT-relevant, rethink the hw_shape convention.
+    if axis == 1 and base_rank == 4:
+        hw_shapes = [getattr(x, 'hw_shape', None) for x in iTList]
+        if all(hw is not None for hw in hw_shapes):
+            total_c = sum(hw[3] for hw in hw_shapes)  # type: ignore[index]
+            oTList[0].hw_shape = [hw_shapes[0][0], hw_shapes[0][1], hw_shapes[0][2], total_c]  # type: ignore[index]
 
     # Compute data if inputs have data
     from ttsim.ops.desc.data_compute import try_compute_data, compute_concat

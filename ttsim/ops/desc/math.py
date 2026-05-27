@@ -578,6 +578,42 @@ def matmul_shape_inf(iTList, oTList, op, **kwargs):
     from ttsim.ops.desc.helpers import bidirectional_broadcast_shape_inference
     from .data_compute import compute_matmul
 
+    # 1×1 conv lowered to MatMul: conv2d_pp injects kernel_shape=[1,1] into attrs.
+    # Apply NCHW conv shape inference so downstream ops see [N, C_out, H_out, W_out].
+    if op.attrs.get('kernel_shape') == [1, 1]:
+        assert iTList[0].check_shape(), 'MatMul(1×1-conv): input shape undefined'
+        assert iTList[1].check_shape(), 'MatMul(1×1-conv): weight shape undefined'
+        N, C_in, H_in, W_in = iTList[0].shape
+        C_out = iTList[1].shape[0]
+        strides = op.attrs.get('strides', [1, 1])
+        H_out = (H_in - 1) // strides[0] + 1
+        W_out = (W_in - 1) // strides[1] + 1
+        out_shape = [N, C_out, H_out, W_out]
+        oTList[0].shape = out_shape
+        oTList[0].dtype = iTList[0].dtype
+        oTList[0].data = None
+        from ttsim.ops.tensor import nchw_to_nhwc_flat
+        oTList[0].hw_shape = nchw_to_nhwc_flat(out_shape)
+        in_elems = sum(t.nelems() for t in iTList)
+        in_bytes = sum(t.nbytes(op.precision) for t in iTList)
+        out_elems = oTList[0].nelems()
+        # Local name (not `instrs`) to avoid colliding with the matmul-path
+        # ``instrs: dict = {...}`` annotation later in this function.
+        instrs_1x1 = {'mac': out_elems * C_in}
+        # conv2d_pp always passes a bias as 3rd input (None-bias is materialised
+        # upstream), so the 1×1-conv MatMul always performs an output-shaped
+        # element-wise add. Mirror the normal matmul path's `if len(iTList) > 2`
+        # accounting so analytical fallback / instr-count consumers see the
+        # full work.
+        if len(iTList) > 2:
+            instrs_1x1['add'] = out_elems
+        op.perf_stats = {
+            'inElems': in_elems, 'outElems': out_elems,
+            'inBytes': in_bytes, 'outBytes': oTList[0].nbytes(op.precision),
+            'instrs': instrs_1x1,
+        }
+        return
+
     A, B = iTList[0], iTList[1]
     assert A.check_shape(), f"Input tensor-A shape not defined: {A}"
     assert B.check_shape(), f"Input tensor-B shape not defined: {B}"

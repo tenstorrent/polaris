@@ -10,12 +10,12 @@ After load, OP CODE cells are normalized to Polaris-style layer *types* (e.g. ma
 ``ATTRIBUTES`` (``binary_op_type`` / ``UnaryOpType::…`` in ``op_chain``) when present; all keys, grouping, and mode checks use these types — not
 full profiler class names. Standard key tuple length is **9** if all INPUT_1_* and INPUT_2_* are blank, **16** if
 INPUT_1_* is all set and INPUT_2_* all blank, **23** if INPUT_1_* and INPUT_2_* are all set (ternary ops
-e.g. LayerNorm). The key includes ``MATH FIDELITY`` after the INPUT_0 slot. Per-op variants (schema v3/v4):
-``halo`` rows extend to **15** fields in schema v3 (kernel_h/w, stride_h/w, padding_h/w from ``SlidingWindowConfig``) or **16** fields in schema v4 (adds is_transpose to distinguish ConvTranspose halos);
+e.g. LayerNorm). The key includes ``MATH FIDELITY`` after the INPUT_0 slot. Per-op variants (schema v4):
+``halo`` rows extend to **16** fields (kernel_h/w, stride_h/w, padding_h/w, is_transpose from ``SlidingWindowConfig`` — ``is_transpose`` is a v4-only addition; v3 halo keys are 15 fields without it);
 ``interleavedtosharded`` rows extend to **10** fields (``output_0_memory`` from the OUTPUT_0_MEMORY column). Matmul uses ``entry_type:
 hybrid`` in YAML (``single`` + ``curve`` branches) when combining model and sweep data; see
 ``doc/YAML_MASTER_FORMAT.md``. CLI: repeatable ``--model-run`` and ``--sweep-run`` to merge Excel or CSV in one
-invocation (CSV is read with stdlib ``csv``; Excel ``.xlsx`` / ``.xlsm`` with **openpyxl**). Writes ``schema_name`` ``correqn.tt-perf-master``, ``schema_version`` (``tt_perf_master_schema.MASTER_YAML_SCHEMA_VERSION``, **1** until first release).
+invocation (CSV is read with stdlib ``csv``; Excel ``.xlsx`` / ``.xlsm`` with **openpyxl**). Writes ``schema_name`` ``correqn.tt-perf-master``, ``schema_version`` from ``tt_perf_master_schema.MASTER_YAML_SCHEMA_VERSION`` (currently **4**).
 
 Run from repository root: ``python -m tools.perf_lookup.tt_perf_mapper …``, or ``python tools/perf_lookup/tt_perf_mapper.py …`` (bootstrap adds repo root to ``sys.path``).
 """
@@ -167,9 +167,10 @@ STATS_COLUMNS_REQUIRED = [
     EXCEL_COL_DRAM_BW_UTIL,
     EXCEL_COL_NOC_UTIL,
     EXCEL_COL_NPE_CONG,
-    EXCEL_COL_SFPU,
-    EXCEL_COL_FPU,
 ]
+# Pipe-utilization columns are absent from raw profiler CSVs (present in sweep/Excel exports).
+# When missing, vector_pipe_util and matrix_pipe_util default to 0.
+STATS_COLUMNS_OPTIONAL_PIPE_UTIL = [EXCEL_COL_SFPU, EXCEL_COL_FPU]
 STATS_COLUMN_OPTIONAL = EXCEL_COL_MULTICAST_NOC
 
 # Merged three-way ops CSV (e.g. ``ops_perf_three_csv_merge`` output): util columns are suffixed.
@@ -419,6 +420,13 @@ def validate_columns(
         raise KeyError(
             f"Stats columns missing: {missing_stat}. Available: {list(table.columns)}"
         )
+    missing_pipe_util = [c for c in STATS_COLUMNS_OPTIONAL_PIPE_UTIL if c not in cs]
+    if missing_pipe_util:
+        logger.warning(
+            "Pipe-utilization columns absent (defaulting to 0): {}. "
+            "These are present in sweep/Excel exports but not in raw profiler CSVs.",
+            missing_pipe_util,
+        )
     stat_cols = STATS_COLUMNS_REQUIRED.copy()
     if STATS_COLUMN_OPTIONAL in cs:
         stat_cols.append(STATS_COLUMN_OPTIONAL)
@@ -626,7 +634,7 @@ def build_stats_row(
     except (TypeError, ValueError):
         return None
     util_pct = row.get(EXCEL_COL_DRAM_BW_UTIL)
-    if util_pct is None or is_na(util_pct):
+    if util_pct is None or is_na(util_pct) or (isinstance(util_pct, str) and not util_pct.strip()):
         util_pct = 0.0
     else:
         try:
@@ -720,7 +728,7 @@ def fit_1d_power(cores: np.ndarray, y: np.ndarray) -> tuple[np.ndarray, float]:
         return a * (x ** b)
 
     try:
-        a0 = float(np.nanmean(y_safe) / (np.nanmean(cores_safe) ** 0.5))
+        a0 = np.nanmean(y_safe) / (np.nanmean(cores_safe) ** 0.5)
         (a, b), _ = curve_fit(
             model, cores_safe, y_safe, p0=[max(float(a0), 1e-6), -0.5], maxfev=10000
         )
@@ -1403,13 +1411,13 @@ def process_excel_to_master(
             isinstance(row.get(duration_col), str)
             and not str(row.get(duration_col)).strip()
         ):
-            logger.error(
-                "{} blank at row {}; key_tuple_column_values={}",
+            logger.warning(
+                "Skipping row (blank {}) index={}; key_tuple_column_values={}",
                 EXCEL_DURATION_COLUMN,
                 idx,
                 key_tuple_field_values(row, key_cols),
             )
-            return 1, {}, {}, excel_path
+            continue
         stats = build_stats_row(
             row, dram_bw_gbps, stat_cols, duration_col, core_col
         )
