@@ -226,3 +226,30 @@ def test_polaris_synonyms_are_lowercase():
     for key, canonical in POLARIS_SYNONYMS.items():
         assert key == key.lower(), f"POLARIS_SYNONYMS key {key!r} not lowercase"
         assert canonical == canonical.lower(), f"POLARIS_SYNONYMS value {canonical!r} not lowercase"
+
+
+@pytest.mark.unit
+def test_resolve_conv_subtype_dict_attrs_true():
+    """Dict attrs with is_transpose=True must return 'convtranspose' without relying on str()."""
+    from tools.profiling.op_canonical import _resolve_conv_subtype
+
+    assert _resolve_conv_subtype({'is_transpose': True}) == 'convtranspose'
+
+
+@pytest.mark.unit
+def test_resolve_conv_subtype_dict_attrs_false():
+    from tools.profiling.op_canonical import _resolve_conv_subtype
+
+    assert _resolve_conv_subtype({'is_transpose': False}) == 'conv2d'
+    assert _resolve_conv_subtype({}) == 'conv2d'
+
+
+@pytest.mark.unit
+def test_resolve_conv_subtype_string_attrs():
+    """String ATTRIBUTES from profiler CSV still resolve correctly via regex."""
+    from tools.profiling.op_canonical import _resolve_conv_subtype
+
+    sliding_window_false = 'SlidingWindowConfig { kernel_size: [3, 3], is_transpose = false }'
+    sliding_window_true = 'SlidingWindowConfig { kernel_size: [2, 2], is_transpose = true }'
+    assert _resolve_conv_subtype(sliding_window_false) == 'conv2d'
+    assert _resolve_conv_subtype(sliding_window_true) == 'convtranspose'

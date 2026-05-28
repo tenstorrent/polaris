@@ -4,7 +4,7 @@
 """Load tt-perf master YAML into ``dict[tuple, dict]`` (logical key → entry payload).
 
 Contract: ``doc/YAML_MASTER_FORMAT.md``. CLI and Excel pipeline: ``tools/perf_lookup/tt_perf_mapper.py``. Accepts
-``schema_version`` 1 (legacy, emits deprecation warning) or 2 (current); matmul entries must use ``entry_type: hybrid``.
+``schema_version`` 1–3 (legacy, emits deprecation warning) or 4 (current); matmul entries must use ``entry_type: hybrid``.
 """
 
 from __future__ import annotations

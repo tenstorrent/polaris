@@ -73,6 +73,11 @@ PROFILER_PREFIX_RULES: tuple[tuple[str, str], ...] = (
     ("Reshard", "reshard"),
     ("ShardedToInterleaved", "shardedtointerleaved"),
     ("InterleavedToSharded", "interleavedtosharded"),
+    ("Conv2d", "conv2d"),
+    ("Pool2D", "pool2d"),
+    ("Halo", "halo"),
+    ("Move", "move"),
+    ("Pad", "pad"),
 )
 
 # BinaryOpType::ENUM (uppercase) → canonical layer type.
@@ -121,6 +126,8 @@ _RE_UNARY_OP_TYPE = re.compile(
     r"UnaryOpType::(\w+)",
     re.IGNORECASE,
 )
+# SlidingWindowConfig embeds is_transpose=true for conv_transpose2d on hardware.
+_RE_CONV_IS_TRANSPOSE = re.compile(r'is_transpose\s*=\s*true', re.IGNORECASE)
 
 _UNKNOWN_PROFILER_BASES: set[str] = set()
 
@@ -134,7 +141,31 @@ POLARIS_SYNONYMS: Dict[str, str] = {
     "nlpcreateqkvheads": "createqkvheads",  # backward-compat: old CSVs used NLP prefix
     "nlpconcatheads": "concatheads",
     "untilizewithvalunpadding": "untilizewithunpadding",  # Polaris uses "Val", profiler uses plain form
+    "maxpool": "pool2d",  # Polaris emits op.type='MaxPool'; profiler/LUT uses 'Pool2D' → 'pool2d'
 }
+
+# ---------------------------------------------------------------------------
+# Preallocated-output op codes
+# ---------------------------------------------------------------------------
+#
+# Op codes whose CSV ``INPUT_1_*`` columns, when populated, record the
+# **optional preallocated output tensor** rather than a real second operand.
+# Reference (tt-metal): InterleavedToSharded/ShardedToInterleaved/Reshard each
+# define their ``tensor_args_t`` as ``input_tensor`` + ``std::optional<Tensor>
+# preallocated_output``.  The preallocated_output is a buffer-reuse optimization
+# and does not change the operation's behavior or cost.  The profiler logs it
+# as INPUT_1_* when present.  LUT-key producers should force the key to arity-1
+# (drop INPUT_1) for these op codes so LUT entries are consistent regardless of
+# whether the caller pre-allocated the output buffer.
+#
+# Move is intentionally NOT in this set: its ``MoveTensorArgs`` has a
+# **required** ``output_tensor`` whose memory config genuinely affects the
+# Move's cost (different destinations = different DMA paths).
+PREALLOC_OUTPUT_AS_INPUT1_OPS: frozenset[str] = frozenset({
+    "interleavedtosharded",
+    "shardedtointerleaved",
+    "reshard",
+})
 
 # ---------------------------------------------------------------------------
 # Comparison groups  (canonical → coarsened group for sequence matching)
@@ -148,6 +179,11 @@ COMPARISON_GROUPS: Dict[str, str] = {
     "sub": "binary",
     "eltwise": "binary",
     "tilizewithvalpadding": "tilize",
+    # Polaris abstract names → profiler hardware names
+    # conv_transpose2d has no separate OP CODE on hardware; implemented as Conv2dDeviceOperation
+    "conv": "conv2d",
+    "maxpool": "pool2d",
+    "convtranspose": "conv2d",
 }
 
 # ---------------------------------------------------------------------------
@@ -263,6 +299,22 @@ def _resolve_unary_attrs(attrs: Any) -> Optional[str]:
     return None
 
 
+def _resolve_conv_subtype(attrs: Any) -> str:
+    """Return 'convtranspose' when attrs contain is_transpose=true, else 'conv2d'.
+
+    Conv2dDeviceOperation on hardware implements both regular and transposed
+    convolutions.  The SlidingWindowConfig embedded in ATTRIBUTES carries an
+    explicit ``is_transpose`` flag that distinguishes the two variants.
+    """
+    if attrs is None:
+        return 'conv2d'
+    if isinstance(attrs, dict):
+        return 'convtranspose' if attrs.get('is_transpose', False) else 'conv2d'
+    if _RE_CONV_IS_TRANSPOSE.search(str(attrs)):
+        return 'convtranspose'
+    return 'conv2d'
+
+
 def normalize_profiler_opcode(opcode: Any, attrs: Any = None) -> str:
     """Map a profiler OP CODE cell (+ optional ATTRIBUTES) to a canonical
     lowercase Polaris layer type.
@@ -326,6 +378,10 @@ def normalize_profiler_opcode(opcode: Any, attrs: Any = None) -> str:
             s,
         )
         return _apply_prefix_rules(base)
+
+    # Conv2d: distinguish regular conv from transposed conv via is_transpose flag
+    if base == "Conv2d":
+        return _resolve_conv_subtype(attrs)
 
     return _apply_prefix_rules(base)
 

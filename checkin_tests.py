@@ -113,8 +113,8 @@ def check_environment_sanity() -> tuple[bool, str]:
         )
 
     # Check critical dependencies
-    missing_packages = []
-    broken_packages = []
+    missing_packages: list[str] = []
+    broken_packages: list[str] = []
     critical_imports = {
         'pydantic': 'pydantic',
         'loguru': 'loguru',

@@ -8,9 +8,11 @@ After load, OP CODE cells are normalized to Polaris-style layer *types* (e.g. ma
 ``TilizeWithValPadding*`` → ``tilizewithvalpadding`` (other ``Tilize*`` → ``tilize``); ``UntilizeWithUnpadding*``
 → ``untilizewithunpadding`` (other ``Untilize*`` → ``untilize``). ``BinaryNgDeviceOperation`` and ``UnaryDeviceOperation`` rows use
 ``ATTRIBUTES`` (``binary_op_type`` / ``UnaryOpType::…`` in ``op_chain``) when present; all keys, grouping, and mode checks use these types — not
-full profiler class names. Key tuple length is **9** if all INPUT_1_* and INPUT_2_* are blank, **16** if
+full profiler class names. Standard key tuple length is **9** if all INPUT_1_* and INPUT_2_* are blank, **16** if
 INPUT_1_* is all set and INPUT_2_* all blank, **23** if INPUT_1_* and INPUT_2_* are all set (ternary ops
-e.g. LayerNorm). The key includes ``MATH FIDELITY`` after the INPUT_0 slot. Matmul uses ``entry_type:
+e.g. LayerNorm). The key includes ``MATH FIDELITY`` after the INPUT_0 slot. Per-op variants (schema v3/v4):
+``halo`` rows extend to **15** fields in schema v3 (kernel_h/w, stride_h/w, padding_h/w from ``SlidingWindowConfig``) or **16** fields in schema v4 (adds is_transpose to distinguish ConvTranspose halos);
+``interleavedtosharded`` rows extend to **10** fields (``output_0_memory`` from the OUTPUT_0_MEMORY column). Matmul uses ``entry_type:
 hybrid`` in YAML (``single`` + ``curve`` branches) when combining model and sweep data; see
 ``doc/YAML_MASTER_FORMAT.md``. CLI: repeatable ``--model-run`` and ``--sweep-run`` to merge Excel or CSV in one
 invocation (CSV is read with stdlib ``csv``; Excel ``.xlsx`` / ``.xlsm`` with **openpyxl**). Writes ``schema_name`` ``correqn.tt-perf-master``, ``schema_version`` (``tt_perf_master_schema.MASTER_YAML_SCHEMA_VERSION``, **1** until first release).
@@ -47,7 +49,10 @@ import yaml
 from loguru import logger
 from scipy.optimize import curve_fit  # type: ignore[import-untyped]
 
-from tools.profiling.op_canonical import normalize_profiler_opcode
+from tools.profiling.op_canonical import (
+    PREALLOC_OUTPUT_AS_INPUT1_OPS,
+    normalize_profiler_opcode,
+)
 
 from tools.perf_lookup.tt_perf_master_loader import load_existing_yaml
 from tools.perf_lookup.tt_perf_master_schema import (
@@ -204,6 +209,59 @@ EXCEL_ATTRIBUTES_COLUMN = "ATTRIBUTES"
 
 # PAD column suffix pattern: value like "224[224]" -> use 224
 PAD_PATTERN = re.compile(r"^\s*(\d+)\s*\[\s*(\d+)\s*\]\s*$")
+
+# Halo extension (schema v3+v4): SlidingWindowConfig fields in profiler ATTRIBUTES.
+# Raw format: window_hw=(3;3); stride_hw=(1;1); padding=((1; 1); (1; 1)); is_transpose=false.
+# Whitespace and ';'/',' separators both tolerated (depending on whether the cell was already substituted).
+_HALO_WINDOW_RE = re.compile(r"window_hw\s*=\s*\(\s*(\d+)\s*[;,]\s*(\d+)\s*\)")
+_HALO_STRIDE_RE = re.compile(r"stride_hw\s*=\s*\(\s*(\d+)\s*[;,]\s*(\d+)\s*\)")
+_HALO_PADDING_RE = re.compile(
+    r"padding\s*=\s*\(\s*\(\s*(\d+)\s*[;,]\s*\d+\s*\)\s*[;,]\s*\(\s*(\d+)\s*[;,]\s*\d+\s*\)\s*\)"
+)
+_HALO_ISTRANSPOSE_RE = re.compile(r"is_transpose\s*=\s*(true|false)")
+
+# Per-op variant op codes (after normalize_profiler_opcode).
+_HALO_OP_CODE = "halo"
+_ITS_OP_CODE = "interleavedtosharded"
+
+# Profiler CSV column holding the destination memory string for ITS.
+_OUTPUT_0_MEMORY_COLUMN = "OUTPUT_0_MEMORY"
+
+
+def _extract_halo_geometry(row: Mapping[str, Any]) -> tuple | None:
+    """Parse (kernel_h, kernel_w, stride_h, stride_w, padding_h, padding_w, is_transpose) from a halo row.
+
+    Reads the ``SlidingWindowConfig`` substring inside the ``ATTRIBUTES`` cell. Returns
+    ``None`` if any of window_hw / stride_hw / padding / is_transpose can't be parsed.
+    """
+    attrs_cell = row.get(EXCEL_ATTRIBUTES_COLUMN)
+    if attrs_cell is None or is_na(attrs_cell):
+        return None
+    raw = str(attrs_cell)
+    win = _HALO_WINDOW_RE.search(raw)
+    stride = _HALO_STRIDE_RE.search(raw)
+    pad = _HALO_PADDING_RE.search(raw)
+    istr = _HALO_ISTRANSPOSE_RE.search(raw)
+    if not (win and stride and pad and istr):
+        return None
+    return (
+        int(win.group(1)),
+        int(win.group(2)),
+        int(stride.group(1)),
+        int(stride.group(2)),
+        int(pad.group(1)),
+        int(pad.group(2)),
+        istr.group(1) == "true",
+    )
+
+
+def _extract_its_output_memory(row: Mapping[str, Any]) -> str | None:
+    """Return the OUTPUT_0_MEMORY string for an ITS row's LUT key, or ``None`` if missing."""
+    val = row.get(_OUTPUT_0_MEMORY_COLUMN)
+    if val is None or is_na(val):
+        return None
+    s = str(val).strip()
+    return s or None
 
 
 def _parse_attributes_cell(raw) -> dict | None:
@@ -480,10 +538,22 @@ def build_key_tuple(
         if err is not None:
             return None, err
 
-    i1_blank = _all_input1_blank(row, input1_cols)
-    i1_filled = _all_input1_non_blank(row, input1_cols, pad_suffixes)
-    i2_blank = _all_input1_blank(row, input2_cols)
-    i2_filled = _all_input1_non_blank(row, input2_cols, pad_suffixes)
+    # Op codes in PREALLOC_OUTPUT_AS_INPUT1_OPS treat any populated INPUT_1_* as
+    # the optional preallocated output tensor — not a real operand.  Force arity-1
+    # (drop INPUT_1, and INPUT_2) so the LUT key is consistent across rows that
+    # do/don't pre-allocate the output buffer.  See op_canonical.py for the rule
+    # and its reference in tt-metal source.
+    op_code_canon = str(values[0]).strip().lower() if values else ""
+    if op_code_canon in PREALLOC_OUTPUT_AS_INPUT1_OPS:
+        i1_blank = True
+        i1_filled = False
+        i2_blank = True
+        i2_filled = False
+    else:
+        i1_blank = _all_input1_blank(row, input1_cols)
+        i1_filled = _all_input1_non_blank(row, input1_cols, pad_suffixes)
+        i2_blank = _all_input1_blank(row, input2_cols)
+        i2_filled = _all_input1_non_blank(row, input2_cols, pad_suffixes)
 
     if i1_blank:
         if not i2_blank and not i2_filled:
@@ -1241,6 +1311,7 @@ def process_excel_to_master(
     input_spec: str,
     mode: str,
     dram_bw_gbps: float,
+    cv_threshold: float = CV_THRESHOLD,
 ) -> tuple[int, dict[tuple, dict], dict[tuple, dict], Path]:
     """Load one Excel or CSV input spec and build master dict.
 
@@ -1308,6 +1379,26 @@ def process_excel_to_master(
                 key_tuple_field_values(row, key_cols),
             )
             continue
+        op_code_lc = str(key_t[0]).strip().lower() if key_t else ""
+        if op_code_lc == _HALO_OP_CODE:
+            halo_geom = _extract_halo_geometry(row)
+            if halo_geom is None:
+                logger.warning(
+                    "Skipping halo row index={} (couldn't parse SlidingWindowConfig "
+                    "window_hw/stride_hw/padding/is_transpose from ATTRIBUTES)",
+                    idx,
+                )
+                continue
+            key_t = key_t + halo_geom
+        elif op_code_lc == _ITS_OP_CODE:
+            out_mem = _extract_its_output_memory(row)
+            if out_mem is None:
+                logger.warning(
+                    "Skipping ITS row index={} (missing OUTPUT_0_MEMORY)",
+                    idx,
+                )
+                continue
+            key_t = key_t + (out_mem,)
         if is_na(row.get(duration_col)) or (
             isinstance(row.get(duration_col), str)
             and not str(row.get(duration_col)).strip()
@@ -1355,7 +1446,7 @@ def process_excel_to_master(
         logger.error("No rows after parsing.")
         return 1, {}, {}, excel_path
 
-    accepted = group_and_sanitize(rows, MASTER_DURATION_MS_KEY, CV_THRESHOLD)
+    accepted = group_and_sanitize(rows, MASTER_DURATION_MS_KEY, cv_threshold)
     master, curve_meta = build_master_dict(accepted, mode)
     return 0, master, curve_meta, excel_path
 
@@ -1411,6 +1502,18 @@ def parse_args() -> argparse.Namespace:
         help=(
             "Write merged master to the output YAML file. If omitted, only report what "
             "would be added/updated (no file write)."
+        ),
+    )
+    parser.add_argument(
+        "--cv-threshold",
+        dest="cv_threshold",
+        type=float,
+        default=CV_THRESHOLD,
+        help=(
+            f"Per-group coefficient-of-variation gate for duration outliers (default "
+            f"{CV_THRESHOLD}). Groups whose duration CV exceeds this are dropped entirely. "
+            f"Raise (e.g. 0.80) to retain high-variance entries (useful for ops like "
+            f"halo/pool2d whose timings can vary across runs)."
         ),
     )
     args = parser.parse_args()
@@ -1472,7 +1575,7 @@ def main() -> int:
 
     for spec in args.model_run:
         code, master, cm, _ = process_excel_to_master(
-            spec, "single", args.dram_bw_gbps
+            spec, "single", args.dram_bw_gbps, args.cv_threshold
         )
         if code != 0:
             return code
@@ -1489,7 +1592,7 @@ def main() -> int:
 
     for spec in args.sweep_run:
         code, master, cm, _ = process_excel_to_master(
-            spec, "curve", args.dram_bw_gbps
+            spec, "curve", args.dram_bw_gbps, args.cv_threshold
         )
         if code != 0:
             return code

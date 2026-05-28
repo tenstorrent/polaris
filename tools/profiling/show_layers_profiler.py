@@ -10,9 +10,46 @@ import yaml
 from typing import Any, Dict, List, Optional, Tuple
 
 try:
-    from op_canonical import normalize_profiler_opcode  # type: ignore[import-not-found]
+    from op_canonical import (  # type: ignore[import-not-found]
+        PREALLOC_OUTPUT_AS_INPUT1_OPS,
+        normalize_profiler_opcode,
+    )
 except ImportError:
-    from .op_canonical import normalize_profiler_opcode  # type: ignore
+    from .op_canonical import (  # type: ignore
+        PREALLOC_OUTPUT_AS_INPUT1_OPS,
+        normalize_profiler_opcode,
+    )
+
+# Schema v4 per-op variant key extensions. Mirror of helpers in tt_perf_mapper.py.
+_HALO_WINDOW_RE = re.compile(r"window_hw\s*=\s*\(\s*(\d+)\s*[;,]\s*(\d+)\s*\)")
+_HALO_STRIDE_RE = re.compile(r"stride_hw\s*=\s*\(\s*(\d+)\s*[;,]\s*(\d+)\s*\)")
+_HALO_PADDING_RE = re.compile(
+    r"padding\s*=\s*\(\s*\(\s*(\d+)\s*[;,]\s*\d+\s*\)\s*[;,]\s*\(\s*(\d+)\s*[;,]\s*\d+\s*\)\s*\)"
+)
+_HALO_ISTRANSPOSE_RE = re.compile(r"is_transpose\s*=\s*(true|false)")
+_HALO_OP_CODE = "halo"
+_ITS_OP_CODE = "interleavedtosharded"
+
+
+def _extract_halo_geometry(attrs_cell: str) -> Optional[Tuple[int, int, int, int, int, int, bool]]:
+    """Parse (kernel_h, kernel_w, stride_h, stride_w, padding_h, padding_w, is_transpose) from ATTRIBUTES."""
+    if not attrs_cell:
+        return None
+    win = _HALO_WINDOW_RE.search(attrs_cell)
+    stride = _HALO_STRIDE_RE.search(attrs_cell)
+    pad = _HALO_PADDING_RE.search(attrs_cell)
+    istr = _HALO_ISTRANSPOSE_RE.search(attrs_cell)
+    if not (win and stride and pad and istr):
+        return None
+    return (
+        int(win.group(1)),
+        int(win.group(2)),
+        int(stride.group(1)),
+        int(stride.group(2)),
+        int(pad.group(1)),
+        int(pad.group(2)),
+        istr.group(1) == "true",
+    )
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description='Show layers from profiler CSV')
@@ -57,9 +94,52 @@ def expand_tensor_attrs(row: Dict[str, Any], input_index: int, in_or_out: str = 
     memory_raw = (row.get(f'{prefix}_MEMORY') or '').strip()
     if not layout and not dtype and not memory_raw:
         return None
-    # Strip device prefix (e.g. "DEV_1_L1_INTERLEAVED" -> "L1_INTERLEAVED")
-    memory = re.sub(r'^DEV_\d+_', '', memory_raw) if memory_raw else ''
-    return {'layout': layout, 'dtype': dtype, 'memory': memory}
+    return {'layout': layout, 'dtype': dtype, 'memory': memory_raw}
+
+
+def _build_lut_key(
+    optype: str,
+    pad_logical_slots: List[List[tuple]],
+    layouts: List[Optional[str]],
+    dtypes: List[Optional[str]],
+    memories: List[Optional[str]],
+    math_fidelity: str,
+    *,
+    halo_geometry: Optional[Tuple[int, int, int, int, int, int, bool]] = None,
+    its_output_memory: Optional[str] = None,
+) -> tuple:
+    """Build a LUT key tuple matching tt_perf_master_schema KEY_TUPLE_YAML_KEYS convention.
+
+    Each input slot contributes 7 elements: w_pad, z_pad, y_pad, x_pad, layout, dtype, memory.
+    Dimensions are zero-padded to 4 (W, Z, Y, X); missing slots use empty strings.
+
+    Op codes in ``PREALLOC_OUTPUT_AS_INPUT1_OPS`` (ITS, STS, Reshard) are forced
+    to arity-1 — any INPUT_1 slot is a preallocated output, not a real operand,
+    and including it would produce inconsistent keys across rows that do/don't
+    pre-allocate the output buffer.
+
+    Schema v4 per-op variants: ``halo`` rows extend the base 9-tuple to a 16-tuple
+    via ``halo_geometry`` (kernel_h/w, stride_h/w, padding_h/w, is_transpose);
+    ``interleavedtosharded`` rows extend to a 10-tuple via ``its_output_memory``.
+    """
+    use_slots = pad_logical_slots
+    if optype in PREALLOC_OUTPUT_AS_INPUT1_OPS:
+        use_slots = pad_logical_slots[:1]
+    key: list = [optype]
+    for slot_idx, dims in enumerate(use_slots):
+        pad_vals = [p for p, _ in dims]
+        pad_vals.extend([''] * (4 - len(pad_vals)))
+        key.extend(pad_vals[:4])
+        key.append(layouts[slot_idx] or '')
+        key.append(dtypes[slot_idx] or '')
+        key.append(memories[slot_idx] or '')
+        if slot_idx == 0:
+            key.append(math_fidelity)
+    if optype == _HALO_OP_CODE and halo_geometry is not None:
+        key.extend(halo_geometry)
+    elif optype == _ITS_OP_CODE and its_output_memory is not None:
+        key.append(its_output_memory)
+    return tuple(key)
 
 
 def layers_profiler(input_file: str) -> List[Dict[str, Any]]:
@@ -77,6 +157,8 @@ def layers_profiler(input_file: str) -> List[Dict[str, Any]]:
             if not isinstance(parsed_attrs, dict):
                 parsed_attrs = None
             optype = normalize_profiler_opcode(row['OP CODE'], parsed_attrs)
+            math_fidelity_raw = (row.get('MATH FIDELITY') or '').strip()
+            math_fidelity = math_fidelity_raw if math_fidelity_raw else 'N/A'
             # Attribute lists (dtypes, layouts, memories) must stay parallel
             # with their tensor lists so that positional indexing in
             # compare_tensor_attributes (compare_layers.py) compares the
@@ -128,6 +210,23 @@ def layers_profiler(input_file: str) -> List[Dict[str, Any]]:
                     filtered_row['output_dtypes'].append(a['dtype'] if a else None)
                     filtered_row['output_layouts'].append(a['layout'] if a else None)
                     filtered_row['output_memories'].append(a['memory'] if a else None)
+            halo_geom: Optional[Tuple[int, int, int, int, int, int, bool]] = None
+            its_out_mem: Optional[str] = None
+            if optype == _HALO_OP_CODE:
+                halo_geom = _extract_halo_geometry(attrs_cell)
+            elif optype == _ITS_OP_CODE:
+                out_mem_raw = (row.get('OUTPUT_0_MEMORY') or '').strip()
+                its_out_mem = out_mem_raw or None
+            filtered_row['lut_key'] = _build_lut_key(
+                optype,
+                filtered_row['input_pad_logical'],
+                filtered_row['input_layouts'],
+                filtered_row['input_dtypes'],
+                filtered_row['input_memories'],
+                math_fidelity,
+                halo_geometry=halo_geom,
+                its_output_memory=its_out_mem,
+            )
             rows.append(filtered_row)
 
     # Post-process: correct ops where the profiler conflates PAD and LOGICAL

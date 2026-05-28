@@ -335,3 +335,247 @@ def test_compare_layers_empty_lists():
     assert stats.total_matches == 0
     assert stats.unmatched_polaris == 0
     assert stats.unmatched_profiler == 0
+
+
+# ── _aggregate_by_lut_key tests ───────────────────────────────────────────
+
+@pytest.mark.unit
+def test_aggregate_by_lut_key_prefers_resolved_over_literal():
+    """Polaris-side rows present both ``lut_key`` (literal) and ``lut_key_resolved``;
+    aggregation must group by the resolved tuple so polaris/profiler rows that
+    semantically share a LUT entry land in the same bucket.
+    """
+    from tools.profiling.compare_layers import _aggregate_by_lut_key
+
+    literal_a = ('halo', 1, 1, 1024, 512, 'ROW_MAJOR', 'BFLOAT16', 'DEV_1_L1_HEIGHT_SHARDED', 'N/A')
+    resolved_a = ('halo', 1, 1, 1024, 512, 'ROW_MAJOR', 'BFLOAT16', 'DEV_1_L1_BLOCK_SHARDED', 'N/A')
+    literal_b = ('move', 1, 1, 1024, 512, 'ROW_MAJOR', 'BFLOAT16', 'DEV_1_L1_HEIGHT_SHARDED', 'N/A')
+    resolved_b = ('move', 1, 1, 1024, 512, 'ROW_MAJOR', 'BFLOAT16', 'DEV_1_L1_HEIGHT_SHARDED', 'N/A',
+                   1, 1, 1024, 512, 'ROW_MAJOR', 'BFLOAT16', 'DEV_1_L1_HEIGHT_SHARDED')
+    layers = [
+        # Row 1: HEIGHT→BLOCK shard fallback resolved the lookup.
+        {'optype': 'halo', 'lut_key': literal_a, 'lut_key_resolved': resolved_a,
+         'duration_ms': 0.05, 'uses_perf_lookup': True},
+        # Row 2: arity-1→arity-2 dup fallback resolved the lookup.
+        {'optype': 'move', 'lut_key': literal_b, 'lut_key_resolved': resolved_b,
+         'duration_ms': 0.01, 'uses_perf_lookup': True},
+    ]
+    by_key = _aggregate_by_lut_key(layers)
+    keys = list(by_key.keys())
+    # Two distinct resolved keys → two buckets, each with count 1.
+    assert len(keys) == 2
+    resolved_a_str = tuple(str(f) for f in resolved_a)
+    resolved_b_str = tuple(str(f) for f in resolved_b)
+    assert resolved_a_str in by_key
+    assert resolved_b_str in by_key
+    # Literal-only keys must NOT appear when a resolved key is present.
+    literal_a_str = tuple(str(f) for f in literal_a)
+    literal_b_str = tuple(str(f) for f in literal_b)
+    assert literal_a_str not in by_key
+    assert literal_b_str not in by_key
+
+
+@pytest.mark.unit
+def test_aggregate_by_lut_key_falls_back_to_literal_when_no_resolved():
+    """Profiler-side rows only carry ``lut_key`` (their literal key IS a LUT entry).
+    Aggregation must fall back to it when ``lut_key_resolved`` is absent or None.
+    """
+    from tools.profiling.compare_layers import _aggregate_by_lut_key
+
+    key = ('halo', 1, 1, 1024, 512, 'ROW_MAJOR', 'BFLOAT16', 'DEV_1_L1_BLOCK_SHARDED', 'N/A')
+    layers_no_resolved = [
+        {'optype': 'halo', 'lut_key': key, 'duration_ms': 0.05, 'uses_perf_lookup': False},
+    ]
+    layers_none_resolved = [
+        {'optype': 'halo', 'lut_key': key, 'lut_key_resolved': None,
+         'duration_ms': 0.05, 'uses_perf_lookup': False},
+    ]
+    key_str = tuple(str(f) for f in key)
+    for layers in (layers_no_resolved, layers_none_resolved):
+        by_key = _aggregate_by_lut_key(layers)
+        assert key_str in by_key
+        cnt, ms, lut = by_key[key_str]
+        assert cnt == 1
+        assert ms == pytest.approx(0.05)
+
+
+@pytest.mark.unit
+def test_aggregate_by_lut_key_skips_rows_without_any_key():
+    """Rows lacking both ``lut_key`` and ``lut_key_resolved`` are skipped (no key to group by)."""
+    from tools.profiling.compare_layers import _aggregate_by_lut_key
+
+    layers = [
+        {'optype': 'halo', 'duration_ms': 0.05},
+        {'optype': 'move', 'lut_key': None, 'lut_key_resolved': None, 'duration_ms': 0.01},
+    ]
+    by_key = _aggregate_by_lut_key(layers)
+    assert by_key == {}
+
+
+# ── _lut_key_n_slots / _lut_key_slot_field tests ──────────────────────────
+
+@pytest.mark.unit
+def test_lut_key_n_slots_halo_v4_is_one_slot():
+    """Halo v4 16-tuple must be treated as 1 input slot, not 2 (binary)."""
+    from tools.profiling.compare_layers import _lut_key_n_slots
+
+    halo_v4 = ('halo', 1, 1, 16384, 128, 'ROW_MAJOR', 'BFLOAT16', 'DEV_1_L1_HEIGHT_SHARDED',
+                'N/A', 2, 2, 0, 0, 0, 0, False)
+    assert len(halo_v4) == 16
+    assert _lut_key_n_slots(halo_v4) == 1
+
+
+@pytest.mark.unit
+def test_lut_key_n_slots_binary_is_two_slots():
+    """Standard binary 16-tuple (two operands) must report 2 slots."""
+    from tools.profiling.compare_layers import _lut_key_n_slots
+
+    binary = ('add', 1, 1, 1024, 512, 'TILE', 'BFLOAT16', 'DEV_1_L1_HEIGHT_SHARDED',
+              'N/A', 1, 1, 1024, 512, 'TILE', 'BFLOAT16', 'DEV_1_L1_HEIGHT_SHARDED')
+    assert len(binary) == 16
+    assert _lut_key_n_slots(binary) == 2
+
+
+@pytest.mark.unit
+def test_lut_key_slot_field_binary_slot1_memory():
+    """Slot-1 field-6 (memory) of a binary 16-tuple must return index 15, not ''."""
+    from tools.profiling.compare_layers import _lut_key_slot_field
+
+    binary = ('add', 1, 1, 1024, 512, 'TILE', 'BFLOAT16', 'MEM_A',
+              'HiFi4', 1, 1, 1024, 512, 'TILE', 'BFLOAT16', 'MEM_B')
+    assert _lut_key_slot_field(binary, 1, 6) == 'MEM_B'
+
+
+@pytest.mark.unit
+def test_lut_key_slot_field_binary_mf_not_in_slot():
+    """math_fidelity at index 8 must not appear as a slot-1 field."""
+    from tools.profiling.compare_layers import _lut_key_slot_field
+
+    binary = ('add', 1, 1, 1024, 512, 'TILE', 'BFLOAT16', 'MEM_A',
+              'HiFi4', 11, 22, 33, 44, 'TILE', 'BFLOAT16', 'MEM_B')
+    # slot-1 field-0 must be w1=11, not MF='HiFi4' (index 8)
+    assert _lut_key_slot_field(binary, 1, 0) == '11'
+
+
+# ── _lut_key_variant_tail / _lut_key_variant_col_names tests ─────────────
+
+@pytest.mark.unit
+def test_lut_key_variant_tail_halo_v3():
+    from tools.profiling.compare_layers import _lut_key_variant_tail
+
+    key = ('halo', 1, 1, 512, 128, 'ROW_MAJOR', 'BFLOAT16', 'L1', 'N/A',
+           3, 3, 1, 1, 1, 1)
+    assert len(key) == 15
+    tail = _lut_key_variant_tail(key)
+    assert tail == [
+        ('kernel_h', '3'), ('kernel_w', '3'),
+        ('stride_h', '1'), ('stride_w', '1'),
+        ('padding_h', '1'), ('padding_w', '1'),
+    ]
+
+
+@pytest.mark.unit
+def test_lut_key_variant_tail_halo_v4():
+    from tools.profiling.compare_layers import _lut_key_variant_tail
+
+    key = ('halo', 1, 1, 512, 128, 'ROW_MAJOR', 'BFLOAT16', 'L1', 'N/A',
+           2, 2, 2, 2, 0, 0, True)
+    assert len(key) == 16
+    tail = _lut_key_variant_tail(key)
+    assert tail == [
+        ('kernel_h', '2'), ('kernel_w', '2'),
+        ('stride_h', '2'), ('stride_w', '2'),
+        ('padding_h', '0'), ('padding_w', '0'),
+        ('is_transpose', 'True'),
+    ]
+
+
+@pytest.mark.unit
+def test_lut_key_variant_tail_its():
+    from tools.profiling.compare_layers import _lut_key_variant_tail
+
+    key = ('interleavedtosharded', 1, 1, 512, 128, 'TILE', 'BFLOAT16', 'DRAM', 'N/A',
+           'L1_BLOCK_SHARDED')
+    assert len(key) == 10
+    assert _lut_key_variant_tail(key) == [('output_0_memory', 'L1_BLOCK_SHARDED')]
+
+
+@pytest.mark.unit
+def test_lut_key_variant_tail_standard_empty():
+    from tools.profiling.compare_layers import _lut_key_variant_tail
+
+    key = ('conv2d', 1, 1, 512, 128, 'TILE', 'BFLOAT16', 'L1', 'N/A')
+    assert _lut_key_variant_tail(key) == []
+
+
+@pytest.mark.unit
+def test_lut_key_variant_col_names_ordering():
+    """Union of variant fields across mixed keys preserves insertion order."""
+    from tools.profiling.compare_layers import _lut_key_variant_col_names
+
+    halo_v3 = ('halo', 1, 1, 512, 128, 'ROW_MAJOR', 'BFLOAT16', 'L1', 'N/A',
+                3, 3, 1, 1, 1, 1)
+    its = ('interleavedtosharded', 1, 1, 512, 128, 'TILE', 'BFLOAT16', 'DRAM', 'N/A',
+           'L1_BLOCK_SHARDED')
+    standard = ('conv2d', 1, 1, 512, 128, 'TILE', 'BFLOAT16', 'L1', 'N/A')
+
+    names = _lut_key_variant_col_names([halo_v3, its, standard])
+    assert names == ['kernel_h', 'kernel_w', 'stride_h', 'stride_w', 'padding_h', 'padding_w', 'output_0_memory']
+
+
+# ── _print_perf_comparison LUT column split tests ─────────────────────────
+
+
+def _make_layer(optype: str, duration_ms: float, uses_perf_lookup: bool = False) -> dict:
+    return {'optype': optype, 'duration_ms': duration_ms, 'uses_perf_lookup': uses_perf_lookup}
+
+
+@pytest.mark.unit
+def test_perf_comparison_mixed_mode_shows_only_lut1(capsys):
+    """In mixed mode (polaris-vs-profiler) only side-1 has LUT hits.
+    Output must show LUT1 column but NOT LUT2, so the hit rate is not
+    diluted by the profiler-side zero count."""
+    from tools.profiling.compare_layers import _print_perf_comparison
+
+    layers1 = [_make_layer('conv2d', 1.0, uses_perf_lookup=True)]
+    layers2 = [_make_layer('conv2d', 1.1, uses_perf_lookup=False)]
+
+    _print_perf_comparison(layers1, layers2, label1='Polaris', label2='Profiler')
+    out = capsys.readouterr().out
+
+    assert 'LUT1' in out
+    assert 'LUT2' not in out
+    # Hit ratio must be 1/1, not 1/2
+    assert '1/1' in out
+    assert '1/2' not in out
+
+
+@pytest.mark.unit
+def test_perf_comparison_same_type_shows_both_lut_columns(capsys):
+    """In same-type mode (e.g. polaris-vs-polaris) both sides carry LUT hits.
+    Output must show both LUT1 and LUT2 columns."""
+    from tools.profiling.compare_layers import _print_perf_comparison
+
+    layers1 = [_make_layer('conv2d', 1.0, uses_perf_lookup=True)]
+    layers2 = [_make_layer('conv2d', 1.1, uses_perf_lookup=True)]
+
+    _print_perf_comparison(layers1, layers2, label1='RunA', label2='RunB')
+    out = capsys.readouterr().out
+
+    assert 'LUT1' in out
+    assert 'LUT2' in out
+
+
+@pytest.mark.unit
+def test_perf_comparison_no_lut_hides_all_lut_columns(capsys):
+    """When neither side has LUT hits, no LUT columns appear."""
+    from tools.profiling.compare_layers import _print_perf_comparison
+
+    layers1 = [_make_layer('conv2d', 1.0, uses_perf_lookup=False)]
+    layers2 = [_make_layer('conv2d', 1.1, uses_perf_lookup=False)]
+
+    _print_perf_comparison(layers1, layers2)
+    out = capsys.readouterr().out
+
+    assert 'LUT1' not in out
+    assert 'LUT2' not in out

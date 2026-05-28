@@ -184,6 +184,10 @@ class Device:
         # 2) SET RESOURCES FOR ALL OPS
         wlgraph.set_resources(wlmapspec.rsrc_spec)
 
+        # 2.5) ARCH-AWARE LUT-KEY ANNOTATIONS (must run before execute_op → LUT lookup)
+        self._annotate_conv_x_pad_logical(wlgraph)
+        self._annotate_halo_y_pad_logical(wlgraph)
+
         # 3) EXECUTE OPS RESOURCES FOR ALL OPS : FIND COMPUTE/MEM CYCLES
         for opname in graph_ordered_nodes:
             op = wlgraph.get_op(opname)
@@ -305,6 +309,214 @@ class Device:
     def _profiler_pct_to_exec_fraction(v: float) -> float:
         """Convert validated LUT utilization from percentage (0–100) to exec_stats fraction (0–1)."""
         return float(v) / 100.0
+
+    def _annotate_conv_x_pad_logical(self, wlgraph: Any) -> None:
+        """Tag conv2d/conv_transpose2d input tensors (+ upstream passthrough chain) with HW-padded channels.
+
+        For BLOCK_SHARDED convs on devices that declare ``compute_grid_size``, computes
+        the channel padding tt-metal's ``determine_parallel_config`` would apply and
+        writes it to the conv input tensor's ``x_pad_logical`` attr. The tag is then
+        propagated BACKWARD through Move/ITS/STS/Reshard/Halo so each upstream tensor
+        carries the same padded x — without this, the upstream Move's LUT key uses
+        unpadded channels and analytical-fallbacks (over-estimating duration).
+
+        See doc/TTNN_SHIM_ARCHITECTURE.md §17.
+        """
+        grid = getattr(self.simconfig_obj, "compute_grid_size", None)
+        if grid is None or len(grid) != 2:
+            return  # arch doesn't declare a grid — leave tensors alone (no-op fallback)
+
+        from tools.perf_lookup.conv_parallel_config import (
+            determine_block_sharded_channel_padding,
+        )
+        from ttsim.front.ttnn.buffer import TensorMemoryLayout
+
+        # Backward-propagation traverses Move-class passthrough ops only.  Halo is excluded
+        # intentionally: Halo's LUT key uses its PRE-halo (input) shape; the channel
+        # padding applies to the POST-halo path that feeds the conv.  Walking through Halo
+        # would tag the pre-halo tensor with the post-halo padded x and miss the Halo LUT.
+        passthrough_ops_backward = frozenset(
+            {"Move", "InterleavedToSharded", "ShardedToInterleaved", "Reshard"}
+        )
+
+        def _propagate_backward(start_tensor_name: str, padded: int) -> int:
+            """Walk backward through single-producer Move-class passthroughs; tag each upstream tensor.
+
+            Stops at Halo (or any non-passthrough op) so the Halo's LUT key — which uses the
+            pre-halo input shape — is not perturbed.
+            """
+            count = 0
+            cur_name = start_tensor_name
+            while True:
+                cur_t = wlgraph._tensors.get(cur_name)
+                if cur_t is None:
+                    break
+                producers = getattr(cur_t, "op_out", None) or []
+                if len(producers) != 1:
+                    break
+                upstream_op = wlgraph.get_op(producers[0])
+                if upstream_op is None or getattr(upstream_op, "optype", "") not in passthrough_ops_backward:
+                    break
+                u_inList = getattr(upstream_op, "inList", None) or []
+                if not u_inList:
+                    break
+                u_in_t = wlgraph._tensors.get(u_inList[0])
+                if u_in_t is None:
+                    break
+                u_in_t.x_pad_logical = padded
+                count += 1
+                cur_name = u_inList[0]
+            return count
+
+        grid_xy = (int(grid[0]), int(grid[1]))
+        tagged_convs = 0
+        tagged_propagations = 0
+        for opname in wlgraph.get_ordered_nodes():
+            op = wlgraph.get_op(opname)
+            optype = getattr(op, "optype", "")
+            if optype not in ("Conv", "ConvTranspose"):
+                continue
+            inList = getattr(op, "inList", None) or []
+            outList = getattr(op, "outList", None) or []
+            if not inList or not outList:
+                continue
+            in_t = wlgraph._tensors.get(inList[0])
+            out_t = wlgraph._tensors.get(outList[0])
+            if in_t is None or out_t is None:
+                continue
+            mc = getattr(in_t, "_memory_config", None)
+            if mc is None or getattr(mc, "memory_layout", None) != TensorMemoryLayout.BLOCK_SHARDED:
+                continue
+            # Channel count: prefer hw_shape (NHWC-flat [1, 1, N*H*W, C]); fall back to logical last dim.
+            in_hw = getattr(in_t, "hw_shape", None)
+            in_channels = int(in_hw[3]) if in_hw is not None and len(in_hw) >= 4 else None
+            if in_channels is None:
+                in_shape = getattr(in_t, "shape", None)
+                if in_shape is None or len(in_shape) == 0:
+                    continue
+                in_channels = int(in_shape[1])  # NCHW: index 1 is channels
+            out_hw = getattr(out_t, "hw_shape", None)
+            if out_hw is None or len(out_hw) < 3:
+                continue  # need output N*H*W; skip rather than guess
+            out_nhw = int(out_hw[2])
+            try:
+                _, _, padded_channels = determine_block_sharded_channel_padding(
+                    input_channels=in_channels,
+                    output_nhw=out_nhw,
+                    compute_grid_size=grid_xy,
+                )
+            except ValueError:
+                continue
+            if padded_channels != in_channels:
+                in_t.x_pad_logical = padded_channels
+                tagged_convs += 1
+                tagged_propagations += _propagate_backward(inList[0], padded_channels)
+        if tagged_convs:
+            logger.debug(
+                "Annotated x_pad_logical on {} conv input tensor(s) (+{} upstream passthrough) "
+                "(BLOCK_SHARDED on compute_grid_size={})",
+                tagged_convs,
+                tagged_propagations,
+                grid_xy,
+            )
+
+    def _annotate_halo_y_pad_logical(self, wlgraph: Any) -> None:
+        """Tag halo output tensors (and their passthrough downstream chain) with arch-specific extended-Y.
+
+        The base ``_HALO_EXT_Y`` table in ttsim/ops/desc/ttsim_layout.py was calibrated against
+        WH n150's profiler trace; some halo positions emit a different extended-y on other
+        arches because tt-metal's ``determine_parallel_config`` picks a different
+        ``num_cores_nhw`` for the downstream conv.  ``_HALO_EXT_Y_OVERRIDES_BY_DEVICE`` declares
+        the arch-specific values; when an entry exists for the current device, this pass
+        writes ``y_pad_logical`` onto the halo output tensor AND propagates it forward through
+        passthrough ops (Move, ITS, STI, Reshard) to the downstream conv input.  See
+        doc/TTNN_SHIM_ARCHITECTURE.md §17 (D.2b).
+        """
+        device_name = getattr(self, "name", None)
+        if not device_name:
+            return
+        from ttsim.ops.desc.ttsim_layout import _HALO_EXT_Y_OVERRIDES_BY_DEVICE
+
+        overrides = _HALO_EXT_Y_OVERRIDES_BY_DEVICE.get(device_name)
+        if not overrides:
+            return
+
+        passthrough_ops = frozenset({"Move", "InterleavedToSharded", "ShardedToInterleaved", "Reshard"})
+        tagged_halos = 0
+        tagged_propagations = 0
+
+        def _propagate_forward(start_tensor_name: str, ext_y: int) -> int:
+            """Walk forward through passthrough ops; tag every output tensor on the chain."""
+            count = 0
+            cur_name = start_tensor_name
+            while True:
+                cur_t = wlgraph._tensors.get(cur_name)
+                if cur_t is None:
+                    break
+                consumers = getattr(cur_t, "op_in", None) or []
+                # Stop when there are zero or multiple consumers (branching) — only single-consumer
+                # passthrough chains are safe to propagate through.
+                if len(consumers) != 1:
+                    break
+                downstream_op = wlgraph.get_op(consumers[0])
+                if downstream_op is None or getattr(downstream_op, "optype", "") not in passthrough_ops:
+                    break
+                d_outList = getattr(downstream_op, "outList", None) or []
+                if len(d_outList) != 1:
+                    break
+                d_out_t = wlgraph._tensors.get(d_outList[0])
+                if d_out_t is None:
+                    break
+                d_out_t.y_pad_logical = ext_y
+                count += 1
+                cur_name = d_outList[0]
+            return count
+
+        for opname in wlgraph.get_ordered_nodes():
+            op = wlgraph.get_op(opname)
+            if getattr(op, "optype", "") != "Halo":
+                continue
+            inList = getattr(op, "inList", None) or []
+            outList = getattr(op, "outList", None) or []
+            if not inList or not outList:
+                continue
+            in_t = wlgraph._tensors.get(inList[0])
+            out_t = wlgraph._tensors.get(outList[0])
+            if in_t is None or out_t is None:
+                continue
+            in_shape = getattr(in_t, "shape", None)
+            if in_shape is None or len(in_shape) < 4:
+                continue
+            attrs = getattr(op, "attrs", None) or {}
+            ks = attrs.get("kernel_size")
+            pd = attrs.get("padding")
+            if ks is None or pd is None:
+                continue
+            try:
+                kH = int(ks[0]) if hasattr(ks, "__getitem__") else int(ks)
+                kW = int(ks[1]) if hasattr(ks, "__getitem__") else int(ks)
+                pH = int(pd[0]) if hasattr(pd, "__getitem__") else int(pd)
+                pW = int(pd[1]) if hasattr(pd, "__getitem__") else int(pd)
+            except (TypeError, ValueError):
+                continue
+            N, C, H, W = int(in_shape[0]), int(in_shape[1]), int(in_shape[2]), int(in_shape[3])
+            nhw = N * H * W
+            is_tp = bool(attrs.get("is_transpose", False))
+            key = (nhw, C, kH, kW, pH, pW, is_tp)
+            override_y = overrides.get(key)
+            if override_y is None:
+                continue
+            out_t.y_pad_logical = int(override_y)
+            tagged_halos += 1
+            tagged_propagations += _propagate_forward(outList[0], int(override_y))
+
+        if tagged_halos:
+            logger.debug(
+                "Annotated y_pad_logical on {} halo output tensor(s) (+{} downstream passthrough) for device {!r}",
+                tagged_halos,
+                tagged_propagations,
+                device_name,
+            )
 
     def _try_operator_perf_lookup(
         self,

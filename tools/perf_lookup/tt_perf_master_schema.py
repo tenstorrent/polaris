@@ -45,6 +45,23 @@ KEY_TUPLE_YAML_KEYS = [
 
 _KEY_TUPLE_YAML_KEYS_SET = frozenset(KEY_TUPLE_YAML_KEYS)
 
+# Per-op variant key tuples.
+# Halo v3: standard 9 fields + 6 sliding-window geometry fields = 15 fields.
+# Halo v4: adds is_transpose to disambiguate ConvTranspose halos = 16 fields.
+_HALO_V3_EXTRA_YAML_KEYS = ["kernel_h", "kernel_w", "stride_h", "stride_w", "padding_h", "padding_w"]
+HALO_V3_KEY_TUPLE_YAML_KEYS = KEY_TUPLE_YAML_KEYS[:9] + _HALO_V3_EXTRA_YAML_KEYS
+HALO_KEY_TUPLE_YAML_KEYS = KEY_TUPLE_YAML_KEYS[:9] + _HALO_V3_EXTRA_YAML_KEYS + ["is_transpose"]
+
+# InterleavedToSharded: standard 9 fields + destination memory = 10 fields.
+ITS_KEY_TUPLE_YAML_KEYS = KEY_TUPLE_YAML_KEYS[:9] + [
+    "output_0_memory",
+]
+
+# Field names that uniquely identify each per-op variant (used for detection on load).
+# Any halo key (v3 or v4) has kernel_h; is_transpose distinguishes v4 from v3.
+_HALO_EXTRA_KEY_NAMES: frozenset[str] = frozenset(HALO_KEY_TUPLE_YAML_KEYS[9:])
+_ITS_EXTRA_KEY_NAMES: frozenset[str] = frozenset(ITS_KEY_TUPLE_YAML_KEYS[9:])
+
 # Device kernel duration in master YAML (milliseconds). Excel uses nanoseconds column title.
 MASTER_DURATION_MS_KEY = "msecs"
 
@@ -96,7 +113,9 @@ MATH_FIDELITY_NA = "N/A"
 MASTER_YAML_SCHEMA_NAME = "correqn.tt-perf-master"
 MASTER_YAML_SCHEMA_NAME_KEY = "schema_name"
 # v2: math_fidelity added to key tuple (v1 files still load via default-fill in labeled_key_map_to_tuple).
-MASTER_YAML_SCHEMA_VERSION = 2
+# v3: per-op variant tuples — halo (15-field) and interleavedtosharded (10-field).
+# v4: halo gains is_transpose (16-field) so ConvTranspose halos don't collide with Conv halos.
+MASTER_YAML_SCHEMA_VERSION = 4
 MASTER_YAML_SCHEMA_VERSION_KEY = "schema_version"
 MASTER_YAML_ENTRIES_KEY = "entries"
 MASTER_YAML_RECORD_KEY_FIELD = "key"
@@ -106,8 +125,25 @@ MASTER_YAML_ENTRY_VALUE_FIELD = "value"
 def tuple_to_labeled_key_map(key_t: tuple) -> dict:
     """Serialize logical key tuple to YAML mapping (under ``entries[i]['key']``)."""
     n = len(key_t)
+    # Per-op variants are disambiguated by op_code (key_t[0]) — schema v4's halo
+    # is 16-field which collides on length with the standard binary-op tuple.
+    if n >= 1 and key_t[0] == "halo":
+        if n == len(HALO_KEY_TUPLE_YAML_KEYS):
+            return dict(zip(HALO_KEY_TUPLE_YAML_KEYS, key_t))
+        if n == len(HALO_V3_KEY_TUPLE_YAML_KEYS):
+            return dict(zip(HALO_V3_KEY_TUPLE_YAML_KEYS, key_t))
+        raise ValueError(
+            f"Halo key tuple length must be {len(HALO_V3_KEY_TUPLE_YAML_KEYS)} (v3) "
+            f"or {len(HALO_KEY_TUPLE_YAML_KEYS)} (v4), got {n}"
+        )
+    if n >= 1 and key_t[0] == "interleavedtosharded":
+        if n != len(ITS_KEY_TUPLE_YAML_KEYS):
+            raise ValueError(
+                f"ITS key tuple length must be {len(ITS_KEY_TUPLE_YAML_KEYS)}, got {n}"
+            )
+        return dict(zip(ITS_KEY_TUPLE_YAML_KEYS, key_t))
     if n not in (9, 16, 23):
-        raise ValueError(f"Key tuple length must be 9, 16, or 23, got {n}")
+        raise ValueError(f"Key tuple length must be 9, 16, or 23 for standard ops (or use halo/its variant), got {n}")
     return dict(zip(KEY_TUPLE_YAML_KEYS[:n], key_t))
 
 
@@ -115,16 +151,45 @@ def labeled_key_map_to_tuple(d: dict) -> tuple:
     """Parse YAML labeled mapping back to logical key tuple."""
     if not isinstance(d, dict):
         raise TypeError(f"Labeled key must be a dict, got {type(d)}")
+    str_keys = {k if isinstance(k, str) else str(k) for k in d}
+
+    # Per-op variant detection: unique extra fields identify halo and ITS.
+    if str_keys & _HALO_EXTRA_KEY_NAMES:
+        # Detect schema version by presence of is_transpose (v4) or absence (v3 legacy).
+        if "is_transpose" in str_keys:
+            halo_keys = HALO_KEY_TUPLE_YAML_KEYS  # 16-field v4
+        else:
+            halo_keys = HALO_V3_KEY_TUPLE_YAML_KEYS  # 15-field v3 legacy
+        expected = frozenset(halo_keys)
+        missing = [nm for nm in halo_keys if nm not in d]
+        if missing:
+            raise ValueError(f"Halo labeled key missing fields: {missing}")
+        unknown = sorted(str_keys - expected)
+        if unknown:
+            raise ValueError(f"Unknown halo labeled-key field(s): {unknown}")
+        return tuple(d[nm] for nm in halo_keys)
+
+    if str_keys & _ITS_EXTRA_KEY_NAMES:
+        expected = frozenset(ITS_KEY_TUPLE_YAML_KEYS)
+        missing = [nm for nm in ITS_KEY_TUPLE_YAML_KEYS if nm not in d]
+        if missing:
+            raise ValueError(f"ITS labeled key missing fields: {missing}")
+        unknown = sorted(str_keys - expected)
+        if unknown:
+            raise ValueError(f"Unknown ITS labeled-key field(s): {unknown}")
+        return tuple(d[nm] for nm in ITS_KEY_TUPLE_YAML_KEYS)
+
+    # Standard 9/16/23 path.
     filtered: dict = {}
-    unknown: list = []
+    unknown_list: list = []
     for k, v in d.items():
         ks = k if isinstance(k, str) else str(k)
         if ks in _KEY_TUPLE_YAML_KEYS_SET:
             filtered[ks] = v
         else:
-            unknown.append(k)
-    if unknown:
-        raise ValueError(f"Unknown labeled-key field(s): {unknown}")
+            unknown_list.append(k)
+    if unknown_list:
+        raise ValueError(f"Unknown labeled-key field(s): {unknown_list}")
     if "math_fidelity" not in filtered:
         filtered["math_fidelity"] = MATH_FIDELITY_NA
     has_i2 = any(str(k).startswith("input_2_") for k in filtered)
@@ -160,8 +225,8 @@ def yaml_labeled_key_to_tuple(k: dict) -> tuple:
         raise TypeError(f"Entry key must be a mapping, got {type(k)!r}")
     key_t = labeled_key_map_to_tuple(k)
     n = len(key_t)
-    if n not in (9, 16, 23):
-        raise ValueError(f"Key tuple length must be 9, 16, or 23, got {n}")
+    if n not in (9, 10, 15, 16, 23):
+        raise ValueError(f"Key tuple length must be 9, 10, 15, 16, or 23, got {n}")
     return key_t
 
 

@@ -140,6 +140,22 @@ class SimTensor:
         self.is_const    = cfg.get('is_const', False) # Is it constant? Boolean
         self.has_grad    = cfg.get('has_grad', True)  # Has a gradient during bwd pass? Boolean
         self.link_module = None                       # Associated Module
+        # hw_shape: NHWC-flattened [1, 1, N*H*W, C] used for LUT key matching and profiler comparison.
+        # Set by conv/pool sinfs; propagated by Move/ITS/STI/Reshard/Concat passthrough sinfs.
+        # None for ops that produce non-NCHW outputs (attention projections, embeddings, etc.).
+        # TODO: set hw_shape for MaxPool/AvgPool descriptors if LUT coverage is extended.
+        self.hw_shape: list[int] | None = None
+        # x_pad_logical: padded channel count for LUT key construction when this tensor feeds
+        # a BLOCK_SHARDED conv2d/conv_transpose2d.  Set by the Device.execute_graph annotation
+        # pass (post-shim, post-arch-load) via determine_block_sharded_channel_padding.
+        # See doc/TTNN_SHIM_ARCHITECTURE.md §17. None when the tensor doesn't participate in
+        # a BLOCK_SHARDED conv input chain; LUT key builders then fall back to shape's X dim.
+        self.x_pad_logical: int | None = None
+        # y_pad_logical: halo-extended Y stick count override for LUT key construction.
+        # Set by the Device.execute_graph annotation pass when an arch-specific halo
+        # extension differs from the base _HALO_EXT_Y table (e.g. BH p100a's d2.conv1
+        # picks num_cores_nhw=10 → y=5620 vs WH's y=5280).  See doc/TTNN_SHIM_ARCHITECTURE.md §17.
+        self.y_pad_logical: int | None = None
         SimTensor.set_shape(self, cfg.get('shape'))   # Other classes that subclass might override set_shape
 
     def set_module(self, m): self.link_module = m
