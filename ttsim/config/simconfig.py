@@ -491,6 +491,11 @@ class PackageInstanceModel(BaseModel, extra='forbid'):
     operator_lookup_core_count: Optional[int] = None
     #: When True, ``entry_type: hybrid`` LUT rows use embedded ``curve`` stats at runtime core count.
     operator_lookup_hybrid_curve: bool = False
+    #: Logical compute grid [x, y] = (num_cols, num_rows) — mirrors tt-metal's compute_with_storage_grid_range.
+    #: Used by the conv2d parallel-config helper to compute BLOCK_SHARDED channel padding (see
+    #: doc/TTNN_SHIM_ARCHITECTURE.md §17). Optional — only required for arches that participate in
+    #: the LUT-key channel-padding pass; otherwise polaris falls back to unpadded channels.
+    compute_grid_size: Optional[List[int]] = None
 
     def get_ipgroup(self, iptype: str) -> IPGroupModel:
         matching = [ipgroup for ipgroup in self.ipgroups if ipgroup.iptype == iptype]

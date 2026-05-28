@@ -149,6 +149,38 @@ def test_build_master_key_tuple_8():
 
 
 @pytest.mark.unit
+def test_halo_key_distinguishes_conv_from_conv_transpose():
+    """Schema v4: Halo emitted by conv2d and conv_transpose2d must produce different LUT keys.
+
+    Confirmed in the BH refrun: two halos with identical input shape, window, stride, and
+    padding but different ``is_transpose`` run 5.3x apart on hardware (1550ns Conv vs
+    8253ns ConvTranspose) — the LUT must be able to discriminate them.
+    """
+    from tools.perf_lookup.lookup_operator_perf import build_master_key_tuple_halo
+
+    t0 = SimTensor(
+        {"name": "x", "shape": [1, 1, 1024, 512], "op_in": [], "op_out": []}
+    )
+    common_attrs = {"kernel_size": (2, 2), "stride": (2, 2), "padding": (0, 0)}
+    op_conv = SimpleNamespace(
+        optype="Halo", precision="BF16", inList=["x"],
+        attrs={**common_attrs, "is_transpose": False},
+    )
+    op_ct = SimpleNamespace(
+        optype="Halo", precision="BF16", inList=["x"],
+        attrs={**common_attrs, "is_transpose": True},
+    )
+    k_conv = build_master_key_tuple_halo(op_conv, t0)
+    k_ct = build_master_key_tuple_halo(op_ct, t0)
+    assert k_conv is not None and k_ct is not None
+    assert len(k_conv) == 16 and len(k_ct) == 16
+    assert k_conv[:15] == k_ct[:15]
+    assert k_conv[15] is False
+    assert k_ct[15] is True
+    assert k_conv != k_ct
+
+
+@pytest.mark.unit
 def test_reshape_master_key_packs_input0_wzyx():
     """LUT uses (1, 1, w*z*y, x) for reshape input_0 vs raw rank-4 logical shape."""
     from tools.perf_lookup.lookup_operator_perf import build_master_key_tuple_8, build_master_key_tuple_15

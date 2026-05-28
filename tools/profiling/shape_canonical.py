@@ -265,7 +265,10 @@ def compare_tensor_shapes(
     Returns ``(match, details)`` — ``True`` when all shapes agree after
     normalization.
     """
-    from tools.profiling.op_canonical import normalize_polaris_optype
+    try:
+        from op_canonical import normalize_polaris_optype  # type: ignore[import-not-found]
+    except ImportError:
+        from tools.profiling.op_canonical import normalize_polaris_optype  # type: ignore[import-not-found]
 
     polaris_normalized = [
         normalize_shape(parse_shape_string(s), strip_leading_ones,

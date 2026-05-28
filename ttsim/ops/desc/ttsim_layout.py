@@ -20,6 +20,30 @@ TILE_WIDTH = 32
 _TTNN_OP_DOMAIN = "com.tenstorrent.ttnn"
 
 
+# Per-arch overrides to ``_HALO_EXT_Y``. The base table is empirical (WH n150 trace);
+# some halo positions emit a different extended-y on other arches because
+# ``determine_parallel_config`` picks a workload-specific ``num_cores_nhw``.
+# Applied by the annotation pass in ttsim/back/device.py at execute_graph time, when
+# the back Device's instance name is known. See doc/TTNN_SHIM_ARCHITECTURE.md §17.
+_HALO_EXT_Y_OVERRIDES_BY_DEVICE: dict[
+    str, dict[tuple[int, int, int, int, int, int, bool], int]
+] = {
+    # BH p100a (grid 12x10): d2.conv1 (4096 nhw, 512 channels, k=3 p=1 s=1) lands on
+    # num_cores_nhw=10 (cores=80, 10x8 grid) per tt-metal's parallel-config picker
+    # — different from the base table's WH assumption of num_cores_nhw=8 (cores=64).
+    # HW-captured extended y = 5620 (verified against
+    # __refrun_cache/vgg_unet/bh/p100a/merged_ops_dualref_260519.csv).
+    "p100a": {
+        (4096, 512, 3, 3, 1, 1, False): 5620,
+        # d4 up convtranspose: WH n150 emits y=82240 (the base table value); BH p100a's
+        # parallel-config for the underlying conv2d (post-zero-insert upsample + halo) picks
+        # different num_cores → HW captures y=88408 (verified against
+        # __refrun_cache/vgg_unet/bh/p100a/merged_ops_dualref_260519.csv convtranspose entry).
+        (16384, 128, 2, 2, 0, 0, True): 88408,
+    },
+}
+
+
 def _round_up(value, multiple):
     return ((value + multiple - 1) // multiple) * multiple
 

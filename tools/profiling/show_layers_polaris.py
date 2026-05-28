@@ -6,7 +6,7 @@ import sys
 import argparse
 import csv
 import json
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional, Tuple
 
 try:
     from op_canonical import normalize_polaris_optype  # type: ignore[import-not-found]
@@ -116,8 +116,45 @@ def layers_polaris(input_file: str) -> List[Dict[str, Any]]:
             lut_raw = row.get('uses_perf_lookup', '').strip().lower()
             filtered_row['uses_perf_lookup'] = lut_raw in ('true', '1', 'yes')
 
+            # LUT key trail (polaris CSV columns added by the Tier-1 plumbing):
+            #   ``lut_key``           — literal tuple built from this op + tensor state,
+            #                            before any fallback substitution
+            #   ``lut_key_resolved``  — tuple the lookup chain actually matched (after
+            #                            HEIGHT→BLOCK / L1→DRAM / arity-dup / layout
+            #                            fallbacks).  Equals ``lut_key`` when the
+            #                            literal hit directly.
+            # Both columns are absent on older polaris CSVs predating the Tier-1
+            # plumbing — leave the row fields unset (= None) in that case so
+            # downstream consumers (compare_layers ``--by-lut-key``) treat the row
+            # as not-yet-canonicalized.
+            filtered_row['lut_key'] = _parse_lut_key_cell(row.get('lut_key'))
+            filtered_row['lut_key_resolved'] = _parse_lut_key_cell(row.get('lut_key_resolved'))
+
             rows.append(filtered_row)
     return rows
+
+
+def _parse_lut_key_cell(raw: Optional[str]) -> Optional[Tuple[Any, ...]]:
+    """Parse a polaris CSV ``lut_key`` / ``lut_key_resolved`` cell into a tuple.
+
+    The cell holds ``str(tuple)`` (e.g. ``"('halo', 1, 1, 65536, 16, 'ROW_MAJOR', …)"``)
+    when ``uses_perf_lookup`` is True, ``''`` / ``None`` otherwise.  We round-trip via
+    :func:`ast.literal_eval`; on any parse error return ``None`` rather than crash so
+    older polaris CSVs (which lack these columns) and malformed cells degrade gracefully.
+    """
+    import ast
+    if raw is None:
+        return None
+    s = str(raw).strip()
+    if not s or s.lower() in ('none', 'na', 'null'):
+        return None
+    try:
+        value = ast.literal_eval(s)
+    except (ValueError, SyntaxError):
+        return None
+    if not isinstance(value, tuple):
+        return None
+    return value
 
 def show_layers_polaris(input_file: str) -> None:
     for row in layers_polaris(input_file):

@@ -6,8 +6,10 @@
 Operator performance lookup: tt-perf **master** YAML only (``correqn.tt-perf-master``).
 
 Loads via ``tools.perf_lookup.tt_perf_master_loader.load_existing_yaml``. Maps workload ops + tensors to a
-logical **9-tuple** (one input), **16-tuple** (two inputs), or **23-tuple** (three inputs) key. Resolves ``single`` (flat
-``num_cores`` + stat scalars), ``curve``, and ``hybrid``. For hybrid rows, whether ``curve`` is used
+logical **9-tuple** (one input), **16-tuple** (two inputs), or **23-tuple** (three inputs) key, or to a per-op
+variant: **16-tuple** for ``halo`` (standard 9 + kernel_h/w, stride_h/w, padding_h/w, is_transpose from op.attrs) and
+**10-tuple** for ``interleavedtosharded`` (standard 9 + ``output_0_memory`` from the output tensor). Resolves
+``single`` (flat ``num_cores`` + stat scalars), ``curve``, and ``hybrid``. For hybrid rows, whether ``curve`` is used
 is controlled by :class:`OperatorPerfMap` ``use_hybrid_curve`` (default ``False``: ``single`` only).
 See ``doc/tools/perf_lookup/LOOKUP_TABLE_MASTER.md``.
 
@@ -292,12 +294,33 @@ def _op_code(op: Any) -> str:
 
 
 def _shape_wzyx(tensor: Any) -> Tuple[int, int, int, int]:
-    """Rank-4 WZYX shape for LUT key construction."""
-    raw = getattr(tensor, "shape", None)
-    if raw is None:
-        raise ValueError("tensor has no shape")
-    raw_list = coerce_shape_to_list(raw)
-    return promote_to_rank4(raw_list)
+    """Rank-4 WZYX shape for LUT key construction.
+
+    Prefers tensor.hw_shape (NHWC-flattened [1, 1, N*H*W, C] set by conv/pool
+    shape-inference) over tensor.shape (logical NCHW [N, C, H, W]).  hw_shape
+    matches the representation hardware profiler output uses so LUT keys agree.
+    Falls back to promoting the logical shape when hw_shape is absent.
+
+    When ``tensor.x_pad_logical`` or ``tensor.y_pad_logical`` is set (tagged by the
+    arch-aware annotation pass in ``ttsim/back/device.py``), the returned X / Y
+    dimension is replaced with the HW-matching value.  See doc/TTNN_SHIM_ARCHITECTURE.md §17.
+    """
+    hw = getattr(tensor, 'hw_shape', None)
+    if hw is not None:
+        w, z, y, x = promote_to_rank4(hw)
+    else:
+        raw = getattr(tensor, 'shape', None)
+        if raw is None:
+            raise ValueError('tensor has no shape')
+        raw_list = coerce_shape_to_list(raw)
+        w, z, y, x = promote_to_rank4(raw_list)
+    y_pad = getattr(tensor, 'y_pad_logical', None)
+    if y_pad is not None:
+        y = int(y_pad)
+    x_pad = getattr(tensor, 'x_pad_logical', None)
+    if x_pad is not None:
+        x = int(x_pad)
+    return (w, z, y, x)
 
 
 def _input0_wzyx_for_master_key(op: Any, tensor_0: Any) -> Tuple[int, int, int, int]:
@@ -412,6 +435,43 @@ def build_master_key_tuple_22(
     )
 
 
+def build_master_key_tuple_halo(op: Any, tensor_0: Any) -> Optional[Tuple[Any, ...]]:
+    """Logical 16-tuple for halo: standard 9 + kernel_h/w, stride_h/w, padding_h/w, is_transpose.
+
+    Reads ``op.attrs['kernel_size']``, ``op.attrs['stride']``, ``op.attrs['padding']``,
+    ``op.attrs['is_transpose']`` — set by the ``_with_halo`` shim wrapper (conv_transpose2d
+    sets is_transpose=True; conv2d/pool2d set False). Returns ``None`` when geometry attrs
+    are missing; callers treat that as a lookup miss.
+    """
+    base = build_master_key_tuple_8(op, tensor_0)
+    attrs = getattr(op, "attrs", None)
+    if not isinstance(attrs, dict):
+        return None
+    ks = attrs.get("kernel_size")
+    st = attrs.get("stride")
+    pd = attrs.get("padding")
+    if ks is None or st is None or pd is None:
+        return None
+    try:
+        kH, kW = int(ks[0]), int(ks[1])
+        sH, sW = int(st[0]), int(st[1])
+        pH, pW = int(pd[0]), int(pd[1])
+    except (TypeError, IndexError, ValueError):
+        return None
+    is_transpose = bool(attrs.get("is_transpose", False))
+    return base + (kH, kW, sH, sW, pH, pW, is_transpose)
+
+
+def build_master_key_tuple_its(
+    op: Any,
+    tensor_0: Any,
+    output_tensor: Any,
+) -> Tuple[Any, ...]:
+    """Logical 10-tuple for InterleavedToSharded: standard 9 + output_0_memory."""
+    base = build_master_key_tuple_8(op, tensor_0)
+    return base + (tensor_memory_str(output_tensor),)
+
+
 def build_master_key_tuple_15_add_broadcast_duplicate_full(
     op: Any,
     tensor_0: Any,
@@ -504,19 +564,21 @@ def _wzyx_int_tuple(t4: tuple) -> tuple:
 def _lut_keys_matching_op_and_wzyx(entries: Dict[tuple, dict], key_t: tuple) -> Tuple[tuple, ...]:
     """
     LUT keys with same ``op_code`` and WZYX as ``key_t``
-    (input 0 for 8-tuple; inputs 0 and 1 for 15-tuple; inputs 0, 1, and 2 for 22-tuple).
+    (input 0 for 9/10/15-tuple and halo 16-tuple; inputs 0 and 1 for binary 16-tuple;
+    inputs 0, 1, and 2 for 23-tuple).
 
     Layout, datatype, and memory may differ — useful diagnostics when the full key misses.
     """
     n = len(key_t)
-    if n not in (9, 16, 23):
+    if n not in (9, 10, 15, 16, 23):
         return ()
     oc = key_t[0]
     matched: list[tuple] = []
-    if n == 9:
+    if n in (9, 10, 15) or (n == 16 and oc == 'halo'):
+        # Halo v4 16-tuple has one input slot at [1:5]; positions [9:] are geometry+is_transpose.
         w0 = _wzyx_int_tuple(key_t[1:5])
         for k in entries:
-            if len(k) != 9 or k[0] != oc:
+            if len(k) != n or k[0] != oc:
                 continue
             if _wzyx_int_tuple(k[1:5]) == w0:
                 matched.append(k)
@@ -546,13 +608,13 @@ def _lut_keys_matching_op_and_wzyx(entries: Dict[tuple, dict], key_t: tuple) -> 
 
 def _lut_keys_matching_op_code_only(entries: Dict[tuple, dict], key_t: tuple) -> Tuple[tuple, ...]:
     """
-    All LUT keys with the same ``op_code`` and tuple length as ``key_t`` (unary vs binary).
+    All LUT keys with the same ``op_code`` and tuple length as ``key_t`` (unary vs binary vs halo/ITS).
 
     Listed on full-key miss when no row matches operator type and all key attributes; contrasts
     with :func:`_lut_keys_matching_op_and_wzyx` which also requires WZYX match.
     """
     n = len(key_t)
-    if n not in (9, 16, 23):
+    if n not in (9, 10, 15, 16, 23):
         return ()
     oc = key_t[0]
     matched = [k for k in entries if len(k) == n and k[0] == oc]
@@ -720,7 +782,30 @@ class OperatorPerfMap:
             if t0.shape is None:
                 return None
             try:
-                key_t = build_master_key_tuple_8(op, t0)
+                op_code_norm = _op_code(op)
+                if op_code_norm == "halo":
+                    halo_key = build_master_key_tuple_halo(op, t0)
+                    if halo_key is None:
+                        logger.debug(
+                            "Perf lookup: halo op {} missing kernel/stride/padding "
+                            "attrs; cannot form 16-tuple key (treating as miss)",
+                            getattr(op, "name", "?"),
+                        )
+                        return None
+                    key_t = halo_key
+                elif op_code_norm == "interleavedtosharded":
+                    out_list = getattr(op, "outList", [])
+                    t_out = tensors.get(out_list[0]) if out_list else None
+                    if t_out is None or getattr(t_out, "shape", None) is None:
+                        logger.debug(
+                            "Perf lookup: ITS op {} has no resolvable output tensor; "
+                            "cannot form 10-tuple key (treating as miss)",
+                            getattr(op, "name", "?"),
+                        )
+                        return None
+                    key_t = build_master_key_tuple_its(op, t0, t_out)
+                else:
+                    key_t = build_master_key_tuple_8(op, t0)
             except Exception as e:
                 logger.debug("Perf lookup key build failed for op {}: {}", getattr(op, "name", "?"), e)
                 return None
