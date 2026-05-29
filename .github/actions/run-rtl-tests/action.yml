@@ -15,6 +15,9 @@ inputs:
   results-file:
     description: 'Path to RTL test results output file'
     required: true
+  lfc-server-urls:
+    description: 'Comma-separated list of LFC base URLs. Calling workflow must pass secrets.LFC_SERVER_URLS.'
+    required: true
 
 outputs:
   outcome:
@@ -34,6 +37,7 @@ runs:
       uses: ./.github/actions/lfcdownload
       with:
         files: ${{ inputs.lfc-files }}
+        lfc-server-urls: ${{ inputs.lfc-server-urls }}
 
     - name: Run RTL Tests
       id: run-rtl-tests

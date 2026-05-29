@@ -17,6 +17,15 @@ from ttsim.utils.lfc import (
 )
 
 
+@pytest.fixture(autouse=True)
+def _set_lfc_env(monkeypatch):
+    """Default LFC_SERVER_URLS for all tests so download paths execute against a
+    fake URL instead of failing the "must be set" check.  Tests that exercise
+    unset/empty behavior explicitly delenv inside the test body — that takes
+    precedence over this fixture for the duration of those tests."""
+    monkeypatch.setenv('LFC_SERVER_URLS', 'http://test.example')
+
+
 @pytest.mark.unit
 def test_resolve_lfc_path_invalid_prefix():
     with pytest.raises(ValueError, match="Path must start with 'lfc://'"):
@@ -283,31 +292,26 @@ def test_resolve_lfc_path_http_401_no_fallback():
 
 
 @pytest.mark.unit
-def test_get_lfc_base_urls_dev_default(monkeypatch):
-    """Dev mode (no GITHUB_ACTIONS, no LFC_SERVER_URLS) → yyz2 then aus2."""
+def test_get_lfc_base_urls_unset_in_dev_raises(monkeypatch):
+    """Dev mode (no GITHUB_ACTIONS, no LFC_SERVER_URLS) → RuntimeError."""
     monkeypatch.delenv('LFC_SERVER_URLS', raising=False)
     monkeypatch.delenv('GITHUB_ACTIONS', raising=False)
-    urls = _get_lfc_base_urls()
-    assert urls == [
-        'http://yyz2-lfcache.yyz2.tenstorrent.com/simulators-ai-perf/',
-        'http://aus2-lfcache.aus2.tenstorrent.com/simulators-ai-perf/',
-    ]
+    with pytest.raises(RuntimeError, match='LFC_SERVER_URLS is not set'):
+        _get_lfc_base_urls()
 
 
 @pytest.mark.unit
-def test_get_lfc_base_urls_ci_default(monkeypatch):
-    """CI mode (GITHUB_ACTIONS=true, no LFC_SERVER_URLS) → single in-cluster URL."""
+def test_get_lfc_base_urls_unset_in_ci_raises(monkeypatch):
+    """CI mode (GITHUB_ACTIONS=true, no LFC_SERVER_URLS) → RuntimeError."""
     monkeypatch.delenv('LFC_SERVER_URLS', raising=False)
     monkeypatch.setenv('GITHUB_ACTIONS', 'true')
-    urls = _get_lfc_base_urls()
-    assert urls == [
-        'http://large-file-cache.large-file-cache.svc.cluster.local/simulators-ai-perf/',
-    ]
+    with pytest.raises(RuntimeError, match='LFC_SERVER_URLS is not set'):
+        _get_lfc_base_urls()
 
 
 @pytest.mark.unit
-def test_get_lfc_base_urls_env_override(monkeypatch):
-    """LFC_SERVER_URLS overrides defaults; trims whitespace; strips trailing slashes."""
+def test_get_lfc_base_urls_dev(monkeypatch):
+    """LFC_SERVER_URLS parsed in dev mode; trims whitespace; strips trailing slashes."""
     monkeypatch.setenv(
         'LFC_SERVER_URLS',
         ' http://a.example/ , http://b.example, , http://c.example/ ',
@@ -322,8 +326,8 @@ def test_get_lfc_base_urls_env_override(monkeypatch):
 
 
 @pytest.mark.unit
-def test_get_lfc_base_urls_env_override_applies_in_ci(monkeypatch):
-    """LFC_SERVER_URLS override applies regardless of CI mode."""
+def test_get_lfc_base_urls_ci(monkeypatch):
+    """LFC_SERVER_URLS parsed identically in CI mode."""
     monkeypatch.setenv('LFC_SERVER_URLS', 'http://x.example,http://y.example')
     monkeypatch.setenv('GITHUB_ACTIONS', 'true')
     urls = _get_lfc_base_urls()

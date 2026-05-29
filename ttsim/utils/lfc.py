@@ -108,10 +108,16 @@ def _get_lfc_base_urls() -> list[str]:
     """Return the ordered list of LFC base URLs to try, each ending in
     ``/simulators-ai-perf/``.
 
-    Env var ``LFC_SERVER_URLS`` (comma-separated host URLs) overrides the
-    default; otherwise CI mode uses the in-cluster URL and dev mode uses
-    yyz2-then-aus2.  Same three-way priority (override > CI > dev) and same
-    normalization (strip whitespace, drop empty) as ``tools/ci/lfc_downloader.sh``.
+    The env var ``LFC_SERVER_URLS`` (comma-separated host URLs) is required —
+    there are no built-in defaults.  Whitespace is stripped, trailing slashes
+    are removed, and empty entries are dropped; if nothing usable remains,
+    ``RuntimeError`` is raised.  Same normalization as
+    ``tools/ci/lfc_downloader.sh``.
+
+    Setup: dev users obtain the URL values from the internal team documentation
+    (Slack pinned message / internal wiki) and export them in their shell rc or
+    a local ``.env`` file.  CI runs set the value via a repository secret wired
+    into ``.github/actions/lfcdownload/action.yml``.
 
     Behavioral difference from the shell script: the shell script probes each
     candidate host up front and commits to the first one that passes; this
@@ -122,19 +128,17 @@ def _get_lfc_base_urls() -> list[str]:
     on the actual file request.
     """
     env = os.getenv('LFC_SERVER_URLS')
-    if env:
-        candidates = [u.strip().rstrip('/') for u in env.split(',') if u.strip()]
-        if not candidates:
-            raise RuntimeError(
-                f'LFC_SERVER_URLS is set but contains no usable URLs: {env!r}'
-            )
-    elif os.getenv('GITHUB_ACTIONS') == 'true':
-        candidates = ['http://large-file-cache.large-file-cache.svc.cluster.local']
-    else:
-        candidates = [
-            'http://yyz2-lfcache.yyz2.tenstorrent.com',
-            'http://aus2-lfcache.aus2.tenstorrent.com',
-        ]
+    if not env:
+        raise RuntimeError(
+            'LFC_SERVER_URLS is not set. This environment variable is required '
+            'to use LFC downloads. See README.md ("LFC Server Configuration") '
+            'for setup instructions.'
+        )
+    candidates = [u.strip().rstrip('/') for u in env.split(',') if u.strip()]
+    if not candidates:
+        raise RuntimeError(
+            f'LFC_SERVER_URLS is set but contains no usable URLs: {env!r}'
+        )
     return [c + '/simulators-ai-perf/' for c in candidates]
 
 

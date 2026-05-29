@@ -97,6 +97,29 @@ The recommended setup uses Python with the Miniforge installation manager. It is
    pre-commit install
    ```
 
+#### LFC Server Configuration
+
+Workloads and tests that pull artifacts from the Large File Cache (LFC) — both
+the Python helper `ttsim/utils/lfc.py` and the shell tool
+`tools/ci/lfc_downloader.sh` — require the `LFC_SERVER_URLS` environment
+variable. It must be set to a comma-separated list of LFC base URLs to try in
+order; there are no built-in defaults, and any LFC download will fail fast
+with a clear error if the variable is unset.
+
+```bash
+# In your shell rc (~/.zshrc, ~/.bashrc) or a local .env file:
+export LFC_SERVER_URLS="<primary-url>,<fallback-url>"
+```
+
+**Where to get the URL values:** Tenstorrent developers should consult the
+internal team documentation (Slack pinned message / internal wiki) for the
+current LFC server URLs. These values are intentionally not shipped in the
+public repository.
+
+**Tailscale:** Dev access to external LFCache typically requires a Tailscale
+connection. CI runs use a repository-secret-provided URL and do not need
+Tailscale.
+
 ## Usage
 
 ### Basic Command Structure

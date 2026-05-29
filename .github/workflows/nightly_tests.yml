@@ -26,6 +26,8 @@ jobs:
     - id: lfcdownload
       name: Download required files from LFC
       uses: ./.github/actions/lfcdownload
+      with:
+        lfc-server-urls: ${{ secrets.LFC_SERVER_URLS }}
 
     - id: setup-mamba
       name: Setup mamba - developer
