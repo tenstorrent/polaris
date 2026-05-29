@@ -50,6 +50,7 @@ workloads:
       mem_heads                 : 4
       mem_dim_head              : 64
       mem_chunk_size            : 4
+      max_ttt_slices            : 16
       bs                        : 1
     instances:
       titans_mac_nano  : { nL: 2,  nH: 4,  dE: 128, dim_head: 32, nW: 64,   mem_chunk_size: 8  }

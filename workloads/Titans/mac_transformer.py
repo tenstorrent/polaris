@@ -90,8 +90,8 @@ class SegmentedAttention(SimNN.Module):
                                               shape=[1, heads, num_persist_mem_tokens, dim_head],
                                               is_param=True)
         else:
-            self.persistent_k = None
-            self.persistent_v = None
+            self.persistent_k = None  # type: ignore[assignment]
+            self.persistent_v = None  # type: ignore[assignment]
         super().link_op2module()
 
     def __call__(self, x):
@@ -133,7 +133,8 @@ class MACBlock(SimNN.Module):
                  num_persist_mem_tokens, num_longterm_mem_tokens,
                  use_neural_memory, neural_memory_segment_len,
                  mem_depth, mem_expansion_factor, mem_heads, mem_dim_head,
-                 mem_chunk_size):
+                 mem_chunk_size,
+                 max_chunks_unroll = 16):
         super().__init__()
         self.name = name
         self.use_mem = use_neural_memory
@@ -146,10 +147,11 @@ class MACBlock(SimNN.Module):
                 heads      = mem_heads,
                 depth      = mem_depth,
                 expansion_factor = mem_expansion_factor,
+                max_chunks_unroll = max_chunks_unroll,
             )
             self.add_mem = F.Add(f'{name}.add_mem')
         else:
-            self.mem = None
+            self.mem = None  # type: ignore[assignment]
 
         self.attn    = SegmentedAttention(
             name=f'{name}.attn', dim=dim, segment_len=segment_len,
@@ -206,6 +208,7 @@ class MemoryAsContextTransformer(SimNN.Module):
         self.mem_heads        = cfg.get('mem_heads', 4)
         self.mem_dim_head     = cfg.get('mem_dim_head', 64)
         self.mem_chunk_size   = cfg.get('mem_chunk_size', self.neural_memory_segment_len)
+        self.max_chunks_unroll = cfg.get('max_chunks_unroll', 16)
 
         # absolute positional embedding (learned; replaces axial pos emb)
         self.wte = F.Embedding('wte', self.vocab_sz, self.dim)
@@ -218,7 +221,7 @@ class MemoryAsContextTransformer(SimNN.Module):
                 'longterm_mems',
                 shape=[1, self.num_longterm_mem_tokens, self.dim], is_param=True)
         else:
-            self.longterm_mems = None
+            self.longterm_mems = None  # type: ignore[assignment]
 
         # Two proxy blocks: one represents memory-bearing layers, the other plain
         # transformer layers. Each gets its own repeat_count equal to the actual
@@ -243,6 +246,7 @@ class MemoryAsContextTransformer(SimNN.Module):
                 mem_heads=self.mem_heads,
                 mem_dim_head=self.mem_dim_head,
                 mem_chunk_size=self.mem_chunk_size,
+                max_chunks_unroll=self.max_chunks_unroll,
             ),
             MACBlock(
                 name='t_nomem',
@@ -257,6 +261,7 @@ class MemoryAsContextTransformer(SimNN.Module):
                 mem_heads=self.mem_heads,
                 mem_dim_head=self.mem_dim_head,
                 mem_chunk_size=self.mem_chunk_size,
+                max_chunks_unroll=self.max_chunks_unroll,
             ),
         ])
         self._block_repeat_counts = [self._n_mem_layers, self._n_nomem_layers]
@@ -313,7 +318,7 @@ class MemoryAsContextTransformer(SimNN.Module):
         pc += self.nW * self.dim          # wpe
         if self.longterm_mems is not None:
             pc += self.num_longterm_mem_tokens * self.dim
-        pc += sum(b.analytical_param_count(lvl + 1) for b in self.blocks) * self.nL
+        pc += sum(b.analytical_param_count(lvl + 1) for b in self.blocks) * self.nL  # type: ignore[attr-defined]
         pc += self.dim                    # final RMSNorm
         pc += self.dim * self.vocab_sz    # logits head
         return pc

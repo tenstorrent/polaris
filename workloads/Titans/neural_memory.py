@@ -131,7 +131,7 @@ class NeuralMemory(SimNN.Module):
         post_rmsnorm = False,
         qk_rmsnorm   = False,
         attn_pool_chunks = False,
-        max_chunks_unroll = 16
+        max_chunks_unroll = 16,
     ):
         super().__init__()
         self.name = name
@@ -173,7 +173,7 @@ class NeuralMemory(SimNN.Module):
             self.retrieve_gate_sig= F.Sigmoid(f'{name}.retrieve_gate_sig')
             self.combine_heads    = SimNN.Linear(f'{name}.combine_heads', self.dim_inner, dim)
         else:
-            self.to_retrieve_gate = None
+            self.to_retrieve_gate = None # type: ignore[assignment]
             self.combine_heads    = F.Identity(f'{name}.id_combine')
 
         # ----- the memory model (its weights are the memory) -----
@@ -181,7 +181,7 @@ class NeuralMemory(SimNN.Module):
         if mem_model_norm_add_residual:
             self.memory_model = ResidualNorm(f'{name}.mem_resnorm', dim_head, inner_model)
         else:
-            self.memory_model = inner_model
+            self.memory_model = inner_model # type: ignore[assignment]
 
         self._mem_param_names = [f'W{i}' for i in range(depth)]
         self._mem_param_dims  = inner_model.dims  # length depth+1
@@ -246,13 +246,18 @@ class NeuralMemory(SimNN.Module):
             setattr(self, f'decay_factor_split_n{k}',  dop)
             self._momentum_coef_splits.append(mop)
             self._decay_factor_splits.append(dop)
-
         # ----- per-chunk pooling on input seq -----
         # We model AveragePool as a Mean reduce over chunk dim (chunk-size set at call-time).
         self.chunk_mean = F.Mean(f'{name}.chunk_mean', dim=-2)
         # reduce per-chunk decay / momentum coefs across the chunk dim -> single scalar per (B*H)
         self.decay_chunk_mean    = F.Mean(f'{name}.decay_chunk_mean',    dim=1)
         self.momentum_chunk_mean = F.Mean(f'{name}.momentum_chunk_mean', dim=1)
+
+        # D4: cache_store_segment prepend for autoregressive decode.
+        # When state.cache_store_segment is non-None, we prepend it to store_seq.
+        # The outgoing tail-slice is stubbed in __call__ since the YAML keeps
+        # all instances divisible by mem_chunk_size.
+        self.cat_cache = F.Concat(f'{name}.cat_cache', axis=1)
 
         super().link_op2module()
 
@@ -389,17 +394,35 @@ class NeuralMemory(SimNN.Module):
         # scaled grad d_pred = 2 * err * adaptive_lr / Dh — modeled as a single Mul against a broadcasted lr tensor
         d_pred = self.mul_scale(err, adaptive_lr.reshape(B * H, N, 1))
 
-        # ---------- backward through MemoryMLP ----------
+        # ---------- D1b: backward through MemoryMLP with PER-CHUNK gradients ----------
+        # Paper §3.2 + lucidrains per_sample_grad_fn: each chunk t computes its own
+        # gradient dW_t = sum_{n in chunk t} (a_in[n] outer d_h[n]).
+        #
+        # Implementation: reshape a_in and d_h to chunked form [B*H, num_ch, C, dim]
+        # right before the dW matmul. The matmul then sums only over the chunk-internal
+        # axis (C), producing dW of shape [B*H, num_ch, di, dj] -- per-chunk gradients
+        # stacked along axis 1.
+        #
+        # dh propagation through W_i^T and GELU' stays whole-sequence -- it's just the
+        # gradient signal flowing back through the layers, no per-chunk semantics needed.
         grads = {}
-        d_h = d_pred
+        d_h = d_pred                                  # [B*H, N, Dh]
         for i in reversed(range(self._mem_depth)):
-            a_in = acts[i]                                       # input to layer i
-            # dW_i = a_in^T @ d_h
-            grads[f'W{i}'] = self.store_mm_bwd_dW[i](a_in.transpose(-1, -2), d_h)
+            a_in = acts[i]                            # [B*H, N, di_layer_i]
+
+            # D1b: reshape both operands to chunked form for the dW matmul
+            di_i = a_in.shape[-1]
+            dj_i = d_h.shape[-1]
+            a_in_chunked = a_in.reshape(B * H, num_ch, C, di_i)
+            d_h_chunked  = d_h.reshape(B * H, num_ch, C, dj_i)
+
+            # Per-chunk dW_t: [B*H, num_ch, di, C] @ [B*H, num_ch, C, dj] -> [B*H, num_ch, di, dj]
+            grads[f'W{i}'] = self.store_mm_bwd_dW[i](
+                a_in_chunked.transpose(-1, -2), d_h_chunked)
+
             if i > 0:
-                # dh = d_h @ W_i^T
+                # dh propagation stays whole-sequence (no per-chunk semantics on the gradient signal)
                 d_h = self.store_mm_bwd_dh[i - 1](d_h, weights[f'W{i}'].transpose(-1, -2))
-                # apply GELU'(a_in) elementwise — modeled as a Mul (GELU' is a known fn shape-wise)
                 d_h = self.gelu_grad[i - 1](d_h, a_in)
 
         # ----------------------------------------------------------------
@@ -431,26 +454,23 @@ class NeuralMemory(SimNN.Module):
             one_const = F._from_data(f'{self.name}.one_W{i}', np.float32(1.0))
             one_const.set_module(self); self._tensors[one_const.name] = one_const
 
-            # NOTE (D1 interim): the existing forward+backward path produces ONE
-            # gradient per sequence (shape [B*H, di, dj]), not per chunk. True
-            # per-chunk gradients require restructuring forward+backward to operate
-            # on [B*H, num_ch, chunk_size, ...] tensors -- tracked as follow-up D1b.
-            # For now we use the same g across all chunks of the recurrence. This
-            # still correctly models the recurrence STRUCTURE (per-chunk Mul/Add
-            # ops, sequential dependency edges, per-chunk learned coefs eta_c/alpha_c).
-            g = grads[f'W{i}']                  # [B*H, di, dj]
+            # D1b: split per-chunk gradient stack [B*H, num_ch, di, dj] -> num_ch tensors
+            # of shape [B*H, 1, di, dj]. squeeze(1) drops the singleton chunk dim.
+            g_chunks = self._grads_splits[i][num_ch - 1](grads[f'W{i}'])
 
             # Initial state for this layer (carried across chunks below)
             m_prev = prev_momentum[f'W{i}']     # [B*H, di, dj]
             w_prev = prev_update[f'W{i}']       # [B*H, di, dj]
 
             for c in range(num_ch):
+                # D1b: fresh per-chunk gradient g_c computed from this chunk's (K_t, V_t)
+                g_c     = g_chunks[c].squeeze(1)              # [B*H, di, dj]
                 eta_c   = momentum_chunks[c].squeeze(1)       # [B*H, 1, 1]
                 alpha_c = decay_chunks[c].squeeze(1)          # [B*H, 1, 1]
 
-                # eq. 14: S_t = η_t · S_{t-1} + g    (g is whole-seq gradient, D1b TODO)
+                # eq. 14: S_t = η_t · S_{t-1} + g_t
                 m_scaled = self.mom_mul[self._mc(i, c)](m_prev, eta_c)
-                m_new    = self.mom_add[self._mc(i, c)](m_scaled, g)
+                m_new    = self.mom_add[self._mc(i, c)](m_scaled, g_c)
 
                 # eq. 13: W_t = (1 - α_t) · W_{t-1} + S_t
                 one_minus_alpha = self.weight_sub[self._mc(i, c)](one_const, alpha_c)
@@ -477,20 +497,73 @@ class NeuralMemory(SimNN.Module):
     # -----------------------------------------------------------------
     # forward = store + retrieve, returning retrieved values + next state
     # -----------------------------------------------------------------
-    def __call__(self, seq, state=None):
-        if state is None:
-            B = seq.shape[0]
-            weights      = self.init_weights(B)
-            past_state   = (weights, self.init_momentum(B))
-            seq_index    = 0
-        else:
-            seq_index    = state.seq_index
-            weights      = state.weights
-            past_state   = state.states
+    def __call__(self, seq, state=None, store_seq=None):
+        """
+        Single-call TTT path. Lucidrains' outer `ttt_batch_size` loop is
+        intentionally NOT modeled because it is not in the Titans paper:
 
-        updates, next_state = self.store_memories(seq, weights, past_state, seq_index)
-        retrieved = self.retrieve_memories(seq, updates)
-        return retrieved, next_state
+          - Paper §3.2 specifies ONE chunking parameter `b` (our `mem_chunk_size`).
+            The recurrence runs N/b cycles in a single pass.
+          - Lucidrains' `NEURAL_MEM_BATCH_SIZE` is a separate engineering loop
+            for GPU memory management and autoregressive-decode state
+            checkpointing -- both irrelevant to a perf simulator.
+          - Mathematically equivalent to our single call: same N/b total
+            recurrence cycles, same FLOPs, same op count.
+
+        D4 cache_store_segment prepend is wired here; outgoing tail-slice
+        is stubbed (YAML keeps seq_len % mem_chunk_size == 0 for all
+        instances). Re-enable if autoregressive decode is needed.
+
+        Args:
+          seq       : SimTensor [B, N, D]  -- retrieval input
+          state     : NeuralMemState | None -- prior memory state
+          store_seq : SimTensor | None     -- store input (defaults to seq)
+
+        Returns:
+          retrieved  : SimTensor [B, N, D]
+          next_state : NeuralMemState
+        """
+        B = seq.shape[0]
+        store_seq = store_seq if store_seq is not None else seq
+
+        # ---- Init or unpack state ----
+        if state is None:
+            weights    = self.init_weights(B)
+            past_state = (weights, self.init_momentum(B))
+            seq_index  = 0
+            cache_seg  = None
+        else:
+            seq_index  = state.seq_index
+            weights    = state.weights
+            past_state = state.states
+            cache_seg  = state.cache_store_segment
+
+        # ---- D4: prepend cached partial chunk from prior call ----
+        if cache_seg is not None:
+            store_seq = self.cat_cache(cache_seg, store_seq)
+
+        store_seq_len = store_seq.shape[-2]
+
+        # ---- Single store_memories call: handles all num_ch chunks via D1 ----
+        updates, next_mem_state = self.store_memories(
+            store_seq, weights, past_state, seq_index)
+        weights    = next_mem_state.weights
+        past_state = next_mem_state.states
+
+        # ---- D4: tail-cache slice (stubbed; YAML keeps instances divisible) ----
+        new_cache_seg = None
+
+        next_state_final = NeuralMemState(
+            seq_index           = seq_index + store_seq_len,
+            weights             = weights,
+            cache_store_segment = new_cache_seg,
+            states              = past_state,
+            updates             = updates,
+        )
+
+        # ---- Retrieve uses the post-store weights ----
+        retrieved = self.retrieve_memories(seq, weights)
+        return retrieved, next_state_final
 
     def analytical_param_count(self, lvl=0):
         pc = 0
