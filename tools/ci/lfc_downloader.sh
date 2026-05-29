@@ -248,23 +248,22 @@ if [[ "$EXTRACT" == true ]]; then
 fi
 
 # Build the ordered list of LFC base URLs to try.  Env var LFC_SERVER_URLS
-# (comma-separated) overrides; otherwise defaults to one in-cluster URL for CI
-# and a yyz2-then-aus2 list for dev. The connectivity check below iterates
-# through the list and picks the first base URL that passes the HTTP probe
-# (ping is used for diagnostics only); once chosen, that URL is used for the
-# entire download.
-if [[ -n "${LFC_SERVER_URLS:-}" ]]; then
-    IFS=',' read -r -a LFC_BASE_URLS <<< "$LFC_SERVER_URLS"
-elif [[ "$CI" == true ]]; then
-    LFC_BASE_URLS=(
-        "http://large-file-cache.large-file-cache.svc.cluster.local"
-    )
-else
-    LFC_BASE_URLS=(
-        "http://yyz2-lfcache.yyz2.tenstorrent.com"
-        "http://aus2-lfcache.aus2.tenstorrent.com"
-    )
+# (comma-separated) is REQUIRED — there are no built-in defaults. The
+# connectivity check below iterates through the list and picks the first base
+# URL that passes the HTTP probe (ping is used for diagnostics only); once
+# chosen, that URL is used for the entire download.
+#
+# Setup: dev users obtain the URL values from the internal team documentation
+# (Slack pinned message / internal wiki) and export them in their shell rc or
+# a local .env file.  CI runs set the value via a repository secret wired
+# into .github/actions/lfcdownload/action.yml.
+if [[ -z "${LFC_SERVER_URLS:-}" ]]; then
+    echo "Error: LFC_SERVER_URLS is not set. This environment variable is required" >&2
+    echo "       to use LFC downloads. See README.md (\"LFC Server Configuration\")" >&2
+    echo "       for setup instructions." >&2
+    exit 1
 fi
+IFS=',' read -r -a LFC_BASE_URLS <<< "$LFC_SERVER_URLS"
 
 # Normalize each entry: trim leading/trailing whitespace, strip trailing slash,
 # drop empty entries. Necessary because LFC_SERVER_URLS like "http://a, http://b"
@@ -451,9 +450,9 @@ fi
 #     (so an LFC_SERVER_URLS override with multiple entries actually falls back
 #     in CI, matching the documented behavior).  Skip Tailscale fallback —
 #     CI doesn't have it.
-#   - CI mode with a single candidate (the default in-cluster service): skip
-#     the probe entirely and use the URL directly; reachability failures
-#     surface from the actual wget call below.
+#   - CI mode with a single candidate: skip the probe entirely and use the
+#     URL directly; reachability failures surface from the actual wget call
+#     below.
 if [[ "$CI" != true || ${#LFC_BASE_URLS[@]} -gt 1 ]]; then
     if [[ "$VERBOSE" == true ]]; then
         echo "Checking connectivity to LFC server(s) (${#LFC_BASE_URLS[@]} candidate(s))..."

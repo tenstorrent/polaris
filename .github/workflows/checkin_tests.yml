@@ -40,6 +40,7 @@ jobs:
       uses: ./.github/actions/lfcdownload
       with:
         files: 'ext_test_onnx_models.tar.gz ext_llk_elf_files.tar.gz'
+        lfc-server-urls: ${{ secrets.LFC_SERVER_URLS }}
 
     - id: setup-mamba
       name: Setup mamba - developer

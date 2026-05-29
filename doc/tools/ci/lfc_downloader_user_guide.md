@@ -49,18 +49,26 @@ The script automatically detects whether you want to download a file or director
 - Otherwise, it defaults to directory download
 - You can override auto-detection using `--type`
 
-## Server Modes
+## Server Configuration
 
-### Standard Mode (Default)
-- Uses external LFCache server: `http://aus2-lfcache.aus2.tenstorrent.com`
-- Suitable for general development use
-- **Requires Tailscale connection** when not in CI mode
+The `LFC_SERVER_URLS` environment variable is **required** — it must contain a
+comma-separated list of LFC base URLs to try (in order). There are no
+built-in defaults. The script exits with an error if `LFC_SERVER_URLS` is unset
+or yields no usable URLs after parsing.
 
-### CI Mode (Automatically Detected)
-- Uses internal cluster URL: `http://large-file-cache.large-file-cache.svc.cluster.local`
-- Automatically activated when `GITHUB_ACTIONS=true` environment variable is set
-- Designed for Continuous Integration environments
-- **No Tailscale requirement** in CI mode
+**How to obtain the values:**
+- Dev: see the internal team documentation (Slack pinned message / internal
+  wiki) for the URLs to set. Export `LFC_SERVER_URLS` in your shell rc or a
+  local `.env` file. **Requires Tailscale connection** to reach external LFCache.
+- CI: the value is provided by a GitHub repository secret wired into
+  `.github/actions/lfcdownload/action.yml`. **No Tailscale requirement** in CI.
+
+Example:
+```bash
+export LFC_SERVER_URLS="http://primary.example/,http://fallback.example/"
+```
+The script tries URLs in order and uses the first one that passes the HTTP
+connectivity probe.
 
 ## Examples
 
@@ -114,7 +122,7 @@ On macOS systems, the script automatically checks for `wget` availability and pr
 ```bash
 $ ./tools/ci/lfc_downloader.sh -v tests/models/
 Found wget at /opt/homebrew/bin/wget
-Downloading from http://aus2-lfcache.aus2.tenstorrent.com/simulators-ai-perf/tests/models/ to tests/models/...
+Downloading from http://<your-lfc-server>/simulators-ai-perf/tests/models/ to tests/models/...
 ```
 
 #### When wget is Missing (Homebrew Available)
