@@ -197,11 +197,11 @@ def parse_onnx_model(wlname, wlpath, dim_overrides: Optional[dict] = None):
         assert hasattr(node, "input"),  f"input missing for node {node.name}"
         assert hasattr(node, "output"), f"output missing for node {node.name}"
 
-        attrhash = {}
+        attrhash: dict[str, Any] = {}
         if hasattr(node, "attribute"):
             attrhash = {attr.name : onnx_get_value_from_attrs(attr) for attr in node.attribute }
 
-        nodeinfo = {}
+        nodeinfo: dict[str, Any] = {}
         nodeinfo['name']    = node.name
         nodeinfo['optype']  = node.op_type
         nodeinfo['domain']  = node.domain

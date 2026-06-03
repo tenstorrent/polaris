@@ -47,3 +47,4 @@ dependencies:
     - types-requests
     - types-openpyxl
     - lxml-stubs
+    - types-protobuf

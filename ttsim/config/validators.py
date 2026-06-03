@@ -108,7 +108,20 @@ class PYDWorkloadTTNNModelValidator(PYDWorkloadBaseModel):
     params: Optional[dict] = {}
 
 
-AnyWorkload = Annotated[PYDWorkloadTTSIMModelValidator | PYDWorkloadONNXModelValidator | PYDWorkloadTTNNModelValidator  , Field(discriminator='api')]
+class PYDWorkloadCHAKRAModelValidator(PYDWorkloadBaseModel):
+    api: Literal['CHAKRA']
+    name: str
+    basedir: str
+    instances: dict
+
+
+AnyWorkload = Annotated[
+    PYDWorkloadTTSIMModelValidator
+    | PYDWorkloadONNXModelValidator
+    | PYDWorkloadTTNNModelValidator
+    | PYDWorkloadCHAKRAModelValidator,
+    Field(discriminator='api'),
+]
 
 
 class PYDWorkloadListValidator(BaseModel):
