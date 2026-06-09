@@ -21,6 +21,17 @@ jobs:
       PASS_REQUIRED: 95
       COVERAGE_YELLOW: 75
       COVERAGE_REQUIRED: 85
+      # Boolean gate for the lfcdownload step. Materialised at job level so every
+      # gated step reads a stable env value (using `secrets.*` directly in
+      # step-level `if:` raised "Unrecognized named-value" in our testing). On
+      # fork PRs the secret is empty per GitHub policy, so this resolves to
+      # 'false'. Issue #461.
+      HAS_LFC_SECRET: ${{ secrets.LFC_SERVER_URLS != '' }}
+      # True only on `pull_request` runs from a fork (head.repo != base.repo).
+      # On any other event (push, merge_group, internal PR) the secret is
+      # expected to be present, so an absent secret indicates admin
+      # misconfiguration rather than fork policy. Issue #461.
+      IS_FORK_PR: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository }}
 
     runs-on: tt-ubuntu-2204-large-stable
     strategy:
@@ -37,10 +48,31 @@ jobs:
 
     - id: lfcdownload
       name: Download required files from LFC
+      # Skip on fork PRs where the secret is unavailable (GitHub policy: fork PRs
+      # cannot read secrets). LFC-dependent tests carry the `tools_secondary`
+      # marker, which the default checkin marker filter excludes — so coverage
+      # on fork PRs is unaffected. See issue #461. Gate reads `env.HAS_LFC_SECRET`
+      # (set at job level above — see that block for the rationale).
+      if: ${{ env.HAS_LFC_SECRET == 'true' }}
       uses: ./.github/actions/lfcdownload
       with:
         files: 'ext_test_onnx_models.tar.gz ext_llk_elf_files.tar.gz'
         lfc-server-urls: ${{ secrets.LFC_SERVER_URLS }}
+
+    - id: lfcdownload-skip-notice-fork-pr
+      name: LFC download skipped (fork PR — secrets unavailable by policy)
+      if: ${{ env.HAS_LFC_SECRET == 'false' && env.IS_FORK_PR == 'true' }}
+      run: |
+        echo "::warning title=LFC download skipped::Fork-PR run — secrets unavailable by GitHub policy. LFC artifacts will NOT be downloaded for this run."
+        echo "LFC-dependent tests carry the tools_secondary marker, which is excluded from default checkin runs — so checkin coverage on fork PRs is unaffected."
+        echo "Full CI including LFC-dependent tests runs at merge-queue time via the merge_group trigger, before any PR actually lands in main."
+
+    - id: lfcdownload-missing-secret-error
+      name: LFC_SERVER_URLS missing on non-fork run (admin misconfiguration)
+      if: ${{ env.HAS_LFC_SECRET == 'false' && env.IS_FORK_PR == 'false' }}
+      run: |
+        echo "::error title=LFC_SERVER_URLS not set::Expected on this event (${{ github.event_name }}) but the secret is empty. Check repo settings — internal CI should not silently skip the LFC download."
+        exit 1
 
     - id: setup-mamba
       name: Setup mamba - developer
