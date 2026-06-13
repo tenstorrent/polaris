@@ -12,6 +12,7 @@ from .generator import register_generator_ops
 from .misc import register_quantization_ops
 from .misc import register_controlflow_ops
 from .misc import register_misc_ops
+from .chakra import register_chakra_ops
 from .ttsim_layout import register_layout_ops
 
 first_time = True
@@ -29,5 +30,6 @@ def initialize_op_desc():
         register_quantization_ops()
         register_controlflow_ops()
         register_misc_ops()
+        register_chakra_ops()
         register_layout_ops()
         first_time = False

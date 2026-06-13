@@ -13,6 +13,7 @@ from pathlib import Path
 from typing import Any, Set, Optional
 
 from ttsim.config import TTSimHLRunSummary, get_arspec_from_yaml, get_wlmapspec_from_yaml, get_wlspec_from_yaml
+from ttsim.front.chakra.chakra2nx import chakra2graph
 from ttsim.front.onnx.onnx2nx import onnx2graph  # NOTE: import from ttsim.front had potential cyclic dependency
 from ttsim.front.ttnn import open_device, close_device
 from ttsim.utils.common import get_ttsim_functional_instance, get_ttnn_functional_instance, print_csv, str_to_bool, setup_logger
@@ -78,7 +79,7 @@ def apply_filter(L, filter_csv_str, get_param_func):
         L = [x for x in L if get_param_func(x).upper() in [f.upper() for f in filter_fields]]
     return L
 
-def get_wlgraph(TBL, wlg, wln, wli, gcfg, wpath, enable_memalloc):
+def get_wlgraph(TBL, wlg, wln, wli, gcfg, wpath, enable_memalloc, wlmapspec=None):
     xrows = [xrec for xrec in TBL if xrec[0] == wlg and xrec[1] == wln and xrec[2] == wli]
     wlb  = gcfg['bs']
     num_xrows = len(xrows)
@@ -166,6 +167,9 @@ def get_wlgraph(TBL, wlg, wln, wli, gcfg, wpath, enable_memalloc):
                          wlg, wln, wli, wlb, dim_overrides)
 
             onnx_graph = onnx2graph(wli, wpath, dim_overrides=dim_overrides)
+            if wlmapspec is not None:
+                onnx_graph.set_precision(wlmapspec.data_type_spec)
+                onnx_graph.set_resources(wlmapspec.rsrc_spec)
             TBL[(wlg,wln,wli,wlb)] = (None, onnx_graph)
             for _,op in onnx_graph._ops.items():
                 itensors = [onnx_graph._tensors[x] for x in op.inList]
@@ -173,11 +177,23 @@ def get_wlgraph(TBL, wlg, wln, wli, gcfg, wpath, enable_memalloc):
                 logger.info("CALLING get_perf_counts for: {}", op.name)
                 op.get_perf_counts(itensors, otensors)
                 op.update_tensor_counts(itensors,otensors)
-
+        elif wlg == 'CHAKRA':
+            logger.info(">>chakra-wl = {}.{}.{}.b{} = {}", wlg, wln, wli, wlb, wpath)
+            chakra_graph = chakra2graph(wli, wpath)
+            if wlmapspec is not None:
+                chakra_graph.set_precision(wlmapspec.data_type_spec)
+                chakra_graph.set_resources(wlmapspec.rsrc_spec)
+            TBL[(wlg, wln, wli, wlb)] = (None, chakra_graph)
+            for _, op in chakra_graph._ops.items():
+                itensors = [chakra_graph._tensors[x] for x in op.inList]
+                otensors = [chakra_graph._tensors[x] for x in op.outList]
+                logger.info("CALLING get_perf_counts for: {}", op.name)
+                op.get_perf_counts(itensors, otensors)
+                op.update_tensor_counts(itensors, otensors)
         else:
             assert False, (
                     f"Workload Group: {wlg} is not supported; "
-                    f"Current Support only for (TTSIM, TTNN, ONNX)"
+                    f"Current Support only for (TTSIM, TTNN, ONNX, CHAKRA)"
             )
 
     return TBL[(wlg,wln,wli,wlb)]
@@ -387,7 +403,7 @@ def execute_wl_on_dev(_wl, _dl, _wspec, _dspec, wlmapspec, _WLG,
 
         try:
             wlobj, wlgraph = get_wlgraph(_WLG, wlgroup, wlname, wlins_name, wlcfg, wlpath,
-                                         _enable_memalloc)
+                                         _enable_memalloc, wlmapspec)
         except Exception as e:
             num_failures += 1
             ERROR('workload {} failed with {}', exp_wl, e)
