@@ -87,10 +87,12 @@ directory = "__htmlcov"
 force_to_top = ["sys" , "os"]
 honor_noqa = true
 line_length = 120
+skip_glob = ["**/reference/*"]
 
 [tool.ruff]
 line-length = 120
 indent-width = 4
+extend-exclude = ["**/reference/*"]
 
 [tool.ruff.format]
 quote-style = "single"
