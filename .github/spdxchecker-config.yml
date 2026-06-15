@@ -21,6 +21,7 @@ ignore:
   - '*.ipynb'
   - 'CODEOWNERS'
   - 'NOTICE'
+  - '**/reference/*'
 
 # Files that should generate warnings instead of errors
 warning:
