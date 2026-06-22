@@ -132,24 +132,23 @@ python run-ttnn-profiler.py \
 **Prerequisites:**
 - NPE tools on PATH (automatically configured by setup-step-2-new-login.sh)
 - loguru package installed
-- **Board must be reset before profiling:** Use `tensix_reset.py` to automatically detect and reset the board
-  - See "Board Reset" section below for details
+- **Board reset is automatic:** the profiler runs `tt-smi -r` at the start of each run and aborts if it fails (see "Board Reset" below)
 
-#### [`tensix_reset.py`](tensix_reset.py)
-Automatically detects and resets Tensix board(s) via `tt-smi`.
-
-**Features:**
-- Parses `tt-smi -ls` output to find resettable boards without manual index lookup
-- Resets a single board by default; requires `--multiple-boards` when multiple boards are present
-
-**Usage:**
-```bash
-# Reset the single available board
-python tensix_reset.py
-
-# Reset all boards on a multi-board system
-python tensix_reset.py --multiple-boards
+**Expected warning — do not "fix" it:**
+Each perf/trace pass logs:
 ```
+WARNING | tracy.process_ops_logs:append_device_data - Device perf report
+cpp_device_perf_report.csv not found in <pass>/.logs. Falling back to legacy
+device-log parsing via import_log_run_stats(); this will take longer.
+```
+This is expected and required. Do **not** set `TT_METAL_PROFILER_CPP_POST_PROCESS=1`
+to silence it. The C++ post-process path emits the leaner `cpp_device_perf_report.csv`
+and drops `device_analysis_types` (tt-metal: *"device_analysis_types is not supported
+when using cpp_device_perf_report.csv; ignoring option"*), which is what produces the
+per-op `FPU Util Median (%)` / `SFPU Util Median (%)` columns. `ops_perf_three_csv_merge.py`
+classifies the perf pass as the "fpu" CSV via those columns, so enabling cpp post-process
+makes the merge fail with `Expected exactly one fpu CSV, found 0`. The legacy device-log
+parser is the feature-richer, required path here.
 
 ---
 
@@ -171,22 +170,17 @@ source ../si_profiling_helpers/setup-step-2-new-login.sh
 
 ### Board Reset
 
-**IMPORTANT:** Always reset the board before running profiling to ensure clean hardware state.
+`run-ttnn-profiler.py` resets the board **automatically** — it runs `tt-smi -r` before the
+profiling passes and aborts the run if the reset fails. No manual reset is normally needed.
+
+Reset by hand only to recover a wedged board outside a capture:
 
 ```bash
-# Automatically detect and reset the board
-python ../si_profiling_helpers/tensix_reset.py
+# Reset the board (single-board systems)
+tt-smi -r
 
-# If multiple boards are present and all should be reset
-python ../si_profiling_helpers/tensix_reset.py --multiple-boards
-```
-
-**Manual fallback** (if `tensix_reset.py` is not working):
-```bash
-# List devices to identify the board index
+# Or list devices and reset a specific board by index
 tt-smi -ls
-
-# Reset by index (e.g., index 0)
 tt-smi -r 0
 ```
 
@@ -197,12 +191,9 @@ tt-smi -r 0
 
 ### Running Profiler
 ```bash
-# From tt-metal directory:
+# From tt-metal directory (the profiler resets the board itself via tt-smi -r):
 
-# 1. Reset the board
-python ../si_profiling_helpers/tensix_reset.py
-
-# 2. Run profiler with all modes
+# Run profiler with all modes
 python ../si_profiling_helpers/run-ttnn-profiler.py \
     --command "test_script.py" \
     --report-name my_test \
@@ -255,7 +246,7 @@ si_profiling_helpers/
 ├── setup-step-1-fresh-build.sh    # Initial build setup
 ├── setup-step-2-new-login.sh      # Session environment setup
 ├── run-ttnn-profiler.py           # TTNN profiler runner
-└── tensix_reset.py                # Automated board reset via tt-smi
+└── presets/                       # per-workload reference run-scripts (see presets/README.md)
 ```
 
 ---

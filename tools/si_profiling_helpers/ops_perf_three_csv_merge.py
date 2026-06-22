@@ -6,6 +6,9 @@
 Specification: doc/SPEC_ops_perf_three_csv_merge.md
 Uses stdlib **csv** for I/O (no pandas); **loguru** for warnings. Exit 0 on success, 1 on error.
 Warnings (e.g. fpuutil vs vanilla duration beyond tolerance) do not stop the merge.
+
+Two derived overhead-ratio columns are appended last (blank when raw duration is 0):
+``FPUUtil/Raw`` = ``[ms]_fpuutil / [ms]`` and ``MemUtil/Raw`` = ``[ms]_noctrace / [ms]``.
 """
 from __future__ import annotations
 
@@ -72,6 +75,12 @@ OVERLAY_SOURCE_NAMES: FrozenSet[str] = frozenset(
 
 NOCTRACE_OUTPUT_SUFFIX = "_noctrace"
 FPU_OUTPUT_SUFFIX = "_fpuutil"
+
+# Derived overhead-ratio columns (appended last): how much the fpu-util and
+# noc-trace profiling passes inflate the raw (vanilla) device-kernel duration.
+# Blank when the raw duration is 0 (no division).
+COL_FPU_UTIL_RAW = "FPUUtil/Raw"  # = [ms]_fpuutil / [ms]
+COL_MEM_UTIL_RAW = "MemUtil/Raw"  # = [ms]_noctrace / [ms]
 
 # Order of suffixed noctrace output columns (logical names before suffix).
 NOCTRACE_OUTPUT_BODY: Tuple[str, ...] = (
@@ -276,17 +285,21 @@ def assert_vanilla_header_matches_noctrace(
 def assert_fpu_header_extends_noctrace(
     h_noctrace: Sequence[str], h_fpu: Sequence[str], path: Path
 ) -> None:
-    """Fpu header starts with noctrace columns in order; fpu may append trailing columns only."""
-    n = len(h_noctrace)
-    if len(h_fpu) < n:
+    """Every noctrace column must appear in the fpu header in the same order.
+
+    The fpu file carries extra columns (the perf-counter analysis block), which
+    tt-metal interleaves *before* trailing op-type columns (e.g.
+    ``TT_DNN_DEVICE_OP_TT_HOST_FUNC [ns]``) rather than strictly appending. So the
+    relationship is an ordered **subsequence**, not a prefix: noctrace's columns
+    occur in fpu in order, with the fpu-only columns spliced in anywhere.
+    """
+    it = iter(h_fpu)
+    missing = [c for c in h_noctrace if c not in it]  # consumes it in order
+    if missing:
         raise MergeError(
-            f"Fpu CSV {path} has fewer columns ({len(h_fpu)}) than the noctrace CSV ({n}); "
-            f"the fpu header must begin with all noctrace columns in the same order."
-        )
-    if tuple(h_fpu[:n]) != tuple(h_noctrace):
-        raise MergeError(
-            f"Fpu CSV {path} header must begin with the same columns in the same order as the noctrace CSV; "
-            f"the fpu file may append extra columns after those."
+            f"Fpu CSV {path} header must contain every noctrace column in the same order "
+            f"(noctrace must be an ordered subsequence of the fpu header); "
+            f"missing or out-of-order: {missing}"
         )
 
 
@@ -359,9 +372,19 @@ def keys_equal(a: Tuple[int, str, str], b: Tuple[int, str, str]) -> bool:
 # the row sequence and selecting one representative iteration by total kernel
 # duration.
 #
-# Detection: the first row's OP CODE marks the model entry.  Iteration starts
-# are the positions where that OP CODE recurs.  Iterations must be equal-sized
-# (consistent model) — unequal sizes raise an error and require manual override.
+# Detection (in priority order):
+#   0. --ops-per-iteration: authoritative fixed-size chunking when supplied.
+#   1. OP CODE period (primary): a trace-replay capture is N copies of one
+#      inference's op sequence, so the OP CODE column is periodic. The iteration
+#      size is the minimum duplicate join-key stride, corroborated by OP CODE
+#      periodicity at that stride and unique join keys within one period. This is
+#      robust when the first op recurs *within* an iteration (e.g. BH VGG emits
+#      ReshardDeviceOperation 3x per pass), which defeats the marker heuristic.
+#   2. First-op marker (fallback): iteration starts are positions where row 0's
+#      OP CODE recurs. Equal-sized chunks => a genuine multi-iteration run (used
+#      for non-trace captures with monotonic GCCs that have no duplicate keys).
+#      Unequal sizes (marker recurs intra-pass) => one iteration (logged);
+#      pass --ops-per-iteration to override.
 #
 # Completeness: an iteration is "complete" if at least 95% of its rows have a
 # non-empty DEVICE KERNEL DURATION [ns].  TT-Metal sometimes emits sparse
@@ -371,6 +394,90 @@ def keys_equal(a: Tuple[int, str, str], b: Tuple[int, str, str]) -> bool:
 # duration.  Returns its (start_idx, end_idx) row range.
 #
 ITER_COMPLETENESS_THRESHOLD = 0.95
+
+
+def _min_duplicate_key_stride(rows: List[Dict[str, str]]) -> Optional[int]:
+    """Smallest row-distance between two rows sharing a (gcc, op_code, op_type) key.
+
+    In a trace-replay capture the same join key recurs once per iteration (keys are
+    unique *within* an iteration but repeat *across* iterations), so the minimum gap
+    between two occurrences of any key equals the ops-per-iteration. Returns None if
+    no key repeats (nothing to reduce) or any key field is blank (cannot trust it).
+    """
+    last_pos: Dict[Tuple[str, str, str], int] = {}
+    best: Optional[int] = None
+    for i, r in enumerate(rows):
+        gcc = _strip_cell(r.get(COL_GLOBAL_CALL_COUNT))
+        op_c = _strip_cell(r.get(COL_OP_CODE))
+        op_t = _strip_cell(r.get(COL_OP_TYPE))
+        if not gcc or not op_c or not op_t:
+            return None
+        k = (gcc, op_c, op_t)
+        if k in last_pos:
+            d = i - last_pos[k]
+            if best is None or d < best:
+                best = d
+        last_pos[k] = i
+    return best
+
+
+def _op_code_periodic(rows: List[Dict[str, str]], period: int) -> bool:
+    """True if the OP CODE column repeats with the given period across all rows."""
+    ops = [_strip_cell(r.get(COL_OP_CODE)) for r in rows]
+    if any(not o for o in ops):
+        return False
+    return all(ops[i] == ops[i - period] for i in range(period, len(ops)))
+
+
+def _period_keys_unique(rows: List[Dict[str, str]], start: int, end: int) -> bool:
+    """True if the (gcc, op_code, op_type) join keys in rows[start:end] are all distinct."""
+    seen: set = set()
+    for i in range(start, end):
+        r = rows[i]
+        k = (
+            _strip_cell(r.get(COL_GLOBAL_CALL_COUNT)),
+            _strip_cell(r.get(COL_OP_CODE)),
+            _strip_cell(r.get(COL_OP_TYPE)),
+        )
+        if "" in k or k in seen:
+            return False
+        seen.add(k)
+    return True
+
+
+def detect_by_op_code_period(rows: List[Dict[str, str]]) -> Optional[List[Tuple[int, int]]]:
+    """Detect iteration boundaries from the OP CODE sequence period.
+
+    A trace-replay capture is N copies of one inference's op sequence concatenated,
+    so the OP CODE column is periodic with period = ops-per-iteration. Unlike the
+    first-op marker heuristic, this does not care which op is first or how many times
+    it recurs within an iteration -- e.g. BH VGG emits ReshardDeviceOperation 3x per
+    pass, giving unequal marker chunks that defeat marker-based detection while the op
+    sequence stays perfectly periodic.
+
+    The iteration size is taken from the minimum duplicate-key stride (the granularity
+    at which join keys actually repeat) and corroborated two ways before use:
+      1. the OP CODE sequence is periodic at that stride, and
+      2. one period's join keys are unique (so the downstream join is collision-free).
+    Using the duplicate-key stride rather than the smallest tiling OP CODE period
+    avoids over-splitting a model whose op sequence has an internal sub-period (the
+    stride reflects where keys genuinely repeat, i.e. true iteration boundaries).
+    Returns one (start, end) range per iteration, or None when no clean period is
+    found -- the caller then falls back to the first-op marker heuristic.
+    """
+    n = len(rows)
+    if n < 2:
+        return None
+    stride = _min_duplicate_key_stride(rows)
+    # No repeating join key => nothing to reduce here; let the marker heuristic decide
+    # (it handles single-iteration and equal-chunk non-trace multi-iteration captures).
+    if stride is None or stride <= 0 or stride >= n or n % stride != 0:
+        return None
+    if not _op_code_periodic(rows, stride):
+        return None
+    if not _period_keys_unique(rows, 0, stride):
+        return None
+    return [(s, s + stride) for s in range(0, n, stride)]
 
 
 def detect_iteration_boundaries(
@@ -383,7 +490,9 @@ def detect_iteration_boundaries(
     that length (authoritative override — useful when row 0's OP CODE recurs
     intra-iteration, which defeats the default marker-based detection).
     Otherwise iteration boundaries are inferred from positions where the first
-    row's OP CODE recurs; all detected iterations must be the same size.
+    row's OP CODE recurs. Equal-sized chunks are treated as multiple iterations;
+    unequal sizes (marker recurs intra-pass, e.g. a single-pass device-perf
+    capture) fall back to a single iteration spanning all rows.
     """
     if not rows:
         return []
@@ -398,6 +507,18 @@ def detect_iteration_boundaries(
         return [
             (s, s + ops_per_iteration) for s in range(0, len(rows), ops_per_iteration)
         ]
+    # Primary: OP CODE sequence period (robust when the first op recurs intra-iteration,
+    # which defeats the marker heuristic below -- e.g. BH VGG's ReshardDeviceOperation).
+    period_iters = detect_by_op_code_period(rows)
+    if period_iters is not None:
+        logger.info(
+            "Iteration auto-detect via OP CODE period: {} iteration(s) of {} ops "
+            "(duplicate-key stride corroborated).",
+            len(period_iters),
+            period_iters[0][1] - period_iters[0][0],
+        )
+        return period_iters
+    # Fallback: first-op marker heuristic.
     first_op = _strip_cell(rows[0].get(COL_OP_CODE))
     if not first_op:
         raise MergeError("First row has empty OP CODE; cannot detect iteration boundaries")
@@ -410,10 +531,20 @@ def detect_iteration_boundaries(
     iters = list(zip(starts, ends))
     sizes = [e - s for s, e in iters]
     if len(set(sizes)) > 1:
-        raise MergeError(
-            f"Iterations have unequal sizes: {sizes}; cannot auto-detect — use "
-            f"--ops-per-iteration to set the expected size or split inputs manually"
+        # Unequal marker-based chunks mean row 0's OP CODE recurs *within* a single
+        # pass rather than at true iteration boundaries — typical of single-pass
+        # device-perf captures (is_device_perf_test drops warmup -> one clean pass).
+        # A genuine multi-iteration averaged run yields equal chunks, so here we
+        # fall back to treating the whole input as ONE iteration rather than failing.
+        # Pass --ops-per-iteration to force fixed-size splitting if this really is a
+        # multi-iteration file whose marker happens to recur intra-iteration.
+        logger.warning(
+            "Iteration auto-detect: marker {!r} gives unequal chunk sizes {}; "
+            "treating input as a single iteration ({} ops). "
+            "Pass --ops-per-iteration if this is a multi-iteration run.",
+            first_op, sizes, len(rows),
         )
+        return [(0, len(rows))]
     return iters
 
 
@@ -613,7 +744,11 @@ def run_merge(
     assert_vanilla_header_matches_noctrace(h_noc, h_van, path_van)
 
     header = h_noc
-    fpu_trailing_cols: Tuple[str, ...] = tuple(h_fpu[len(header) :])
+    # Fpu-only columns identified by name (not position): tt-metal may splice the
+    # perf-counter analysis block before trailing op-type columns that noctrace also
+    # carries, so the extras are not a positional suffix. Preserve fpu column order.
+    _noc_set = set(h_noc)
+    fpu_trailing_cols: Tuple[str, ...] = tuple(c for c in h_fpu if c not in _noc_set)
     rows_noc = next(r for p, _, r in loaded if p == path_noc)
     rows_fpu = next(r for p, _, r in loaded if p == path_fpu)
     rows_van = next(r for p, _, r in loaded if p == path_van)
@@ -786,6 +921,10 @@ def run_merge(
         for col in fpu_trailing_cols:
             out[col] = _strip_cell(rf.get(col))
 
+        # Derived overhead ratios (blank when raw duration is 0 -> no division).
+        out[COL_FPU_UTIL_RAW] = "" if ms_van == 0.0 else str(ms_fpu / ms_van)
+        out[COL_MEM_UTIL_RAW] = "" if ms_van == 0.0 else str(ms_noc / ms_van)
+
         out_rows.append(out)
 
     # Build output fieldnames in spec order
@@ -805,13 +944,16 @@ def run_merge(
     fieldnames.append(f"{COL_FPU_UTIL_MED}{FPU_OUTPUT_SUFFIX}")
     fieldnames.append(f"{COL_SFPU_UTIL_MED}{FPU_OUTPUT_SUFFIX}")
     fieldnames.extend(fpu_trailing_cols)
+    # Derived overhead ratios, appended last.
+    fieldnames.append(COL_FPU_UTIL_RAW)
+    fieldnames.append(COL_MEM_UTIL_RAW)
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
     with output_path.open("w", newline="", encoding=encoding) as f:
         w = csv.DictWriter(f, fieldnames=fieldnames, extrasaction="raise")
         w.writeheader()
-        for r in out_rows:
-            w.writerow(r)
+        for out_row in out_rows:
+            w.writerow(out_row)
 
     n = len(out_rows)
     if total_fpu_kernel_ns == 0.0 and total_vanilla_kernel_ns == 0.0:
@@ -861,7 +1003,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
         "--output",
         type=Path,
         default=None,
-        help=f"Output CSV path (default: <input-dir>/merged_ops.csv).",
+        help="Output CSV path (default: <input-dir>/merged_ops.csv).",
     )
     p.add_argument(
         "--duration-rel-tol",

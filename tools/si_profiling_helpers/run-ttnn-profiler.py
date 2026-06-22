@@ -48,6 +48,7 @@ Required Arguments:
 Optional Arguments:
     --pytest            Run command with pytest (-m pytest prefix)
     --basic-only        Skip NOC traces and performance counter collection
+    --op-support-count  Maximum number of ops tracy will profile (default: 100000)
     --disable-logging   Disable TTNN logging (enable_logging=False in config overrides)
                         Some workloads like VGG have device synchronize calls that
                         fail when enable_logging is true. Use this flag for such cases.
@@ -61,11 +62,18 @@ Optional Arguments:
 
 Output Structure:
     <output-dir>/
-        ├── generated/              # TTNN generated files
-        ├── results_typescript.txt  # Command outputs and results
-        ├── raw/                    # Tracy raw profiling output
+        ├── <pass>_results_typescript.txt  # Per-pass output: raw_/perf_/trace_/merge_
+        ├── merged_ops_<RUNID>.csv  # 3-CSV merge (full mode only; RUNID = output-dir name)
+        ├── raw/                    # Tracy raw profiling output (.logs/, reports/, generated/)
         ├── perf/                   # Tracy performance counter output (full mode only)
         └── trace/                  # Tracy NOC trace output (full mode only)
+
+    Each pass dir is self-contained: TT_METAL_LOGS_PATH and TT_METAL_PROFILER_DIR
+    are pinned to it (see run_profiler), so the bulk of tt-metal's 'generated/' output
+    lands under the pass dir rather than the cwd. A few paths don't honor those env
+    vars (e.g. generated/fabric, generated/test_reports) and may still appear in the
+    cwd — small, idempotent, low collision risk (see presets/README.md). This lets two
+    runs execute concurrently from the same (e.g. shared/NFS) tt-metal checkout.
 
 Prerequisites:
     - NPE tools must be on PATH (source tt-npe/ENV_SETUP)
@@ -78,7 +86,13 @@ Notes:
       2. Performance counter collection (unless --basic-only)
       3. NOC trace collection (unless --basic-only)
     - Execution stops if any pass fails
-    - 'generated' directory is automatically moved to output directory
+    - All tt-metal artifacts land directly under each pass dir (no cwd/generated);
+      concurrent runs from one directory therefore do not collide
+    - After a successful full run (raw+perf+trace), the three CSVs are merged into
+      merged_ops_<RUNID>.csv on this node, so only it (+ hw_id.json) need be copied off the
+      board. The per-board DRAM peak BW is resolved from an internal interim table
+      keyed on tt-smi board_type (interim/placeholder values pending the DRAM-BW
+      review). Skipped for --basic-only or when the board can't be resolved.
 """
 
 import os
@@ -86,12 +100,13 @@ import sys
 import argparse
 import importlib.util
 import json
+import re
+import shlex
 import shutil
 import subprocess
 import threading
 
 from loguru import logger
-
 
 def is_npe_on_path() -> bool:
     """Check if NPE tools are available on the Python path."""
@@ -109,14 +124,20 @@ def run_and_capture(argv: list[str], show_output: bool = False) -> subprocess.Co
     Returns:
         subprocess.CompletedProcess: Result object with returncode, stdout, stderr
     """
-    process = subprocess.Popen(
-        argv,
-        shell=False,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        text=True,
-        bufsize=1,
-    )
+    try:
+        process = subprocess.Popen(
+            argv,
+            shell=False,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            bufsize=1,
+        )
+    except FileNotFoundError as e:
+        # e.g. tt-smi not installed; surface as a failed run (returncode 127) rather
+        # than crashing, so callers can detect it via anyfails() and exit non-zero.
+        logger.error(f'command not found: {argv[0]!r} ({e})')
+        return subprocess.CompletedProcess(argv, returncode=127, stdout='', stderr=str(e))
     proc_stdout = process.stdout
     proc_stderr = process.stderr
     assert proc_stdout is not None
@@ -198,7 +219,7 @@ def setup_environment(report_name: str, enable_logging: bool = True) -> None:
         'enable_logging': enable_logging,
         'report_name': report_name,
         'enable_graph_report': False,
-        'enable_detailed_buffer_report': True,
+        'enable_detailed_buffer_report': enable_logging,
         'enable_detailed_tensor_report': False,
         'enable_comparison_mode': False,
     }
@@ -206,6 +227,20 @@ def setup_environment(report_name: str, enable_logging: bool = True) -> None:
 
     os.environ['TT_METAL_DEVICE_PROFILER'] = '1'
     os.environ['TT_METAL_PROFILER_SYNC'] = '1'
+    # Do NOT enable TT_METAL_PROFILER_CPP_POST_PROCESS here. The C++ post-process path emits the
+    # leaner cpp_device_perf_report.csv and explicitly drops device_analysis_types (see tt-metal
+    # process_ops_logs.py: "device_analysis_types is not supported when using
+    # cpp_device_perf_report.csv; ignoring option"). That analysis is what produces the per-op
+    # FPU/SFPU Util Median columns. ops_perf_three_csv_merge.py classifies the perf pass as the
+    # "fpu" CSV via those columns, so enabling cpp post-process makes the merge fail with
+    # "Expected exactly one fpu CSV, found 0". The legacy device-log parser (import_log_run_stats)
+    # is the required path here; the "cpp_device_perf_report.csv not found" warning is expected.
+    # NOTE: capture the workload's real command, trace included — do NOT add --disable_trace.
+    # With trace on, an op is logged across capture + replay passes (capture = timed; replay =
+    # same GLOBAL CALL COUNT, and for some demos empty-duration "shadow" rows). The 3-CSV merge
+    # deduplicates these via its op-code-period iteration detection, keeping the refrun faithful
+    # to how the model runs on hardware. Disabling trace would change the measured execution
+    # path, so it is not used here or in the presets.
 
 
 def run_profiler(
@@ -218,6 +253,7 @@ def run_profiler(
     enable_logging: bool = True,
     show_output: bool = False,
     dryrun: bool = False,
+    op_support_count: int = 100000,
 ) -> subprocess.CompletedProcess[str] | None:
     """Run the TTNN profiler with specified options.
 
@@ -231,20 +267,25 @@ def run_profiler(
         enable_logging (bool): Whether to enable TTNN logging in config overrides
         show_output (bool): If True, display command stdout/stderr in real-time
         dryrun (bool): If True, show commands without executing
+        op_support_count (int): Maximum number of ops tracy will profile
 
     Returns:
         subprocess.CompletedProcess or None: Result object or None if dryrun
     """
-    argv = ['python3', '-m', 'tracy', '-p', '-r', '-v', '--op-support-count=100000', '-o', output_dir]
+    # Use the current interpreter (sys.executable) so tracy runs under the same
+    # venv/python as this wrapper, rather than relying on whatever 'python3' is on PATH.
+    argv = [sys.executable, '-m', 'tracy', '-p', '-r', '-v',
+            f'--op-support-count={op_support_count}', '-o', output_dir]
     if collect_noc_traces:
         argv.append('--collect-noc-traces')
     if collect_perf_counters:
-        argv.append('--profiler-capture-perf-counters=all')
+        argv.append('--profiler-capture-perf-counters=fpu')
     if pytest_mode:
-        argv.extend(['-m', 'pytest', command])
+        argv.extend(['-m', 'pytest'] + shlex.split(command))
     else:
-        argv.append(command)
+        argv.extend(shlex.split(command))
 
+    logger.info(f'{argv=}')
     if collect_noc_traces:
         mode = 'trace'
     elif collect_perf_counters:
@@ -259,6 +300,25 @@ def run_profiler(
     else:
         if 'TTNN_CONFIG_OVERRIDES' in os.environ:
             del os.environ['TTNN_CONFIG_OVERRIDES']
+
+    # Pin every tt-metal artifact root to THIS pass's output dir so that nothing
+    # is written into the current working directory.
+    #
+    # Motivation: tt-metal anchors its artifact trees to the cwd by default --
+    #   * TT_METAL_LOGS_PATH defaults to the current working directory, and the
+    #     'generated/{reports,inspector}/' tree hangs off it (rtoptions);
+    #   * TT_METAL_PROFILER_DIR defaults to TT_METAL_HOME/generated/profiler, and
+    #     TT_METAL_HOME is itself forced to cwd in setup_environment().
+    # So two profiling runs launched from the SAME directory (a shared/NFS
+    # tt-metal checkout, or two boards driven from one host) both create
+    # cwd/generated and clobber each other's logs -- and the old guard in main()
+    # even hard-aborted the second run. Pointing these env vars at the unique
+    # per-pass output dir makes each run fully self-contained, so concurrent runs
+    # from one directory coexist. This supersedes the previous "let tt-metal
+    # create generated/ in cwd, then os.rename it into the output dir afterwards"
+    # approach (which only worked for one run at a time).
+    os.environ['TT_METAL_LOGS_PATH'] = output_dir
+    os.environ['TT_METAL_PROFILER_DIR'] = output_dir
 
     if dryrun:
         return None
@@ -299,6 +359,85 @@ def cleanup_directories(output_dir: str) -> None:
     logger.info('Cleanup completed.')
 
 
+def write_result_file(output_dir: str, mode: str, res: subprocess.CompletedProcess[str] | None) -> None:
+    """Write a single profiling result to <mode>_results_typescript.txt."""
+    if res is None:
+        return
+    output_filename = os.path.join(output_dir, f'{mode}_results_typescript.txt')
+    with open(output_filename, 'w') as summary_file:
+        summary_file.write(f'Command: {" ".join(res.args)}\n')
+        summary_file.write(f'Return code: {res.returncode}\n')
+        summary_file.write(f'Stdout:\n{res.stdout}\n')
+        summary_file.write(f'Stderr:\n{res.stderr}\n')
+        summary_file.write(f'{"="*120}\n')
+    logger.info('output saved in {}', output_filename)
+
+
+# Interim board_type -> DRAM peak bandwidth (GB/s), used to merge a capture on the
+# hardware node without a CLI value. These are PLACEHOLDER numbers pending the
+# DRAM-BW review resolution: they feed only the util columns of merged_ops.csv (the
+# merge structure is unaffected). Keyed by tt-smi board_type PREFIX so revision
+# suffixes (e.g. "n150 L") still match. When that review lands, this table should
+# move into ops_perf_three_csv_merge.py as a proper per-chip default (answering the
+# "set defaults per chip" review comment) and be replaced with validated values.
+_INTERIM_BOARD_DRAM_PEAK_BW_GBPS: dict[str, float] = {
+    'n150': 288.0,   # Wormhole  (PLACEHOLDER)
+    'n300': 288.0,   # Wormhole  (PLACEHOLDER)
+    'p100': 448.0,   # Blackhole (PLACEHOLDER)
+    'p150': 448.0,   # Blackhole (PLACEHOLDER)
+}
+
+
+def detect_board_type() -> str | None:
+    """Best-effort tt-smi board_type (e.g. 'n150', 'p100a'); None if unavailable."""
+    try:
+        res = subprocess.run(['tt-smi', '-s'], capture_output=True, text=True, check=False)
+    except FileNotFoundError:
+        return None
+    m = re.search(r'"board_type"\s*:\s*"([^"]+)"', res.stdout)
+    return m.group(1).strip() if m else None
+
+
+def resolve_interim_dram_peak_bw(board_type: str) -> float | None:
+    """Map a tt-smi board_type to the interim DRAM peak BW (GB/s) via prefix match."""
+    key = board_type.strip().lower()
+    for prefix, bw in _INTERIM_BOARD_DRAM_PEAK_BW_GBPS.items():
+        if key.startswith(prefix):
+            return bw
+    return None
+
+
+def run_merge(output_dir: str, dram_peak_bw_gbps: float, show_output: bool = False) -> subprocess.CompletedProcess[str] | None:
+    """Consolidate the three per-pass CSVs (raw/perf/trace) under output_dir into
+    output_dir/merged_ops_<RUNID>.csv (RUNID = output_dir basename), ON THE HARDWARE
+    NODE, right after a successful capture.
+
+    The merge tool ships alongside this wrapper (same dir), so it is part of the
+    rsynced si_profiling_helpers bundle and its only third-party dep (loguru) is
+    already in the tt-metal run env. Merging here means only merged_ops_<RUNID>.csv
+    (plus hw_id.json) need be copied off the board, not three raw CSVs. The follow-on
+    compare-vs-refrun step needs polaris/ttsim and stays off-device.
+    """
+    merge_tool = os.path.join(os.path.dirname(os.path.realpath(__file__)), 'ops_perf_three_csv_merge.py')
+    if not os.path.exists(merge_tool):
+        logger.error(f'merge tool not found at {merge_tool}; skipping merge')
+        return None
+    # Name the merged CSV after the run dir (RUNID = output_dir basename) so per-run
+    # merges stay distinct when copied side by side. The merge tool stays generic
+    # (its own default is merged_ops.csv); the RUNID-specific name is chosen here,
+    # where the run is known and the merge is invoked.
+    merged_csv = os.path.join(output_dir, f'merged_ops_{os.path.basename(output_dir)}.csv')
+    argv = [sys.executable, merge_tool, '--input-dir', output_dir,
+            '--dram-peak-bw-gbps', str(dram_peak_bw_gbps), '--output', merged_csv]
+    logger.info(f'merging three CSVs in {output_dir} (--dram-peak-bw-gbps {dram_peak_bw_gbps})')
+    result = run_and_capture(argv, show_output=show_output)
+    if result.returncode == 0:
+        logger.info(f'{os.path.basename(merged_csv)} written under {output_dir}')
+    else:
+        logger.error('merge step failed (see output above)')
+    return result
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description='Run the TTNN profiler')
     parser.add_argument('--command', type=str, required=True, help='Test script or command to run under the profiler')
@@ -324,6 +463,12 @@ def main() -> int:
         help='Remove npe_viz and .logs directories from output directory after run. These directories can be very large; use this flag if their contents are not needed.',
     )
     parser.add_argument('--dryrun', '-n', action='store_true', help='show but do not execute commands')
+    parser.add_argument(
+        '--op-support-count',
+        type=int,
+        default=100000,
+        help='Maximum number of ops tracy will profile (default: 100000)',
+    )
     args = parser.parse_args()
 
     command = args.command
@@ -339,9 +484,10 @@ def main() -> int:
         if os.path.exists(output_dir):
             logger.error(f'Output directory {output_dir} already exists. Please specify a new directory.')
             return 1
-        if os.path.exists('generated'):
-            logger.error("Directory named 'generated' already exists. Please remove it before running the profiler.")
-            return 1
+        # NOTE: no longer guard against a pre-existing cwd/'generated' dir -- each
+        # pass now pins TT_METAL_LOGS_PATH / TT_METAL_PROFILER_DIR to its own
+        # output dir (see run_profiler), so tt-metal writes nothing into cwd and
+        # concurrent runs from the same directory no longer collide.
         if not args.basic_only and not is_npe_on_path():
             logger.error('NPE not on path; source tt-npe/ENV_SETUP')
             return 1
@@ -358,12 +504,21 @@ def main() -> int:
     perf_dir = os.path.join(output_dir, 'perf')
     trace_dir = os.path.join(output_dir, 'trace')
 
-    result1 = run_profiler(
-        command, raw_dir, pytest_mode, report_name,
-        collect_noc_traces=False, collect_perf_counters=False,
-        enable_logging=enable_logging, show_output=show_output, dryrun=args.dryrun,
-    )
-    results = [result1]
+    results: list[subprocess.CompletedProcess[str] | None] = []
+
+    if not args.dryrun:
+        results.append(run_and_capture(['tt-smi', '-r'], show_output=args.show_output))
+
+    if not anyfails(results):
+        logger.info('board reset successful, starting profiling runs')
+        result1 = run_profiler(
+            command, raw_dir, pytest_mode, report_name,
+            collect_noc_traces=False, collect_perf_counters=False,
+            enable_logging=enable_logging, show_output=show_output, dryrun=args.dryrun,
+            op_support_count=args.op_support_count,
+        )
+        results.append(result1)
+        write_result_file(output_dir, 'raw', result1)
 
     if not args.basic_only:
         if not anyfails(results):
@@ -371,36 +526,58 @@ def main() -> int:
                 command, perf_dir, pytest_mode, report_name,
                 collect_noc_traces=False, collect_perf_counters=True,
                 enable_logging=enable_logging, show_output=show_output, dryrun=args.dryrun,
+                op_support_count=args.op_support_count,
             )
             results.append(result2)
+            write_result_file(output_dir, 'perf', result2)
         if not anyfails(results):
             result3 = run_profiler(
                 command, trace_dir, pytest_mode, report_name,
                 collect_noc_traces=True, collect_perf_counters=False,
                 enable_logging=enable_logging, show_output=show_output, dryrun=args.dryrun,
+                op_support_count=args.op_support_count,
             )
             results.append(result3)
+            write_result_file(output_dir, 'trace', result3)
 
     if args.dryrun:
         return 0
 
-    try:
-        os.rename('generated', os.path.join(output_dir, 'generated'))
-    except Exception:
-        pass
-
-    output_filename = os.path.join(output_dir, 'results_typescript.txt')
-    with open(output_filename, 'w') as summary_file:
-        for res in results:
-            if res is not None:
-                summary_file.write(f'Command: {" ".join(res.args)}\n')
-                summary_file.write(f'Return code: {res.returncode}\n')
-                summary_file.write(f'Stdout:\n{res.stdout}\n')
-                summary_file.write(f'Stderr:\n{res.stderr}\n')
-    logger.info('output saved in {}', output_filename)
+    # On-device merge: produce merged_ops_<RUNID>.csv as the final artifact of a successful
+    # full capture, so only it (+ hw_id.json) need be copied off the board. The
+    # per-board DRAM peak BW is resolved from an INTERNAL interim table keyed on the
+    # tt-smi board_type -- no CLI value needed. Needs raw+perf+trace, so skipped for
+    # --basic-only / any failed pass; skipped (non-fatal) when the board is unknown
+    # or tt-smi is unavailable (e.g. off-device) -- merge manually in that case.
+    # Runs BEFORE cleanup so the source CSVs still exist.
+    if args.basic_only:
+        logger.info('--basic-only: skipping merge (needs raw+perf+trace).')
+    elif anyfails(results):
+        logger.warning('a profiling pass failed; skipping merge.')
+    else:
+        board = detect_board_type()
+        bw = resolve_interim_dram_peak_bw(board) if board else None
+        if bw is None:
+            logger.warning(
+                f'skipping on-device merge: could not resolve DRAM peak BW for board_type={board!r} '
+                f'(known prefixes: {sorted(_INTERIM_BOARD_DRAM_PEAK_BW_GBPS)}). Merge manually: '
+                f'ops_perf_three_csv_merge.py --input-dir {output_dir} --dram-peak-bw-gbps <gbps>.'
+            )
+        else:
+            logger.info(f'on-device merge: board_type={board} -> interim DRAM peak BW {bw} GB/s (PLACEHOLDER)')
+            merge_res = run_merge(output_dir, bw, show_output=show_output)
+            results.append(merge_res)
+            write_result_file(output_dir, 'merge', merge_res)
 
     if args.cleanup:
         cleanup_directories(output_dir)
+
+    # Propagate failures (board reset, any profiling pass, or the merge) as a non-zero
+    # exit so automation/presets can detect them. Per-pass result files are already
+    # written above, so a failed run still leaves its captured output on disk.
+    if anyfails(results):
+        logger.error('one or more steps failed; exiting non-zero (see per-pass results files).')
+        return 1
     return 0
 
 

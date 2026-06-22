@@ -1,0 +1,97 @@
+# SPDX-FileCopyrightText: (C) 2026 Tenstorrent AI ULC
+# SPDX-License-Identifier: Apache-2.0
+diff --git a/models/demos/vision/classification/vit/blackhole/tests/test_vit_device_perf.py b/models/demos/vision/classification/vit/blackhole/tests/test_vit_device_perf.py
+index 12ed0e5..370b3df 100644
+--- a/models/demos/vision/classification/vit/blackhole/tests/test_vit_device_perf.py
++++ b/models/demos/vision/classification/vit/blackhole/tests/test_vit_device_perf.py
+@@ -17,7 +17,9 @@ except ModuleNotFoundError:
+     use_signpost = False
+ 
+ 
+-@pytest.mark.skip(reason="Sharding issue: 120 shards exceeds 110 L1 banks on BH compute cores github issue #38877")
++# TEMP: un-skipped by the bh_grid_x 110-core workaround in ttnn_optimized_sharded_vit_bh.py;
++# restore this skip if that workaround is reverted, or once firmware #38877 is fixed:
++# @pytest.mark.skip(reason="Sharding issue: 120 shards exceeds 110 L1 banks on BH compute cores github issue #38877")
+ @pytest.mark.parametrize("device_params", [{"l1_small_size": 32768}], indirect=True)
+ @pytest.mark.parametrize("batch_size", [10])
+ def test_vit_device_ops(
+@@ -43,7 +45,9 @@ def test_vit_device_ops(
+     ttnn.synchronize_device(device)
+ 
+ 
+-@pytest.mark.skip(reason="Sharding issue: 120 shards exceeds 110 L1 banks on BH compute cores github issue #38877")
++# TEMP: un-skipped by the bh_grid_x 110-core workaround in ttnn_optimized_sharded_vit_bh.py;
++# restore this skip if that workaround is reverted, or once firmware #38877 is fixed:
++# @pytest.mark.skip(reason="Sharding issue: 120 shards exceeds 110 L1 banks on BH compute cores github issue #38877")
+ @pytest.mark.parametrize("batch_size", [10])
+ @pytest.mark.parametrize(
+     "expected_kernel_samples_per_sec",
+diff --git a/models/demos/vision/classification/vit/blackhole/tt/ttnn_optimized_sharded_vit_bh.py b/models/demos/vision/classification/vit/blackhole/tt/ttnn_optimized_sharded_vit_bh.py
+index 8bd53e9..b12a8b1 100644
+--- a/models/demos/vision/classification/vit/blackhole/tt/ttnn_optimized_sharded_vit_bh.py
++++ b/models/demos/vision/classification/vit/blackhole/tt/ttnn_optimized_sharded_vit_bh.py
+@@ -11,22 +11,34 @@ from ttnn.model_preprocessing import preprocess_linear_bias, preprocess_linear_w
+ import ttnn
+ 
+ 
+-def update_model_config(config, batch_size):
++def update_model_config(config, batch_size, device=None):
+     wh_core_grid_y = 10
+ 
++    # TEMPORARY, self-healing BH firmware workaround. BH firmware regressed to ~110 usable cores, so the
++    # default 10x12=120-core grid fails on HW. Use the full x=12 ONLY when the device actually exposes it;
++    # otherwise fall back to x=6 (60 cores). device.compute_with_storage_grid_size() reports the *usable*
++    # grid (x=11 under the regression, full width once firmware is fixed), so x=12 resumes automatically
++    # with no code change. device=None (callers that don't thread a device) -> safe x=6.
++    # NOTE: only x=12 and x=6 are shard-validated for this model; do NOT generalize to other divisors of
++    # gcd(dim_t=24, num_heads*seqL_t=84)=12 -- the shard-alignment constraints are unvalidated for them.
++    bh_grid_x = 6
++    if device is not None:
++        _avail = device.compute_with_storage_grid_size()
++        bh_grid_x = 12 if (_avail.x >= 12 and _avail.y >= 10) else 6
++
+     # In case of < 10 cores per batch, we need to do move in attention to remove defragmentation
+     should_reallocate_in_attention = False
+     if batch_size <= wh_core_grid_y:
+         grid_y = batch_size
+-        grid_x = 12  ## for blackhole: can be 6, 4, or 3 for less latency
++        grid_x = bh_grid_x  ## TEMP BH-110 workaround (see bh_grid_x above); upstream value was 12
+     else:
+         grid_y = 10
+         batch_per_y_core = batch_size // wh_core_grid_y
+         batch_size = grid_y * batch_per_y_core
+-        grid_x = 12  # Use full x-dimension for blackhole
++        grid_x = bh_grid_x  # TEMP BH-110 workaround; upstream value was 12
+         should_reallocate_in_attention = True
+     core_grid = ttnn.CoreGrid(y=grid_y, x=grid_x)
+-    core_grid_10x12 = ttnn.CoreGrid(y=10, x=12)
++    core_grid_10x12 = ttnn.CoreGrid(y=10, x=bh_grid_x)  # TEMP BH-110 workaround; x was 12
+ 
+     TILE_HEIGHT = 32
+ 
+diff --git a/models/demos/vision/classification/vit/common/tests/vit_test_infra.py b/models/demos/vision/classification/vit/common/tests/vit_test_infra.py
+index 4e64cda..9acc288 100644
+--- a/models/demos/vision/classification/vit/common/tests/vit_test_infra.py
++++ b/models/demos/vision/classification/vit/common/tests/vit_test_infra.py
+@@ -56,7 +56,7 @@ class VitTestInfra:
+         model = load_torch_model(model_location_generator, embedding=True)
+         config = model.config
+ 
+-        self.config = ttnn_optimized_sharded_vit.update_model_config(config, batch_size)
++        self.config = ttnn_optimized_sharded_vit.update_model_config(config, batch_size, device=self.device)
+         image_processor = AutoImageProcessor.from_pretrained(model_name)
+ 
+         self.parameters = preprocess_model_parameters(
+diff --git a/models/demos/vision/classification/vit/wormhole/tt/ttnn_optimized_sharded_vit_wh.py b/models/demos/vision/classification/vit/wormhole/tt/ttnn_optimized_sharded_vit_wh.py
+index e8199e0..f1f0aec 100644
+--- a/models/demos/vision/classification/vit/wormhole/tt/ttnn_optimized_sharded_vit_wh.py
++++ b/models/demos/vision/classification/vit/wormhole/tt/ttnn_optimized_sharded_vit_wh.py
+@@ -11,7 +11,7 @@ from ttnn.model_preprocessing import preprocess_linear_bias, preprocess_linear_w
+ import ttnn
+ 
+ 
+-def update_model_config(config, batch_size):
++def update_model_config(config, batch_size, device=None):  # device accepted+ignored: WH unaffected by the BH 110-core firmware grid limit; param parity for the shared vit_test_infra call
+     wh_core_grid_y = 8
+ 
+     # In case of < 6 cores per batch, we need to do move in attention to remove defragmentation
