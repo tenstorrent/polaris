@@ -30,7 +30,9 @@ from pathlib import Path
 from loguru import logger
 
 SCRIPT_DIR = Path(__file__).resolve().parent
-MERGE_TOOL = SCRIPT_DIR / 'ops_perf_three_csv_merge.py'
+# The merge tool was relocated to tools/si_profiling_helpers/ so it ships with the
+# rsynced preset bundle and can run on a hardware node. verify_merge_tool stays here.
+MERGE_TOOL = SCRIPT_DIR.parent / 'si_profiling_helpers' / 'ops_perf_three_csv_merge.py'
 
 # Each combo: name, input_dir relative to base, reference CSV relative to base,
 # DRAM peak BW in GB/s, extra args for the merge tool.

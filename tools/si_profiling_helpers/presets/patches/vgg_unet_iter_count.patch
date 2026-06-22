@@ -1,0 +1,46 @@
+# SPDX-FileCopyrightText: (C) 2026 Tenstorrent AI ULC
+# SPDX-License-Identifier: Apache-2.0
+# Local-only tt-metal modification for #464 SI profiling — INTENTIONALLY NOT upstreamed.
+# Reduce the VGG-UNet e2e reference inference_iter_count 10 -> 3 so the NOC-trace
+# profiler pass does not run out of resources (10 iterations exhausts trace capture).
+# Context-format diff: apply with `patch -p1` so the hunk is located by its surrounding
+# context, not by absolute line numbers (robust to tt-metal version drift).
+# Patches BOTH arch reference tests so the iteration count stays consistent (WH and BH).
+*** a/models/demos/vision/segmentation/vgg_unet/blackhole/tests/perf/test_e2e_performant.py
+--- b/models/demos/vision/segmentation/vgg_unet/blackhole/tests/perf/test_e2e_performant.py
+***************
+*** 23,29 ****
+      batch_size = device_batch_size * device.get_num_devices()
+      input_shape = (batch_size, channels, resolution, resolution)
+      torch_input_tensor = torch.randn(input_shape, dtype=torch.float32)
+!     inference_iter_count = 10
+      inference_time_iter = []
+      t0 = time.time()
+      for iter in range(0, inference_iter_count):
+--- 23,29 ----
+      batch_size = device_batch_size * device.get_num_devices()
+      input_shape = (batch_size, channels, resolution, resolution)
+      torch_input_tensor = torch.randn(input_shape, dtype=torch.float32)
+!     inference_iter_count = 3
+      inference_time_iter = []
+      t0 = time.time()
+      for iter in range(0, inference_iter_count):
+*** a/models/demos/vision/segmentation/vgg_unet/wormhole/tests/perf/test_e2e_performant.py
+--- b/models/demos/vision/segmentation/vgg_unet/wormhole/tests/perf/test_e2e_performant.py
+***************
+*** 23,29 ****
+      batch_size = device_batch_size * device.get_num_devices()
+      input_shape = (batch_size, channels, resolution, resolution)
+      torch_input_tensor = torch.randn(input_shape, dtype=torch.float32)
+!     inference_iter_count = 10
+      inference_time_iter = []
+      t0 = time.time()
+      for iter in range(0, inference_iter_count):
+--- 23,29 ----
+      batch_size = device_batch_size * device.get_num_devices()
+      input_shape = (batch_size, channels, resolution, resolution)
+      torch_input_tensor = torch.randn(input_shape, dtype=torch.float32)
+!     inference_iter_count = 3
+      inference_time_iter = []
+      t0 = time.time()
+      for iter in range(0, inference_iter_count):
