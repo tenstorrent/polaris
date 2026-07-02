@@ -495,3 +495,46 @@ workloads:
     module : run_vgg_unet_perf_device@test_vgg_unet_device_perf_bh.py
     instances:
       vgg_unet_bh_b1_perf_report: { bs: 1, model_name: vgg-unet-bh-b1-perf-report }
+  - api: TTNN
+    name: gemma3_decoder_prefill
+    basedir: workloads/ttnn/gemma3/tests
+    module: test_decoder_inference@test_decoder_prefill.py
+    instances:
+      gemma3_decoder_prefill_seq128:
+        bs: 1       
+        max_seq_len: 128
+        paged_attention: true
+        model_name: gemma3-decoder-prefill-seq128
+      gemma3_decoder_prefill_seq256:
+        bs: 1
+        max_seq_len: 256
+        paged_attention: true
+        model_name: gemma3-decoder-prefill-seq256
+      gemma3_decoder_prefill_seq512:
+        bs: 1
+        max_seq_len: 512
+        paged_attention: true
+        model_name: gemma3-decoder-prefill-seq512
+
+  - api: TTNN
+    name: gemma3_decoder_decode
+    basedir: workloads/ttnn/gemma3/tests
+    module: test_decoder_inference@test_decoder.py
+    instances:
+      gemma3_decoder_basic:
+        bs: 1
+        max_seq_len: 128
+        model_name: gemma3-decoder-basic
+
+  # Gemma3 Vision Pipeline Tests
+  - api: TTNN
+    name: gemma3_vision
+    basedir: workloads/ttnn/gemma3/tests
+    module: test_gemma_vision@test_vision_pipeline.py
+    instances:
+      gemma3_vision_bs1:
+        bs: 1
+        model_name: gemma3-vision-bs1
+      gemma3_vision_bs2:
+        bs: 2
+        model_name: gemma3-vision-bs2
