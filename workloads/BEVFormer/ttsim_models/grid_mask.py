@@ -171,7 +171,7 @@ class GridMask(SimNN.Module):
         # Apply random rotation
         if self.rotate > 0:
             r = rng.randint(self.rotate)
-            mask_img = Image.fromarray(np.uint8(mask * 255))
+            mask_img = Image.fromarray((mask * 255).astype(np.uint8))
             mask_img = mask_img.rotate(r)
             mask = np.asarray(mask_img).astype(np.float32) / 255.0  # type: ignore[assignment]
 
