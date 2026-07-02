@@ -5,7 +5,7 @@
 Denoising module - TTNN/TTSim Implementation.
 """
 
-from typing import Callable, Optional
+from typing import Callable
 import ttsim.front.ttnn as ttnn
 from workloads.ttnn.PI0.common.configs import DenoiseConfig
 

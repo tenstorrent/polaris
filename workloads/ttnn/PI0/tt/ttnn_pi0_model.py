@@ -240,22 +240,12 @@ class PI0ModelTTNN:
 
     def _extract_action_output(self, expert_output: ttnn.Tensor) -> ttnn.Tensor:
         """Extract action output, skipping state token."""
-        action_output = ttnn.zeros(
+        return ttnn.zeros(
             [self.batch_size, self.action_horizon, self.expert_hidden_size],
             device=self.device,
             dtype=ttnn.bfloat16,
             layout=ttnn.TILE_LAYOUT,
         )
-
-        dummy = ttnn.zeros(
-            [self.batch_size, self.action_horizon, self.expert_hidden_size],
-            device=self.device,
-            dtype=ttnn.bfloat16,
-            layout=ttnn.TILE_LAYOUT,
-        )
-        action_output = ttnn.add(action_output, dummy)
-
-        return action_output
 
     def _scale_velocity(self, velocity: ttnn.Tensor, dt: float) -> ttnn.Tensor:
         """

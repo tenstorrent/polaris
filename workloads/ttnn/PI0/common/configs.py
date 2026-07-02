@@ -10,7 +10,6 @@ weight-loading code, and Polaris runtime/model wrappers.
 """
 
 from dataclasses import dataclass, field
-from typing import Literal
 
 
 @dataclass
@@ -195,6 +194,6 @@ class PI0ModelConfig:
             siglip_config=self.siglip_config,
             max_seq_len=self.max_seq_len,
         )
-    
+
     #in tt metal code --def __post_init__(self): this part unconditionally
     # overwrites everything It ignores: paligemma_variant ,action_expert_variant ,any configs passed by the user

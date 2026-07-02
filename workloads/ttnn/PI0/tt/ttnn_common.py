@@ -3,9 +3,9 @@
 """
 Common utility functions for TTSim PI0 implementation.
 This module provides shared helper functions used across the PI0 model:
-    - Sinusoidal positional embeddings for flow matching timesteps
-    - Safe tensor operations with dtype handling
-    - Device-aware computations
+ - Sinusoidal positional embeddings for flow matching timesteps
+ - Safe tensor operations with dtype handling
+ - Device-aware computations
 """
 import math
 from typing import Optional
@@ -53,21 +53,22 @@ def create_sinusoidal_pos_embedding_ttnn(
     """
     if dimension % 2 != 0:
         raise ValueError(f"dimension ({dimension}) must be divisible by 2")
-    
+
     if device is None:
         # Get device from time tensor with proper null handling
-        _device = time.device()   # type: ignore[misc, operator]
+        _device = time.device()  # type: ignore[misc, operator]
         if _device is None:
             raise ValueError("time tensor must have a device")
         device = _device
-    
+
     half_dim = dimension // 2
     if indices is None:
         indices = ttnn.arange(0, half_dim, device=device, dtype=ttnn.float32)
     indices = ttnn.to_layout(indices, ttnn.TILE_LAYOUT)
+
     if half_dim > 1:
         scale_t = ttnn.full(
-            indices.shape, # type: ignore[union-attr]
+            indices.shape,  # type: ignore[union-attr]
             1.0 / (half_dim - 1),
             dtype=ttnn.float32,
             layout=ttnn.TILE_LAYOUT,
@@ -76,7 +77,16 @@ def create_sinusoidal_pos_embedding_ttnn(
         fraction = ttnn.multiply(indices, scale_t)
         ttnn.deallocate(scale_t)
     else:
-        fraction = indices  # Edge case: half_dim == 1
+        one_t = ttnn.full(
+            indices.shape,  # type: ignore[union-attr]
+            1.0,
+            dtype=ttnn.float32,
+            layout=ttnn.TILE_LAYOUT,
+            device=device,
+        )
+        fraction = ttnn.multiply(indices, one_t)
+        ttnn.deallocate(one_t)
+
     # Compute scaling_factor = (2π / min_period) * exp(-fraction * log_ratio)
     # Avoids ttnn.reciprocal (not available in ttsim) by negating the exponent.
     log_ratio = math.log(max_period / min_period)
@@ -99,24 +109,30 @@ def create_sinusoidal_pos_embedding_ttnn(
     )
     scaling_factor = ttnn.multiply(inv_period_ratio, scale_const)
     ttnn.deallocate(scale_const)
+
     # Reshape for broadcasting: scaling_factor [half_dim] -> [1, half_dim]
     scaling_factor = ttnn.reshape(scaling_factor, (1, half_dim))
+
     # Reshape time for broadcasting: [batch] -> [batch, 1]
     time_reshaped = ttnn.reshape(time, (-1, 1))
+
     # Compute sin input: time * scaling_factor (broadcasts to [batch, half_dim])
     sin_input = ttnn.matmul(time_reshaped, scaling_factor)
+
     # Compute sin and cos
     sin_emb = ttnn.sin(sin_input)
     cos_emb = ttnn.cos(sin_input)
+
     # Concatenate to get [batch, dimension]
     embeddings = ttnn.concat(sin_emb, cos_emb, axis=-1)
+
     # Clean up intermediate tensors
-    # ttnn.deallocate(indices)
     ttnn.deallocate(fraction)
     ttnn.deallocate(exponent)
     ttnn.deallocate(inv_period_ratio)
     ttnn.deallocate(scaling_factor)
     ttnn.deallocate(sin_input)
+
     return embeddings
 
 
@@ -138,7 +154,7 @@ def safe_cat_ttnn(
         raise ValueError("Cannot concatenate empty list of tensors")
     if memory_config is None:
         memory_config = ttnn.L1_MEMORY_CONFIG
-    return ttnn.concat(*tensors, axis=dim, memory_config=memory_config)
+    return ttnn.concat(tensors, dim=dim, memory_config=memory_config)
 
 
 def compute_position_ids_ttnn(
@@ -156,15 +172,17 @@ def compute_position_ids_ttnn(
         ttnn.cumsum and ttnn.moreh_cumsum are both unavailable in ttsim.
         ttsim is a shape-tracking simulator so the exact numerical values
         do not matter — only the output shape must be correct.
-        We return a placeholder tensor of the same shape as pad_masks.
+        Return a graph-connected placeholder tensor derived from pad_masks.
     """
-    shape = pad_masks.shape
-    if shape is None:
-        raise ValueError("pad_masks must have a valid shape")
     if device is None:
-        device = pad_masks.device
-    output_shape = list(shape)
-    position_ids = ttnn.Tensor(shape=output_shape, device=device, dtype=ttnn.bfloat16)
+        _device = pad_masks.device()  # type: ignore[misc, operator]
+        if _device is None:
+            raise ValueError("pad_masks tensor must have a device")
+        device = _device
+
+    position_ids = ttnn.typecast(pad_masks, ttnn.bfloat16)
+    if pad_masks.device() != device:  # type: ignore[misc, operator]
+        position_ids = ttnn.to_device(position_ids, device)
     return position_ids
 
 
@@ -224,10 +242,16 @@ def torch_to_ttnn(
     )
 
 
-def tensor_1d_to_2d_ttnn(tensor, device, dtype):
-    flat = ttnn.reshape(tensor, (-1,))  # ALWAYS flatten first
+def tensor_1d_to_2d_ttnn(
+    tensor: ttnn.Tensor,
+    device: TTNNDevice,
+    dtype: Optional[ttnn.DataType] = None,
+) -> ttnn.Tensor:
+    if dtype is None:
+        dtype = ttnn.bfloat16
 
-    features = flat.shape[-1]           # NEVER infer from original tensor
+    flat = ttnn.reshape(tensor, (-1,))  # ALWAYS flatten first
+    features = flat.shape[-1]  # NEVER infer from original tensor
     flat = ttnn.to_device(flat, device)
     flat = ttnn.typecast(flat, dtype)
     return ttnn.reshape(flat, (1, features))

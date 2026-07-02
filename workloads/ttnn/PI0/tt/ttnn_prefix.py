@@ -59,11 +59,7 @@ class PrefixEmbeddingTTNN:
 
             # Create expanded mask using zeros and avoid shape issues
             mask_reshaped = ttnn.reshape(mask, [batch_size, 1])
-
-            expanded_mask = ttnn.repeat(
-                mask_reshaped,
-                [1, num_tokens]
-      )
+            expanded_mask = ttnn.repeat(mask_reshaped, [1, num_tokens])
             expanded_masks.append(expanded_mask)
 
         return image_embs, expanded_masks
@@ -81,7 +77,7 @@ class PrefixEmbeddingTTNN:
         shape = lang_emb.shape
         if shape is None:
             raise ValueError("lang_emb must have a valid shape")
-        hidden_dim = shape[-1] 
+        hidden_dim = shape[-1]
         scale = math.sqrt(hidden_dim)
 
         scale_t = ttnn.full(
@@ -116,17 +112,7 @@ class PrefixEmbeddingTTNN:
         if self.embed_language_fn is not None:
             lang_emb = self.embed_language(lang_tokens, lang_masks)
             embs.append(lang_emb)
-            
-            # Create 2D mask for language with same rank as image masks
-            lang_shape = lang_emb.shape
-            if lang_shape is None:
-                raise ValueError("lang_emb must have a valid shape")
-            batch_size = int(lang_shape[0])
-            lang_seq_len = int(lang_shape[1])
-            
-            # Create 2D mask directly
-            lang_mask_2d = ttnn.to_layout(lang_masks, ttnn.ROW_MAJOR_LAYOUT)
-            pad_masks.append(lang_mask_2d)
+            pad_masks.append(lang_masks)
 
         # Concatenate embeddings
         if len(embs) > 1:
@@ -140,7 +126,15 @@ class PrefixEmbeddingTTNN:
         else:
             prefix_pad_masks = pad_masks[0]
 
-        prefix_att_masks = self.prefix_att_masks
+        shape = prefix_embs.shape
+        if shape is None:
+            raise ValueError("prefix_embs must have a valid shape")
+        prefix_att_masks = ttnn.zeros(
+            (shape[0], shape[1]),
+            dtype=ttnn.bfloat16,
+            layout=ttnn.TILE_LAYOUT,
+            device=self.device,
+        )
 
         return prefix_embs, prefix_pad_masks, prefix_att_masks
 

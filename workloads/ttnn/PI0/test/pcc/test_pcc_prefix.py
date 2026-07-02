@@ -87,11 +87,11 @@ def test_pcc_prefix_language_embedding(device):
     config = create_prefix_config()
     embed_lang_fn = create_mock_embed_language_fn(config, device)
     model = PrefixEmbeddingTTNN(config, device, embed_language_fn=embed_lang_fn)
-    
+
     lang_tokens = make_input([1, SEQ_LEN], device)
     lang_masks = make_input([1, SEQ_LEN], device)
     out = model.embed_language(lang_tokens, lang_masks)
-    
+
     assert_shape(out, [1, SEQ_LEN, config.vlm_hidden_size], "prefix_language_embedding")
 
 
@@ -100,25 +100,25 @@ def main():
     print("=" * 70)
     print("  Prefix Embedding Shape Test (TTSim)")
     print("=" * 70)
-    
+
     config = create_prefix_config()
     device = ttnn.open_device(device_id=0)
-    
+
     try:
         print("\n1. Setting up mock embedding function...")
         embed_lang_fn = create_mock_embed_language_fn(config, device)
         model = PrefixEmbeddingTTNN(config, device, embed_language_fn=embed_lang_fn)
-        
+
         # Test: embed_language
         print("2. Testing embed_language...")
         lang_tokens = make_input([1, SEQ_LEN], device)
         lang_masks = make_input([1, SEQ_LEN], device)
         out = model.embed_language(lang_tokens, lang_masks)
-        
+
         expected = [1, SEQ_LEN, config.vlm_hidden_size]
         actual = safe_shape_list(out.shape)
         passed = actual == expected
-        
+
         print("\n" + "=" * 70)
         print("  RESULTS")
         print("=" * 70)
@@ -126,7 +126,7 @@ def main():
         print(f"  {status}  prefix_language_embedding  got={actual}  expected={expected}")
         print("=" * 70)
         return 0 if passed else 1
-        
+
     finally:
         ttnn.close_device(device)
 

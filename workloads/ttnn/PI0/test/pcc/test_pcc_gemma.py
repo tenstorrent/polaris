@@ -92,10 +92,10 @@ def test_gemma_vlm_mlp_shape(device):
     config = create_vlm_config()
     weights = create_mlp_weights(config, device)
     mlp = GemmaMLPTTNN(config, weights, device)
-    
+
     x = make_input([1, SEQ_LEN, config.width], device)
     out = mlp.forward(x)
-    
+
     assert_shape(out, [1, SEQ_LEN, config.width], "vlm_mlp")
 
 
@@ -104,10 +104,10 @@ def test_gemma_expert_mlp_shape(device):
     config = create_expert_config()
     weights = create_mlp_weights(config, device)
     mlp = GemmaMLPTTNN(config, weights, device)
-    
+
     x = make_input([1, SEQ_LEN, config.width], device)
     out = mlp.forward(x)
-    
+
     assert_shape(out, [1, SEQ_LEN, config.width], "expert_mlp")
 
 
@@ -116,11 +116,11 @@ def main():
     print("=" * 70)
     print("  Gemma MLP Shape Test (TTSim)")
     print("=" * 70)
-    
+
     device = ttnn.open_device(device_id=0)
     try:
         results = []
-        
+
         # Test 1: VLM MLP
         print("\n1. Testing VLM MLP (2B)...")
         config = create_vlm_config()
@@ -131,7 +131,7 @@ def main():
         expected = [1, SEQ_LEN, config.width]
         actual = safe_shape_list(out.shape)
         results.append(("vlm_mlp", actual, expected, actual == expected))
-        
+
         # Test 2: Expert MLP
         print("2. Testing Expert MLP (300M)...")
         config = create_expert_config()
@@ -142,7 +142,7 @@ def main():
         expected = [1, SEQ_LEN, config.width]
         actual = safe_shape_list(out.shape)
         results.append(("expert_mlp", actual, expected, actual == expected))
-        
+
         # Results
         print("\n" + "=" * 70)
         print("  RESULTS")
@@ -155,7 +155,7 @@ def main():
         print(f"  Overall: {'✅ ALL TESTS PASSED' if all_passed else '❌ SOME TESTS FAILED'}")
         print("=" * 70)
         return 0 if all_passed else 1
-        
+
     finally:
         ttnn.close_device(device)
 

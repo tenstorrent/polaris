@@ -13,12 +13,11 @@ The dual-expert architecture shares attention layers:
 NOTE: This is a TTSim port - shape tracking only, no numerical computation.
 Hardware-specific optimizations are removed.
 """
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Dict, List, Optional, Tuple
 import ttsim.front.ttnn as ttnn
 from ttsim.front.ttnn.device import Device as TTNNDevice
 from workloads.ttnn.PI0.common.configs import PaliGemmaConfig
 
-from workloads.ttnn.PI0.tt.ttnn_common import tensor_1d_to_2d_ttnn
 from workloads.ttnn.PI0.tt.ttnn_gemma import (
     GemmaBlockTTNN,
     rms_norm_ttnn,
@@ -136,7 +135,7 @@ class PaliGemmaBackboneTTNN:
             if value is None:
                 continue # type: ignore[unreachable]
 
-            new_key = key[len(prefix):] 
+            new_key = key[len(prefix):]
             # Skip individual QKV if fused exists
             if "self_attn.wqkv" in block_weights and new_key in [
                 "self_attn.q_proj.weight",
@@ -162,7 +161,7 @@ class PaliGemmaBackboneTTNN:
             block_weights[new_key] = value
 
         return block_weights
-    
+
     def embed_image(self, pixel_values: ttnn.Tensor) -> ttnn.Tensor:
         """
         Embed images through vision tower and projector.
@@ -209,7 +208,7 @@ class PaliGemmaBackboneTTNN:
             Tuple of (output, optional_new_cache)
         """
         new_cache: Optional[List[Tuple[ttnn.Tensor, ttnn.Tensor]]] = [] if use_cache else None
-        
+
         for i, block in enumerate(self.vlm_blocks):
             past_kv = past_key_values[i] if past_key_values else None
             hidden_states, new_kv = block.forward(
@@ -223,7 +222,7 @@ class PaliGemmaBackboneTTNN:
             )
             if use_cache and new_kv is not None and new_cache is not None:
                 new_cache.append(new_kv)
-        
+
         # Final norm
         if self.vlm_norm is not None:
             hidden_states = rms_norm_ttnn(
@@ -253,7 +252,7 @@ class PaliGemmaBackboneTTNN:
             Tuple of (output, optional_new_cache)
         """
         new_cache: Optional[List[Tuple[ttnn.Tensor, ttnn.Tensor]]] = [] if use_cache else None
-        
+
         for i, block in enumerate(self.expert_blocks):
             past_kv = past_key_values[i] if past_key_values else None
             hidden_states, new_kv = block.forward(
@@ -267,7 +266,7 @@ class PaliGemmaBackboneTTNN:
             )
             if use_cache and new_kv is not None and new_cache is not None:
                 new_cache.append(new_kv)
-        
+
         # Final norm
         if self.expert_norm is not None:
             hidden_states = rms_norm_ttnn(

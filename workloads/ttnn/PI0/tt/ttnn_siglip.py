@@ -12,7 +12,7 @@ Fixes included:
 """
 
 import math
-from typing import Dict, Optional
+from typing import Dict
 
 import ttsim.front.ttnn as ttnn
 from ttsim.front.ttnn.device import Device as TTNNDevice
@@ -72,12 +72,12 @@ class PatchEmbeddingTTNN:
                 "Patch embedding weight not found.\n"
                 f"Available keys sample: {list(weights.keys())[:20]}"
             )
-        
+
         # -----------------------------
         # reshape conv -> linear
         # -----------------------------
         out_channels = conv_weight.shape[0]  # type: ignore[index]
-        in_channels = conv_weight.shape[1] # type: ignore[index] 
+        in_channels = conv_weight.shape[1] # type: ignore[index]
 
         in_features = (
             in_channels * conv_weight.shape[2] * conv_weight.shape[3] # type: ignore[index]
@@ -159,10 +159,9 @@ class SigLIPAttentionTTNN:
         shape = x.shape
         if shape is None:
             raise ValueError("x must have a valid shape")
-        
+
         b = shape[0]
         s = shape[1]
-        h = shape[2] if len(shape) > 2 else self.hidden_size
 
         # Separate Q, K, V projections (instead of fused QKV)
         q = ttnn.linear(x, self.q_weight, bias=self.q_bias)

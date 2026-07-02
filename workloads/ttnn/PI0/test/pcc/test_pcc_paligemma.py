@@ -78,7 +78,7 @@ def create_siglip_weights(config: SigLIPConfig, device) -> dict:
     hidden = config.hidden_size
     intermediate = config.intermediate_size
     num_patches = (config.image_size // config.patch_size) ** 2
-    
+
     weights = {
         "patch_embedding.weight": make_input([hidden, 3, config.patch_size, config.patch_size], device),
         "patch_embedding.bias": make_input([1, hidden], device),
@@ -86,7 +86,7 @@ def create_siglip_weights(config: SigLIPConfig, device) -> dict:
         "post_layernorm.weight": make_input([1, hidden], device),
         "post_layernorm.bias": make_input([1, hidden], device),
     }
-    
+
     for i in range(config.num_hidden_layers):
         prefix = f"encoder.layers.{i}."
         weights[f"{prefix}layer_norm1.weight"] = make_input([1, hidden], device)
@@ -105,7 +105,7 @@ def create_siglip_weights(config: SigLIPConfig, device) -> dict:
         weights[f"{prefix}mlp.fc1.bias"] = make_input([1, intermediate], device)
         weights[f"{prefix}mlp.fc2.weight"] = make_input([intermediate, hidden], device)
         weights[f"{prefix}mlp.fc2.bias"] = make_input([1, hidden], device)
-    
+
     return weights
 
 
@@ -115,12 +115,12 @@ def create_gemma_weights(config: GemmaConfig, device) -> dict:
     mlp_dim = config.mlp_dim
     q_dim = config.num_heads * config.head_dim
     kv_dim = config.num_kv_heads * config.head_dim
-    
+
     weights = {
         "model.embed_tokens.weight": make_input([10000, width], device),
         "model.norm.weight": make_input([1, width], device),
     }
-    
+
     for i in range(config.depth):
         prefix = f"model.layers.{i}."
         weights[f"{prefix}input_layernorm.weight"] = make_input([1, width], device)
@@ -132,7 +132,7 @@ def create_gemma_weights(config: GemmaConfig, device) -> dict:
         weights[f"{prefix}mlp.gate_proj.weight"] = make_input([width, mlp_dim], device)
         weights[f"{prefix}mlp.up_proj.weight"] = make_input([width, mlp_dim], device)
         weights[f"{prefix}mlp.down_proj.weight"] = make_input([mlp_dim, width], device)
-    
+
     return weights
 
 
@@ -178,13 +178,13 @@ def test_paligemma_embed_image_shape(device):
     config = create_small_config()
     weights = create_paligemma_weights(config, device)
     model = PaliGemmaBackboneTTNN(config, weights, device)
-    
+
     pixel_values = make_input(
         [1, 3, config.siglip_config.image_size, config.siglip_config.image_size],
         device,
     )
     out = model.embed_image(pixel_values)
-    
+
     num_patches = (config.siglip_config.image_size // config.siglip_config.patch_size) ** 2
     assert_shape(out, [1, num_patches, config.vlm_config.width], "embed_image")
 
@@ -194,10 +194,10 @@ def test_paligemma_forward_vlm_shape(device):
     config = create_small_config()
     weights = create_paligemma_weights(config, device)
     model = PaliGemmaBackboneTTNN(config, weights, device)
-    
+
     hidden_states = make_input([1, SEQ_LEN, config.vlm_config.width], device)
     out, _ = model.forward_vlm(hidden_states)
-    
+
     assert_shape(out, [1, SEQ_LEN, config.vlm_config.width], "forward_vlm")
 
 
@@ -206,18 +206,18 @@ def main():
     print("=" * 70)
     print("  PaliGemma Backbone Shape Test (TTSim)")
     print("=" * 70)
-    
+
     config = create_small_config()
     device = ttnn.open_device(device_id=0)
-    
+
     try:
         results = []
         num_patches = (config.siglip_config.image_size // config.siglip_config.patch_size) ** 2
-        
+
         print("\n1. Creating weights and model...")
         weights = create_paligemma_weights(config, device)
         model = PaliGemmaBackboneTTNN(config, weights, device)
-        
+
         # Test 1: embed_image
         print("2. Testing embed_image...")
         pixel_values = make_input(
@@ -228,7 +228,7 @@ def main():
         expected = [1, num_patches, config.vlm_config.width]
         actual = safe_shape_list(out.shape)
         results.append(("embed_image", actual, expected, actual == expected))
-        
+
         # Test 2: forward_vlm
         print("3. Testing forward_vlm...")
         hidden = make_input([1, SEQ_LEN, config.vlm_config.width], device)
@@ -236,7 +236,7 @@ def main():
         expected = [1, SEQ_LEN, config.vlm_config.width]
         actual = safe_shape_list(out.shape)
         results.append(("forward_vlm", actual, expected, actual == expected))
-        
+
         # Results
         print("\n" + "=" * 70)
         print("  RESULTS")
@@ -249,7 +249,7 @@ def main():
         print(f"  Overall: {'✅ ALL TESTS PASSED' if all_passed else '❌ SOME TESTS FAILED'}")
         print("=" * 70)
         return 0 if all_passed else 1
-        
+
     finally:
         ttnn.close_device(device)
 
