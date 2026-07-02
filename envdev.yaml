@@ -6,9 +6,9 @@ channels:
 dependencies:
   # Core dependencies (shared with environment.yaml, same order)
   # Essential packages required for running polaris
-  - deepdiff
+  - deepdiff=9.1.0
   - einops=0.8.2 # used by MapTracker
-  - gitpython
+  - gitpython=3.1.50
   - hydra-core=1.3.2
   - loguru=0.7.3
   - lxml=6.0.0
@@ -18,6 +18,7 @@ dependencies:
   - numpy=2.2.3
   - onnx=1.17.0
   - openpyxl=3.1.5
+  - pillow=11.1.0 # transitive (matplotlib); pinned to keep Image.fromarray typing stable
   - pydantic=2.10.6
   - pyelftools=0.31
   - python=3.13.2
@@ -30,20 +31,20 @@ dependencies:
   # Development-specific dependencies (alphabetical order)
   # Additional packages for development, testing, and code quality
   - coverage=7.6.12
-  - fabric
-  - isort
+  - fabric=3.2.3
+  - isort=8.0.1
   - mypy=1.15.0
   - pip=25.0.1
-  - pre-commit
-  - pytest-cov
-  - pytest-json-report
-  - pytest-mock
-  - pytest-xdist
-  - ruff
+  - pre-commit=4.6.0
+  - pytest-cov=6.3.0
+  - pytest-json-report=1.5.0
+  - pytest-mock=3.15.1
+  - pytest-xdist=3.8.0
+  - ruff=0.15.16
   - pip:
     - pytest==8.3.4
     - types-PYYAML==6.0.12.20241230
     - types-networkx==3.4.2.20241227
-    - types-requests
-    - types-openpyxl
-    - lxml-stubs
+    - types-requests==2.33.0.20260518
+    - types-openpyxl==3.1.5.20260518
+    - lxml-stubs==0.5.1

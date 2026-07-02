@@ -211,7 +211,7 @@ class Grid(object):
                 mask[:, s:t] *= 0
 
         r = np.random.randint(self.rotate)
-        mask_img = Image.fromarray(np.uint8(mask))
+        mask_img = Image.fromarray(mask.astype(np.uint8))
         mask_img = mask_img.rotate(r)
         mask = np.asarray(mask_img).astype(np.float32)
         mask = mask[(hh - h) // 2:(hh - h) // 2 + h, (ww - w) // 2:(ww - w) // 2 + w]
@@ -352,7 +352,7 @@ class GridMask(SimNN.Module):
                 mask[:, s:t] *= 0
 
         r = np.random.randint(self.rotate)
-        mask_img = Image.fromarray(np.uint8(mask))
+        mask_img = Image.fromarray(mask.astype(np.uint8))
         mask_img = mask_img.rotate(r)
         mask = np.asarray(mask_img).astype(np.float32)
         mask = mask[(hh - h) // 2:(hh - h) // 2 + h, (ww - w) // 2:(ww - w) // 2 + w]
