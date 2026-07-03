@@ -390,6 +390,44 @@ class ComputeBlockModel(BaseModel, extra='forbid'):
             pipe.set_frequency(newfreq, units)
 
 
+class MemoryReadLatencyModel(BaseModel, extra='forbid'):
+    """O2O data-movement read-latency hardware constants (see ttsim/back/read_latency.py).
+
+    Per-memory-technology calibration for the DRAM read-latency model and the
+    single source of truth for these constants. Field names mirror
+    ``ReadLatencyConfig`` (minus ``num_dram_channels``, which comes from the
+    memory IP's ``num_units``); ``Device`` builds the config via
+    ``ReadLatencyConfig(num_dram_channels=..., **model_dump())``. Cycle counts are
+    in the NoC/fabric clock domain (``fclk``). Consumed when ``--enable_dm_latency``.
+    """
+    # Interleaved (Layer 3) model constants
+    #: DRAM access bucket (row-hit best case): row activate + CAS + burst.
+    tdram_cyc: float
+    #: Barrier-clear tail.
+    tdetect_cyc: float
+    #: Per-core NoC inbound ceiling (bytes / fclk cycle).
+    noc_inbound_bpc: float
+    #: Per-read issue cost (cyc/read).
+    delta_issue_cyc: float
+    #: NoC cost per hop (cyc); round-trip contributes 2 * hops * chop.
+    chop_cyc_per_hop: float
+    #: Single-channel, single-stream effective rate (bytes / fclk cycle).
+    b_channel_bpc: float
+    #: Default gating-channel hop distance (h_gate from the O2O page).
+    default_hops: int
+    # Layer 1 (unary) closed-form constants
+    #: Fixed latency to first data for the unary model (Tissue+Tnoc+Tdram+Tdetect).
+    tfixed_unary_cyc: float
+    #: NoC flit width (bytes).
+    flit_bytes: int
+    #: Single-request receive rate (cyc/flit), N <= knee.
+    recv_cyc_per_flit_lo: float
+    #: Pipelined receive rate (cyc/flit), N > knee.
+    recv_cyc_per_flit_hi: float
+    #: Flit count at which delivery transitions to the pipelined rate.
+    recv_knee_flits: int
+
+
 class MemoryBlockModel(BaseModel, extra='forbid'):
     name: str
     iptype: str
@@ -399,6 +437,8 @@ class MemoryBlockModel(BaseModel, extra='forbid'):
     size_GB: int
     stacks: Optional[int] = 1
     data_rate: Optional[int] = 1
+    #: Optional O2O read-latency calibration (consumed by Device when --enable_dm_latency).
+    read_latency: Optional[MemoryReadLatencyModel] = None
     transfer_rate_GTs: float  # Transfer rate in giga transfers per second (GT/s).
                               # This is a redundant, explicitly specified value used to cross-check
                               # the bandwidth derived from freq_MHz, stacks, and data_rate.

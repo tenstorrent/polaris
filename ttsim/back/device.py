@@ -11,6 +11,7 @@ from loguru import logger
 
 from ttsim.utils.types import get_bpe, get_sim_dtype
 from ttsim.utils.lfc import resolve_lfc_path
+from ttsim.back.read_latency import ReadLatencyConfig, TILE_ELEMS, predict_read_latency
 from tools.perf_lookup.lookup_operator_perf import resolve_operator_lookup_core_count
 
 LOG     = logger
@@ -106,6 +107,7 @@ class Device:
         simcfg_obj,
         *,
         operator_lookup_hybrid_curve: Optional[bool] = None,
+        enable_dm_latency: bool = False,
     ):
         compute_ips = [ipg for ipg in simcfg_obj.ipgroups if ipg.iptype == 'compute']
         memory_ips  = [ipg for ipg in simcfg_obj.ipgroups if ipg.iptype == 'memory']
@@ -124,6 +126,28 @@ class Device:
         self.memory_ip      = memory_ips[0]
         self.peak_bw_bytes_per_cycle  = simcfg_obj.peak_bandwidth_per_cycle()
         self.eff_bw_bytes_per_cycle   = self.peak_bw_bytes_per_cycle * self.DG_MEMORY_UTIL_CONSTANT
+
+        # O2O data-movement read-latency model (off by default; --enable_dm_latency).
+        # When enabled, execute_op reports a predicted DRAM read latency per op.
+        # HW constants are sourced exclusively from the arch YAML memory block's
+        # `read_latency` section (config/tt_bh.yaml -> MemoryReadLatencyModel); the
+        # block is required when the feature is enabled (no Python-side fallback).
+        self.enable_dm_latency = bool(enable_dm_latency)
+        self.dm_read_cfg: Optional[ReadLatencyConfig] = None
+        if self.enable_dm_latency:
+            mem_block = getattr(self.memory_ip, 'ipobj', None)
+            rl_params = getattr(mem_block, 'read_latency', None)
+            if rl_params is None:
+                raise ValueError(
+                    "--enable_dm_latency requires a 'read_latency' calibration block in the "
+                    f"memory IP of the arch spec, but device '{self.name}' (memory "
+                    f"'{getattr(mem_block, 'name', '?')}') defines none. Add a read_latency "
+                    "section (tdram_cyc, tdetect_cyc, noc_inbound_bpc) to the memory block."
+                )
+            self.dm_read_cfg = ReadLatencyConfig(
+                num_dram_channels=max(1, int(getattr(self.memory_ip, 'num_units', 1) or 1)),
+                **rl_params.model_dump(),
+            )
 
         # Load tt-perf master operator lookup if specified (see doc/tools/perf_lookup/LOOKUP_TABLE_MASTER.md)
         self.operator_perf_map: Optional[Any] = None
@@ -309,7 +333,43 @@ class Device:
         op.mem_rd_cycles = math.ceil(mem_rd_cycles_devclk_fractional)
         op.mem_wr_cycles = math.ceil(mem_wr_cycles_devclk_fractional)
 
+        # O2O read-latency model (Phase A): report-only, does not affect timing yet.
+        if self.enable_dm_latency:
+            self._report_dm_read_latency(op)
+
         return
+
+    def _report_dm_read_latency(self, op) -> None:
+        """Compute and report the O2O predicted DRAM read latency for ``op``.
+
+        Phase A is report-only: ``op.dm_read_latency_cycles`` is populated and
+        logged, but the existing bytes/bandwidth memory model still drives
+        timing. Inputs (page size N, queue depth Q) are derived first-order from
+        the op's read bytes and precision; richer derivation (memory_config-aware
+        regime, real hop counts) is future work.
+        """
+        in_bytes = op.perf_stats['inBytes'] if op.perf_stats else 0
+        if not in_bytes or in_bytes <= 0:
+            op.dm_read_latency_cycles = 0.0
+            return
+
+        bpe = get_bpe(get_sim_dtype(op.precision)) if op.precision else 1
+        page_bytes = TILE_ELEMS * bpe  # one 32x32 tile per DRAM read
+        num_cores = max(1, int(getattr(self.compute_ip, 'num_units', 1) or 1))
+        num_channels = self.dm_read_cfg.num_dram_channels
+
+        total_pages = max(1, round(in_bytes / page_bytes))
+        # Queue depth = reads issued per core before the barrier.
+        queue_depth = max(1, total_pages // num_cores)
+
+        tlat = predict_read_latency(
+            page_bytes, Q=queue_depth, num_channels=num_channels, cfg=self.dm_read_cfg
+        )
+        op.dm_read_latency_cycles = tlat
+        INFO(
+            "DM-READ-LAT op={} N={}B Q={} channels={} inBytes={} -> Tlat={:.0f} cyc",
+            op.name, page_bytes, queue_depth, num_channels, in_bytes, tlat,
+        )
 
     @staticmethod
     def _profiler_pct_to_exec_fraction(v: float) -> float:
