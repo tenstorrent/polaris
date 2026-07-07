@@ -34,6 +34,7 @@ def prepare_commands_static(condaenvprefix: OptionalString) -> list[str]:
     # pyproject.toml. These knobs are NOT replicated here, to avoid inconsistency
     commands = [
         f'{condaenvprefix} mypy ./',
+        f'{condaenvprefix} python tools/check_pinned_deps.py',
     ]
     return commands
 
