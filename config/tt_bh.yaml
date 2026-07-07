@@ -60,20 +60,43 @@ ipblocks:
         # of truth for ReadLatencyConfig; consumed by Device when --enable_dm_latency.
         # See ttsim/back/read_latency.py and the O2O "Read Latency Modeling" page.
         read_latency:
-            # Interleaved (Layer 3) model
-            tdram_cyc            : 375.0   # DRAM access bucket (row activate + CAS + burst)
-            tdetect_cyc          : 10.0    # barrier-clear tail
-            noc_inbound_bpc      : 62.0    # per-core NoC inbound ceiling (bytes / fclk cycle)
-            delta_issue_cyc      : 38.0    # per-read issue cost (cyc/read)
-            chop_cyc_per_hop     : 8.0     # NoC cost per hop (cyc)
-            b_channel_bpc        : 24.0    # single-channel effective rate (bytes / fclk cycle)
-            default_hops         : 4       # gating-channel hop distance (h_gate)
-            # Layer 1 (unary) closed form
-            tfixed_unary_cyc     : 438.0   # fixed latency to first data (Tissue+Tnoc+Tdram+Tdetect)
-            flit_bytes           : 64      # NoC flit width (bytes)
-            recv_cyc_per_flit_lo : 2.8     # unary receive rate, N <= 32 KB
-            recv_cyc_per_flit_hi : 1.83    # unary pipelined rate, N > 32 KB
-            recv_knee_flits      : 512     # delivery knee (32 KB / 64 B)
+            # Regime used when an op's memory config is absent (TTSIM/ONNX path) or
+            # uncalibrated. Keys match MemoryConfig.to_canonical_memory_tag().
+            default_regime: DRAM_INTERLEAVED
+            regimes:
+                # --- Calibrated against the Blackhole DRAM Interleaved Page Read microbenchmark ---
+                DRAM_INTERLEAVED:
+                    # Interleaved (Layer 3) model
+                    tdram_cyc            : 375.0   # DRAM access bucket (row activate + CAS + burst)
+                    tdetect_cyc          : 10.0    # barrier-clear tail
+                    noc_inbound_bpc      : 62.0    # per-core NoC inbound ceiling (bytes / fclk cycle)
+                    delta_issue_cyc      : 38.0    # per-read issue cost (cyc/read)
+                    chop_cyc_per_hop     : 8.0     # NoC cost per hop (cyc)
+                    b_channel_bpc        : 24.0    # single-channel effective rate (bytes / fclk cycle)
+                    default_hops         : 4       # gating-channel hop distance (h_gate)
+                    # Layer 1 (unary) closed form
+                    tfixed_unary_cyc     : 438.0   # fixed latency to first data (Tissue+Tnoc+Tdram+Tdetect)
+                    flit_bytes           : 64      # NoC flit width (bytes)
+                    recv_cyc_per_flit_lo : 2.8     # unary receive rate, N <= 32 KB
+                    recv_cyc_per_flit_hi : 1.83    # unary pipelined rate, N > 32 KB
+                    recv_knee_flits      : 512     # delivery knee (32 KB / 64 B)
+                # --- UNCALIBRATED placeholder: L1-sharded reads (SRAM, no DRAM bucket) ---
+                # TODO(472): calibrate against an L1-sharded read microbenchmark. Values below
+                # are first-order guesses (no row-activate cost; higher SRAM port rate; fewer
+                # NoC hops core->core) purely to exercise the regime path. Do NOT trust yet.
+                L1_BLOCK_SHARDED:
+                    tdram_cyc            : 0.0     # SRAM: no row activate / CAS
+                    tdetect_cyc          : 10.0
+                    noc_inbound_bpc      : 62.0
+                    delta_issue_cyc      : 38.0
+                    chop_cyc_per_hop     : 8.0
+                    b_channel_bpc        : 200.0   # L1 SRAM port rate >> GDDR channel
+                    default_hops         : 2       # core->core typically closer than DRAM edge
+                    tfixed_unary_cyc     : 63.0    # no DRAM bucket -> much smaller fixed head
+                    flit_bytes           : 64
+                    recv_cyc_per_flit_lo : 2.8
+                    recv_cyc_per_flit_hi : 1.83
+                    recv_knee_flits      : 512
 
 packages:
     -   name: Blackhole

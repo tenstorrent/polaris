@@ -22,9 +22,15 @@ POLARIS_ROOT = Path(__file__).resolve().parents[2]
 
 @pytest.fixture(scope="session")
 def bh_read_latency_cfg() -> ReadLatencyConfig:
-    """ReadLatencyConfig for Blackhole p100a, sourced from config/tt_bh.yaml."""
+    """ReadLatencyConfig for Blackhole p100a DRAM_INTERLEAVED, sourced from config/tt_bh.yaml.
+
+    The arch YAML now stores read-latency constants per memory-config regime; this
+    fixture returns the calibrated ``DRAM_INTERLEAVED`` regime (the one validated
+    against the microbenchmark) so the existing unit tests are unchanged.
+    """
     _, packages = get_arspec_from_yaml(POLARIS_ROOT / "config" / "tt_bh.yaml")
     mem = packages["p100a"].get_ipgroup("memory")
     rl = mem.ipobj.read_latency
     assert rl is not None, "config/tt_bh.yaml gddr6_bh is missing a read_latency block"
-    return ReadLatencyConfig(num_dram_channels=mem.num_units, **rl.model_dump())
+    params = rl.regimes[rl.default_regime]
+    return ReadLatencyConfig(num_dram_channels=mem.num_units, **params.model_dump())

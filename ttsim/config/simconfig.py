@@ -390,18 +390,17 @@ class ComputeBlockModel(BaseModel, extra='forbid'):
             pipe.set_frequency(newfreq, units)
 
 
-class MemoryReadLatencyModel(BaseModel, extra='forbid'):
-    """O2O data-movement read-latency hardware constants (see ttsim/back/read_latency.py).
+class ReadLatencyRegimeParams(BaseModel, extra='forbid'):
+    """Per-memory-config hardware constants for the read-latency model.
 
-    Per-memory-technology calibration for the DRAM read-latency model and the
-    single source of truth for these constants. Field names mirror
-    ``ReadLatencyConfig`` (minus ``num_dram_channels``, which comes from the
-    memory IP's ``num_units``); ``Device`` builds the config via
-    ``ReadLatencyConfig(num_dram_channels=..., **model_dump())``. Cycle counts are
-    in the NoC/fabric clock domain (``fclk``). Consumed when ``--enable_dm_latency``.
+    One independently-calibrated parameter set for a single memory-config regime
+    (e.g. ``DRAM_INTERLEAVED``, ``L1_BLOCK_SHARDED``). Field names mirror
+    ``ReadLatencyConfig`` (minus ``num_dram_channels``, which is supplied per-op at
+    prediction time from the read source: DRAM channels for interleaved, producer-core
+    count for sharded). Cycle counts are in the NoC/fabric clock domain (``fclk``).
     """
     # Interleaved (Layer 3) model constants
-    #: DRAM access bucket (row-hit best case): row activate + CAS + burst.
+    #: DRAM access bucket (row-hit best case): row activate + CAS + burst. ~0 for L1.
     tdram_cyc: float
     #: Barrier-clear tail.
     tdetect_cyc: float
@@ -411,9 +410,9 @@ class MemoryReadLatencyModel(BaseModel, extra='forbid'):
     delta_issue_cyc: float
     #: NoC cost per hop (cyc); round-trip contributes 2 * hops * chop.
     chop_cyc_per_hop: float
-    #: Single-channel, single-stream effective rate (bytes / fclk cycle).
+    #: Single-source, single-stream effective rate (bytes / fclk cycle).
     b_channel_bpc: float
-    #: Default gating-channel hop distance (h_gate from the O2O page).
+    #: Default gating-source hop distance (h_gate from the O2O page).
     default_hops: int
     # Layer 1 (unary) closed-form constants
     #: Fixed latency to first data for the unary model (Tissue+Tnoc+Tdram+Tdetect).
@@ -426,6 +425,33 @@ class MemoryReadLatencyModel(BaseModel, extra='forbid'):
     recv_cyc_per_flit_hi: float
     #: Flit count at which delivery transitions to the pipelined rate.
     recv_knee_flits: int
+
+
+class MemoryReadLatencyModel(BaseModel, extra='forbid'):
+    """O2O read-latency calibration, keyed by canonical memory-config regime.
+
+    Single source of truth for the read-latency HW constants (see
+    ``ttsim/back/read_latency.py``). Each entry in ``regimes`` is a
+    ``ReadLatencyRegimeParams`` calibrated independently for one memory config
+    (``DRAM_INTERLEAVED``, ``DRAM_BLOCK_SHARDED``, ``L1_BLOCK_SHARDED``, ...).
+    ``Device`` selects the regime from each op-input's ``MemoryConfig`` canonical
+    tag and builds a ``ReadLatencyConfig`` per regime. ``default_regime`` is used
+    when an op's memory config has no calibrated entry, and for the TTSIM/ONNX path
+    (which carries no memory config). Consumed when ``--enable_dm_latency``.
+    """
+    #: Regime used when the op's canonical memory tag is absent/uncalibrated.
+    default_regime: str = 'DRAM_INTERLEAVED'
+    #: Canonical memory tag -> calibrated parameter set.
+    regimes: dict[str, ReadLatencyRegimeParams]
+
+    @model_validator(mode='after')
+    def _check_default_regime_present(self):
+        if self.default_regime not in self.regimes:
+            raise ValueError(
+                f"read_latency.default_regime '{self.default_regime}' has no entry in "
+                f"regimes (have: {sorted(self.regimes)})"
+            )
+        return self
 
 
 class MemoryBlockModel(BaseModel, extra='forbid'):

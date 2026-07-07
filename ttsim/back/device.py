@@ -11,7 +11,14 @@ from loguru import logger
 
 from ttsim.utils.types import get_bpe, get_sim_dtype
 from ttsim.utils.lfc import resolve_lfc_path
-from ttsim.back.read_latency import ReadLatencyConfig, TILE_ELEMS, predict_read_latency
+from ttsim.back.read_latency import (
+    ReadLatencyConfig,
+    ReadSourceDescriptor,
+    TILE_ELEMS,
+    predict_read_latency,
+    predict_read_latency_for_source,
+    read_latency_breakdown_for_source,
+)
 from tools.perf_lookup.lookup_operator_perf import resolve_operator_lookup_core_count
 
 LOG     = logger
@@ -128,12 +135,16 @@ class Device:
         self.eff_bw_bytes_per_cycle   = self.peak_bw_bytes_per_cycle * self.DG_MEMORY_UTIL_CONSTANT
 
         # O2O data-movement read-latency model (off by default; --enable_dm_latency).
-        # When enabled, execute_op reports a predicted DRAM read latency per op.
-        # HW constants are sourced exclusively from the arch YAML memory block's
-        # `read_latency` section (config/tt_bh.yaml -> MemoryReadLatencyModel); the
-        # block is required when the feature is enabled (no Python-side fallback).
+        # When enabled, execute_op reports a predicted read latency per op, keyed by
+        # each input's memory-config regime. HW constants are sourced exclusively from
+        # the arch YAML memory block's `read_latency` section
+        # (config/tt_bh.yaml -> MemoryReadLatencyModel); the block is required when the
+        # feature is enabled (no Python-side fallback). One ReadLatencyConfig is built
+        # per regime; num_dram_channels seeds the default source count (the per-op
+        # descriptor overrides it with real channel/producer-core counts).
         self.enable_dm_latency = bool(enable_dm_latency)
-        self.dm_read_cfg: Optional[ReadLatencyConfig] = None
+        self.dm_read_regimes: dict[str, ReadLatencyConfig] = {}
+        self.dm_read_default_regime: str = 'DRAM_INTERLEAVED'
         if self.enable_dm_latency:
             mem_block = getattr(self.memory_ip, 'ipobj', None)
             rl_params = getattr(mem_block, 'read_latency', None)
@@ -142,12 +153,14 @@ class Device:
                     "--enable_dm_latency requires a 'read_latency' calibration block in the "
                     f"memory IP of the arch spec, but device '{self.name}' (memory "
                     f"'{getattr(mem_block, 'name', '?')}') defines none. Add a read_latency "
-                    "section (tdram_cyc, tdetect_cyc, noc_inbound_bpc) to the memory block."
+                    "section (default_regime + regimes) to the memory block."
                 )
-            self.dm_read_cfg = ReadLatencyConfig(
-                num_dram_channels=max(1, int(getattr(self.memory_ip, 'num_units', 1) or 1)),
-                **rl_params.model_dump(),
-            )
+            num_units = max(1, int(getattr(self.memory_ip, 'num_units', 1) or 1))
+            self.dm_read_default_regime = rl_params.default_regime
+            self.dm_read_regimes = {
+                regime_name: ReadLatencyConfig(num_dram_channels=num_units, **params.model_dump())
+                for regime_name, params in rl_params.regimes.items()
+            }
 
         # Load tt-perf master operator lookup if specified (see doc/tools/perf_lookup/LOOKUP_TABLE_MASTER.md)
         self.operator_perf_map: Optional[Any] = None
@@ -221,7 +234,7 @@ class Device:
         # 3) EXECUTE OPS RESOURCES FOR ALL OPS : FIND COMPUTE/MEM CYCLES
         for opname in graph_ordered_nodes:
             op = wlgraph.get_op(opname)
-            self.execute_op(op)
+            self.execute_op(op, wlgraph)
 
         # 4) GRAPH OPTIMIZATION: REMOVE NODES IF POSSIBLE
         wlgraph.remove_nodes(wlmapspec.removal_spec)
@@ -287,7 +300,7 @@ class Device:
 
         return
 
-    def execute_op(self, op):
+    def execute_op(self, op, wlgraph=None):
         if TYPE_CHECKING:
             assert op.perf_stats is not None, f"SimOp {op.name} has no perf_stats set, cannot execute"
 
@@ -335,41 +348,162 @@ class Device:
 
         # O2O read-latency model (Phase A): report-only, does not affect timing yet.
         if self.enable_dm_latency:
-            self._report_dm_read_latency(op)
+            self._report_dm_read_latency(op, wlgraph)
 
         return
 
-    def _report_dm_read_latency(self, op) -> None:
-        """Compute and report the O2O predicted DRAM read latency for ``op``.
+    def _report_dm_read_latency(self, op, wlgraph=None) -> None:
+        """Compute and report the O2O predicted read latency for ``op`` (report-only).
 
-        Phase A is report-only: ``op.dm_read_latency_cycles`` is populated and
-        logged, but the existing bytes/bandwidth memory model still drives
-        timing. Inputs (page size N, queue depth Q) are derived first-order from
-        the op's read bytes and precision; richer derivation (memory_config-aware
-        regime, real hop counts) is future work.
+        Regime-aware: each read input's ``MemoryConfig`` (buffer_type + layout + shard
+        grid) selects a calibrated parameter set, and per-input latencies are combined
+        with ``max`` (reads from distinct sources proceed concurrently). Inputs without
+        a memory config (the TTSIM/ONNX path) collapse to a single default-regime
+        descriptor keyed off ``perf_stats['inBytes']`` — identical to the pre-regime
+        behavior. Phase A: ``op.dm_read_latency_cycles`` is populated and logged, but the
+        existing bytes/bandwidth memory model still drives timing.
         """
-        in_bytes = op.perf_stats['inBytes'] if op.perf_stats else 0
-        if not in_bytes or in_bytes <= 0:
+        descriptors = self._build_read_source_descriptors(op, wlgraph)
+        if not descriptors:
             op.dm_read_latency_cycles = 0.0
+            op.dm_read_exposed_cycles = 0.0
             return
 
-        bpe = get_bpe(get_sim_dtype(op.precision)) if op.precision else 1
-        page_bytes = TILE_ELEMS * bpe  # one 32x32 tile per DRAM read
-        num_cores = max(1, int(getattr(self.compute_ip, 'num_units', 1) or 1))
-        num_channels = self.dm_read_cfg.num_dram_channels
-
-        total_pages = max(1, round(in_bytes / page_bytes))
-        # Queue depth = reads issued per core before the barrier.
-        queue_depth = max(1, total_pages // num_cores)
-
-        tlat = predict_read_latency(
-            page_bytes, Q=queue_depth, num_channels=num_channels, cfg=self.dm_read_cfg
-        )
-        op.dm_read_latency_cycles = tlat
+        # Combine inputs with max: reads from distinct sources proceed concurrently.
+        scored = [
+            (
+                d,
+                read_latency_breakdown_for_source(
+                    d,
+                    regimes=self.dm_read_regimes,
+                    default_regime=self.dm_read_default_regime,
+                ),
+            )
+            for d in descriptors
+        ]
+        binding, bd = max(scored, key=lambda dt: dt[1].tlat)
+        op.dm_read_latency_cycles = bd.tlat
+        # Exposed (fill+drain+issue) is the non-overlappable part the additive-latency
+        # timing path (Option C) would add on top of the bandwidth read cost; delivery
+        # is dropped there (already modeled by mem_rd bandwidth). Stored report-only.
+        op.dm_read_exposed_cycles = bd.exposed
         INFO(
-            "DM-READ-LAT op={} N={}B Q={} channels={} inBytes={} -> Tlat={:.0f} cyc",
-            op.name, page_bytes, queue_depth, num_channels, in_bytes, tlat,
+            "DM-READ-LAT op={} regime={} N={}B Q={} sources={} consumers={} "
+            "bind={} exposed={:.0f} hideable={:.0f} inputs={} -> Tlat={:.0f} cyc",
+            op.name, binding.regime, int(binding.page_bytes), binding.queue_depth(),
+            binding.n_sources, binding.n_consumers, bd.binding, bd.exposed, bd.hideable,
+            len(descriptors), bd.tlat,
         )
+
+    def _build_read_source_descriptors(self, op, wlgraph):
+        """Derive a ``ReadSourceDescriptor`` per read input from its ``MemoryConfig``.
+
+        Uses the same tensor-lookup path as the LUT-key builder (``wlgraph._tensors`` +
+        ``tensor._memory_config``). When *no* input carries a memory config (TTSIM/ONNX
+        path, or ``wlgraph`` unavailable), returns a single default-regime DRAM
+        descriptor from ``perf_stats['inBytes']`` so numbers match the legacy model.
+        """
+        num_cores = max(1, int(getattr(self.compute_ip, 'num_units', 1) or 1))
+        num_dram_channels = max(1, int(getattr(self.memory_ip, 'num_units', 1) or 1))
+        bpe = get_bpe(get_sim_dtype(op.precision)) if op.precision else 1
+        tile_bytes = TILE_ELEMS * bpe  # one 32x32 tile = default DRAM page
+
+        def _legacy_single_descriptor():
+            in_bytes = op.perf_stats['inBytes'] if op.perf_stats else 0
+            if not in_bytes or in_bytes <= 0:
+                return []
+            return [ReadSourceDescriptor(
+                regime=self.dm_read_default_regime,
+                total_bytes=float(in_bytes), page_bytes=float(tile_bytes),
+                n_sources=num_dram_channels, n_consumers=num_cores,
+            )]
+
+        tensors = getattr(wlgraph, '_tensors', None) if wlgraph is not None else None
+        in_list = getattr(op, 'inList', None) or []
+        if not tensors or not in_list:
+            return _legacy_single_descriptor()
+
+        # Local import: the TTSIM/ONNX path may not have ttnn available.
+        try:
+            from ttsim.front.ttnn.buffer import BufferType
+        except Exception:
+            BufferType = None  # type: ignore[assignment]
+
+        descriptors = []
+        saw_memory_config = False
+        for tname in in_list:
+            t = tensors.get(tname)
+            if t is None:
+                continue
+            try:
+                nbytes = float(t.nbytes(op.precision)) if op.precision else float(t.nbytes())
+            except Exception:
+                continue
+            if nbytes <= 0:
+                continue
+            mc = getattr(t, '_memory_config', None)
+            if mc is None:
+                # Weight/const or ONNX tensor with no placement info -> default regime.
+                descriptors.append(ReadSourceDescriptor(
+                    regime=self.dm_read_default_regime,
+                    total_bytes=nbytes, page_bytes=float(tile_bytes),
+                    n_sources=num_dram_channels, n_consumers=num_cores,
+                ))
+                continue
+            saw_memory_config = True
+            regime = mc.to_canonical_memory_tag()
+            is_l1 = BufferType is not None and getattr(mc, 'buffer_type', None) == BufferType.L1
+            sharded = mc.is_sharded() if hasattr(mc, 'is_sharded') else False
+            grid_cores = self._shard_grid_core_count(getattr(mc, 'shard_spec', None))
+            if sharded:
+                # Sharded: each source holds a contiguous shard; N ~ bytes / #shards.
+                n_sources = grid_cores or num_dram_channels
+                n_consumers = grid_cores or num_cores
+                page_bytes = max(float(tile_bytes), nbytes / max(1, n_sources))
+                is_local = is_l1  # first-order: L1 shard co-located with its consumer
+            else:
+                # Interleaved: tile-paged reads fanned across DRAM channels / full grid.
+                n_sources = num_dram_channels
+                n_consumers = num_cores
+                page_bytes = float(tile_bytes)
+                is_local = False
+            descriptors.append(ReadSourceDescriptor(
+                regime=regime, total_bytes=nbytes, page_bytes=page_bytes,
+                n_sources=n_sources, n_consumers=n_consumers, is_local=is_local,
+            ))
+
+        # If nothing carried a memory config, prefer the legacy single-descriptor form
+        # so report-only numbers stay identical to the pre-regime model.
+        if not saw_memory_config:
+            return _legacy_single_descriptor()
+        return descriptors
+
+    @staticmethod
+    def _shard_grid_core_count(shard_spec) -> int:
+        """Best-effort core count from a ShardSpec grid (0 if unknown).
+
+        The grid may be a ``(x, y)`` tuple, a nested pair of corner coords, or a
+        CoreRangeSet-like object; this handles the common shapes and returns 0 when
+        it cannot infer a count (caller falls back to a device-level default).
+        """
+        if shard_spec is None:
+            return 0
+        grid = getattr(shard_spec, 'grid', None)
+        if grid is None:
+            return 0
+        try:
+            if isinstance(grid, (tuple, list)) and len(grid) == 2 and all(
+                isinstance(v, (int, float)) for v in grid
+            ):
+                return max(0, int(grid[0]) * int(grid[1]))
+            num_cores = getattr(grid, 'num_cores', None)
+            if callable(num_cores):
+                return max(0, int(num_cores()))
+            if isinstance(num_cores, (int, float)):
+                return max(0, int(num_cores))
+        except Exception:
+            return 0
+        return 0
 
     @staticmethod
     def _profiler_pct_to_exec_fraction(v: float) -> float:

@@ -17,8 +17,10 @@ import pytest
 
 from ttsim.back.read_latency import (
     TILE_ELEMS,
+    ReadLatencyBreakdown,
     effective_bandwidth_bpc,
     predict_read_latency,
+    predict_read_latency_breakdown,
 )
 
 # (N bytes, Q transactions, measured latency cycles) - Blackhole, riscv_1.
@@ -104,3 +106,51 @@ def test_tile_page_size_default():
 
 def test_zero_bytes_is_zero_latency(bh_read_latency_cfg):
     assert predict_read_latency(0, 4, cfg=bh_read_latency_cfg) == 0.0
+
+
+# --- ReadLatencyBreakdown (decomposition for timing integration) ------------
+
+@pytest.mark.parametrize("N,Q,_measured", CSV_ROWS)
+def test_breakdown_tlat_matches_scalar(N, Q, _measured, bh_read_latency_cfg):
+    # The decomposed form must return the exact same total as the scalar function.
+    scalar = predict_read_latency(N, Q, num_channels=NUM_CHANNELS, cfg=bh_read_latency_cfg)
+    bd = predict_read_latency_breakdown(N, Q, num_channels=NUM_CHANNELS, cfg=bh_read_latency_cfg)
+    assert isinstance(bd, ReadLatencyBreakdown)
+    assert bd.tlat == scalar
+
+
+@pytest.mark.parametrize("N,Q,_measured", CSV_ROWS)
+def test_breakdown_components_sum_to_tlat(N, Q, _measured, bh_read_latency_cfg):
+    # Invariant: base + tdetect + issue_cost + delivery == tlat (binding arm).
+    bd = predict_read_latency_breakdown(N, Q, num_channels=NUM_CHANNELS, cfg=bh_read_latency_cfg)
+    total = bd.base + bd.tdetect + bd.issue_cost + bd.delivery
+    assert math.isclose(total, bd.tlat, rel_tol=1e-9)
+    assert math.isclose(bd.exposed + bd.hideable, bd.tlat, rel_tol=1e-9)
+    assert bd.binding in ("issue", "transport")
+
+
+def test_breakdown_binding_regimes(bh_read_latency_cfg):
+    # Small N with a deep queue is issue-bound; large N*Q streams -> transport-bound.
+    small = predict_read_latency_breakdown(64, 256, num_channels=NUM_CHANNELS, cfg=bh_read_latency_cfg)
+    assert small.binding == "issue"
+    assert small.tdetect == bh_read_latency_cfg.tdetect_cyc
+    large = predict_read_latency_breakdown(16384, 256, num_channels=NUM_CHANNELS, cfg=bh_read_latency_cfg)
+    assert large.binding == "transport"
+    # Transport arm omits the barrier tail.
+    assert large.tdetect == 0.0
+
+
+def test_breakdown_exposed_is_size_independent_when_issue_bound(bh_read_latency_cfg):
+    # In the issue-bound arm, exposed latency (base+tdetect+delta*Q) does not depend
+    # on N; only the hideable delivery (N/b_channel) grows with N.
+    a = predict_read_latency_breakdown(64, 64, num_channels=NUM_CHANNELS, cfg=bh_read_latency_cfg)
+    b = predict_read_latency_breakdown(256, 64, num_channels=NUM_CHANNELS, cfg=bh_read_latency_cfg)
+    assert a.binding == "issue" and b.binding == "issue"
+    assert math.isclose(a.exposed, b.exposed, rel_tol=1e-9)
+    assert b.delivery > a.delivery
+
+
+def test_breakdown_zero_bytes(bh_read_latency_cfg):
+    bd = predict_read_latency_breakdown(0, 4, cfg=bh_read_latency_cfg)
+    assert bd.tlat == 0.0
+    assert bd.exposed == 0.0 and bd.hideable == 0.0
