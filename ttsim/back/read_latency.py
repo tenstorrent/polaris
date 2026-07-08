@@ -2,44 +2,27 @@
 # SPDX-FileCopyrightText: (C) 2025 Tenstorrent AI ULC
 # SPDX-License-Identifier: Apache-2.0
 
-"""First-order data-movement READ-latency model (O2O).
+"""First-order data-movement READ-latency model.
 
-Predicts the latency (in NoC/fabric clock cycles, ``fclk``) of a Tensix core
-issuing ``noc_async_read`` transactions from DRAM, followed by a barrier.
-
-This implements the O2O "Read Latency Modeling" model
-(Confluence page 2433646619). A single unified formula covers both regimes the
-page describes:
-
-* Layer 1 - single core, single channel, queue depth ``Q = 1``
-  (``num_channels = 1``): the per-transaction primitive.
-* Layer 3 - single core, multi-channel interleaved reads
-  (``num_channels > 1``, ``Q >= 1``): reads spread round-robin across DRAM
-  channels, throttled by the per-core NoC-inbound ceiling.
+Predicts the latency (in NoC/fabric clock cycles, fclk) of a Tensix core
+issuing noc_async_read transactions from DRAM, followed by a barrier.
 
 The latency is the larger of two arms (the binding constraint):
+* issue-bound:     delta_issue * Q + Tdram + 2*hops*Chop + Tdetect + N/B_channel
+* transport-bound: min(Q, n*) * delta_issue + Tdram + 2*hops*Chop + Q*N/B_eff
 
-* issue-bound:     ``delta_issue * Q + Tdram + 2*hops*Chop + Tdetect + N/B_channel``
-* transport-bound: ``min(Q, n*) * delta_issue + Tdram + 2*hops*Chop + Q*N/B_eff``
-
-where ``B_eff = min(min(Q, num_channels) * B_channel, noc_inbound_bpc)`` and
-``n* = ceil(noc_inbound_bpc / B_channel)`` is the number of channels needed to
+where B_eff = min(min(Q, num_channels) * B_channel, noc_inbound_bpc) and
+n* = ceil(noc_inbound_bpc / B_channel) is the number of channels needed to
 saturate the NoC inbound link.
 
-Default constants are taken from the O2O page's "Model Update" section, which is
-    calibrated against the Blackhole ``DRAM Interleaved Page Read`` microbenchmark
-(see ``tests/test_back/test_read_latency.py``). The model is intentionally
-first-order: NoC congestion / VC contention, row-miss / refresh penalties, and
+Intentionally first-order: NoC congestion / VC contention, row-miss / refresh penalties, and
 non-DRAM (L1) sources are out of scope.
 
 For timing integration the model also exposes a component decomposition
 (:class:`ReadLatencyBreakdown` / :func:`predict_read_latency_breakdown`) that splits
-the binding arm into *exposed* latency (fill + drain + serial issue) versus *hideable*
+the binding arm into exposed latency (fill + drain + serial issue) versus hideable
 streaming, so a caller can add only the exposed part on top of the existing
-bytes/bandwidth read cost (the "additive exposed latency" / Option C integration).
-
-This module has no Polaris dependencies on purpose, so the physics can be unit
-tested in isolation before being wired into the Device timing path.
+bytes/bandwidth read cost (the "additive exposed latency" integration).
 """
 
 from __future__ import annotations
@@ -56,20 +39,16 @@ TILE_ELEMS = TILE_HW * TILE_HW  # 1024
 class ReadLatencyConfig:
     """Hardware constants for the read-latency model.
 
-    All cycle counts are in the NoC/fabric clock domain (``fclk``); on Blackhole
-    the NoC is tied to the AI clock, so ``fclk ~= matrix/vector pipe clock`` and
-    no extra clock-domain conversion is needed for BH.
-
-    Every field is an arch-calibrated constant with **no default** — the values
-    are the single source of truth in the arch YAML (``config/tt_bh.yaml`` memory
-    block's ``read_latency`` section, parsed by ``MemoryReadLatencyModel``) and
-    must be supplied by the caller. ``Device`` injects them from the parsed arch
-    spec; tests build the config from the same YAML. ``num_dram_channels`` is the
-    sole exception: it comes from the memory IP's ``num_units`` (not the
-    ``read_latency`` block).
+    Every field is an arch-calibrated constant — the values
+    are the single source of truth in the arch YAML (config/tt_bh.yaml memory
+    block's read_latency section, parsed by MemoryReadLatencyModel) and
+    must be supplied by the caller. Device injects them from the parsed arch
+    spec; tests build the config from the same YAML. num_dram_channels is the
+    sole exception: it comes from the memory IP's num_units (not the
+    read_latency block).
     """
 
-    # --- Interleaved (Layer 3) model constants ---
+    # --- Interleaved model constants ---
     #: DRAM access bucket (row-hit best case): row activate + CAS + burst.
     tdram_cyc: float
     #: Barrier-clear tail.
@@ -78,7 +57,7 @@ class ReadLatencyConfig:
     noc_inbound_bpc: float
     #: Per-read issue cost (cyc/read) - slope of latency vs Q in the issue regime.
     delta_issue_cyc: float
-    #: NoC cost per hop (cyc); round-trip contributes ``2 * hops * chop``.
+    #: NoC cost per hop (cyc); round-trip contributes 2 * hops * chop.
     chop_cyc_per_hop: float
     #: Single-channel, single-stream effective rate (bytes / fclk cycle).
     b_channel_bpc: float
@@ -87,7 +66,7 @@ class ReadLatencyConfig:
     #: DRAM channels for interleaving (from memory IP num_units; p100a = 7).
     num_dram_channels: int
 
-    # --- Layer 1 (unary) closed-form constants (O2O "Model Validation" table) ---
+    # --- Unary closed-form constants ---
     #: Fixed latency to first data for the unary model (Tissue+Tnoc+Tdram+Tdetect).
     tfixed_unary_cyc: float
     #: NoC flit width (bytes).
@@ -104,18 +83,17 @@ class ReadLatencyConfig:
 class ReadSourceDescriptor:
     """First-order description of a single op-input read, derived from its memory config.
 
-    This is the regime-agnostic bridge between a Polaris op and the physics model.
-    It captures *where* the data lives and *how* it fans in, so the same
-    :func:`predict_read_latency` skeleton can be parameterized per memory config
+    Regime-agnostic bridge between a Polaris op and the physics model.
+    predict_read_latency skeleton parameterized per memory config
     (DRAM-interleaved, DRAM-sharded, L1-sharded, ...) instead of special-casing each.
 
-    Fields are populated by ``Device`` from each input tensor's ``MemoryConfig``
-    (``buffer_type`` + ``memory_layout`` + ``shard_spec``); when no memory config is
+    Fields are populated by Device from each input tensor's MemoryConfig
+    (buffer_type + memory_layout + shard_spec); when no memory config is
     present (the TTSIM/ONNX path) the caller falls back to the default regime.
     """
 
-    #: Canonical memory tag, e.g. ``"DRAM_INTERLEAVED"`` / ``"L1_BLOCK_SHARDED"``.
-    #: Matches ``MemoryConfig.to_canonical_memory_tag()`` (and the LUT key).
+    #: Canonical memory tag, e.g. "DRAM_INTERLEAVED" / "L1_BLOCK_SHARDED".
+    #: Matches MemoryConfig.to_canonical_memory_tag() (and the LUT key).
     regime: str
     #: Total bytes read for this input.
     total_bytes: float
@@ -126,7 +104,7 @@ class ReadSourceDescriptor:
     n_sources: int
     #: Cores issuing reads before the barrier (participating grid).
     n_consumers: int
-    #: NoC hop distance; ``None`` uses the regime default, ``0`` means no NoC.
+    #: NoC hop distance; None uses the regime default, 0 means no NoC.
     hops: int | None = None
     #: Shard already resident on the consuming core (L1) -> reads never hit the NoC.
     is_local: bool = False
@@ -141,23 +119,23 @@ class ReadSourceDescriptor:
 
 @dataclass(frozen=True, kw_only=True)
 class ReadLatencyBreakdown:
-    """Component split of the binding arm of :func:`predict_read_latency`.
+    """Component split of the binding arm of :func:predict_read_latency.
 
-    The read-latency model is ``max(issue_bound, transport_bound)``; each arm is a sum
+    The read-latency model is max(issue_bound, transport_bound); each arm is a sum
     of a fixed head/tail plus a size-dependent delivery term. For timing integration we
     need to separate the part that is *exposed* (on the critical path even when the op's
     body overlaps compute) from the part that is *hideable* (steady-state streaming,
     already captured by Polaris' bytes/bandwidth memory model). This dataclass reports
     the binding arm's terms so callers (Option C) can add only the exposed latency and
-    drop ``delivery`` to avoid double-counting streaming.
+    drop delivery to avoid double-counting streaming.
 
-    All values are ``fclk`` cycles. Invariant: ``base + tdetect + issue_cost + delivery
-    == tlat`` for the binding arm.
+    All values are fclk cycles. Invariant: base + tdetect + issue_cost + delivery
+    == tlat for the binding arm.
     """
 
     #: max(issue_bound, transport_bound) — identical to predict_read_latency().
     tlat: float
-    #: Which arm bound: ``'issue'`` or ``'transport'``.
+    #: Which arm bound: 'issue' or 'transport'.
     binding: str
     #: Fixed fill latency to first data (Tdram + NoC round-trip). Exposed.
     base: float
@@ -186,8 +164,8 @@ def read_latency_breakdown_for_source(
     regimes: dict[str, ReadLatencyConfig],
     default_regime: str,
 ) -> ReadLatencyBreakdown:
-    """Regime-aware :class:`ReadLatencyBreakdown` for one op input (see
-    :func:`predict_read_latency_for_source` for regime/fallback semantics)."""
+    """Regime-aware :class:ReadLatencyBreakdown for one op input (see
+    :func:predict_read_latency_for_source for regime/fallback semantics)."""
     if desc.total_bytes <= 0 or desc.page_bytes <= 0:
         return ReadLatencyBreakdown(
             tlat=0.0, binding='issue', base=0.0, tdetect=0.0, issue_cost=0.0, delivery=0.0
@@ -209,13 +187,13 @@ def predict_read_latency_for_source(
     regimes: dict[str, ReadLatencyConfig],
     default_regime: str,
 ) -> float:
-    """Regime-aware read latency (``fclk`` cycles) for one op input.
+    """Regime-aware read latency (fclk cycles) for one op input.
 
-    Selects per-regime hardware constants from ``regimes`` (falling back to
-    ``default_regime`` when the descriptor's regime is uncalibrated or absent, which
-    also covers the TTSIM/ONNX path), derives ``Q`` from the descriptor, and evaluates
-    the shared :func:`predict_read_latency` model. ``is_local`` reads collapse the NoC
-    round-trip (``hops -> 0``); their regime params are expected to zero ``tdram_cyc``
+    Selects per-regime hardware constants from regimes (falling back to
+    default_regime when the descriptor's regime is uncalibrated or absent, which
+    also covers the TTSIM/ONNX path), derives Q from the descriptor, and evaluates
+    the shared :func:`predict_read_latency` model. is_local reads collapse the NoC
+    round-trip (hops -> 0); their regime params are expected to zero tdram_cyc
     (SRAM has no DRAM access bucket), so the same formula degrades gracefully to an
     L1-resident cost without a separate code path.
     """
@@ -232,19 +210,19 @@ def predict_read_latency(
     num_channels: int | None = None,
     cfg: ReadLatencyConfig,
 ) -> float:
-    """Predict read latency in ``fclk`` cycles for ``Q`` reads of ``N`` bytes each.
+    """Predict read latency in fclk cycles for Q reads of N bytes each.
 
     Args:
-        N: transaction (page) size in bytes for a single ``noc_async_read``.
-        Q: number of reads issued (per core) before the barrier. ``Q = 1`` and
-            ``num_channels = 1`` gives the Layer-1 unary case.
-        hops: gating-channel hop distance; defaults to ``cfg.default_hops``.
+        N: transaction (page) size in bytes for a single noc_async_read.
+        Q: number of reads issued (per core) before the barrier. Q = 1 and
+            num_channels = 1 gives the Layer-1 unary case.
+        hops: gating-channel hop distance; defaults to cfg.default_hops.
         num_channels: DRAM channels the reads interleave across; defaults to
-            ``cfg.num_dram_channels``. Pass ``1`` for the single-channel case.
+            cfg.num_dram_channels. Pass 1 for the single-channel case.
         cfg: hardware constants.
 
     Returns:
-        Predicted latency in ``fclk`` cycles (float).
+        Predicted latency in fclk cycles (float).
     """
     return predict_read_latency_breakdown(
         N, Q, hops=hops, num_channels=num_channels, cfg=cfg
@@ -261,11 +239,11 @@ def predict_read_latency_breakdown(
 ) -> ReadLatencyBreakdown:
     """Decomposed form of :func:`predict_read_latency`.
 
-    Evaluates both arms, returns the binding one's component split (``base``,
-    ``tdetect``, ``issue_cost``, ``delivery``). ``tlat`` equals
-    :func:`predict_read_latency` exactly (same expressions, same ``max``). The
-    transport arm intentionally omits ``tdetect`` (``tdetect=0``), matching the
-    original single-line formula. See :class:`ReadLatencyBreakdown`.
+    Evaluates both arms, returns the binding one's component split (base,
+    tdetect, issue_cost, delivery). tlat equals
+    :func:predict_read_latency exactly (same expressions, same max). The
+    transport arm intentionally omits tdetect (tdetect=0), matching the
+    original single-line formula. See :class:ReadLatencyBreakdown.
     """
     if N <= 0:
         return ReadLatencyBreakdown(
@@ -308,7 +286,7 @@ def predict_read_latency_unary(
     *,
     cfg: ReadLatencyConfig,
 ) -> float:
-    """O2O Layer-1 (unary) closed form: single core, single channel, ``Q = 1``.
+    """Unary closed form: single core, single channel, Q = 1.
 
     Implements the conf-page "Model Validation" formula exactly::
 
@@ -317,9 +295,7 @@ def predict_read_latency_unary(
         N <= 32 KB:  Trecv = (Nflits - 1) * 2.8
         N >  32 KB:  Trecv = (512 - 1) * 2.8 + (Nflits - 512) * 1.83
 
-    This is the reference for validating against the page's 64 B - 512 KB sweep
-    (``test_bw_and_latency -m 1 -l -p <N> -i 1000``). Unlike
-    :func:`predict_read_latency`, it models the >32 KB pipelined ("dual-rate")
+    Unlike :func:predict_read_latency, it models the >32 KB pipelined ("dual-rate")
     delivery regime, so it tracks the full single-read sweep. The two functions
     agree for small single reads but diverge above ~16 KB.
     """
@@ -345,7 +321,7 @@ def effective_bandwidth_bpc(
     num_channels: int | None = None,
     cfg: ReadLatencyConfig,
 ) -> float:
-    """Effective read bandwidth (bytes / fclk cycle) = ``Q * N / Tlat``."""
+    """Effective read bandwidth (bytes / fclk cycle) = Q * N / Tlat."""
     tlat = predict_read_latency(
         N, Q, hops=hops, num_channels=num_channels, cfg=cfg
     )

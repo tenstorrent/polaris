@@ -135,7 +135,7 @@ class Device:
         self.peak_bw_bytes_per_cycle  = simcfg_obj.peak_bandwidth_per_cycle()
         self.eff_bw_bytes_per_cycle   = self.peak_bw_bytes_per_cycle * self.DG_MEMORY_UTIL_CONSTANT
 
-        # O2O data-movement read-latency model (off by default; --enable_dm_latency).
+        # data-movement read-latency model (off by default; --enable_dm_latency).
         # When enabled, execute_op reports a predicted read latency per op, keyed by
         # each input's memory-config regime. HW constants are sourced exclusively from
         # the arch YAML memory block's `read_latency` section
@@ -144,7 +144,7 @@ class Device:
         # per regime; num_dram_channels seeds the default source count (the per-op
         # descriptor overrides it with real channel/producer-core counts).
         # dm_latency_mode: 'report' (compute + log only, timing unchanged) or 'apply'
-        # (Option C: add the exposed read latency to mem-read cycles). 'apply' implies
+        # (add the exposed read latency to mem-read cycles). 'apply' implies
         # the model is enabled.
         if dm_latency_mode not in ('report', 'apply'):
             raise ValueError(
@@ -352,8 +352,8 @@ class Device:
         mem_rd_cycles_devclk_fractional = mem_rd_cycles_memclk * mem_to_dev_ratio
         mem_wr_cycles_devclk_fractional = mem_wr_cycles_memclk * mem_to_dev_ratio
 
-        # O2O read-latency model. Always populates op.dm_read_* (report). In 'apply'
-        # mode (Option C) the exposed (non-overlappable) latency is converted from fclk
+        # read-latency model. Always populates op.dm_read_* (report). In 'apply'
+        # mode the exposed (non-overlappable) latency is converted from fclk
         # to this op's device-clock domain and added to the bandwidth read cycles below;
         # the streaming (hideable) term is dropped since bandwidth already covers it.
         exposed_devclk = 0.0
@@ -379,15 +379,14 @@ class Device:
         return
 
     def _report_dm_read_latency(self, op, wlgraph=None) -> None:
-        """Compute and report the O2O predicted read latency for ``op`` (report-only).
+        """Compute and report the predicted read latency for op (report-only).
 
-        Regime-aware: each read input's ``MemoryConfig`` (buffer_type + layout + shard
+        Regime-aware: each read input's MemoryConfig (buffer_type + layout + shard
         grid) selects a calibrated parameter set, and per-input latencies are combined
-        with ``max`` (reads from distinct sources proceed concurrently). Inputs without
+        with max (reads from distinct sources proceed concurrently). Inputs without
         a memory config (the TTSIM/ONNX path) collapse to a single default-regime
-        descriptor keyed off ``perf_stats['inBytes']`` — identical to the pre-regime
-        behavior. Phase A: ``op.dm_read_latency_cycles`` is populated and logged, but the
-        existing bytes/bandwidth memory model still drives timing.
+        descriptor keyed off perf_stats['inBytes'] — identical to the pre-regime
+        behavior.
         """
         descriptors = self._build_read_source_descriptors(op, wlgraph)
         if not descriptors:
@@ -410,7 +409,7 @@ class Device:
         binding, bd = max(scored, key=lambda dt: dt[1].tlat)
         op.dm_read_latency_cycles = bd.tlat
         # Exposed (fill+drain+issue) is the non-overlappable part the additive-latency
-        # timing path (Option C) would add on top of the bandwidth read cost; delivery
+        # timing path would add on top of the bandwidth read cost; delivery
         # is dropped there (already modeled by mem_rd bandwidth). Stored report-only.
         op.dm_read_exposed_cycles = bd.exposed
         INFO(
