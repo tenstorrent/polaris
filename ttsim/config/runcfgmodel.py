@@ -134,6 +134,15 @@ class PolarisRunConfig(BaseModel, extra='forbid'):
         description='Enable the O2O data-movement read-latency model (polaris --enable_dm_latency)',
     )
 
+    dm_latency_mode: Optional[str] = Field(
+        default='report',
+        description=(
+            "O2O read-latency integration mode: 'report' (log only) or 'apply' "
+            "(add exposed read latency to timing; implies enable_dm_latency). "
+            "polaris --dm_latency_mode"
+        ),
+    )
+
     dryrun: Optional[bool] = Field(
         default=False, description='If true, run will not execute any commands, but will only print them'
     )

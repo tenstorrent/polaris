@@ -115,6 +115,7 @@ class Device:
         *,
         operator_lookup_hybrid_curve: Optional[bool] = None,
         enable_dm_latency: bool = False,
+        dm_latency_mode: str = 'report',
     ):
         compute_ips = [ipg for ipg in simcfg_obj.ipgroups if ipg.iptype == 'compute']
         memory_ips  = [ipg for ipg in simcfg_obj.ipgroups if ipg.iptype == 'memory']
@@ -142,9 +143,20 @@ class Device:
         # feature is enabled (no Python-side fallback). One ReadLatencyConfig is built
         # per regime; num_dram_channels seeds the default source count (the per-op
         # descriptor overrides it with real channel/producer-core counts).
-        self.enable_dm_latency = bool(enable_dm_latency)
+        # dm_latency_mode: 'report' (compute + log only, timing unchanged) or 'apply'
+        # (Option C: add the exposed read latency to mem-read cycles). 'apply' implies
+        # the model is enabled.
+        if dm_latency_mode not in ('report', 'apply'):
+            raise ValueError(
+                f"dm_latency_mode must be 'report' or 'apply', got {dm_latency_mode!r}"
+            )
+        self.dm_latency_mode = dm_latency_mode
+        self.dm_apply_timing = (dm_latency_mode == 'apply')
+        self.enable_dm_latency = bool(enable_dm_latency) or self.dm_apply_timing
         self.dm_read_regimes: dict[str, ReadLatencyConfig] = {}
         self.dm_read_default_regime: str = 'DRAM_INTERLEAVED'
+        #: fclk (NoC) clock used to convert predicted fclk-cycle latency to devclk.
+        self.dm_fclk_MHz: float = self.freq_MHz
         if self.enable_dm_latency:
             mem_block = getattr(self.memory_ip, 'ipobj', None)
             rl_params = getattr(mem_block, 'read_latency', None)
@@ -157,6 +169,8 @@ class Device:
                 )
             num_units = max(1, int(getattr(self.memory_ip, 'num_units', 1) or 1))
             self.dm_read_default_regime = rl_params.default_regime
+            # fclk defaults to the matrix compute clock (BH: NoC tied to AI clock).
+            self.dm_fclk_MHz = float(getattr(rl_params, 'fclk_mhz', None) or self.freq_MHz)
             self.dm_read_regimes = {
                 regime_name: ReadLatencyConfig(num_dram_channels=num_units, **params.model_dump())
                 for regime_name, params in rl_params.regimes.items()
@@ -338,17 +352,29 @@ class Device:
         mem_rd_cycles_devclk_fractional = mem_rd_cycles_memclk * mem_to_dev_ratio
         mem_wr_cycles_devclk_fractional = mem_wr_cycles_memclk * mem_to_dev_ratio
 
-        # Store fractional values for accurate aggregation
-        op.mem_rd_cycles_fractional = mem_rd_cycles_devclk_fractional
+        # O2O read-latency model. Always populates op.dm_read_* (report). In 'apply'
+        # mode (Option C) the exposed (non-overlappable) latency is converted from fclk
+        # to this op's device-clock domain and added to the bandwidth read cycles below;
+        # the streaming (hideable) term is dropped since bandwidth already covers it.
+        exposed_devclk = 0.0
+        if self.enable_dm_latency:
+            self._report_dm_read_latency(op, wlgraph)
+            if self.dm_apply_timing:
+                exposed_devclk = op.dm_read_exposed_cycles * devfreq_MHz / self.dm_fclk_MHz
+        op.dm_read_exposed_devclk_cycles = exposed_devclk
+
+        # Bandwidth-only read cycles, kept separate so the aggregate memory-bandwidth
+        # self-check (which compares against bytes/BW) stays valid in 'apply' mode.
+        op.mem_rd_cycles_bw_fractional = mem_rd_cycles_devclk_fractional
+
+        # Store fractional values for accurate aggregation. Effective read cycles =
+        # streaming (bandwidth) + exposed fixed latency (0 unless dm apply mode).
+        op.mem_rd_cycles_fractional = mem_rd_cycles_devclk_fractional + exposed_devclk
         op.mem_wr_cycles_fractional = mem_wr_cycles_devclk_fractional
 
         # Store ceiled values for per-op scheduling (backward compatibility)
-        op.mem_rd_cycles = math.ceil(mem_rd_cycles_devclk_fractional)
+        op.mem_rd_cycles = math.ceil(op.mem_rd_cycles_fractional)
         op.mem_wr_cycles = math.ceil(mem_wr_cycles_devclk_fractional)
-
-        # O2O read-latency model (Phase A): report-only, does not affect timing yet.
-        if self.enable_dm_latency:
-            self._report_dm_read_latency(op, wlgraph)
 
         return
 
@@ -1046,6 +1072,8 @@ class Device:
                 mem_wr_cycles = 0
                 op.mem_rd_cycles_fractional = 0.0
                 op.mem_wr_cycles_fractional = 0.0
+                # LUT measures end-to-end latency; drop any added exposed latency too.
+                op.mem_rd_cycles_bw_fractional = 0.0
                 mem_rd_util = 0.0
                 mem_wr_util = 0.0
                 if master_stats.memory_traffic is not None:
@@ -1195,6 +1223,20 @@ class Device:
         tot_mem_wr_cycles_fractional = sum(op_stat_iter('mem_wr_cycles_fractional', repeat=True))
         tot_mem_rd_cycles = math.ceil(tot_mem_rd_cycles_fractional)
         tot_mem_wr_cycles = math.ceil(tot_mem_wr_cycles_fractional)
+        # Bandwidth-only read cycles (excludes any added exposed dm-latency); used for
+        # the memory-bandwidth self-check so 'apply' mode does not trip it. Falls back to
+        # the effective fractional when the BW-only field is absent (e.g. ops built
+        # outside execute_op in unit tests), where the two are equal by construction.
+        tot_mem_rd_cycles_bw_fractional = 0.0
+        for _bw_opname in graph_ordered_nodes:
+            _bw_op = wlgraph.get_op(_bw_opname)
+            if _bw_op.removed_in_optimization or _bw_op.fused_in_optimization:
+                continue
+            _bw = getattr(_bw_op, 'mem_rd_cycles_bw_fractional', None)
+            if _bw is None:
+                _bw = getattr(_bw_op, 'mem_rd_cycles_fractional', 0.0)
+            tot_mem_rd_cycles_bw_fractional += _bw * _bw_op.repeat_count
+        tot_mem_rd_cycles_bw = math.ceil(tot_mem_rd_cycles_bw_fractional)
 
         tot_matrix_pipe_util  = tot_matrix_cycles / tot_ideal_cycles * self.DG_COMPUTE_UTIL_CONSTANT
         tot_vector_pipe_util  = tot_vector_cycles / tot_ideal_cycles * self.DG_COMPUTE_UTIL_CONSTANT
@@ -1274,18 +1316,20 @@ class Device:
             mem_to_dev_ratio = self.freq_MHz / self.memfreq_MHz
             expected_bytes_per_device_clock = self.eff_bw_bytes_per_cycle / mem_to_dev_ratio
 
-            if tot_mem_rd_cycles > 0:
-                actual_bytes_per_device_clock = tot_inBytes / tot_mem_rd_cycles
+            if tot_mem_rd_cycles_bw > 0:
+                actual_bytes_per_device_clock = tot_inBytes / tot_mem_rd_cycles_bw
                 # Allow for a single cycle of rounding error from the final ceil operation
                 expected_cycles = (tot_inBytes / self.eff_bw_bytes_per_cycle) * mem_to_dev_ratio
-                # Check both directions: cycles should be close to expected (within +1 for ceiling)
-                if tot_mem_rd_cycles > expected_cycles + 1 or tot_mem_rd_cycles < expected_cycles - 1:
+                # Check both directions: cycles should be close to expected (within +1 for ceiling).
+                # Uses BW-only cycles so --dm_latency_mode apply (which adds exposed latency
+                # to tot_mem_rd_cycles) does not trip this bandwidth-accounting check.
+                if tot_mem_rd_cycles_bw > expected_cycles + 1 or tot_mem_rd_cycles_bw < expected_cycles - 1:
                     raise ValueError(
                         f"Memory bandwidth validation failed (read):\n"
                         f"  Calculated bytes_per_device_clock: {actual_bytes_per_device_clock:.2f}\n"
                         f"  Expected bytes_per_device_clock:   {expected_bytes_per_device_clock:.2f}\n"
                         f"  Ratio (actual/expected):           {actual_bytes_per_device_clock / expected_bytes_per_device_clock:.2f}\n"
-                        f"  Actual cycles: {tot_mem_rd_cycles}, Expected: {expected_cycles:.2f}\n"
+                        f"  Actual cycles: {tot_mem_rd_cycles_bw}, Expected: {expected_cycles:.2f}\n"
                         f"This indicates an inconsistency in memory traffic accounting."
                     )
             if tot_mem_wr_cycles > 0:

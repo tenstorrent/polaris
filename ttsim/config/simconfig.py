@@ -443,6 +443,12 @@ class MemoryReadLatencyModel(BaseModel, extra='forbid'):
     default_regime: str = 'DRAM_INTERLEAVED'
     #: Canonical memory tag -> calibrated parameter set.
     regimes: dict[str, ReadLatencyRegimeParams]
+    #: NoC/fabric clock (MHz) the ``fclk`` cycle counts are expressed in, used to
+    #: convert predicted latency into the compute-pipe device-clock domain for the
+    #: additive-latency timing path (``--dm_latency_mode apply``). ``None`` -> the
+    #: matrix compute clock (on Blackhole the NoC is tied to the AI clock, so
+    #: ``fclk ~= matrix clock``).
+    fclk_mhz: float | None = None
 
     @model_validator(mode='after')
     def _check_default_regime_present(self):

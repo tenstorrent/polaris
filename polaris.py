@@ -271,6 +271,18 @@ def setup_cmdline_args(argv: list[str] | None = None) -> argparse.Namespace:
             'Default off preserves the existing flat bytes/bandwidth memory model.'
         ),
     )
+    parser.add_argument(
+        '--dm_latency_mode',
+        dest='dm_latency_mode',
+        choices=['report', 'apply'],
+        default='report',
+        help=(
+            "O2O read-latency integration mode. 'report' (default) computes and logs "
+            "the predicted latency without affecting timing. 'apply' (Option C) adds "
+            "the exposed (non-overlappable) read latency to memory-read cycles; it "
+            "implies --enable_dm_latency."
+        ),
+    )
 
     #cmdline args processing
     args = parser.parse_args(argv)
@@ -372,7 +384,8 @@ def execute_wl_on_dev(_wl, _dl, _wspec, _dspec, wlmapspec, _WLG,
                       _odir, study, _enable_memalloc, outputfmt, flag_dump_stats_csv,
                       operator_lookup_hybrid_curve: bool = False,
                       disable_fusion: bool = False,
-                      enable_dm_latency: bool = False):
+                      enable_dm_latency: bool = False,
+                      dm_latency_mode: str = 'report'):
     # TODO: Reduce number of arguments to this function
     study_dir = _odir / study
     stat_dir    = study_dir / 'STATS'
@@ -424,6 +437,7 @@ def execute_wl_on_dev(_wl, _dl, _wspec, _dspec, wlmapspec, _WLG,
                 dev_obj,
                 operator_lookup_hybrid_curve=use_hybrid_lut_curve,
                 enable_dm_latency=enable_dm_latency,
+                dm_latency_mode=dm_latency_mode,
             )
             cur_device.execute_graph(wlgraph, wlmapspec, disable_fusion=disable_fusion)
 
@@ -491,6 +505,7 @@ def polaris(args: argparse.Namespace | runcfgmodel.PolarisRunConfig) -> int:
             operator_lookup_hybrid_curve=bool(args.operator_lookup_hybrid_curve),
             disable_fusion=bool(getattr(args, 'disable_fusion', False)),
             enable_dm_latency=bool(getattr(args, 'enable_dm_latency', False)),
+            dm_latency_mode=str(getattr(args, 'dm_latency_mode', 'report')),
         )
         summary_stats = sorted(summary_stats, key=lambda x: (x['wlname'], x['devname'], x['freq_Mhz'], x['wlinstance'], x['bs']))
 
