@@ -495,3 +495,20 @@ workloads:
     module : run_vgg_unet_perf_device@test_vgg_unet_device_perf_bh.py
     instances:
       vgg_unet_bh_b1_perf_report: { bs: 1, model_name: vgg-unet-bh-b1-perf-report }
+
+  - api: TTNN
+    name: PI0
+    basedir: workloads/ttnn/PI0/tt
+    module: run_pi0_model@ttnn_pi0_model.py
+    params:
+      action_dim: 32
+      action_horizon: 50
+      state_dim: 32
+      num_denoising_steps: 10
+      max_seq_len: 2048
+      paligemma_variant: gemma_2b
+      action_expert_variant: gemma_300m
+      pi05: false
+      bs: 1
+    instances:
+      pi0_base: { image_size: 224, patch_size: 14, num_images: 1, lang_seq_len: 256 }
