@@ -2950,3 +2950,307 @@ def nlp_create_qkv_heads(input_tensor, kv_input_tensor=None, *,
         device=input_tensor.device, data=v_data,
     )
     return q, k, v
+
+
+# ---------------------------------------------------------------------------
+# Llama3 transformer device ops (rotary embedding, KV cache, head split/concat,
+# SDPA). Tracking-only: each emits a single SimOp matching the HW profiler trace
+# and returns synthetic output Tensor(s) whose shapes mirror tt-metal semantics.
+# ---------------------------------------------------------------------------
+
+def rotary_embedding_llama_op(x, cos, sin, trans_mat, is_decode_mode=False,
+                               memory_config=None, element_size=2):
+    """RotaryEmbeddingLlama (prefill): apply rotary embedding to x; output shape = x.
+
+    Called separately for q and k in tt-metal. cos/sin/trans_mat are auxiliary
+    inputs recorded on the op but do not change the output shape.
+    """
+    assert x.device is not None, "rotary_embedding_llama_op requires x on device"
+    op_name = generate_new_op_name()
+    in_tensors = [t for t in (x, cos, sin, trans_mat) if t is not None]
+    out_tensor = Tensor(
+        name=op_name + '.out',
+        shape=x.logical_shape()._shape,
+        dtype=x.dtype,
+        layout=x.get_layout(),
+        op_out=[op_name],
+        device=x.device,
+    )
+    for t in in_tensors:
+        t.op_in.append(op_name)
+    opinfo = {
+        'name': op_name,
+        'optype': 'RotaryEmbeddingLlama',
+        'inList': [t.name for t in in_tensors],
+        'outList': [out_tensor.name],
+        'attrs': {'is_decode_mode': bool(is_decode_mode), 'element_size': element_size},
+    }
+    opobj = SimOp(opinfo)
+    opobj.get_perf_counts(in_tensors, [out_tensor])
+    opobj.update_tensor_counts(in_tensors, [out_tensor])
+    _propagate_ttnn_dtype([x], [out_tensor])
+    out_tensor._memory_config = memory_config if memory_config is not None else getattr(x, '_memory_config', None)
+    x.device.add_op(opobj)
+    return out_tensor
+
+
+def rotary_embedding_llama_fused_qk_op(q, k, cos, sin, trans_mat,
+                                        memory_config=None, element_size=2):
+    """RotaryEmbeddingLlamaFusedQK (decode): rotary on q and k in one op.
+
+    Returns (q_out, k_out), each with the shape of its corresponding input.
+    """
+    assert q.device is not None, "rotary_embedding_llama_fused_qk_op requires q on device"
+    op_name = generate_new_op_name()
+    in_tensors = [t for t in (q, k, cos, sin, trans_mat) if t is not None]
+    q_out = Tensor(
+        name=op_name + '.out.0', shape=q.logical_shape()._shape, dtype=q.dtype,
+        layout=q.get_layout(), op_out=[op_name], device=q.device,
+    )
+    k_out = Tensor(
+        name=op_name + '.out.1', shape=k.logical_shape()._shape, dtype=k.dtype,
+        layout=k.get_layout(), op_out=[op_name], device=q.device,
+    )
+    for t in in_tensors:
+        t.op_in.append(op_name)
+    opinfo = {
+        'name': op_name,
+        'optype': 'RotaryEmbeddingLlamaFusedQK',
+        'inList': [t.name for t in in_tensors],
+        'outList': [q_out.name, k_out.name],
+        'attrs': {'element_size': element_size},
+    }
+    opobj = SimOp(opinfo)
+    out_tensors = [q_out, k_out]
+    opobj.get_perf_counts(in_tensors, out_tensors)
+    opobj.update_tensor_counts(in_tensors, out_tensors)
+    _propagate_ttnn_dtype([q], [q_out])
+    _propagate_ttnn_dtype([k], [k_out])
+    if memory_config is not None:
+        q_out._memory_config = memory_config
+        k_out._memory_config = memory_config
+    else:
+        q_out._memory_config = getattr(q, '_memory_config', None)
+        k_out._memory_config = getattr(k, '_memory_config', None)
+    q.device.add_op(opobj)
+    return q_out, k_out
+
+
+def paged_fill_cache_op(cache, input_tensor, page_table=None, batch_idx=0,
+                         memory_config=None, element_size=2):
+    """PagedFillCache (prefill): fill the KV cache in place; output shape = cache.
+
+    The cache tensor is updated in place on hardware; we emit a passthrough
+    SimOp and return a tensor with the cache's shape so the graph edge exists.
+    """
+    assert cache.device is not None, "paged_fill_cache_op requires cache on device"
+    op_name = generate_new_op_name()
+    in_tensors = [t for t in (cache, input_tensor, page_table) if t is not None]
+    out_tensor = Tensor(
+        name=op_name + '.out',
+        shape=cache.logical_shape()._shape,
+        dtype=cache.dtype,
+        layout=cache.get_layout(),
+        op_out=[op_name],
+        device=cache.device,
+    )
+    for t in in_tensors:
+        t.op_in.append(op_name)
+    opinfo = {
+        'name': op_name,
+        'optype': 'PagedFillCache',
+        'inList': [t.name for t in in_tensors],
+        'outList': [out_tensor.name],
+        'attrs': {'batch_idx': batch_idx, 'element_size': element_size},
+    }
+    opobj = SimOp(opinfo)
+    opobj.get_perf_counts(in_tensors, [out_tensor])
+    opobj.update_tensor_counts(in_tensors, [out_tensor])
+    _propagate_ttnn_dtype([cache], [out_tensor])
+    out_tensor._memory_config = memory_config if memory_config is not None else getattr(cache, '_memory_config', None)
+    cache.device.add_op(opobj)
+    return out_tensor
+
+
+def paged_fused_update_cache_op(k_cache, k, v_cache, v, update_idxs_tensor=None,
+                                 page_table=None, memory_config=None, element_size=2):
+    """PagedFusedUpdateCache (decode): update K and V caches in place.
+
+    Returns (k_cache_out, v_cache_out), each with its cache input's shape.
+    """
+    assert k_cache.device is not None, "paged_fused_update_cache_op requires k_cache on device"
+    op_name = generate_new_op_name()
+    in_tensors = [t for t in (k_cache, k, v_cache, v, update_idxs_tensor, page_table) if t is not None]
+    k_out = Tensor(
+        name=op_name + '.out.0', shape=k_cache.logical_shape()._shape, dtype=k_cache.dtype,
+        layout=k_cache.get_layout(), op_out=[op_name], device=k_cache.device,
+    )
+    v_out = Tensor(
+        name=op_name + '.out.1', shape=v_cache.logical_shape()._shape, dtype=v_cache.dtype,
+        layout=v_cache.get_layout(), op_out=[op_name], device=k_cache.device,
+    )
+    for t in in_tensors:
+        t.op_in.append(op_name)
+    opinfo = {
+        'name': op_name,
+        'optype': 'PagedFusedUpdateCache',
+        'inList': [t.name for t in in_tensors],
+        'outList': [k_out.name, v_out.name],
+        'attrs': {'element_size': element_size},
+    }
+    opobj = SimOp(opinfo)
+    out_tensors = [k_out, v_out]
+    opobj.get_perf_counts(in_tensors, out_tensors)
+    opobj.update_tensor_counts(in_tensors, out_tensors)
+    _propagate_ttnn_dtype([k_cache], [k_out])
+    _propagate_ttnn_dtype([v_cache], [v_out])
+    if memory_config is not None:
+        k_out._memory_config = memory_config
+        v_out._memory_config = memory_config
+    else:
+        k_out._memory_config = getattr(k_cache, '_memory_config', None)
+        v_out._memory_config = getattr(v_cache, '_memory_config', None)
+    k_cache.device.add_op(opobj)
+    return k_out, v_out
+
+
+def nlp_create_qkv_heads_decode_op(input_tensor, *, num_heads, num_kv_heads=None,
+                                    head_dim=None, memory_config=None, element_size=2):
+    """NLPCreateQKVHeadsDecode (decode): split fused QKV into Q, K, V.
+
+    Decode WZYX convention: input [..., 1, hidden] -> heads on the Y axis, head_dim on X:
+      Q = [..lead.., num_heads, head_dim]
+      K = V = [..lead.., num_kv_heads, head_dim]
+    where lead is the leading dims (typically [1, 1]).
+    """
+    assert input_tensor.device is not None, "nlp_create_qkv_heads_decode_op requires input on device"
+    if num_kv_heads is None:
+        num_kv_heads = num_heads
+    in_shape = input_tensor.logical_shape()._shape
+    hidden = in_shape[-1]
+    if head_dim is None:
+        total_heads = num_heads + 2 * num_kv_heads
+        if hidden % total_heads != 0:
+            raise ValueError(
+                f"nlp_create_qkv_heads_decode_op: hidden {hidden} not divisible by "
+                f"num_heads + 2*num_kv_heads ({total_heads})"
+            )
+        head_dim = hidden // total_heads
+
+    lead = list(in_shape[:-2]) if len(in_shape) >= 2 else [1, 1]
+    while len(lead) < 2:
+        lead = [1] + lead
+    q_shape = lead + [num_heads, head_dim]
+    k_shape = lead + [num_kv_heads, head_dim]
+    v_shape = lead + [num_kv_heads, head_dim]
+
+    op_name = generate_new_op_name()
+    q_tensor = Tensor(name=f"{op_name}.out.0", shape=q_shape, dtype=input_tensor.dtype,
+                      layout=input_tensor.get_layout(), op_out=[op_name], device=input_tensor.device)
+    k_tensor = Tensor(name=f"{op_name}.out.1", shape=k_shape, dtype=input_tensor.dtype,
+                      layout=input_tensor.get_layout(), op_out=[op_name], device=input_tensor.device)
+    v_tensor = Tensor(name=f"{op_name}.out.2", shape=v_shape, dtype=input_tensor.dtype,
+                      layout=input_tensor.get_layout(), op_out=[op_name], device=input_tensor.device)
+    input_tensor.op_in.append(op_name)
+    opinfo = {
+        'name': op_name,
+        'optype': 'NLPCreateQKVHeadsDecode',
+        'inList': [input_tensor.name],
+        'outList': [q_tensor.name, k_tensor.name, v_tensor.name],
+        'attrs': {
+            'num_heads': num_heads,
+            'num_kv_heads': num_kv_heads,
+            'head_dim': head_dim,
+            'element_size': element_size,
+        },
+    }
+    opobj = SimOp(opinfo)
+    out_tensors = [q_tensor, k_tensor, v_tensor]
+    opobj.get_perf_counts([input_tensor], out_tensors)
+    opobj.update_tensor_counts([input_tensor], out_tensors)
+    _propagate_ttnn_dtype([input_tensor], out_tensors)
+    out_mc = memory_config if memory_config is not None else MemoryConfig(
+        TensorMemoryLayout.HEIGHT_SHARDED, BufferType.L1,
+    )
+    for t in out_tensors:
+        t._memory_config = out_mc
+    input_tensor.device.add_op(opobj)
+    return q_tensor, k_tensor, v_tensor
+
+
+def nlp_concat_heads_decode_op(input_tensor, num_heads=None, memory_config=None, element_size=2):
+    """NLPConcatHeadsDecode (decode): concatenate heads on the X axis.
+
+    Decode WZYX convention: input [..lead.., num_heads, head_dim] (heads on Y) ->
+    output [..lead.., num_heads, num_heads*head_dim] (head_dim folded into X).
+    """
+    assert input_tensor.device is not None, "nlp_concat_heads_decode_op requires input on device"
+    in_shape = input_tensor.logical_shape()._shape
+    assert len(in_shape) >= 2, f"NLPConcatHeadsDecode expects rank>=2 input, got {len(in_shape)}"
+    if num_heads is None:
+        num_heads = in_shape[-2]
+    head_dim = in_shape[-1]
+    out_shape = list(in_shape[:-1]) + [num_heads * head_dim]
+
+    op_name = generate_new_op_name()
+    out_tensor = Tensor(
+        name=op_name + '.out', shape=out_shape, dtype=input_tensor.dtype,
+        layout=input_tensor.get_layout(), op_out=[op_name], device=input_tensor.device,
+    )
+    input_tensor.op_in.append(op_name)
+    opinfo = {
+        'name': op_name,
+        'optype': 'NLPConcatHeadsDecode',
+        'inList': [input_tensor.name],
+        'outList': [out_tensor.name],
+        'attrs': {'num_heads': num_heads, 'element_size': element_size},
+    }
+    opobj = SimOp(opinfo)
+    opobj.get_perf_counts([input_tensor], [out_tensor])
+    opobj.update_tensor_counts([input_tensor], [out_tensor])
+    _propagate_ttnn_dtype([input_tensor], [out_tensor])
+    out_tensor._memory_config = memory_config if memory_config is not None else MemoryConfig(
+        TensorMemoryLayout.WIDTH_SHARDED, BufferType.L1,
+    )
+    input_tensor.device.add_op(opobj)
+    return out_tensor
+
+
+def scaled_dot_product_attention_op(q, k, v, *extra_inputs, memory_config=None,
+                                    element_size=2, **attrs):
+    """ScaledDotProductAttention: prefill (q,k,v) or decode/paged (q, k_cache, v_cache, ...).
+
+    Output shape always equals q. Extra positional tensor inputs (cur_pos,
+    page_table) are recorded on the op. Non-shape kwargs (scale, is_causal, ...)
+    are stored in attrs.
+    """
+    assert q.device is not None, "scaled_dot_product_attention_op requires q on device"
+    op_name = generate_new_op_name()
+    in_tensors = [t for t in (q, k, v, *extra_inputs)
+                  if t is not None and isinstance(t, Tensor)]
+    out_tensor = Tensor(
+        name=op_name + '.out',
+        shape=q.logical_shape()._shape,
+        dtype=q.dtype,
+        layout=q.get_layout(),
+        op_out=[op_name],
+        device=q.device,
+    )
+    for t in in_tensors:
+        t.op_in.append(op_name)
+    op_attrs = {k_: v_ for k_, v_ in attrs.items() if isinstance(v_, (int, float, bool, str))}
+    op_attrs['element_size'] = element_size
+    opinfo = {
+        'name': op_name,
+        'optype': 'ScaledDotProductAttention',
+        'inList': [t.name for t in in_tensors],
+        'outList': [out_tensor.name],
+        'attrs': op_attrs,
+    }
+    opobj = SimOp(opinfo)
+    opobj.get_perf_counts(in_tensors, [out_tensor])
+    opobj.update_tensor_counts(in_tensors, [out_tensor])
+    _propagate_ttnn_dtype([q], [out_tensor])
+    out_tensor._memory_config = memory_config if memory_config is not None else getattr(q, '_memory_config', None)
+    q.device.add_op(opobj)
+    return out_tensor

@@ -16,8 +16,9 @@ import argparse
 import csv
 import math
 import sys
+from functools import partial
 from pathlib import Path
-from typing import Dict, FrozenSet, Iterable, List, Optional, Sequence, Tuple
+from typing import Callable, Dict, FrozenSet, Iterable, List, Optional, Sequence, Tuple
 
 from loguru import logger
 
@@ -659,6 +660,77 @@ def validate_iteration_args(
                 )
 
 
+# A row reducer takes the three variant row lists (noctrace, fpu, vanilla) and
+# returns reduced lists of equal length — one row per op for a single
+# representative pass.  It is injected into run_merge so alternate reduction
+# strategies (e.g. the trace+replay replay-session reducer in
+# ops_perf_trace_replay_merge.py) can replace the default iteration reducer
+# without duplicating the shared classify / header-check / join / output
+# machinery.  When run_merge is called without a reducer it builds the default
+# iteration reducer below from its CLI iteration args.
+Reducer = Callable[
+    [List[Dict[str, str]], List[Dict[str, str]], List[Dict[str, str]]],
+    Tuple[List[Dict[str, str]], List[Dict[str, str]], List[Dict[str, str]]],
+]
+
+
+def reduce_iterative(
+    rows_noc: List[Dict[str, str]],
+    rows_fpu: List[Dict[str, str]],
+    rows_van: List[Dict[str, str]],
+    *,
+    cli_num_iterations: Optional[int] = None,
+    cli_ops_per_iteration: Optional[int] = None,
+    cli_measured_indices: Optional[List[int]] = None,
+    cli_select_iteration: str = "median",
+) -> Tuple[List[Dict[str, str]], List[Dict[str, str]], List[Dict[str, str]]]:
+    """Reduce a multi-iteration capture to a single representative iteration.
+
+    Detect iterations on the vanilla CSV (canonical timing), pick one iteration
+    by ``cli_select_iteration`` (default: median total kernel duration), then
+    apply the same row range to all three CSVs (the three variants share
+    iteration layout — same model invocation pattern, same GCC numbering).
+    A single detected iteration passes all rows through unchanged.
+    """
+    iters = detect_iteration_boundaries(rows_van, ops_per_iteration=cli_ops_per_iteration)
+    summary = iteration_summary(rows_van, iters)
+    iter_size = iters[0][1] - iters[0][0] if iters else 0
+    validate_iteration_args(
+        summary,
+        cli_num_iterations=cli_num_iterations,
+        cli_measured_indices=cli_measured_indices,
+    )
+    if len(iters) > 1:
+        start, end, chosen_idx = pick_median_iteration(
+            summary,
+            measured_indices=cli_measured_indices,
+            select=cli_select_iteration,
+        )
+        # Sanity-check that all 3 CSVs have the same row count (synchronized iteration layout).
+        for label, r in (("noctrace", rows_noc), ("fpu", rows_fpu), ("vanilla", rows_van)):
+            if len(r) != len(rows_van):
+                raise MergeError(
+                    f"Pre-filter row count differs ({label}={len(r)} vs vanilla={len(rows_van)}); "
+                    "iteration layouts must be synchronized across the three variants."
+                )
+        rows_noc = filter_to_iteration(rows_noc, start, end)
+        rows_fpu = filter_to_iteration(rows_fpu, start, end)
+        rows_van = filter_to_iteration(rows_van, start, end)
+        logger.info(
+            "Iteration filter: detected {} iteration(s) of {} ops each ({} complete); "
+            "selected iter {} (rows {}..{}, total kdur={} ns, select={!r}).",
+            len(iters),
+            iter_size,
+            sum(1 for s in summary if s[2]),
+            chosen_idx,
+            start,
+            end - 1,
+            summary[chosen_idx][3],
+            cli_select_iteration,
+        )
+    return rows_noc, rows_fpu, rows_van
+
+
 def run_merge(
     input_dir: Path,
     output_path: Path,
@@ -669,6 +741,7 @@ def run_merge(
     cli_ops_per_iteration: Optional[int] = None,
     cli_measured_indices: Optional[List[int]] = None,
     cli_select_iteration: str = "median",
+    reducer: Optional[Reducer] = None,
 ) -> None:
     paths = discover_csv_paths(input_dir)
     if len(paths) != 3:
@@ -753,46 +826,20 @@ def run_merge(
     rows_fpu = next(r for p, _, r in loaded if p == path_fpu)
     rows_van = next(r for p, _, r in loaded if p == path_van)
 
-    # Iteration filtering: detect iterations on the vanilla CSV (canonical timing),
-    # pick one iteration by --select-iteration (default: median total kernel duration),
-    # then apply the same row range to all three CSVs (the three variants share
-    # iteration layout — same model invocation pattern, same GCC numbering).
-    iters = detect_iteration_boundaries(rows_van, ops_per_iteration=cli_ops_per_iteration)
-    summary = iteration_summary(rows_van, iters)
-    iter_size = iters[0][1] - iters[0][0] if iters else 0
-    validate_iteration_args(
-        summary,
-        cli_num_iterations=cli_num_iterations,
-        cli_measured_indices=cli_measured_indices,
-    )
-    if len(iters) > 1:
-        start, end, chosen_idx = pick_median_iteration(
-            summary,
-            measured_indices=cli_measured_indices,
-            select=cli_select_iteration,
+    # Row reduction: collapse the capture to a single representative pass (one
+    # row per op) before the join.  The default reducer detects and selects one
+    # iteration on the vanilla CSV, then applies the same range to all three
+    # (the three variants share iteration layout).  A caller-supplied reducer
+    # (e.g. the trace+replay replay-session reducer) replaces this strategy.
+    if reducer is None:
+        reducer = partial(
+            reduce_iterative,
+            cli_num_iterations=cli_num_iterations,
+            cli_ops_per_iteration=cli_ops_per_iteration,
+            cli_measured_indices=cli_measured_indices,
+            cli_select_iteration=cli_select_iteration,
         )
-        # Sanity-check that all 3 CSVs have the same row count (synchronized iteration layout).
-        for label, r in (("noctrace", rows_noc), ("fpu", rows_fpu), ("vanilla", rows_van)):
-            if len(r) != len(rows_van):
-                raise MergeError(
-                    f"Pre-filter row count differs ({label}={len(r)} vs vanilla={len(rows_van)}); "
-                    "iteration layouts must be synchronized across the three variants."
-                )
-        rows_noc = filter_to_iteration(rows_noc, start, end)
-        rows_fpu = filter_to_iteration(rows_fpu, start, end)
-        rows_van = filter_to_iteration(rows_van, start, end)
-        logger.info(
-            "Iteration filter: detected {} iteration(s) of {} ops each ({} complete); "
-            "selected iter {} (rows {}..{}, total kdur={} ns, select={!r}).",
-            len(iters),
-            iter_size,
-            sum(1 for s in summary if s[2]),
-            chosen_idx,
-            start,
-            end - 1,
-            summary[chosen_idx][3],
-            cli_select_iteration,
-        )
+    rows_noc, rows_fpu, rows_van = reducer(rows_noc, rows_fpu, rows_van)
 
     if len(rows_noc) != len(rows_fpu) or len(rows_noc) != len(rows_van):
         raise MergeError(

@@ -111,6 +111,13 @@ def test_unary_op_chain_resolution():
         ("RMSNorm", "rms_norm"),
         ("Gelu", "gelu"),
         ("Relu", "relu"),
+        # llama3/transformer profiler op codes (real DeviceOperation forms).
+        ("RotaryEmbeddingLlamaFusedQKDeviceOperation", "rotaryembeddingllamafusedqk"),
+        ("RotaryEmbeddingLlamaDeviceOperation", "rotaryembeddingllama"),
+        ("PagedFusedUpdateCacheDeviceOperation", "pagedfusedupdatecache"),
+        ("PagedFillCacheDeviceOperation", "pagedfillcache"),
+        ("SDPAOperation", "scaleddotproductattention"),
+        ("SdpaDecodeDeviceOperation", "scaleddotproductattention"),
     ],
 )
 def test_bare_opcode_prefix_matching(raw, expected):

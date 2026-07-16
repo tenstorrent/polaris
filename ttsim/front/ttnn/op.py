@@ -482,20 +482,19 @@ def rms_norm(
         weight_tensor = require_ttnn_tensor(weight_tensor, "ttnn.rms_norm weight")
     if bias_tensor is not None:
         bias_tensor = require_ttnn_tensor(bias_tensor, "ttnn.rms_norm bias")
-    # Compute RMS (using layernorm for now)
-    rms = layer_norm(input_tensor, weight=weight_tensor, epsilon=epsilon, axis=-1)
-    normalized = div(input_tensor, rms)
-    if weight_tensor is not None:
-        weight_tensor = reshape(weight_tensor, (1, 1, 1, dim))
-        if normalized.shape[-1] != weight_tensor.shape[-1]:
-            weight_tensor = weight_tensor.repeat(
-                (1, 1, 1, normalized.shape[-1] // dim)
-            )  ## only repeat if needed
-        normalized = multiply(normalized, weight_tensor)
-
-    if bias_tensor is not None:
-        normalized = add(normalized, bias_tensor)
-    return normalized
+    # HW computes RMS-normalization (gamma scale + optional bias) in a SINGLE
+    # LayerNormDeviceOperation, so emit one op to match the silicon capture. The previous
+    # layer_norm + div + multiply decomposition over-emitted (3 ops vs 1 on HW) and was not a
+    # sound mimic. `dim` is retained for call-site compatibility but is no longer needed.
+    return layer_norm(
+        input_tensor,
+        weight=weight_tensor,
+        bias=bias_tensor,
+        epsilon=epsilon,
+        axis=-1,
+        memory_config=memory_config,
+        compute_kernel_config=compute_kernel_config,
+    )
 
 
 def max_pool2d_pp(args_list, kwargs_dict):
@@ -662,8 +661,39 @@ class transformer:
     def __init__(self, config):
         pass
 
-    def paged_scaled_dot_product_attention_decode(self, *args, **kwargs):
-        pass
+    @staticmethod
+    def scaled_dot_product_attention(q, k, v, *, is_causal=True, scale=None,
+                                     sliding_window_size=None, compute_kernel_config=None,
+                                     program_config=None, memory_config=None, **kwargs):
+        """Prefill SDPA (non-paged, non-chunked); output = q shape."""
+        from .ttnn_shim import scaled_dot_product_attention_op as _sdpa
+        # Pass scale through unchanged: when the caller omits it (None), the shim op
+        # drops it from the recorded attrs rather than fabricating a 0.0 (which is not
+        # a valid SDPA scale and would pollute attrs / LUT keys vs an omitted attribute).
+        return _sdpa(q, k, v, memory_config=memory_config, is_causal=bool(is_causal),
+                     scale=scale)
+
+    @staticmethod
+    def scaled_dot_product_attention_decode(q, k, v, *, cur_pos_tensor=None, scale=None,
+                                            sliding_window_size=None, program_config=None,
+                                            compute_kernel_config=None, memory_config=None,
+                                            **kwargs):
+        """Decode SDPA (non-paged); output = q shape."""
+        from .ttnn_shim import scaled_dot_product_attention_op as _sdpa
+        return _sdpa(q, k, v, cur_pos_tensor, memory_config=memory_config,
+                     scale=scale)
+
+    @staticmethod
+    def paged_scaled_dot_product_attention_decode(q, k, v, *, page_table_tensor=None,
+                                                  cur_pos_tensor=None, scale=None,
+                                                  sliding_window_size=None, program_config=None,
+                                                  compute_kernel_config=None, memory_config=None,
+                                                  **kwargs):
+        """Paged decode SDPA; output = q shape."""
+        from .ttnn_shim import scaled_dot_product_attention_op as _sdpa
+        return _sdpa(q, k, v, cur_pos_tensor, page_table_tensor,
+                     memory_config=memory_config,
+                     scale=scale)
 
 
 class experimental:
@@ -690,6 +720,51 @@ class experimental:
         """Delegate to ttnn_shim; mirrors HW's single-op head concatenation."""
         from .ttnn_shim import nlp_concat_heads as _nlp_concat_heads
         return _nlp_concat_heads(input_tensor, memory_config=memory_config)
+
+    @staticmethod
+    def rotary_embedding_llama(x, cos, sin, trans_mat, is_decode_mode=False,
+                               memory_config=None):
+        """Prefill rotary embedding (called separately for q and k); output = x shape."""
+        from .ttnn_shim import rotary_embedding_llama_op as _rope
+        return _rope(x, cos, sin, trans_mat, is_decode_mode=is_decode_mode,
+                     memory_config=memory_config)
+
+    @staticmethod
+    def rotary_embedding_llama_fused_qk(q, k, cos, sin, trans_mat, memory_config=None):
+        """Decode fused rotary embedding; returns (q, k), each = its input shape."""
+        from .ttnn_shim import rotary_embedding_llama_fused_qk_op as _rope_qk
+        return _rope_qk(q, k, cos, sin, trans_mat, memory_config=memory_config)
+
+    @staticmethod
+    def paged_fill_cache(cache, input_tensor, page_table=None, *, batch_idx=0,
+                         memory_config=None):
+        """Prefill KV-cache fill (in place); output = cache shape."""
+        from .ttnn_shim import paged_fill_cache_op as _fill
+        return _fill(cache, input_tensor, page_table=page_table, batch_idx=batch_idx,
+                     memory_config=memory_config)
+
+    @staticmethod
+    def paged_fused_update_cache(k_cache, k, v_cache, v, *, update_idxs_tensor=None,
+                                 page_table=None, memory_config=None):
+        """Decode fused KV-cache update (in place); returns (k_cache, v_cache)."""
+        from .ttnn_shim import paged_fused_update_cache_op as _upd
+        return _upd(k_cache, k, v_cache, v, update_idxs_tensor=update_idxs_tensor,
+                    page_table=page_table, memory_config=memory_config)
+
+    @staticmethod
+    def nlp_create_qkv_heads_decode(input_tensor, *, num_heads, num_kv_heads=None,
+                                    head_dim=None, memory_config=None, **kwargs):
+        """Decode QKV head split; returns (q, k, v) with heads on the Y axis."""
+        from .ttnn_shim import nlp_create_qkv_heads_decode_op as _create
+        return _create(input_tensor, num_heads=num_heads, num_kv_heads=num_kv_heads,
+                       head_dim=head_dim, memory_config=memory_config)
+
+    @staticmethod
+    def nlp_concat_heads_decode(input_tensor, *, num_heads=None, memory_config=None,
+                                **kwargs):
+        """Decode head concatenation; output folds head_dim into the X axis."""
+        from .ttnn_shim import nlp_concat_heads_decode_op as _concat
+        return _concat(input_tensor, num_heads=num_heads, memory_config=memory_config)
 
 
 def all_gather(*args, **kwargs):
@@ -747,6 +822,23 @@ log         = single_output_immediate_op('Log')
 min         = single_output_immediate_op('Min')
 max         = single_output_immediate_op('Max')
 sqrt        = single_output_immediate_op('Sqrt')
+
+class UnaryOpType:
+    """Fused unary activations for binary ops — mirrors ttnn.UnaryOpType.
+
+    Pass e.g. ``input_tensor_a_activations=[UnaryOpType.SILU]`` to a binary op
+    (``multiply``/``add``) so the fused activation is modeled as a SINGLE op — the HW
+    BinaryNg carries the activation (cf. tt-metal mlp.py:239 SILU-fused gate*up). The
+    kwarg is forwarded into the SimOp attrs by single_output_immediate_op, so NO
+    separate activation op is emitted (which would over-emit vs HW). Values mirror the
+    ttnn.UnaryOpType enum names.
+    """
+    SILU = 'SILU'
+    GELU = 'GELU'
+    RELU = 'RELU'
+    SIGMOID = 'SIGMOID'
+    TANH = 'TANH'
+
 
 # Pointwise Binary
 add = single_output_immediate_op("Add")

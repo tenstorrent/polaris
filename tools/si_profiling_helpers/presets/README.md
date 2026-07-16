@@ -47,11 +47,17 @@ The profiler runs the command three times (basic / perf-counters / noc-traces) u
 producing `raw/`, `perf/`, and `trace/` CSVs under the `RUNID` output directory.
 
 > **Merging:** consolidating the three CSVs into a single `merged_ops_<RUNID>.csv` (RUNID =
-> the output-dir name) uses `tools/si_profiling_helpers/ops_perf_three_csv_merge.py`. It is
-> co-located with these presets (one directory up), so it ships with the rsynced bundle and
+> the output-dir name) uses one of two reducers, selected by the profiler wrapper's
+> `--merge-variant`: **`iterative`** (`ops_perf_three_csv_merge.py`, the default — for
+> multi-iteration workloads like **VGG UNet**) or **`trace_replay`**
+> (`ops_perf_trace_replay_merge.py` — for non-iterative trace+replay workloads like **ViT**
+> and **llama3**, which have a single compile pass + replay session(s), no iteration loop).
+> The `vit/` and `llama3/` presets pass `--merge-variant trace_replay`; `vggunet/` uses the
+> default. Both tools are
+> co-located with these presets (one directory up), so they ship with the rsynced bundle and
 > the merge runs **on the hardware node** right after capture (the profiler wrapper passes an
 > explicit `--output`; the tool's own default is plain `merged_ops.csv`). Only
-> `merged_ops_<RUNID>.csv` (plus `hw_id.json`) needs to be copied back. Its only third-party dependency is `loguru`, which is already in
+> `merged_ops_<RUNID>.csv` (plus `hw_id.json`, and the run-status sidecar `run_status.json` / `STATUS.txt`) needs to be copied back. Its only third-party dependency is `loguru`, which is already in
 > the tt-metal run environment. (The follow-on compare-vs-refrun step pulls in polaris/ttsim
 > and stays on a polaris checkout.)
 
@@ -112,5 +118,54 @@ and minor spelling variants still pass.
 | `vit/run-vitdual-bh.sh`         | BH | polaris dual-mode ViT |
 | `vit/run-vitref-wh.sh`          | WH | upstream tt-metal ViT device-ops |
 | `vit/run-vitref-bh.sh`          | BH | upstream tt-metal ViT device-ops |
+| `llama3/run-llama3ref-decode-b32-wh.sh`  | WH | upstream tt-metal llama3, batch-32 (decode phase) |
+| `llama3/run-llama3ref-decode-b32-bh.sh`  | BH | upstream tt-metal llama3, batch-32 (decode phase) |
+| `llama3/run-llama3ref-prefill-b32-wh.sh` | WH | upstream tt-metal llama3, batch-32 (prefill phase) — ⛔ blocked, see below |
+| `llama3/run-llama3ref-prefill-b32-bh.sh` | BH | upstream tt-metal llama3, batch-32 (prefill phase) |
+| `llama3/run-llama3ref-decode-b1-wh.sh`   | WH | upstream tt-metal llama3, batch-1 (decode phase) — batch-matched to the b1 dual |
+| `llama3/run-llama3ref-decode-b1-bh.sh`   | BH | upstream tt-metal llama3, batch-1 (decode phase) — batch-matched to the b1 dual |
+| `llama3/run-llama3ref-prefill-b1-wh.sh`  | WH | upstream tt-metal llama3, batch-1 (prefill phase) — ⛔ blocked, see below |
+| `llama3/run-llama3ref-prefill-b1-bh.sh`  | BH | upstream tt-metal llama3, batch-1 (prefill phase) |
+| `llama3/run-llama3dual-decode-wh.sh`  | WH | polaris dual-mode llama3, batch-1 (decode phase) |
+| `llama3/run-llama3dual-decode-bh.sh`  | BH | polaris dual-mode llama3, batch-1 (decode phase) |
+| `llama3/run-llama3dual-prefill-wh.sh` | WH | polaris dual-mode llama3, batch-1 (prefill phase) — ⛔ blocked, see below |
+| `llama3/run-llama3dual-prefill-bh.sh` | BH | polaris dual-mode llama3, batch-1 (prefill phase) |
 
 `check_arch.sh` is a sourced helper, not a run-script (see "Arch matching").
+
+## llama3 reference command & capture matrix
+
+The llama3 `ref` presets run the upstream tt-metal demo with the **finalized reference command**:
+
+```
+models/tt_transformers/demo/simple_text_demo.py -k "performance and batch-32" --mode {decode,prefill}
+```
+
+`-k "performance and batch-32"` selects the perf case at batch-32 (the primary batch for **both**
+p100a and n150); `--mode` splits the run into its decode and prefill phases for per-phase LUT prep.
+**Every other knob is left at the marked case's default** — no `--num_layers`,
+`--max_generated_tokens`, `--batch_size`, `--paged_attention`, `--use_prefetcher`, or seq_len. The
+reference must run the *complete* command; earlier `--num_layers 1 --max_generated_tokens 1` trial
+limits have been dropped and must not be re-added.
+
+> **Why the scripts wrap the `-k` value in nested quotes** (`-k '"performance and batch-32"'`): tracy's
+> report mode re-joins its argv with spaces and re-runs the command under `shell=True`
+> (tt-metal `tools/tracy/__main__.py`), which would split the bare words of a spaced `-k` expression
+> (`ERROR: file or directory not found: and`). The nested quotes keep the expression as one literal
+> token through both `shlex.split` (in `run-ttnn-profiler.py`) and tracy's shell re-parse. Don't
+> "simplify" them away.
+
+The `dual` presets run the migrated Polaris llama3 workload
+(`workloads/ttnn/llama3/test_llama3_{decode,prefill}.py`) through its real-`ttnn` branch on hardware,
+to validate that dual-mode perf tracks the HW reference. The dual workload runs at **batch-1**
+(decode default `bs=1`; prefill only supports `bs=1`), so the `…-b1-…` ref presets
+(`-k "performance and batch-1 and not log-probs"`) exist to give a **batch-matched** reference for
+that dual comparison; the `…-b32-…` ref presets are the primary LUT reference. The output-dir RUNID
+carries the batch tag (`b32` / `b1`) so captures at different batches don't collide.
+
+| Arch | Phase | Full-command capture available? |
+|------|-------|---------------------------------|
+| BH p100a | decode  | ✅ unblocked |
+| BH p100a | prefill | ✅ unblocked |
+| WH n150  | decode  | ✅ unblocked |
+| WH n150  | prefill | ⛔ **BLOCKED** — the WH prefill phase currently fails NoC-trace capture. This is a NoC-trace tooling issue (raised and owned by the user), **not** worked around by limiting the command. The WH prefill presets (`run-llama3ref-prefill-b32-wh.sh`, `run-llama3ref-prefill-b1-wh.sh`, `run-llama3dual-prefill-wh.sh`) carry a matching block/note; run them only after the issue is resolved, then remove the flag. |

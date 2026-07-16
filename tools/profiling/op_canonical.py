@@ -50,6 +50,15 @@ PROFILER_PREFIX_RULES: tuple[tuple[str, str], ...] = (
     ("CreateQKVHeads", "createqkvheads"),
     ("NLPConcatHeads", "concatheads"),
     ("ConcatHeads", "concatheads"),
+    # llama3/transformer ops — canonical = lowercased shim optype (ttsim/front/ttnn) so
+    # sim and profiler keys agree. FusedQK (decode) MUST precede the bare RotaryEmbeddingLlama
+    # prefix (first-match-wins). Sdpa covers profiler SDPAOperation + SdpaDecode → shim's
+    # single ScaledDotProductAttention optype.
+    ("RotaryEmbeddingLlamaFusedQK", "rotaryembeddingllamafusedqk"),
+    ("RotaryEmbeddingLlama", "rotaryembeddingllama"),
+    ("PagedFusedUpdateCache", "pagedfusedupdatecache"),
+    ("PagedFillCache", "pagedfillcache"),
+    ("Sdpa", "scaleddotproductattention"),
     ("UntilizeWithValUnpadding", "untilizewithunpadding"),  # Polaris variant with "Val"
     ("UntilizeWithUnpadding", "untilizewithunpadding"),
     ("Untilize", "untilize"),
