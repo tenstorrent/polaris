@@ -1,0 +1,18 @@
+#!/usr/bin/env bash
+# SPDX-FileCopyrightText: (C) 2026 Tenstorrent AI ULC
+# SPDX-License-Identifier: Apache-2.0
+# Run from the tt-metal checkout root. Prereqs: see ../si_profiling_helpers/presets/README.md
+# Dual-mode-on-HW validation: runs the migrated Polaris llama3 decode workload through its
+# real-ttnn branch (selected because IRD_ARCH_NAME is set). Compare against the matching
+# run-llama3ref-decode preset to confirm dual-mode perf tracks the HW reference.
+source "$(dirname "$0")/../check_arch.sh"; require_arch wormhole_b0
+source "$(dirname "$0")/../hw_id.sh"
+BOARD=$(hw_id_board)
+HEAD=$(git rev-parse --short=7 HEAD)
+RUNID=llama3dual-decode-b1-${HEAD}-${IRD_ARCH_NAME}${BOARD:+-$BOARD}-$(date +%y%m%d)
+CMD=workloads/ttnn/llama3_dualmode/test_llama3_decode.py
+require_dual_cmd "$CMD"
+python ../si_profiling_helpers/run-ttnn-profiler.py --command "$CMD" --output-dir $RUNID --report-name $RUNID --disable-logging --merge-variant trace_replay "$@"
+rc=$?
+hw_id_write "$RUNID"
+exit "$rc"

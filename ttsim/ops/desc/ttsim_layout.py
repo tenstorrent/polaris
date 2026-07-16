@@ -527,6 +527,226 @@ def move_sinf(iTList, oTList, op, **kwargs):
     return
 
 
+def _passthrough_perf(in_shapes, out_shape, elem_size):
+    """Build a passthrough perf_stats dict: 1 mov per output element."""
+    in_elems = sum(_nelems(s) for s in in_shapes if s)
+    out_elems = _nelems(out_shape)
+    return {
+        'inElems': in_elems,
+        'outElems': out_elems,
+        'inBytes': in_elems * elem_size,
+        'outBytes': out_elems * elem_size,
+        'instrs': {'mov': out_elems},
+    }
+
+
+def rotary_embedding_llama_sinf(iTList, oTList, op, **kwargs):
+    """Shape inference for RotaryEmbeddingLlama (prefill): output = in0 (x) shape.
+
+    Inputs: x, cos, sin, trans_mat (rotary applied in-place on x's layout).
+    """
+    assert 1 <= len(iTList) <= 4 and len(oTList) == 1
+    X = iTList[0]
+    in_shape = require_shape_list(
+        X.shape,
+        "RotaryEmbeddingLlama shape inference: input tensor shape must be known",
+    )
+    oTList[0].shape = list(in_shape)
+    oTList[0].dtype = X.dtype
+
+    elem_size = op.attrs.get('element_size', 2)
+    op.perf_stats = _passthrough_perf([t.shape for t in iTList], in_shape, elem_size)
+    return
+
+
+def rotary_embedding_llama_fused_qk_sinf(iTList, oTList, op, **kwargs):
+    """Shape inference for RotaryEmbeddingLlamaFusedQK (decode): 2 outputs (q, k).
+
+    Inputs: q, k, cos, sin, trans_mat. out0 = q shape, out1 = k shape.
+    """
+    assert 2 <= len(iTList) <= 5 and len(oTList) == 2
+    Q = iTList[0]
+    K = iTList[1]
+    q_shape = require_shape_list(
+        Q.shape, "RotaryEmbeddingLlamaFusedQK shape inference: q shape must be known",
+    )
+    k_shape = require_shape_list(
+        K.shape, "RotaryEmbeddingLlamaFusedQK shape inference: k shape must be known",
+    )
+    oTList[0].shape = list(q_shape)
+    oTList[0].dtype = Q.dtype
+    oTList[1].shape = list(k_shape)
+    oTList[1].dtype = K.dtype
+
+    elem_size = op.attrs.get('element_size', 2)
+    in_elems = sum(_nelems(t.shape) for t in iTList if t.shape)
+    out_elems = _nelems(q_shape) + _nelems(k_shape)
+    op.perf_stats = {
+        'inElems': in_elems,
+        'outElems': out_elems,
+        'inBytes': in_elems * elem_size,
+        'outBytes': out_elems * elem_size,
+        'instrs': {'mov': out_elems},
+    }
+    return
+
+
+def paged_fill_cache_sinf(iTList, oTList, op, **kwargs):
+    """Shape inference for PagedFillCache (prefill): output = in0 (cache) shape.
+
+    Inputs: cache, input (k or v), page_table. The cache is filled in place;
+    the op returns the cache tensor unchanged in shape.
+    """
+    # PagedFillCache requires (cache, input) at minimum; page_table is optional.
+    assert 2 <= len(iTList) <= 3 and len(oTList) == 1
+    cache = iTList[0]
+    cache_shape = require_shape_list(
+        cache.shape, "PagedFillCache shape inference: cache shape must be known",
+    )
+    oTList[0].shape = list(cache_shape)
+    oTList[0].dtype = cache.dtype
+
+    elem_size = op.attrs.get('element_size', 2)
+    op.perf_stats = _passthrough_perf([t.shape for t in iTList], cache_shape, elem_size)
+    return
+
+
+def paged_fused_update_cache_sinf(iTList, oTList, op, **kwargs):
+    """Shape inference for PagedFusedUpdateCache (decode): 2 outputs (k_cache, v_cache).
+
+    Inputs: k_cache, k, v_cache, v, update_idxs_tensor, page_table.
+    out0 = k_cache (in0) shape, out1 = v_cache (in2) shape; updated in place.
+    """
+    # Op semantics require (k_cache, k, v_cache, v) at minimum; update_idxs/page_table optional.
+    assert 4 <= len(iTList) <= 6 and len(oTList) == 2
+    k_cache = iTList[0]
+    v_cache = iTList[2]
+    k_cache_shape = require_shape_list(
+        k_cache.shape, "PagedFusedUpdateCache shape inference: k_cache shape must be known",
+    )
+    v_cache_shape = require_shape_list(
+        v_cache.shape, "PagedFusedUpdateCache shape inference: v_cache shape must be known",
+    )
+    oTList[0].shape = list(k_cache_shape)
+    oTList[0].dtype = k_cache.dtype
+    oTList[1].shape = list(v_cache_shape)
+    oTList[1].dtype = v_cache.dtype
+
+    elem_size = op.attrs.get('element_size', 2)
+    in_elems = sum(_nelems(t.shape) for t in iTList if t.shape)
+    out_elems = _nelems(k_cache_shape) + _nelems(v_cache_shape)
+    op.perf_stats = {
+        'inElems': in_elems,
+        'outElems': out_elems,
+        'inBytes': in_elems * elem_size,
+        'outBytes': out_elems * elem_size,
+        'instrs': {'mov': out_elems},
+    }
+    return
+
+
+def nlp_create_qkv_heads_decode_sinf(iTList, oTList, op, **kwargs):
+    """Shape inference for NLPCreateQKVHeadsDecode: 1 input -> 3 outputs (Q, K, V).
+
+    Decode WZYX convention: input [1, 1, B, (num_q + 2*num_kv) * head_dim],
+    outputs put heads on the Y axis and head_dim on X:
+      Q = [1, 1, num_q_heads, head_dim]
+      K = [1, 1, num_kv_heads, head_dim]
+      V = [1, 1, num_kv_heads, head_dim]
+    """
+    assert len(iTList) == 1 and len(oTList) == 3
+    X = iTList[0]
+    in_shape = require_shape_list(
+        X.shape, "NLPCreateQKVHeadsDecode shape inference: input shape must be known",
+    )
+
+    num_q_heads = op.attrs.get('num_heads', 1)
+    num_kv_heads = op.attrs.get('num_kv_heads', num_q_heads)
+    head_dim = op.attrs.get('head_dim', None)
+    hidden = in_shape[-1]
+    if head_dim is None:
+        total_heads = num_q_heads + 2 * num_kv_heads
+        if hidden % total_heads != 0:
+            # Mirror nlp_create_qkv_heads_decode_op, which raises for this case.
+            raise ValueError(
+                f"NLPCreateQKVHeadsDecode shape inference: hidden {hidden} not divisible by "
+                f"num_heads + 2*num_kv_heads ({total_heads})"
+            )
+        head_dim = hidden // total_heads
+
+    lead = list(in_shape[:-2]) if len(in_shape) >= 2 else [1, 1]
+    while len(lead) < 2:
+        lead = [1] + lead
+    q_shape = lead + [num_q_heads, head_dim]
+    k_shape = lead + [num_kv_heads, head_dim]
+    v_shape = lead + [num_kv_heads, head_dim]
+
+    oTList[0].shape = q_shape
+    oTList[0].dtype = X.dtype
+    oTList[1].shape = k_shape
+    oTList[1].dtype = X.dtype
+    oTList[2].shape = v_shape
+    oTList[2].dtype = X.dtype
+
+    elem_size = op.attrs.get('element_size', 2)
+    in_elems = _nelems(in_shape)
+    out_elems = _nelems(q_shape) + _nelems(k_shape) + _nelems(v_shape)
+    op.perf_stats = {
+        'inElems': in_elems,
+        'outElems': out_elems,
+        'inBytes': in_elems * elem_size,
+        'outBytes': out_elems * elem_size,
+        'instrs': {'mov': out_elems},
+    }
+    return
+
+
+def nlp_concat_heads_decode_sinf(iTList, oTList, op, **kwargs):
+    """Shape inference for NLPConcatHeadsDecode: concatenate heads on the X axis.
+
+    Decode WZYX convention: input [1, 1, num_heads, head_dim] (heads on Y),
+    output [1, 1, num_heads, num_heads * head_dim] -- the input Y dim (in_shape[-2])
+    is kept and head_dim is folded into X. HW keeps the Y dim (batch placeholder) and
+    grows X = num_heads * head_dim.
+    """
+    assert len(iTList) == 1 and len(oTList) == 1
+    X = iTList[0]
+    in_shape = require_shape_list(
+        X.shape, "NLPConcatHeadsDecode shape inference: input shape must be known",
+    )
+    assert len(in_shape) >= 2, f"NLPConcatHeadsDecode expects rank>=2 input, got {len(in_shape)}"
+    num_heads = op.attrs.get('num_heads', in_shape[-2])
+    head_dim = in_shape[-1]
+    out_shape = list(in_shape[:-1]) + [num_heads * head_dim]
+
+    oTList[0].shape = out_shape
+    oTList[0].dtype = X.dtype
+
+    elem_size = op.attrs.get('element_size', 2)
+    op.perf_stats = _passthrough_perf([in_shape], out_shape, elem_size)
+    return
+
+
+def sdpa_sinf(iTList, oTList, op, **kwargs):
+    """Shape inference for ScaledDotProductAttention (prefill + decode): output = q (in0) shape.
+
+    Inputs (prefill): q, k, v. Inputs (decode/paged): q, k_cache, v_cache, cur_pos, page_table.
+    Output has the same shape as q in all cases.
+    """
+    # Match the op-table registration ARITY_VARIADIC[3-5]: prefill=3 (q,k,v), decode/paged up to 5.
+    assert 3 <= len(iTList) <= 5 and len(oTList) == 1
+    Q = iTList[0]
+    q_shape = require_shape_list(
+        Q.shape, "ScaledDotProductAttention shape inference: q shape must be known",
+    )
+    oTList[0].shape = list(q_shape)
+    oTList[0].dtype = Q.dtype
+
+    elem_size = op.attrs.get('element_size', 2)
+    op.perf_stats = _passthrough_perf([t.shape for t in iTList], q_shape, elem_size)
+    return
+
+
 def register_layout_ops():
     d = _TTNN_OP_DOMAIN
     _optbl = [
@@ -541,6 +761,13 @@ def register_layout_ops():
         ['Move', 'ARITY_1->1', d, 'COMMON', 24, 21, 1, 1, 1, 1, move_sinf, True, True, True, True, True],
         ['ConcatHeads', 'ARITY_1->1', d, 'COMMON', 24, 21, 1, 1, 1, 1, nlp_concat_heads_sinf, True, True, True, True, True],
         ['CreateQKVHeads', 'ARITY_VARIADIC[1-2]->3', d, 'COMMON', 24, 21, 2, 1, 3, 3, nlp_create_qkv_heads_sinf, True, True, True, True, True],
+        ['RotaryEmbeddingLlama', 'ARITY_VARIADIC[1-4]->1', d, 'COMMON', 24, 21, 4, 1, 1, 1, rotary_embedding_llama_sinf, True, True, True, True, True],
+        ['RotaryEmbeddingLlamaFusedQK', 'ARITY_VARIADIC[2-5]->2', d, 'COMMON', 24, 21, 5, 2, 2, 2, rotary_embedding_llama_fused_qk_sinf, True, True, True, True, True],
+        ['PagedFillCache', 'ARITY_VARIADIC[2-3]->1', d, 'COMMON', 24, 21, 3, 2, 1, 1, paged_fill_cache_sinf, True, True, True, True, True],
+        ['PagedFusedUpdateCache', 'ARITY_VARIADIC[4-6]->2', d, 'COMMON', 24, 21, 6, 4, 2, 2, paged_fused_update_cache_sinf, True, True, True, True, True],
+        ['NLPCreateQKVHeadsDecode', 'ARITY_1->3', d, 'COMMON', 24, 21, 1, 1, 3, 3, nlp_create_qkv_heads_decode_sinf, True, True, True, True, True],
+        ['NLPConcatHeadsDecode', 'ARITY_1->1', d, 'COMMON', 24, 21, 1, 1, 1, 1, nlp_concat_heads_decode_sinf, True, True, True, True, True],
+        ['ScaledDotProductAttention', 'ARITY_VARIADIC[3-5]->1', d, 'COMMON', 24, 21, 5, 3, 1, 1, sdpa_sinf, True, True, True, True, True],
     ]
     register_ops('layout', _optbl)
     return

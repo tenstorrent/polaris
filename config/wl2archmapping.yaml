@@ -41,7 +41,7 @@ op_fusion_spec:
 
 op_rsrc_spec:
   compute:
-    matrix: [Matmul, Conv, ConvTranspose, Gemm, MultiheadAttention]
+    matrix: [Matmul, Conv, ConvTranspose, Gemm, MultiheadAttention, ScaledDotProductAttention]
     vector: [Add, And, ArgMax, AveragePool,
              BatchNormalization,
              Cast, Clip, Concat, Constant, ConstantOfShape, Cos, CumSum,
@@ -55,7 +55,8 @@ op_rsrc_spec:
              Move,
              LayerNormalization, LeakyRelu, Log, Less,
              Max, MaxPool, Mean, Min, Mish, Mul,
-             Neg, ConcatHeads, CreateQKVHeads, NonMaxSuppression, NonZero, # transformer head ops from ttnn_shim
+             Neg, ConcatHeads, CreateQKVHeads, NLPCreateQKVHeadsDecode, NLPConcatHeadsDecode, # transformer head ops (prefill+decode) from ttnn_shim
+             RotaryEmbeddingLlama, RotaryEmbeddingLlamaFusedQK, PagedFillCache, PagedFusedUpdateCache, NonMaxSuppression, NonZero, # transformer rope/cache ops from ttnn_shim
              Pad, Permute, Pow,
              QuantizeLinear,
              Reciprocal, ReduceMax, ReduceMean, ReduceMin, ReduceProd, ReduceSum, Relu, Reshard, Reshape, Resize,

@@ -15,6 +15,7 @@ These scripts are part of the **Polaris** repository but are designed to work al
 ```
 workspace/
 ├── si_profiling_helpers/      # These helper scripts (from polaris/tools/si_profiling_helpers/)
+│   ├── setup-step-0-clean.sh
 │   ├── setup-step-1-fresh-build.sh
 │   ├── setup-step-2-new-login.sh
 │   ├── run-ttnn-profiler.py
@@ -69,6 +70,14 @@ source ../si_profiling_helpers/setup-step-2-new-login.sh
 ## Scripts Index
 
 ### Setup Scripts
+
+#### [`setup-step-0-clean.sh`](setup-step-0-clean.sh)
+Full clean of the workspace so a fresh build starts from scratch — the opposite of step-1.
+Runs three independent removals: `build_metal.sh --clean` (tt-metal C++/kernel artifacts, which
+does **not** touch `python_env`), `rm -rf python_env`, and `rm -rf ../tt-npe/build ../tt-npe/install`.
+- **When to use:** Clean before a fresh build — run this, then `setup-step-1-fresh-build.sh`.
+- **Usage:** `cd /path/to/tt-metal && bash setup-step-0-clean.sh`
+- **Prerequisites:** Run from the tt-metal repo root; no virtualenv active (`deactivate` first); tt-npe at `../tt-npe`
 
 #### [`setup-step-1-fresh-build.sh`](setup-step-1-fresh-build.sh)
 Initial setup script for fresh tt-metal installation.
@@ -243,6 +252,7 @@ See individual script headers for complete documentation.
 ```
 si_profiling_helpers/
 ├── README.md                      # This file
+├── setup-step-0-clean.sh          # Full workspace clean before a fresh build
 ├── setup-step-1-fresh-build.sh    # Initial build setup
 ├── setup-step-2-new-login.sh      # Session environment setup
 ├── run-ttnn-profiler.py           # TTNN profiler runner
@@ -268,4 +278,4 @@ When adding new scripts:
 
 ---
 
-**Last Updated:** April 8, 2026
+**Last Updated:** July 3, 2026

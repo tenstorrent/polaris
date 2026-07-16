@@ -9,7 +9,7 @@ HEAD=$(git rev-parse --short=7 HEAD)
 RUNID=vitref-${HEAD}-${IRD_ARCH_NAME}${BOARD:+-$BOARD}-$(date +%y%m%d)
 CMD=models/demos/vision/classification/vit/wormhole/tests/test_vit_device_perf.py::test_vit_device_ops
 require_ref_cmd "$CMD"
-python ../si_profiling_helpers/run-ttnn-profiler.py --command "$CMD" --pytest --output-dir $RUNID --report-name $RUNID "$@"
+python ../si_profiling_helpers/run-ttnn-profiler.py --command "$CMD" --pytest --output-dir $RUNID --report-name $RUNID --merge-variant trace_replay "$@"
 rc=$?
 hw_id_write "$RUNID"
 exit "$rc"

@@ -36,11 +36,16 @@ set -euo pipefail
 ./build_metal.sh
 
 # Create Python virtual environment
+# uv download hardening: defaults (30s timeout, 50 parallel downloads) starve
+# individual wheels on throttled links and abort mid-extract. Raise the read
+# timeout and cap concurrency so each stream keeps enough bandwidth.
+export UV_HTTP_TIMEOUT="${UV_HTTP_TIMEOUT:-600}"
+export UV_CONCURRENT_DOWNLOADS="${UV_CONCURRENT_DOWNLOADS:-8}"
 ./create_venv.sh
 
 # Activate venv so tt-npe build picks up the right Python interpreter
 source python_env/bin/activate
 
-# Build tt-npe with clang-20 compiler
-cd ../tt-npe
-bash build-npe.sh
+# Build tt-npe with clang-20 compiler (in a subshell so we return to the
+# tt-metal root afterwards, whether this script is run with bash or sourced).
+( cd ../tt-npe && bash build-npe.sh )
