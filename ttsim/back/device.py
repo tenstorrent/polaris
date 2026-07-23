@@ -261,21 +261,26 @@ class Device:
         if TYPE_CHECKING:
             assert op.perf_stats is not None, f"SimOp {op.name} has no perf_stats set, cannot execute"
 
-        #find compute cycles
-        op.compute_cycles = 0
-        for instr,instr_count in op.perf_stats['instrs'].items():
-            # Enhanced error handling to provide context when instruction lookup fails
-            # (e.g., when an operation needs an instruction not in its primary pipe)
-            try:
-                peak_ipc = self.simconfig_obj.peak_ipc(op.uses_compute_pipe, instr, op.precision)
-            except AssertionError as e:
-                raise AssertionError(
-                    f"Failed to get peak IPC for operation '{op.name}' (optype={op.optype}): "
-                    f"instruction='{instr}', pipe='{op.uses_compute_pipe}', precision='{op.precision}'. "
-                    f"Original error: {e}"
-                ) from e
-            real_ipc = peak_ipc * self.DG_COMPUTE_UTIL_CONSTANT
-            op.compute_cycles += math.ceil(instr_count / real_ipc)
+        # find compute cycles. A fused op may carry a precomputed per-op cycle count
+        # (e.g. the SDPA roofline); otherwise use the generic instrs/IPC lookup.
+        fused_cycles = op.perf_stats.get('fused_compute_cycles')
+        if fused_cycles is not None:
+            op.compute_cycles = int(math.ceil(fused_cycles))
+        else:
+            op.compute_cycles = 0
+            for instr,instr_count in op.perf_stats['instrs'].items():
+                # Enhanced error handling to provide context when instruction lookup fails
+                # (e.g., when an operation needs an instruction not in its primary pipe)
+                try:
+                    peak_ipc = self.simconfig_obj.peak_ipc(op.uses_compute_pipe, instr, op.precision)
+                except AssertionError as e:
+                    raise AssertionError(
+                        f"Failed to get peak IPC for operation '{op.name}' (optype={op.optype}): "
+                        f"instruction='{instr}', pipe='{op.uses_compute_pipe}', precision='{op.precision}'. "
+                        f"Original error: {e}"
+                    ) from e
+                real_ipc = peak_ipc * self.DG_COMPUTE_UTIL_CONSTANT
+                op.compute_cycles += math.ceil(instr_count / real_ipc)
 
         # Find memory cycles.
         # NOTE: This calculation is done at the unit of bytes to avoid potential ambiguity of GB (1024 or 1000)
