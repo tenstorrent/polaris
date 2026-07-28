@@ -114,6 +114,36 @@ def test_roofline_tracks_measured_math(shape, S):
 
 
 @pytest.mark.unit
+def test_sdpa_config_from_shapes_gqa():
+    from ttsim.perf.roofline_sdpa import sdpa_config_from_shapes
+    # Llama GQA: q[1,32,4096,128], k/v[1,8,4096,128], causal
+    cfg = sdpa_config_from_shapes([1, 32, 4096, 128], [1, 8, 4096, 128], [1, 8, 4096, 128],
+                                  {"is_causal": True, "element_size": 1})
+    assert (cfg.num_heads, cfg.num_kv_heads, cfg.head_dim, cfg.S) == (32, 8, 128, 4096)
+    assert cfg.input_dtype == "bfp8_b" and cfg.is_causal
+    ps = sdpa_perf_stats(cfg)
+    assert ps["fused_compute_cycles"] > 0 and ps["inBytes"] > 0
+
+
+@pytest.mark.unit
+def test_sdpa_sinf_wires_roofline_for_prefill_and_falls_back_for_decode():
+    from ttsim.ops.desc.ttsim_layout import sdpa_sinf
+    def T(shape):
+        return SimpleNamespace(shape=list(shape), dtype="bfloat16")
+    # prefill: 3 inputs -> roofline cost provider populates fused_compute_cycles
+    q, k, v = T([1, 32, 4096, 128]), T([1, 8, 4096, 128]), T([1, 8, 4096, 128])
+    out = SimpleNamespace(shape=None, dtype=None)
+    op = SimpleNamespace(attrs={"is_causal": True, "element_size": 1}, perf_stats=None)
+    sdpa_sinf([q, k, v], [out], op)
+    assert op.perf_stats.get("fused_compute_cycles", 0) > 0
+    assert op.perf_stats["inBytes"] > 0
+    # decode: 4 inputs -> passthrough (no fused_compute_cycles)
+    op2 = SimpleNamespace(attrs={"element_size": 2}, perf_stats=None)
+    sdpa_sinf([T([1, 32, 1, 128]), k, v, T([1])], [SimpleNamespace(shape=None, dtype=None)], op2)
+    assert "fused_compute_cycles" not in op2.perf_stats
+
+
+@pytest.mark.unit
 def test_perf_stats_has_all_keys_downstream_reads():
     # hlmstats / device stats read these unconditionally; missing any is a KeyError at runtime.
     ps = sdpa_perf_stats(_baseline_cfg(4096))
