@@ -126,8 +126,28 @@ def test_perf_stats_has_all_keys_downstream_reads():
 
 @pytest.mark.unit
 def test_predict_rejects_non_tile_aligned_shapes():
-    import pytest as _pytest
-    with _pytest.raises(AssertionError):
+    with pytest.raises(AssertionError):
         predict(SdpaConfig(S=4096, head_dim=100, num_cores=110, arch=ARCH_BH))
-    with _pytest.raises(AssertionError):
+    with pytest.raises(AssertionError):
         predict(SdpaConfig(S=5000, num_cores=110, arch=ARCH_BH))
+    with pytest.raises(AssertionError):
+        predict(SdpaConfig(S=4096, head_dim=128, v_head_dim=100, num_cores=110, arch=ARCH_BH))
+
+
+@pytest.mark.unit
+def test_v_head_dim_default_is_symmetric():
+    # v_head_dim=0 must reproduce the symmetric head_dim result exactly.
+    sym = predict(SdpaConfig(S=4096, head_dim=128, num_cores=110, arch=ARCH_BH))
+    explicit = predict(SdpaConfig(S=4096, head_dim=128, v_head_dim=128, num_cores=110, arch=ARCH_BH))
+    assert sym.fpu_matmul_cycles == explicit.fpu_matmul_cycles
+    assert sym.compute_latency_cycles == explicit.compute_latency_cycles
+
+
+@pytest.mark.unit
+def test_asymmetric_v_head_dim_scales_pv_matmul():
+    # MLA-style: v_head_dim > head_dim raises the P*V matmul, so total matmul cycles grow.
+    base = predict(SdpaConfig(S=4096, head_dim=192, num_cores=110, arch=ARCH_BH))
+    mla = predict(SdpaConfig(S=4096, head_dim=192, v_head_dim=512, num_cores=110, arch=ARCH_BH))
+    assert mla.fpu_matmul_cycles > base.fpu_matmul_cycles
+    # matmul cycles scale as (dct_qk + dct_v): (6+16) vs (6+6)
+    assert mla.fpu_matmul_cycles == round(base.fpu_matmul_cycles * (6 + 16) / (6 + 6))
