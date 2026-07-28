@@ -14,7 +14,12 @@ from typing import Dict
 TILE_HW = 32
 BYTES_PER_TILE = {"bfp8_b": 1088, "bfloat16": 2048, "float32": 4096}
 
-OVERLAP_FRAC = 0.63  # FPU/SFPU concurrency, as a fraction of the smaller engine (calibrated)
+# FPU/SFPU concurrency, as a fraction of the smaller engine. Calibrated per regime from
+# the measured MATH union; overlap is genuinely config-dependent (measured 0.45-0.86), so a
+# single global value biased the causal case low. These two-way values leave a residual
+# per-config bias (q_chunk=256 ~+6%, bf16 ~-4%) reported honestly in the validation.
+OVERLAP_FRAC_CAUSAL = 0.579
+OVERLAP_FRAC_NONCAUSAL = 0.755
 
 
 @dataclass
@@ -39,7 +44,6 @@ class ArchConfig:
     packer_bw_bytes_per_cycle: float = 64.0
     idle_per_inner_iter: float = 0.0
     init_overhead_cycles: float = 30000.0
-    risc_producer_ipc: float = 1.0
     clock_ghz: float = 1.35
 
     def cpt(self, fidelity: str) -> float:
@@ -53,7 +57,8 @@ class SdpaConfig:
     v_head_dim: int = 0       # P*V output dim; 0 means same as head_dim (symmetric SDPA)
     q_chunk: int = 128
     k_chunk: int = 128
-    num_heads: int = 32
+    num_heads: int = 32       # query heads
+    num_kv_heads: int = 0     # KV heads; 0 means same as num_heads (MHA). GQA/MQA read K/V fewer times.
     num_cores: int = 110
     fidelity: str = "HiFi2"
     input_dtype: str = "bfp8_b"
@@ -80,24 +85,36 @@ class RooflineResult:
     sfpu_recip_cycles: int = 0
     sfpu_overhead_cycles: int = 0
     sfpu_cycles: int = 0
-    math_active_cycles: int = 0
+    math_active_cycles: int = 0        # FPU/SFPU execution union (calibrated overlap) = the compute estimate
+    serial_sum_cycles: int = 0         # fpu+sfpu, the zero-overlap upper bracket (not the prediction)
     math_idle_cycles: int = 0
     init_overhead_cycles: int = 0
     compute_latency_cycles: int = 0
-    unpack_bytes_total: int = 0
+    unpack_bytes_total: int = 0        # per-core L1 unpacker bytes (drives the on-chip BW floor only)
     pack_bytes_total: int = 0
     unpack_min_cycles: int = 0
     pack_min_cycles: int = 0
+    dram_in_bytes: int = 0             # whole-op DRAM read traffic (Q + K/V scaled by num_kv_heads)
+    dram_out_bytes: int = 0            # whole-op DRAM write traffic (output)
 
     def to_polaris_op_perf_stats(self) -> Dict:
-        # perf_stats for a fused SDPA op. fused_compute_cycles is the calibrated per-op
-        # latency Device.execute_op consumes directly; inBytes/outBytes drive the memory
-        # path; instrs is kept for reporting. inElems/outElems are 0 so hlmstats skips the
-        # bytes-per-element precision check (inBytes are tile bytes, not raw element bytes),
-        # and the param/act counts are 0 (SDPA carries no weights).
+        """perf_stats for a fused SDPA op consumed by ttsim Device.execute_op.
+
+        CONTRACT: fused_compute_cycles is the COMPUTE-LATENCY FLOOR (the FPU/SFPU math
+        union), not full wall-clock. On BH it is ~44-65% of measured kernel wall-clock;
+        the front-end/dispatch idle that separates the two is the deferred data-movement
+        half of TEN-4716 and is NOT included here. Treat Polaris SDPA latency from this
+        provider as a lower bound until that half lands.
+
+        inBytes/outBytes are whole-op DRAM traffic (K/V counted per KV head, so GQA/MQA are
+        not overcounted); the per-core L1 unpacker bytes stay internal to the on-chip BW
+        floor. inElems/outElems are 0 so hlmstats skips the bytes-per-element check; SDPA
+        carries no weights so param/act counts are 0. instrs holds cycle-breakdown for
+        reporting only (fused_compute_cycles is what sets op cost).
+        """
         return {
-            "inBytes": self.unpack_bytes_total,
-            "outBytes": self.pack_bytes_total,
+            "inBytes": self.dram_in_bytes,
+            "outBytes": self.dram_out_bytes,
             "inElems": 0,
             "outElems": 0,
             "inParamCount": 0,
@@ -115,6 +132,33 @@ class RooflineResult:
 
 def sdpa_perf_stats(cfg: "SdpaConfig") -> Dict:
     return predict(cfg).to_polaris_op_perf_stats()
+
+
+_ELEM_TO_DTYPE = {1: "bfp8_b", 2: "bfloat16", 4: "float32"}
+
+
+def sdpa_config_from_shapes(q_shape, k_shape, v_shape, attrs=None, num_cores=110, arch=None):
+    """Build an SdpaConfig from a prefill SDPA op's q/k/v tensor shapes + attrs.
+
+    q: [..., num_heads, S, head_dim]; k: [..., num_kv_heads, S, head_dim];
+    v: [..., num_kv_heads, S, v_head_dim]. Attrs may carry is_causal, q/k_chunk_size,
+    element_size, exp_approx_mode. This is BH-calibrated (arch defaults to ARCH_BH).
+    """
+    attrs = attrs or {}
+    q, k, v = [list(map(int, s)) for s in (q_shape, k_shape, v_shape)]
+    nh, S, head_dim = q[-3], q[-2], q[-1]
+    nkv, v_head_dim = k[-3], v[-1]
+    dtype = _ELEM_TO_DTYPE.get(int(attrs.get("element_size", 2)), "bfloat16")
+    qc = int(attrs.get("q_chunk_size") or 128)
+    kc = int(attrs.get("k_chunk_size") or qc)
+    return SdpaConfig(
+        S=S, head_dim=head_dim, v_head_dim=(0 if v_head_dim == head_dim else v_head_dim),
+        q_chunk=qc, k_chunk=kc, num_heads=nh, num_kv_heads=(0 if nkv == nh else nkv),
+        num_cores=num_cores, is_causal=bool(attrs.get("is_causal", True)),
+        input_dtype=dtype, accum_dtype="bfloat16",
+        exp_approx_mode=bool(attrs.get("exp_approx_mode", True)),
+        arch=arch or ARCH_BH,
+    )
 
 
 def predict(cfg: SdpaConfig) -> RooflineResult:
@@ -157,12 +201,15 @@ def predict(cfg: SdpaConfig) -> RooflineResult:
     r.sfpu_overhead_cycles = round(r.inner_iters * a.sfpu_overhead_per_inner_iter)
     r.sfpu_cycles = r.sfpu_exp_cycles + r.sfpu_reduce_cycles + r.sfpu_recip_cycles + r.sfpu_overhead_cycles
 
-    # L1 bytes and bandwidth floor.
+    # Per-core L1 unpacker bytes (drives the on-chip BW floor only). GQA/MQA share KV across
+    # a query group, so K/V are read kv_frac as often as Q.
     ibpt = BYTES_PER_TILE[cfg.input_dtype]
     abpt = BYTES_PER_TILE[cfg.accum_dtype]
+    nkv = cfg.num_kv_heads or cfg.num_heads
+    kv_frac = nkv / cfg.num_heads
     unpack_q = Q * qct * dct_qk * ibpt
-    unpack_k = Q * K_eff * kct * dct_qk * ibpt
-    unpack_v = Q * K_eff * kct * dct_v * ibpt
+    unpack_k = Q * K_eff * kct * dct_qk * ibpt * kv_frac
+    unpack_v = Q * K_eff * kct * dct_v * ibpt * kv_frac
     mask_chunks = (K_eff if (cfg.has_attn_mask and not cfg.is_causal) else (1.0 if cfg.is_causal else 0.0))
     unpack_mask = Q * mask_chunks * qct * kct * abpt if cfg.has_attn_mask or cfg.is_causal else 0.0
     r.unpack_bytes_total = round(unpack_q + unpack_k + unpack_v + unpack_mask)
@@ -170,14 +217,23 @@ def predict(cfg: SdpaConfig) -> RooflineResult:
     r.unpack_min_cycles = round(r.unpack_bytes_total / a.unpacker_bw_bytes_per_cycle)
     r.pack_min_cycles = round(r.pack_bytes_total / a.packer_bw_bytes_per_cycle)
 
-    # Compute latency = max of the math union, the L1 BW floor, and the RISC-V issue floor,
-    # plus startup. Measured wall-clock sits above this (front-end idle = the next task).
-    overlap = OVERLAP_FRAC * min(r.fpu_cycles, r.sfpu_cycles)
-    r.math_active_cycles = round(r.fpu_cycles + r.sfpu_cycles - overlap)
+    # Whole-op DRAM traffic for the Polaris memory path: each tensor read/written once, K/V
+    # counted per KV head (not per query head), so GQA/MQA/MLA are not overcounted.
+    st_tiles = cfg.S // TILE_HW
+    r.dram_in_bytes = round(cfg.num_heads * st_tiles * dct_qk * ibpt      # Q
+                            + nkv * st_tiles * dct_qk * ibpt              # K
+                            + nkv * st_tiles * dct_v * ibpt)             # V
+    r.dram_out_bytes = round(cfg.num_heads * st_tiles * dct_v * abpt)     # output
+
+    # Compute-latency estimate = the FPU/SFPU execution union (calibrated, regime-aware
+    # overlap), bounded below by the on-chip L1 BW floor, plus startup. This is a compute
+    # FLOOR: measured wall-clock sits above it by the front-end/dispatch idle (next task).
+    overlap_frac = OVERLAP_FRAC_CAUSAL if cfg.is_causal else OVERLAP_FRAC_NONCAUSAL
+    r.math_active_cycles = round(r.fpu_cycles + r.sfpu_cycles - overlap_frac * min(r.fpu_cycles, r.sfpu_cycles))
+    r.serial_sum_cycles = r.fpu_cycles + r.sfpu_cycles   # zero-overlap upper bracket, for reference
     l1_floor = max(r.unpack_min_cycles, r.pack_min_cycles)
-    risc_floor = (r.fpu_cycles + r.sfpu_cycles) / a.risc_producer_ipc
     r.init_overhead_cycles = round(a.init_overhead_cycles)
-    r.compute_latency_cycles = round(max(r.math_active_cycles, l1_floor, risc_floor) + r.init_overhead_cycles)
+    r.compute_latency_cycles = round(max(r.math_active_cycles, l1_floor) + r.init_overhead_cycles)
     r.math_idle_cycles = round(r.inner_iters * a.idle_per_inner_iter)
     return r
 
