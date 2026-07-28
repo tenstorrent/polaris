@@ -88,27 +88,20 @@ class RooflineResult:
     unpack_min_cycles: int = 0
     pack_min_cycles: int = 0
 
-    def to_polaris_perf_stats(self) -> Dict:
-        return {
-            "inBytes": self.unpack_bytes_total,
-            "outBytes": self.pack_bytes_total,
-            "instrs": {
-                "mac": self.fpu_matmul_cycles,
-                "mov": self.fpu_overhead_cycles,
-                "exp": self.sfpu_exp_cycles,
-                "max": self.sfpu_reduce_cycles,
-                "div": self.sfpu_recip_cycles,
-            },
-            "l1_unpack_min_cycles": self.unpack_min_cycles,
-            "l1_pack_min_cycles": self.pack_min_cycles,
-        }
-
     def to_polaris_op_perf_stats(self) -> Dict:
-        # fused_compute_cycles is the calibrated per-op latency Device.execute_op consumes
-        # directly; inBytes/outBytes drive the memory path; instrs is kept for reporting.
+        # perf_stats for a fused SDPA op. fused_compute_cycles is the calibrated per-op
+        # latency Device.execute_op consumes directly; inBytes/outBytes drive the memory
+        # path; instrs is kept for reporting. inElems/outElems are 0 so hlmstats skips the
+        # bytes-per-element precision check (inBytes are tile bytes, not raw element bytes),
+        # and the param/act counts are 0 (SDPA carries no weights).
         return {
             "inBytes": self.unpack_bytes_total,
             "outBytes": self.pack_bytes_total,
+            "inElems": 0,
+            "outElems": 0,
+            "inParamCount": 0,
+            "inActCount": 0,
+            "outActCount": 0,
             "instrs": {
                 "mac": self.fpu_matmul_cycles,
                 "exp": self.sfpu_exp_cycles,
@@ -126,6 +119,13 @@ def sdpa_perf_stats(cfg: "SdpaConfig") -> Dict:
 def predict(cfg: SdpaConfig) -> RooflineResult:
     a = cfg.arch
     r = RooflineResult(label=f"S={cfg.S}", arch_name=a.name)
+
+    # The model assumes tile-aligned, chunk-divisible shapes; fail fast otherwise rather
+    # than silently underestimating work from floor division.
+    assert cfg.q_chunk % TILE_HW == 0 and cfg.k_chunk % TILE_HW == 0 and cfg.head_dim % TILE_HW == 0, \
+        f"q_chunk/k_chunk/head_dim must be multiples of {TILE_HW}"
+    assert cfg.S % cfg.q_chunk == 0 and cfg.S % cfg.k_chunk == 0, \
+        "S must be divisible by q_chunk and k_chunk"
 
     q_chunks_total = (cfg.S // cfg.q_chunk) * cfg.num_heads
     Q = q_chunks_total / cfg.num_cores
