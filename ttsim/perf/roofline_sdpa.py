@@ -47,7 +47,12 @@ class ArchConfig:
     clock_ghz: float = 1.35
 
     def cpt(self, fidelity: str) -> float:
-        return self.cycles_per_tile_mac[fidelity]
+        try:
+            return self.cycles_per_tile_mac[fidelity]
+        except KeyError:
+            raise ValueError(
+                f"unsupported fidelity {fidelity!r}; supported: {sorted(self.cycles_per_tile_mac)}"
+            ) from None
 
 
 @dataclass
@@ -109,8 +114,10 @@ class RooflineResult:
         inBytes/outBytes are whole-op DRAM traffic (K/V counted per KV head, so GQA/MQA are
         not overcounted); the per-core L1 unpacker bytes stay internal to the on-chip BW
         floor. inElems/outElems are 0 so hlmstats skips the bytes-per-element check; SDPA
-        carries no weights so param/act counts are 0. instrs holds cycle-breakdown for
-        reporting only (fused_compute_cycles is what sets op cost).
+        carries no weights so param/act counts are 0. instrs is left empty: ttsim consumes
+        it as instruction COUNTS (divided by IPC / summed for instr profiles), so cycle
+        values must not live there. The per-engine cycle breakdown is exposed separately
+        under sdpa_cycle_breakdown for reporting; fused_compute_cycles sets the op cost.
         """
         return {
             "inBytes": self.dram_in_bytes,
@@ -120,13 +127,17 @@ class RooflineResult:
             "inParamCount": 0,
             "inActCount": 0,
             "outActCount": 0,
-            "instrs": {
-                "mac": self.fpu_matmul_cycles,
-                "exp": self.sfpu_exp_cycles,
-                "max": self.sfpu_reduce_cycles,
-                "div": self.sfpu_recip_cycles,
-            },
+            "instrs": {},
             "fused_compute_cycles": self.compute_latency_cycles,
+            "sdpa_cycle_breakdown": {
+                "fpu_matmul": self.fpu_matmul_cycles,
+                "fpu_overhead": self.fpu_overhead_cycles,
+                "sfpu_exp": self.sfpu_exp_cycles,
+                "sfpu_reduce": self.sfpu_reduce_cycles,
+                "sfpu_recip": self.sfpu_recip_cycles,
+                "sfpu_overhead": self.sfpu_overhead_cycles,
+                "math_active": self.math_active_cycles,
+            },
         }
 
 
@@ -166,13 +177,16 @@ def predict(cfg: SdpaConfig) -> RooflineResult:
     r = RooflineResult(label=f"S={cfg.S}", arch_name=a.name)
 
     # The model assumes tile-aligned, chunk-divisible shapes; fail fast otherwise rather
-    # than silently underestimating work from floor division.
+    # than silently underestimating work from floor division. ValueError (not assert) so it
+    # is not stripped under `python -O`.
     v_head_dim = cfg.v_head_dim or cfg.head_dim
-    assert cfg.q_chunk % TILE_HW == 0 and cfg.k_chunk % TILE_HW == 0 \
-        and cfg.head_dim % TILE_HW == 0 and v_head_dim % TILE_HW == 0, \
-        f"q_chunk/k_chunk/head_dim/v_head_dim must be multiples of {TILE_HW}"
-    assert cfg.S % cfg.q_chunk == 0 and cfg.S % cfg.k_chunk == 0, \
-        "S must be divisible by q_chunk and k_chunk"
+    if not (cfg.q_chunk % TILE_HW == 0 and cfg.k_chunk % TILE_HW == 0
+            and cfg.head_dim % TILE_HW == 0 and v_head_dim % TILE_HW == 0):
+        raise ValueError(f"q_chunk/k_chunk/head_dim/v_head_dim must be multiples of {TILE_HW}")
+    if not (cfg.S % cfg.q_chunk == 0 and cfg.S % cfg.k_chunk == 0):
+        raise ValueError("S must be divisible by q_chunk and k_chunk")
+    if cfg.input_dtype not in BYTES_PER_TILE or cfg.accum_dtype not in BYTES_PER_TILE:
+        raise ValueError(f"unsupported dtype; supported: {sorted(BYTES_PER_TILE)}")
 
     q_chunks_total = (cfg.S // cfg.q_chunk) * cfg.num_heads
     Q = q_chunks_total / cfg.num_cores
