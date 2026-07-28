@@ -155,13 +155,17 @@ def test_perf_stats_has_all_keys_downstream_reads():
 
 
 @pytest.mark.unit
-def test_predict_rejects_non_tile_aligned_shapes():
-    with pytest.raises(AssertionError):
+def test_predict_rejects_bad_shapes_and_dtypes():
+    with pytest.raises(ValueError):
         predict(SdpaConfig(S=4096, head_dim=100, num_cores=110, arch=ARCH_BH))
-    with pytest.raises(AssertionError):
+    with pytest.raises(ValueError):
         predict(SdpaConfig(S=5000, num_cores=110, arch=ARCH_BH))
-    with pytest.raises(AssertionError):
+    with pytest.raises(ValueError):
         predict(SdpaConfig(S=4096, head_dim=128, v_head_dim=100, num_cores=110, arch=ARCH_BH))
+    with pytest.raises(ValueError):
+        predict(SdpaConfig(S=4096, input_dtype="fp8_e4m3", num_cores=110, arch=ARCH_BH))
+    with pytest.raises(ValueError):
+        predict(SdpaConfig(S=4096, fidelity="HiFi9", num_cores=110, arch=ARCH_BH))
 
 
 @pytest.mark.unit
