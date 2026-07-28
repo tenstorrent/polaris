@@ -49,7 +49,8 @@ class ArchConfig:
 @dataclass
 class SdpaConfig:
     S: int
-    head_dim: int = 128
+    head_dim: int = 128       # QK head dim (Q*K^T contraction)
+    v_head_dim: int = 0       # P*V output dim; 0 means same as head_dim (symmetric SDPA)
     q_chunk: int = 128
     k_chunk: int = 128
     num_heads: int = 32
@@ -122,8 +123,10 @@ def predict(cfg: SdpaConfig) -> RooflineResult:
 
     # The model assumes tile-aligned, chunk-divisible shapes; fail fast otherwise rather
     # than silently underestimating work from floor division.
-    assert cfg.q_chunk % TILE_HW == 0 and cfg.k_chunk % TILE_HW == 0 and cfg.head_dim % TILE_HW == 0, \
-        f"q_chunk/k_chunk/head_dim must be multiples of {TILE_HW}"
+    v_head_dim = cfg.v_head_dim or cfg.head_dim
+    assert cfg.q_chunk % TILE_HW == 0 and cfg.k_chunk % TILE_HW == 0 \
+        and cfg.head_dim % TILE_HW == 0 and v_head_dim % TILE_HW == 0, \
+        f"q_chunk/k_chunk/head_dim/v_head_dim must be multiples of {TILE_HW}"
     assert cfg.S % cfg.q_chunk == 0 and cfg.S % cfg.k_chunk == 0, \
         "S must be divisible by q_chunk and k_chunk"
 
@@ -137,11 +140,12 @@ def predict(cfg: SdpaConfig) -> RooflineResult:
 
     qct = cfg.q_chunk // TILE_HW
     kct = cfg.k_chunk // TILE_HW
-    dct = cfg.head_dim // TILE_HW
+    dct_qk = cfg.head_dim // TILE_HW   # Q*K^T contracts over head_dim
+    dct_v = v_head_dim // TILE_HW      # softmax*V produces v_head_dim (MLA: != head_dim)
     cpt = a.cpt(cfg.fidelity)
 
-    # FPU: two matmuls (Q*K^T, softmax*V) plus LLK template overhead.
-    r.fpu_matmul_cycles = round(2 * Q * K_eff * qct * kct * dct * cpt)
+    # FPU: Q*K^T (over head_dim) + softmax*V (over v_head_dim), plus LLK template overhead.
+    r.fpu_matmul_cycles = round(Q * K_eff * qct * kct * (dct_qk + dct_v) * cpt)
     r.fpu_overhead_cycles = round(r.fpu_matmul_cycles * a.fpu_overhead_frac)
     r.fpu_cycles = r.fpu_matmul_cycles + r.fpu_overhead_cycles
 
@@ -156,13 +160,13 @@ def predict(cfg: SdpaConfig) -> RooflineResult:
     # L1 bytes and bandwidth floor.
     ibpt = BYTES_PER_TILE[cfg.input_dtype]
     abpt = BYTES_PER_TILE[cfg.accum_dtype]
-    unpack_q = Q * qct * dct * ibpt
-    unpack_k = Q * K_eff * kct * dct * ibpt
-    unpack_v = Q * K_eff * kct * dct * ibpt
+    unpack_q = Q * qct * dct_qk * ibpt
+    unpack_k = Q * K_eff * kct * dct_qk * ibpt
+    unpack_v = Q * K_eff * kct * dct_v * ibpt
     mask_chunks = (K_eff if (cfg.has_attn_mask and not cfg.is_causal) else (1.0 if cfg.is_causal else 0.0))
     unpack_mask = Q * mask_chunks * qct * kct * abpt if cfg.has_attn_mask or cfg.is_causal else 0.0
     r.unpack_bytes_total = round(unpack_q + unpack_k + unpack_v + unpack_mask)
-    r.pack_bytes_total = round(Q * qct * dct * abpt)
+    r.pack_bytes_total = round(Q * qct * dct_v * abpt)
     r.unpack_min_cycles = round(r.unpack_bytes_total / a.unpacker_bw_bytes_per_cycle)
     r.pack_min_cycles = round(r.pack_bytes_total / a.packer_bw_bytes_per_cycle)
 
