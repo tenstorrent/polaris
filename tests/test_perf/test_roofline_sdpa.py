@@ -114,7 +114,20 @@ def test_roofline_tracks_measured_math(shape, S):
 
 
 @pytest.mark.unit
-def test_perf_stats_shape_for_polaris():
+def test_perf_stats_has_all_keys_downstream_reads():
+    # hlmstats / device stats read these unconditionally; missing any is a KeyError at runtime.
     ps = sdpa_perf_stats(_baseline_cfg(4096))
-    assert {"inBytes", "outBytes", "instrs", "fused_compute_cycles"}.issubset(ps)
+    required = {"inBytes", "outBytes", "inElems", "outElems", "inParamCount",
+                "inActCount", "outActCount", "instrs", "fused_compute_cycles"}
+    assert required.issubset(ps), f"missing: {required - set(ps)}"
     assert ps["fused_compute_cycles"] > 0 and ps["inBytes"] > 0
+    assert ps["inElems"] == 0  # sentinel so the bytes-per-element precision check is skipped
+
+
+@pytest.mark.unit
+def test_predict_rejects_non_tile_aligned_shapes():
+    import pytest as _pytest
+    with _pytest.raises(AssertionError):
+        predict(SdpaConfig(S=4096, head_dim=100, num_cores=110, arch=ARCH_BH))
+    with _pytest.raises(AssertionError):
+        predict(SdpaConfig(S=5000, num_cores=110, arch=ARCH_BH))
