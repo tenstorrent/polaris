@@ -380,6 +380,44 @@ def test_sdpa_sinf_routes_prefill_and_decode_variants():
 
 
 @pytest.mark.unit
+def test_sdpa_sinf_routes_mla_sparse_joint_mladecode_variants():
+    # The distinct MLA / sparse / joint / MLA-decode ops route via the sdpa_variant tag and produce
+    # a real roofline cost (not the passthrough mov-estimate).
+    from ttsim.ops.desc.ttsim_layout import sdpa_sinf
+    def T(shape):
+        return SimpleNamespace(shape=list(shape), dtype="bfloat16")
+    def run(iTList, attrs):
+        op = SimpleNamespace(attrs=attrs, perf_stats=None)
+        sdpa_sinf(iTList, [SimpleNamespace(shape=None, dtype=None)], op)
+        return op.perf_stats
+
+    # MLA prefill: V = K (latent), head_dim_v=512 asymmetric -> flagged low-confidence.
+    mla = run([T([1, 16, 4096, 576]), T([1, 1, 4096, 576]), T([1, 1, 4096, 576])],
+              {"sdpa_variant": "mla", "head_dim_v": 512, "is_causal": True, "fidelity": "HiFi4",
+               "input_dtype": "bfloat16", "exp_approx_mode": False})
+    assert mla["fused_compute_cycles"] > 0 and mla["sdpa_mla_low_confidence"] is True
+    assert mla["sdpa_regime"] and mla["outBytes"] > 0   # real roofline cost, not passthrough
+
+    # Sparse-MLA: kv_seq = TOPK, is_sparse -> gather uplift applied.
+    sp = run([T([1, 32, 2048, 576]), T([1, 1, 8192, 576]), T([1, 1, 8192, 576]), T([1, 1, 2048, 1024])],
+             {"sdpa_variant": "sparse", "is_sparse": True, "head_dim_v": 512, "kv_seq": 1024,
+              "is_causal": False, "fidelity": "HiFi4", "input_dtype": "bfloat16"})
+    assert sp["fused_compute_cycles"] > 0
+
+    # Joint (SD3/Flux): cost over S_eff = main + joint, non-causal.
+    jt = run([T([1, 24, 4096, 64]), T([1, 24, 4096, 64]), T([1, 24, 4096, 64])],
+             {"sdpa_variant": "joint", "joint_seq": 512, "is_causal": False})
+    jt_expected = predict(SdpaConfig(S=4096 + 512, num_heads=24, head_dim=64, is_causal=False,
+                                     input_dtype="bfloat16", num_cores=110, arch=ARCH_BH))
+    assert jt["fused_compute_cycles"] == jt_expected.wall_clock_cycles
+
+    # MLA decode: memory-bound, reuses K as V (no separate V DRAM read).
+    dec = run([T([1, 128, 1, 576]), T([1, 1, 8192, 576]), T([1, 1, 8192, 576]), T([1])],
+              {"sdpa_variant": "mla_decode", "head_dim_v": 512})
+    assert dec["sdpa_cycle_breakdown"]["is_memory_bound"] is True and dec["inBytes"] > 0
+
+
+@pytest.mark.unit
 def test_decode_is_memory_bound_and_scales_with_kv_cache():
     from ttsim.perf.roofline_sdpa import predict_decode
     # KV-stream bytes must dominate the single-token compute, and grow linearly with cache_len.
@@ -620,7 +658,8 @@ def test_multichip_ring_is_out_of_scope_not_handled():
     from ttsim.ops.desc.ttsim_layout import _SDPA_FRONTENDS
     assert "ring_distributed" not in _SDPA_FRONTENDS
     assert "ring_joint" not in _SDPA_FRONTENDS
-    assert set(_SDPA_FRONTENDS) == {"prefill", "decode", "chunked"}
+    # Single-chip variants only (joint = single-chip SD3/Flux, not the multichip ring_joint).
+    assert set(_SDPA_FRONTENDS) == {"prefill", "decode", "chunked", "mla", "sparse", "mla_decode", "joint"}
 
 
 @pytest.mark.unit
