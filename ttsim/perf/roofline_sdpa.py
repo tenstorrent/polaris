@@ -29,6 +29,13 @@ OVERLAP_FRAC_NONCAUSAL = 0.755
 # a separate calibration (DeepSeek latent family); off-family MLA is flagged low-confidence.
 OVERLAP_FRAC_MLA = 0.0
 
+# Device wall-clock as a per-regime multiple of the compute floor (measured on BH; the kernel is
+# latency-bound, ~90% idle for MLA). Used to project real op latency, not just the compute floor.
+WALL_FACTOR = {
+    "prefill_causal": 2.5, "prefill_noncausal": 1.6, "cross": 1.3,
+    "windowed": 2.5, "masked": 2.1, "chunked": 2.2, "sparse": 4.75, "mla": 11.0,
+}
+
 
 @dataclass
 class ArchConfig:
@@ -58,9 +65,6 @@ class ArchConfig:
     # Decode (memory-bound): measured effective KV-stream BW + a fixed dispatch/ramp latency.
     dram_kv_stream_bw_gbps: float = 343.0
     decode_fixed_overhead_cycles: float = 22000.0   # ~16.3 us @ 1.35 GHz
-    # Compute-bound wall-clock overhead per inner iter. CAUSAL-PREFILL ONLY (does not generalize:
-    # non-causal ~3300, MLA ~100000); wall_clock_cycles is diagnostic, not the Polaris cost.
-    kernel_overhead_per_inner_iter: float = 9000.0
     clock_ghz: float = 1.35
 
     def cpt(self, fidelity: str) -> float:
@@ -135,9 +139,9 @@ class RooflineResult:
     def to_polaris_op_perf_stats(self) -> Dict:
         """perf_stats for a fused SDPA op consumed by ttsim Device.execute_op.
 
-        Compute-bound regimes: fused_compute_cycles is a compute-latency floor (sdpa_compute_is_floor
-        True). Memory-bound decode: inBytes carries the KV-stream cost and max(compute, memory) picks
-        it (floor flag False). instrs is empty (ttsim reads it as instruction counts).
+        fused_compute_cycles is the full device wall-clock estimate (compute floor x per-regime
+        latency multiple; decode carries its memory latency). instrs is empty (ttsim reads it as
+        instruction counts); the compute floor stays in the breakdown for reference.
         """
         return {
             "inBytes": self.dram_in_bytes,
@@ -148,16 +152,15 @@ class RooflineResult:
             "inActCount": 0,
             "outActCount": 0,
             "instrs": {},
-            "fused_compute_cycles": self.compute_latency_cycles,
-            # Device.execute_op rejects the cost on a non-BH device, flags the floor as a lower bound
-            # (compute-bound only), and flags not-yet-calibrated variants low-confidence.
+            "fused_compute_cycles": self.wall_clock_cycles,
+            # Device.execute_op rejects the cost off-BH and flags per-regime-calibrated variants.
             "sdpa_calibrated_arch": POLARIS_CALIBRATED_DEVNAME,
-            "sdpa_compute_is_floor": (not self.is_memory_bound),
+            "sdpa_compute_is_floor": False,
             "sdpa_mla_low_confidence": (self.is_mla or self.low_confidence),
             "sdpa_regime": self.regime,
-            # Wall-clock estimate: causal-prefill only, diagnostic (not the Polaris cost).
             "sdpa_wall_clock_cycles": self.wall_clock_cycles,
             "sdpa_cycle_breakdown": {
+                "compute_floor": self.compute_latency_cycles,
                 "fpu_matmul": self.fpu_matmul_cycles,
                 "fpu_overhead": self.fpu_overhead_cycles,
                 "sfpu_exp": self.sfpu_exp_cycles,
@@ -226,6 +229,19 @@ def _windowed_k_eff(S, q_chunk, k_chunk, kv_seq, window, causal):
             k_lo = max(0, q_lo_t - win_tiles // 2) // Skt
         total += max(0.0, float(k_hi - k_lo))
     return total / nq
+
+
+def _wall_factor(cfg, r):
+    """Per-regime device-wall / compute-floor ratio (see WALL_FACTOR)."""
+    if r.is_mla and not cfg.is_sparse:
+        return WALL_FACTOR["mla"]
+    if cfg.is_sparse:
+        return WALL_FACTOR["sparse"]
+    if r.regime in WALL_FACTOR:
+        return WALL_FACTOR[r.regime]
+    if cfg.kv_seq:
+        return WALL_FACTOR["cross"]
+    return WALL_FACTOR["prefill_causal"] if cfg.is_causal else WALL_FACTOR["prefill_noncausal"]
 
 
 def _engine_cycles(r, *, Q, K_eff, K_eff_gt0, inner_iters, qct, kct, dct_qk, dct_v, cpt,
@@ -355,8 +371,8 @@ def predict(cfg: SdpaConfig) -> RooflineResult:
     l1_floor = max(r.unpack_min_cycles, r.pack_min_cycles)
     r.init_overhead_cycles = round(a.init_overhead_cycles)
     r.compute_latency_cycles = round(max(r.math_active_cycles, l1_floor) + r.init_overhead_cycles)
-    # Wall-clock estimate = floor + per-inner-iter kernel overhead (causal-prefill diagnostic only).
-    r.wall_clock_cycles = round(r.compute_latency_cycles + r.inner_iters * a.kernel_overhead_per_inner_iter)
+    # Wall-clock estimate = compute floor x the per-regime latency multiple (measured on BH).
+    r.wall_clock_cycles = round(r.compute_latency_cycles * _wall_factor(cfg, r))
     r.math_idle_cycles = round(r.inner_iters * a.idle_per_inner_iter)
     return r
 
