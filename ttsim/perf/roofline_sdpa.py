@@ -125,7 +125,7 @@ class RooflineResult:
     math_idle_cycles: int = 0
     init_overhead_cycles: int = 0
     compute_latency_cycles: int = 0    # compute FLOOR (FPU/SFPU busy + L1 floor + init)
-    wall_clock_cycles: int = 0         # full latency estimate = floor + per-inner-iter overhead
+    wall_clock_cycles: int = 0         # latency estimate = compute floor x per-regime wall factor (decode adds memory latency)
     unpack_bytes_total: int = 0        # per-core L1 unpacker bytes (drives the on-chip BW floor only)
     pack_bytes_total: int = 0
     unpack_min_cycles: int = 0
@@ -239,7 +239,7 @@ def _wall_factor(cfg, r):
         return WALL_FACTOR["sparse"]
     if r.regime in WALL_FACTOR:
         return WALL_FACTOR[r.regime]
-    if cfg.kv_seq:
+    if cfg.kv_seq and cfg.kv_seq != cfg.S:
         return WALL_FACTOR["cross"]
     return WALL_FACTOR["prefill_causal"] if cfg.is_causal else WALL_FACTOR["prefill_noncausal"]
 
