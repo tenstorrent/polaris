@@ -22,12 +22,22 @@ def _ceil_div(a: int, b: int) -> int:
 # Device.execute_op can refuse the cost on a non-BH device.
 POLARIS_CALIBRATED_DEVNAME = "Blackhole"
 
-# FPU/SFPU overlap as a fraction of the smaller engine, per regime (measured 0.45-0.86).
-OVERLAP_FRAC_CAUSAL = 0.579
-OVERLAP_FRAC_NONCAUSAL = 0.755
+# FPU/SFPU overlap saturates toward 1 as the q-chunk grows (more independent tiles to interleave):
+# overlap = 1 - k/qct, k fit to measured q_chunk 128 & 256 per regime (measured range 0.45-0.86).
+OVERLAP_K_CAUSAL = 1.81
+OVERLAP_K_NONCAUSAL = 1.28
+OVERLAP_FRAC_MAX = 0.95
 # MLA is matmul-dominated (tiny softmax), so the engines do not overlap. MLA overhead/overlap are
 # a separate calibration (DeepSeek latent family); off-family MLA is flagged low-confidence.
 OVERLAP_FRAC_MLA = 0.0
+
+
+def _overlap_frac(qct, causal_like, is_mla):
+    """FPU/SFPU overlap fraction. Grows with q-chunk (qct = q_chunk/32), capped below 1."""
+    if is_mla:
+        return OVERLAP_FRAC_MLA
+    k = OVERLAP_K_CAUSAL if causal_like else OVERLAP_K_NONCAUSAL
+    return max(0.0, min(OVERLAP_FRAC_MAX, 1.0 - k / qct))
 
 # Device wall-clock as a per-regime multiple of the compute floor (measured on BH; the kernel is
 # latency-bound, ~90% idle for MLA). Used to project real op latency, not just the compute floor.
@@ -326,10 +336,7 @@ def predict(cfg: SdpaConfig) -> RooflineResult:
             1.0 / (dct_qk + dct_v) - 1.0 / a.fpu_overhead_ref_dct_sum)
     sfpu_overhead_per_inner_iter = a.sfpu_overhead_per_inner_iter_mla if r.is_mla else a.sfpu_overhead_per_inner_iter
     causal_like = cfg.is_causal or cfg.has_attn_mask
-    if r.is_mla:
-        overlap_frac = OVERLAP_FRAC_MLA
-    else:
-        overlap_frac = OVERLAP_FRAC_CAUSAL if causal_like else OVERLAP_FRAC_NONCAUSAL
+    overlap_frac = _overlap_frac(qct, causal_like, r.is_mla)
 
     sink_passes = 1.0 if cfg.attention_sink else 0.0
     _engine_cycles(r, Q=Q, K_eff=K_eff, K_eff_gt0=K_eff_gt0, inner_iters=r.inner_iters,

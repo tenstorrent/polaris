@@ -283,7 +283,19 @@ def test_roofline_tracks_measured_math(shape, S):
     pred = predict(cfg).math_active_cycles
     meas = MEASURED_MATH[shape][S]
     rel = abs(pred - meas) / meas
-    assert rel <= 0.12, f"{shape} S={S}: pred={pred} meas={meas} rel={rel:.3f}"
+    # q_chunk-dependent overlap tightened the q256 (wan) corner from ~6% to ~4%.
+    assert rel <= 0.06, f"{shape} S={S}: pred={pred} meas={meas} rel={rel:.3f}"
+
+
+@pytest.mark.unit
+def test_overlap_grows_with_q_chunk():
+    # Overlap rises with q_chunk (more independent tiles to interleave) and saturates below 1;
+    # non-causal overlaps more than causal; MLA does not overlap.
+    from ttsim.perf.roofline_sdpa import _overlap_frac, OVERLAP_FRAC_MAX
+    assert _overlap_frac(8, True, False) > _overlap_frac(4, True, False)     # q256 > q128
+    assert _overlap_frac(4, False, False) > _overlap_frac(4, True, False)    # non-causal > causal
+    assert _overlap_frac(64, True, False) <= OVERLAP_FRAC_MAX                 # capped below 1
+    assert _overlap_frac(4, True, True) == 0.0                               # MLA
 
 
 @pytest.mark.unit
