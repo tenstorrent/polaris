@@ -27,6 +27,10 @@ MEASURED_FPU_MLA = {1024: 180_075, 2048: 707_329, 4096: 2_803_206, 8192: 11_160_
 # 576/512 latent dims, from verif_data/mla_prefill_nh128.csv. De-risks the head-count axis.
 MEASURED_MATH_MLA_NH128 = {1024: 1_602_791, 2048: 6_053_233, 4096: 23_493_786}
 
+# FlashMLA decode op latency (us), b=8 nh=16 nkv=1 576/512, host-timed, from
+# verif_data/mla_decode_latency.txt. Memory-bound at ~184 GB/s (half the multi-head decode BW).
+MEASURED_MLA_DECODE_US = {1024: 91.4, 2048: 154.7, 4096: 251.5, 8192: 455.3, 16384: 867.4}
+
 # Measured per-core FPU cycles for the head_dim=64 sweep (nh=16, bfp8, HiFi2, causal), from
 # verif_data/sweep_hd64.csv (110 active cores). Anchors the head-dim overhead term.
 MEASURED_FPU_HD64 = {4096: 195_137, 8192: 768_000, 32768: 12_137_416}
@@ -295,6 +299,20 @@ def test_mla_generalizes_to_second_head_count(S):
     meas = MEASURED_MATH_MLA_NH128[S]
     rel = abs(pred - meas) / meas
     assert rel <= 0.05, f"MLA nh128 S={S}: pred={pred} meas={meas} rel={rel:.3f}"
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("cache", [1024, 2048, 4096, 8192, 16384])
+def test_mla_decode_latency_tracks_measured(cache):
+    # FlashMLA decode is memory-bound at a lower effective BW than multi-head decode (card-measured);
+    # predict_decode(is_mla) must track the measured op latency within ~10%.
+    from ttsim.perf.roofline_sdpa import predict_decode
+    r = predict_decode(cache_len=cache, num_q_heads=16, num_kv_heads=1, head_dim=576,
+                       v_head_dim=512, batch=8)
+    us = r.wall_clock_cycles / 1350.0
+    meas = MEASURED_MLA_DECODE_US[cache]
+    assert r.is_mla and r.is_memory_bound
+    assert abs(us - meas) / meas <= 0.10, f"MLA decode L={cache}: pred={us:.1f} meas={meas} us"
 
 
 @pytest.mark.unit
