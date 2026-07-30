@@ -152,6 +152,17 @@ def test_decode_v_head_dim_from_v_cache_shape():
 
 
 @pytest.mark.unit
+def test_wall_factor_cross_only_when_kv_seq_differs():
+    # kv_seq == S is plain self-attention, not cross, so it keeps the prefill wall factor.
+    from ttsim.perf.roofline_sdpa import _wall_factor, WALL_FACTOR
+    r = SimpleNamespace(regime="prefill", is_mla=False)
+    same = SdpaConfig(S=4096, kv_seq=4096, is_causal=True, is_sparse=False)
+    cross = SdpaConfig(S=4096, kv_seq=2048, is_causal=True, is_sparse=False)
+    assert _wall_factor(same, r) == WALL_FACTOR["prefill_causal"]
+    assert _wall_factor(cross, r) == WALL_FACTOR["cross"]
+
+
+@pytest.mark.unit
 def test_op_cost_is_wall_clock_with_floor_in_breakdown():
     # The op cost is now the full wall-clock estimate (not a floor); the compute floor stays in the
     # breakdown for reference.
