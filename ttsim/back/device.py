@@ -265,7 +265,17 @@ class Device:
         # (e.g. the SDPA roofline); otherwise use the generic instrs/IPC lookup.
         fused_cycles = op.perf_stats.get('fused_compute_cycles')
         if fused_cycles is not None:
+            # The SDPA roofline is calibrated for one device only; refuse it elsewhere rather than
+            # booking a cross-arch cost (shape inference has no device context, so gate here).
+            calib_dev = op.perf_stats.get('sdpa_calibrated_arch')
+            if calib_dev is not None and calib_dev != self.devname:
+                raise ValueError(
+                    f"SDPA roofline for op {op.name!r} is calibrated for device {calib_dev!r} but this "
+                    f"device is {self.devname!r}; refusing to apply a cross-arch cost."
+                )
             op.compute_cycles = int(math.ceil(fused_cycles))
+            # Mark the cost as a lower bound (compute-bound regimes) so the rollup can surface it.
+            op.compute_is_lower_bound = bool(op.perf_stats.get('sdpa_compute_is_floor', False))
         else:
             op.compute_cycles = 0
             for instr,instr_count in op.perf_stats['instrs'].items():
@@ -725,6 +735,12 @@ class Device:
                     'memory_traffic'   : memory_traffic,
                     'mem_util'         : mem_util,
                     'uses_perf_lookup' : uses_perf_lookup,
+                    # True when the cost is an SDPA roofline compute floor (lower bound), not a
+                    # LUT-measured wall-clock. A LUT hit overrides the roofline, so only holds on a miss.
+                    'compute_is_lower_bound': (
+                        bool(getattr(op, 'compute_is_lower_bound', False))
+                        and not uses_perf_lookup
+                    ),
                     # LUT-key trail: ``lut_key`` is the literal key built from the
                     # op + tensor state; ``lut_key_resolved`` is the entry the
                     # lookup chain actually matched after any fallback
