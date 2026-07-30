@@ -74,6 +74,18 @@ class _MockSimConfig:
         return 128.0
 
 
+class _RealBHSimConfig(_MockSimConfig):
+    # BH p100a device params for the whole-pipeline correlation (real DRAM BW + mem clock).
+    def mem_frequency(self, units="MHz"):
+        return 1000.0
+
+    def peak_bandwidth_per_cycle(self):
+        return 448.0        # 448 GB/s at 1 GHz mem clock -> bytes/cycle
+
+    def ramp_penalty(self):
+        return 100.0
+
+
 def _sdpa_op(name, cfg):
     return SimpleNamespace(
         name=name, optype="SDPA", uses_compute_pipe="matrix", precision="bfp8",
@@ -415,6 +427,41 @@ def test_sparse_mla_tracks_measured_math(topk, meas):
                               exp_approx_mode=False, num_cores=110, arch=ARCH_BH))
     assert pred.regime == "sparse" and pred.low_confidence
     assert abs(pred.math_active_cycles - meas) / meas <= 0.05, f"TOPK={topk}"
+
+
+def _polaris_device_us(perf_stats):
+    # Projected device latency through the real Device.execute_op + get_exec_stats projection
+    # (ideal = max(compute, mem) + ramp), with BH device params.
+    device = Device(_RealBHSimConfig())
+    op = _sdpa_op("corr", _baseline_cfg(4096))
+    op.perf_stats = perf_stats
+    device.execute_op(op)
+    ideal = math.ceil(max(op.compute_cycles, op.mem_rd_cycles + op.mem_wr_cycles) + 100.0)
+    return ideal / 1350.0
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("perf,meas", [
+    (sdpa_perf_stats(SdpaConfig(S=4096, num_heads=32, num_kv_heads=8, head_dim=128, is_causal=True,
+                                input_dtype="bfp8_b", fidelity="HiFi2", num_cores=110, arch=ARCH_BH)), 1740),
+    (sdpa_perf_stats(SdpaConfig(S=1024, head_dim=576, v_head_dim=512, q_chunk=32, k_chunk=128,
+                                num_heads=16, num_kv_heads=1, fidelity="HiFi4", input_dtype="bfloat16",
+                                accum_dtype="bfloat16", is_causal=True, exp_approx_mode=False,
+                                num_cores=110, arch=ARCH_BH)), 1619),
+])
+def test_whole_pipeline_correlation_vs_measured(perf, meas):
+    # End-to-end: the projected device latency through the real Polaris pipeline tracks measured
+    # device wall-clock within ~15% for each single-chip variant.
+    us = _polaris_device_us(perf)
+    assert abs(us - meas) / meas <= 0.15, f"projected {us:.0f}us vs measured {meas}us"
+
+
+@pytest.mark.unit
+def test_whole_pipeline_correlation_decode():
+    from ttsim.perf.roofline_sdpa import predict_decode
+    ps = predict_decode(cache_len=8192, num_q_heads=32, num_kv_heads=8, head_dim=128,
+                        batch=8).to_polaris_op_perf_stats()
+    assert abs(_polaris_device_us(ps) - 795.7) / 795.7 <= 0.15
 
 
 @pytest.mark.unit
