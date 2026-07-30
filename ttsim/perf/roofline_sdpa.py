@@ -82,6 +82,10 @@ class ArchConfig:
     # Decode (memory-bound): measured effective KV-stream BW + a fixed dispatch/ramp latency.
     dram_kv_stream_bw_gbps: float = 343.0
     decode_fixed_overhead_cycles: float = 22000.0   # ~16.3 us @ 1.35 GHz
+    # MLA decode streams a single wide latent KV head (d_qk=576): measured effective BW is ~half the
+    # multi-head decode's, with a heavier fixed cost (card-validated, verif_data/mla_decode_latency).
+    dram_kv_stream_bw_gbps_mla: float = 183.8
+    decode_fixed_overhead_cycles_mla: float = 26968.0   # ~20 us @ 1.35 GHz
     clock_ghz: float = 1.35
 
     def cpt(self, fidelity: str) -> float:
@@ -459,9 +463,11 @@ def predict_decode(cache_len, num_q_heads, num_kv_heads, head_dim, v_head_dim=0,
 
     # Memory-bound latency = fixed dispatch/ramp + KV stream at the measured decode BW. Carried in
     # fused_compute_cycles (the byte-path can't add the fixed term); device.execute_op's max() keeps it.
-    mem_cycles = r.dram_in_bytes * a.clock_ghz / a.dram_kv_stream_bw_gbps
-    r.init_overhead_cycles = round(a.decode_fixed_overhead_cycles)
-    r.compute_latency_cycles = round(max(r.math_active_cycles, mem_cycles) + a.decode_fixed_overhead_cycles)
+    bw = a.dram_kv_stream_bw_gbps_mla if is_mla else a.dram_kv_stream_bw_gbps
+    fixed = a.decode_fixed_overhead_cycles_mla if is_mla else a.decode_fixed_overhead_cycles
+    mem_cycles = r.dram_in_bytes * a.clock_ghz / bw
+    r.init_overhead_cycles = round(fixed)
+    r.compute_latency_cycles = round(max(r.math_active_cycles, mem_cycles) + fixed)
     r.wall_clock_cycles = r.compute_latency_cycles
     return r
 
