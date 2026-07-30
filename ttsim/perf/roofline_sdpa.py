@@ -47,7 +47,9 @@ class ArchConfig:
     cycles_per_tile_mac: Dict[str, float] = field(
         default_factory=lambda: {"LoFi": 16.0, "HiFi2": 32.0, "HiFi3": 48.0, "HiFi4": 64.0}
     )
-    fpu_overhead_frac: float = 0.132          # LLK template cycles / matmul cycles
+    fpu_overhead_frac: float = 0.132          # LLK template cycles / matmul cycles at head_dim 128
+    fpu_overhead_per_inv_dct: float = 0.88    # head-dim overhead scaling; fit across head_dim 64 & 128
+    fpu_overhead_ref_dct_sum: float = 8.0     # dct_qk+dct_v at the calibration head_dim (128)
     fpu_overhead_frac_mla: float = 0.031      # MLA is matmul-dominated -> near-zero template overhead
     sfpu_lanes: int = 32
     exp_tile_cycles: float = 88.2             # approx exp per tile
@@ -316,7 +318,12 @@ def predict(cfg: SdpaConfig) -> RooflineResult:
     cpt = a.cpt(cfg.fidelity)
 
     # MLA uses its own overhead/overlap; a masked op behaves causal-like (causal overlap).
-    fpu_overhead_frac = a.fpu_overhead_frac_mla if r.is_mla else a.fpu_overhead_frac
+    if r.is_mla:
+        fpu_overhead_frac = a.fpu_overhead_frac_mla
+    else:
+        # LLK template overhead is a larger share of a smaller matmul, so scale it with 1/head_dim.
+        fpu_overhead_frac = a.fpu_overhead_frac + a.fpu_overhead_per_inv_dct * (
+            1.0 / (dct_qk + dct_v) - 1.0 / a.fpu_overhead_ref_dct_sum)
     sfpu_overhead_per_inner_iter = a.sfpu_overhead_per_inner_iter_mla if r.is_mla else a.sfpu_overhead_per_inner_iter
     causal_like = cfg.is_causal or cfg.has_attn_mask
     if r.is_mla:
