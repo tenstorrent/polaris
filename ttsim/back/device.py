@@ -264,15 +264,14 @@ class Device:
         # find compute cycles. A fused op may carry a precomputed per-op cycle count
         # (e.g. the SDPA roofline); otherwise use the generic instrs/IPC lookup.
         fused_cycles = op.perf_stats.get('fused_compute_cycles')
-        if fused_cycles is not None:
-            # The SDPA roofline is calibrated for one device only; refuse it elsewhere rather than
-            # booking a cross-arch cost (shape inference has no device context, so gate here).
-            calib_dev = op.perf_stats.get('sdpa_calibrated_arch')
-            if calib_dev is not None and calib_dev != self.devname:
-                raise ValueError(
-                    f"SDPA roofline for op {op.name!r} is calibrated for device {calib_dev!r} but this "
-                    f"device is {self.devname!r}; refusing to apply a cross-arch cost."
-                )
+        # The SDPA roofline is calibrated for one device only; off that device fall back to the
+        # generic instr estimate rather than booking a cross-arch cost (sinf has no device context).
+        calib_dev = op.perf_stats.get('sdpa_calibrated_arch')
+        cross_arch = calib_dev is not None and calib_dev != self.devname
+        if cross_arch:
+            logger.warning(f"SDPA roofline for {op.name!r} is calibrated for {calib_dev!r}, not "
+                           f"{self.devname!r}; using the generic estimate instead.", once=True)
+        if fused_cycles is not None and not cross_arch:
             op.compute_cycles = int(math.ceil(fused_cycles))
             # Mark the cost as a lower bound (compute-bound regimes) so the rollup can surface it.
             op.compute_is_lower_bound = bool(op.perf_stats.get('sdpa_compute_is_floor', False))
