@@ -21,6 +21,11 @@ MEASURED_MATH = {
 # Measured per-core MATH cycles for FlashMLA prefill (DeepSeek latent family: nh=16, d_qk=576,
 # d_v=512, HiFi4, accurate exp, causal), from verif_data/mla_prefill_sweep.csv per-engine counters.
 MEASURED_MATH_MLA = {1024: 189_265, 2048: 743_248, 4096: 2_945_197, 8192: 11_724_964}
+MEASURED_FPU_MLA = {1024: 180_075, 2048: 707_329, 4096: 2_803_206, 8192: 11_160_368}
+
+# Measured per-core FPU cycles for the head_dim=64 sweep (nh=16, bfp8, HiFi2, causal), from
+# verif_data/sweep_hd64.csv (110 active cores). Anchors the head-dim overhead term.
+MEASURED_FPU_HD64 = {4096: 195_137, 8192: 768_000, 32768: 12_137_416}
 
 
 def _mla_cfg(S):
@@ -212,6 +217,37 @@ def test_mla_calibration_tracks_measured_math(S):
     meas = MEASURED_MATH_MLA[S]
     rel = abs(pred - meas) / meas
     assert rel <= 0.05, f"MLA S={S}: pred={pred} meas={meas} rel={rel:.3f}"
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("S", [1024, 2048, 4096, 8192])
+def test_mla_calibration_tracks_measured_fpu(S):
+    # FlashMLA per-engine counters exist now (mla_prefill_sweep.csv), so the FPU term is validated
+    # against silicon, not just projected: keep predicted FPU within ~5% of measured.
+    pred = predict(_mla_cfg(S)).fpu_cycles
+    meas = MEASURED_FPU_MLA[S]
+    rel = abs(pred - meas) / meas
+    assert rel <= 0.05, f"MLA FPU S={S}: pred={pred} meas={meas} rel={rel:.3f}"
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("S", [4096, 8192, 32768])
+def test_head_dim_overhead_tracks_measured_hd64_fpu(S):
+    # head_dim=64 was a cold -9% FPU corner; the head-dim overhead term brings it within ~3%.
+    r = predict(SdpaConfig(S=S, head_dim=64, num_heads=16, num_cores=110, arch=ARCH_BH))
+    meas = MEASURED_FPU_HD64[S]
+    rel = abs(r.fpu_cycles - meas) / meas
+    assert rel <= 0.03, f"hd64 FPU S={S}: pred={r.fpu_cycles} meas={meas} rel={rel:.3f}"
+
+
+@pytest.mark.unit
+def test_head_dim_overhead_leaves_128_unchanged_and_grows_for_small_head_dim():
+    # The term is zero at the calibration head_dim (128) and larger for smaller head_dims.
+    def frac(hd):
+        r = predict(SdpaConfig(S=4096, head_dim=hd, num_heads=16, num_cores=110, arch=ARCH_BH))
+        return r.fpu_overhead_cycles / r.fpu_matmul_cycles
+    assert abs(frac(128) - ARCH_BH.fpu_overhead_frac) < 1e-3   # rounding only
+    assert frac(64) > frac(128)
 
 
 @pytest.mark.unit
