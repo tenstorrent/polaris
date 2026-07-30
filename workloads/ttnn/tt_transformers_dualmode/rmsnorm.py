@@ -56,11 +56,24 @@ class RMSNorm:
             )
 
     def __call__(self, x, mode='decode'):
-        return ttnn.rms_norm(
-            x,
-            epsilon=self.eps,
-            weight_tensor=self.weight,
-            memory_config=None,
-            compute_kernel_config=self.compute_kernel_config_hifi2,
-            dim=self.dim,
-        )
+        if IS_POLARIS:
+            # Shim signature: weight_tensor / dim / compute_kernel_config carry the LUT-key info
+            # (the LayerNorm emission + math_fidelity).
+            return ttnn.rms_norm(
+                x,
+                epsilon=self.eps,
+                weight_tensor=self.weight,
+                memory_config=None,
+                compute_kernel_config=self.compute_kernel_config_hifi2,
+                dim=self.dim,
+            )
+        # Real ttnn.rms_norm: weight= (not weight_tensor), no dim; compute_kernel_config must be a
+        # ComputeKernelConfig, not a bare MathFidelity — omit it (defaults) for the HW run.
+        # This branch only executes on real ttnn (IRD_ARCH_NAME set), where ttnn.rms_norm's
+        # parameter is `weight=`. But mypy always resolves the dual-mode `ttnn` symbol to the shim
+        # stubs (ttsim.front.ttnn), whose rms_norm uses `weight_tensor=`, so it flags `weight=` here
+        # even though the shim never runs this line. The type: ignore is deliberate — the alternative
+        # (adding a `weight=` alias to the shim's rms_norm just to satisfy the type checker) would
+        # diverge the shim API from a real tt-metal op for no runtime benefit. Keep the pragma
+        # localized to this real-ttnn-only call.
+        return ttnn.rms_norm(x, epsilon=self.eps, weight=self.weight, memory_config=None)  # type: ignore[call-arg]

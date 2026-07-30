@@ -201,6 +201,29 @@ def untilize_sinf(iTList, oTList, op, **kwargs):
     return
 
 
+def typecast_sinf(iTList, oTList, op, **kwargs):
+    """Shape inference for Typecast: elementwise dtype cast — output logical shape = input,
+    layout preserved (unlike Untilize). Output dtype is set on the tensor at emit time; don't
+    overwrite it here. Perf: one elementwise pass (mov = elements)."""
+    assert len(iTList) == 1 and len(oTList) == 1
+    X = iTList[0]
+    in_shape = require_shape_list(
+        X.shape,
+        "Typecast shape inference: input tensor shape must be known for element/byte accounting",
+    )
+    oTList[0].shape = in_shape
+    elem_size = op.attrs.get('element_size', 2)
+    n = _nelems(in_shape)
+    op.perf_stats = {
+        'inElems': n,
+        'outElems': n,
+        'inBytes': n * elem_size,
+        'outBytes': n * elem_size,
+        'instrs': {'mov': n},
+    }
+    return
+
+
 def tilize_with_val_padding_sinf(iTList, oTList, op, **kwargs):
     """Shape inference for TilizeWithValPadding: 1 input, output padded from attrs."""
     assert len(iTList) == 1 and len(oTList) == 1
@@ -588,9 +611,10 @@ def manual_seed_sinf(iTList, oTList, op, **kwargs):
 def sampling_sinf(iTList, oTList, op, **kwargs):
     """Shape inference for Sampling: one sampled index per user (topk_values last dim -> 1).
 
-    Inputs: topk_values, topk_indices, [k, p, temp].
+    Inputs: topk_values, topk_indices, [k, p, temp, output_tensor].
+    output_tensor (input_5) is HW's preallocated output operand (arity-6 on the profiler).
     """
-    assert 2 <= len(iTList) <= 5 and len(oTList) == 1
+    assert 2 <= len(iTList) <= 6 and len(oTList) == 1
     V = iTList[0]
     in_shape = require_shape_list(V.shape, "Sampling shape inference: topk_values shape must be known")
     out_shape = list(in_shape[:-1]) + [1]
@@ -794,6 +818,7 @@ def register_layout_ops():
     _optbl = [
         ['Tilize', 'ARITY_1->1', d, 'COMMON', 24, 21, 1, 1, 1, 1, tilize_sinf, True, True, True, True, True],
         ['Untilize', 'ARITY_1->1', d, 'COMMON', 24, 21, 1, 1, 1, 1, untilize_sinf, True, True, True, True, True],
+        ['Typecast', 'ARITY_1->1', d, 'COMMON', 24, 21, 1, 1, 1, 1, typecast_sinf, True, True, True, True, True],
         ['TilizeWithValPadding', 'ARITY_1->1', d, 'COMMON', 24, 21, 1, 1, 1, 1, tilize_with_val_padding_sinf, True, True, True, True, True],
         ['UntilizeWithUnpadding', 'ARITY_1->1', d, 'COMMON', 24, 21, 1, 1, 1, 1, untilize_with_unpadding_sinf, True, True, True, True, True],
         ['InterleavedToSharded', 'ARITY_1->1', d, 'COMMON', 24, 21, 1, 1, 1, 1, interleaved_to_sharded_sinf, True, True, True, True, True],
@@ -812,7 +837,8 @@ def register_layout_ops():
         ['ScaledDotProductAttention', 'ARITY_VARIADIC[3-5]->1', d, 'COMMON', 24, 21, 5, 3, 1, 1, sdpa_sinf, True, True, True, True, True],
         ['PlusOne', 'ARITY_1->1', d, 'COMMON', 24, 21, 1, 1, 1, 1, plus_one_sinf, True, True, True, True, True],
         ['ManualSeed', 'ARITY_VARIADIC[1-2]->1', d, 'COMMON', 24, 21, 2, 1, 1, 1, manual_seed_sinf, True, True, True, True, True],
-        ['Sampling', 'ARITY_VARIADIC[2-5]->1', d, 'COMMON', 24, 21, 5, 2, 1, 1, sampling_sinf, True, True, True, True, True],
+        # arity up to 6: HW SamplingDeviceOperation takes a preallocated output_tensor as input_5.
+        ['Sampling', 'ARITY_VARIADIC[2-6]->1', d, 'COMMON', 24, 21, 6, 2, 1, 1, sampling_sinf, True, True, True, True, True],
     ]
     register_ops('layout', _optbl)
     return

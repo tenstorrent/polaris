@@ -28,6 +28,7 @@ else:
 from workloads.ttnn.tt_transformers_dualmode.decoder import TransformerBlock
 from workloads.ttnn.tt_transformers_dualmode.embedding import Embedding
 from workloads.ttnn.tt_transformers_dualmode.lm_head import LMHead
+from workloads.ttnn.tt_transformers_dualmode.model_config import dram_shard_core_grid_for_k
 from workloads.ttnn.tt_transformers_dualmode.rmsnorm import RMSNorm
 from workloads.ttnn.tt_transformers_dualmode.rope import RotarySetup
 
@@ -88,7 +89,7 @@ class Transformer:
             # token-embedding output DRAM-interleaved -> L1 width-sharded for the first rms_norm).
             x = ttnn.interleaved_to_sharded(x, ttnn.create_sharded_memory_config(
                 shape=(list(x.shape)[-2], self.args.dim),
-                core_grid=self.mesh_device.compute_with_storage_grid_size(),
+                core_grid=dram_shard_core_grid_for_k(self.args.dim),
                 strategy=ttnn.ShardStrategy.WIDTH,
                 orientation=ttnn.ShardOrientation.ROW_MAJOR,
                 use_height_and_width_as_shard_shape=False,
@@ -103,6 +104,18 @@ class Transformer:
         if mode == 'prefill' and get_last_token == -1:
             return x
 
+        if mode == 'decode':
+            # Final-norm input reshard: the capture has an extra 32x4096 WIDTH_SHARDED reshard right
+            # before the final LayerNorm (tt-metal's final DistributedNorm reshards its input). The
+            # per-block out-reshard alone left us 1 short at this boundary — matches the capture's
+            # last-segment 2 reshards. Same width-shard spec as the decode residual/norm boundaries.
+            x = ttnn.reshard(x, ttnn.create_sharded_memory_config(
+                shape=(list(x.shape)[-2], self.args.dim),
+                core_grid=dram_shard_core_grid_for_k(self.args.dim),
+                strategy=ttnn.ShardStrategy.WIDTH,
+                orientation=ttnn.ShardOrientation.ROW_MAJOR,
+                use_height_and_width_as_shard_shape=False,
+            ))
         x = self.norm(x, mode=mode)        # final norm (capture op 47)
         x = self.lm_head(x)                # lm_head (capture ops 48-59)
         if mode == 'prefill':

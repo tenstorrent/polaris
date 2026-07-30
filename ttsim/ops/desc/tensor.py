@@ -423,6 +423,22 @@ def _squeeze_to_rank1(t):
 
 def slice_sinf(iTList, oTList, op, **kwargs):
     dataT = iTList[0]
+    # ttnn-style slice: arity-1, output bounds carried as an 'output_shape' attr (not starts/ends
+    # tensor inputs like the ONNX form). The HW SliceDeviceOperation is arity-1; keep the key arity-1.
+    if len(iTList) == 1 and "output_shape" in op.attrs:
+        out_shape = [int(i) for i in op.attrs["output_shape"]]
+        Y = oTList[0]
+        Y.shape = out_shape
+        Y.dtype = dataT.dtype
+        assert Y.check_shape(), "SHAPE INFERENCE ERROR!!"
+        op.perf_stats = {
+            "inBytes": int(dataT.nbytes(op.precision)),
+            "inElems": int(dataT.nelems()),
+            "outBytes": int(Y.nbytes(op.precision)),
+            "outElems": int(Y.nelems()),
+            "instrs": {"mov": int(Y.nelems())},
+        }
+        return
     startsT = _squeeze_to_rank1(iTList[1].clone_by_shape(data_maybe_missing=False))
     endsT = _squeeze_to_rank1(iTList[2].clone_by_shape(data_maybe_missing=False))
 
@@ -913,6 +929,31 @@ def gather_sinf(iTList, oTList, op, **kwargs):
             }
     return
 
+def embedding_sinf(iTList, oTList, op, **kwargs):
+    """ttnn.embedding row lookup (HW EmbeddingsDeviceOperation).
+
+    Operand order matches the hardware op: iTList[0] = tokens (indices), iTList[1] = weight
+    [vocab, embed_dim] — tokens-first, the OPPOSITE of ONNX Gather (data-first, see
+    gather_sinf). Output = tokens.shape + [embed_dim]. Kept a distinct op-code from Gather so
+    the LUT key canonicalizes to 'embedding' (matching the capture) rather than 'gather'."""
+    tokensT = iTList[0]
+    weightT = iTList[1]
+    assert tokensT.check_shape(), f"Illegal embedding tokens shape: {tokensT}!!"
+    assert weightT.check_shape(), f"Illegal embedding weight shape: {weightT}!!"
+    embed_dim = list(weightT.shape)[1:]  # weight [vocab, embed_dim] -> [embed_dim]
+    oTList[0].shape = list(tokensT.shape) + embed_dim
+    oTList[0].dtype = weightT.dtype
+    n = int(oTList[0].nelems())
+    op.perf_stats = {
+            'inElems' : n,   # read just the rows we look up, not the whole embed table
+            'outElems': n,
+            'inBytes' : int(oTList[0].nbytes(op.precision)),
+            'outBytes': int(oTList[0].nbytes(op.precision)),
+            'instrs'  : {'mov': n}
+            }
+    return
+
+
 def gathernd_sinf(iTList, oTList, op, **kwargs):
     data = iTList[0]
     indices = iTList[1]
@@ -1110,6 +1151,7 @@ def register_tensor_ops():
 
             ['Gather',    'ARITY_2->1', 'ai.onnx',  'COMMON',  13,  13,  2,  2,  1,  1, gather_sinf,  True,  True,  True,  True,  True],
             ['GatherElements', 'ARITY_2->1', 'ai.onnx',  'COMMON',  13,  13,  2,  2,  1,  1, gatherelements_sinf, True, True, True, True, True],
+            ['Embedding', 'ARITY_2->1', 'custom',   'NA',      -1,  -1,  2,  2,  1,  1, embedding_sinf, True, True, True, True, True],
             ['GatherND',  'ARITY_2->1', 'ai.onnx',  'COMMON',  13,  13,  2,  2,  1,  1, gathernd_sinf, True, True, True, True, True],
             ['Cast',      'ARITY_1->1', 'ai.onnx',  'COMMON',  24,  21,  1,  1,  1,  1, cast_sinf,  True,  True,  True,  True,  True],
             ['IsNaN',     'ARITY_1->1', 'ai.onnx',   'COMMON',  20,  20,  1,  1,  1,  1, isnan_sinf,    True, True, True, True, True],
@@ -1131,7 +1173,7 @@ def register_tensor_ops():
              trilu_sinf, True, True, True, True, True],
             ['Resize',    'ARITY_VARIADIC[1-4]->1', 'ai.onnx',  'COMMON',  19,  19,  4,  1,  1,  1,
              resize_sinf, True, True, True, True, True],
-            ['Slice',     'ARITY_VARIADIC[3-5]->1', 'ai.onnx',  'COMMON',  13,  13,  5,  3,  1,  1,
+            ['Slice',     'ARITY_VARIADIC[1-5]->1', 'ai.onnx',  'COMMON',  13,  13,  5,  1,  1,  1,
              slice_sinf, True, True, True, True, True],
             ['Pad',       'ARITY_VARIADIC[2-4]->1', 'ai.onnx',  'COMMON',  24,  21,  4,  2,  1,  1,
              pad_sinf, True, True, True, True, True],

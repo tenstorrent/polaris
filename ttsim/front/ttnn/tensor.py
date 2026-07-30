@@ -18,6 +18,16 @@ from loguru import logger
 import numpy as np
 
 
+# Global op-name counter, shared by every shim op via generate_new_op_name(). Defined here in
+# the base tensor module (not op.py) so op.py can import it at top level without a tensor<->op
+# circular import (op.py already imports from tensor).
+op_counter = count(start=1, step=1)
+
+
+def generate_new_op_name():
+    return f"ttsim.ttnn.Op_{next(op_counter)}"
+
+
 ########################################## DataType ##########################################
 class DataType(Enum):
     UINT8 = auto()
@@ -770,11 +780,45 @@ def typecast(input_tensor, dtype):
             f"Expected input_tensor to be a Tensor, got {type(input_tensor)}"
         )
 
-    if input_tensor.dtype == dtype:
-        return input_tensor  # No typecasting needed
+    # Compare the true ttnn dtype, not input_tensor.dtype (a numpy dtype) — the latter never
+    # equals a DataType enum, so the same-dtype elision was dead. Prefer _ttnn_dtype (bfloat8_b/
+    # bfloat4_b are indistinguishable once mapped to numpy float32); fall back like clone().
+    in_ttnn_dtype = (input_tensor._ttnn_dtype if input_tensor._ttnn_dtype is not None
+                     else DataType.from_numpy(input_tensor.dtype.name))
+    if in_ttnn_dtype == dtype:
+        return input_tensor  # No typecasting needed (HW emits no op for a same-dtype cast)
 
-    # Simulate typecasting by creating a new Tensor with the desired dtype
-    return Tensor(shape=input_tensor.shape, device=input_tensor.device, dtype=dtype)
+    # Create the re-dtyped output. Preserve the input's layout and memory_config — HW typecast is
+    # elementwise and does not change tiling/placement (e.g. the decode sampling typecast keeps the
+    # lm_head logits TILE/L1, so the downstream TopK sees a TILE/L1 input). Dropping them defaulted
+    # to ROW_MAJOR/DRAM and broke LUT-key matching.
+    # Unique per-call op name via generate_new_op_name() (the shim-wide naming convention),
+    # keeping a dtype tag for readability. Op names must be unique (add_op asserts), so a name
+    # derived only from the input + dtype would still collide if the same tensor were typecast
+    # to the same dtype twice.
+    dtype_tag = getattr(dtype, 'name', str(dtype))
+    opname = f"{generate_new_op_name()}.typecast_{dtype_tag}"
+    outT = Tensor(shape=input_tensor.shape, device=input_tensor.device, dtype=dtype,
+                  layout=input_tensor.get_layout(),
+                  memory_config=getattr(input_tensor, '_memory_config', None),
+                  op_out=[opname])
+    # Emit a Typecast SimOp so the op appears in the graph (HW TypecastDeviceOperation), matching the
+    # silicon capture. Previously typecast was metadata-only (no graph node), so the decode
+    # sampling-tail typecasts were profiler-only. Elementwise: 1 input -> 1 output (see typecast_sinf).
+    if input_tensor.device is not None:
+        input_tensor.op_in.append(opname)
+        opinfo = {
+            "name": opname,
+            "optype": "Typecast",
+            "inList": [input_tensor.name],
+            "outList": [outT.name],
+            "attrs": {"dtype": str(dtype)},
+        }
+        opobj = SimOp(opinfo)
+        opobj.get_perf_counts([input_tensor], [outT])
+        opobj.update_tensor_counts([input_tensor], [outT])
+        input_tensor.device.add_op(opobj)  # type: ignore[union-attr]
+    return outT
 
 
 def from_torch(torch_tensor_like, **kwargs):

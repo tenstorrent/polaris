@@ -39,7 +39,7 @@ import re
 import sys
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Callable, Dict, Optional, Tuple, Union
+from typing import Any, Callable, Dict, Optional, Sequence, Tuple, Union
 
 # Repo root so ``from tools.perf_lookup…`` works when this file is run as a script
 # (``python tools/perf_lookup/lookup_operator_perf.py``); pytest uses ``pythonpath = .``.
@@ -59,6 +59,7 @@ from tools.profiling.shape_canonical import (
     precision_to_master_datatype,
 )
 from tools.perf_lookup.tt_perf_master_schema import (
+    STANDARD_KEY_TUPLE_LENGTHS,
     MASTER_CURVE_FAMILY_KEY,
     MASTER_CURVE_FAMILY_LINEAR,
     MASTER_CURVE_FAMILY_POWER,
@@ -554,6 +555,28 @@ def build_master_key_tuple_22(
     )
 
 
+def build_master_key_tuple_n(op: Any, tensors: Sequence[Any]) -> Tuple[Any, ...]:
+    """Full-arity logical key: op_code + input_0 (7) + math_fidelity + input_i (7) for each i>=1.
+
+    Generalizes build_master_key_tuple_8/15/22 to any arity (matches them exactly for 1/2/3
+    inputs). Used for arity>=4 ops (e.g. PagedFusedUpdateCache, ScaledDotProductAttention) so the
+    lookup keys on every operand — mirroring the mapper (tt_perf_mapper.build_key_tuple), which now
+    keys all populated INPUT slots. Order matches KEY_TUPLE_YAML_KEYS. Requires >=1 tensor.
+    """
+    prec = getattr(op, "precision", None)
+    t0 = tensors[0]
+    w0, z0, y0, x0 = _input0_wzyx_for_master_key(op, t0)
+    key: list = [
+        _op_code(op), w0, z0, y0, x0,
+        tensor_layout_str(t0), tensor_datatype(t0, prec), tensor_memory_str(t0),
+        _op_math_fidelity(op),
+    ]
+    for t in tensors[1:]:
+        w, z, y, x = _shape_wzyx(t)
+        key += [w, z, y, x, tensor_layout_str(t), tensor_datatype(t, prec), tensor_memory_str(t)]
+    return tuple(key)
+
+
 def build_master_key_tuple_halo(op: Any, tensor_0: Any) -> Optional[Tuple[Any, ...]]:
     """Logical 16-tuple for halo: standard 9 + kernel_h/w, stride_h/w, padding_h/w, is_transpose.
 
@@ -688,7 +711,7 @@ def _lut_keys_matching_op_and_wzyx(entries: Dict[tuple, dict], key_t: tuple) -> 
     Layout, datatype, and memory may differ — useful diagnostics when the full key misses.
     """
     n = len(key_t)
-    if n not in (9, 10, 15, 16, 23):
+    if n not in (STANDARD_KEY_TUPLE_LENGTHS | {10, 15}):
         return ()
     oc = key_t[0]
     matched: list[tuple] = []
@@ -712,11 +735,13 @@ def _lut_keys_matching_op_and_wzyx(entries: Dict[tuple, dict], key_t: tuple) -> 
             if _wzyx_int_tuple(k[1:5]) == w0 and _wzyx_int_tuple(k[9:13]) == w1:
                 matched.append(k)
     else:
+        # 23-tuple and longer full-arity keys (30/37/44/51/58): match op + first-3 inputs' WZYX
+        # and same arity (tuple length). input_0/1/2 WZYX live at 1:5 / 9:13 / 16:20 for all.
         w0 = _wzyx_int_tuple(key_t[1:5])
         w1 = _wzyx_int_tuple(key_t[9:13])
         w2 = _wzyx_int_tuple(key_t[16:20])
         for k in entries:
-            if len(k) != 23 or k[0] != oc:
+            if len(k) != n or k[0] != oc:
                 continue
             if (
                 _wzyx_int_tuple(k[1:5]) == w0
@@ -735,7 +760,7 @@ def _lut_keys_matching_op_code_only(entries: Dict[tuple, dict], key_t: tuple) ->
     with :func:`_lut_keys_matching_op_and_wzyx` which also requires WZYX match.
     """
     n = len(key_t)
-    if n not in (9, 10, 15, 16, 23):
+    if n not in (STANDARD_KEY_TUPLE_LENGTHS | {10, 15}):
         return ()
     oc = key_t[0]
     matched = [k for k in entries if len(k) == n and k[0] == oc]
@@ -901,18 +926,22 @@ class OperatorPerfMap:
         """Build the literal LUT key tuple and capture the input tensors used.
 
         Returns ``(key_t, (t0,) | (t0, t1) | (t0, t1, t2))`` on success, ``None`` on
-        any of: unsupported arity, missing tensor, missing shape, key-build failure.
+        any of: zero arity, missing tensor, missing shape, key-build failure.
         Internal helper; ``lookup`` uses this then proceeds with entry matching, while
         ``build_literal_key`` exposes just the key half publicly.
+
+        Ops with more than 3 inputs (e.g. PagedFusedUpdateCache, ScaledDotProductAttention)
+        are keyed on ALL their inputs (full-arity key, up to MAX_KEY_INPUTS) — mirroring the
+        mapper (tt_perf_mapper.build_key_tuple), which keys every populated INPUT slot. The sim's
+        inList order matches the profiler input order, so the operand slots correspond.
         """
         in_list = getattr(op, "inList", [])
         n_in = len(in_list)
         tensors = getattr(wlgraph, "_tensors", {})
 
-        if n_in == 0 or n_in > 3:
+        if n_in == 0:
             logger.debug(
-                "Perf lookup skipped (arity {} not supported for master keys): op={} optype={}",
-                n_in,
+                "Perf lookup skipped (arity 0 has no master key): op={} optype={}",
                 getattr(op, "name", "?"),
                 getattr(op, "optype", "?"),
             )
@@ -964,14 +993,21 @@ class OperatorPerfMap:
             except Exception as e:
                 logger.debug("Perf lookup key build failed for op {}: {}", getattr(op, "name", "?"), e)
                 return None
-        t0_name, t1_name, t2_name = in_list[0], in_list[1], in_list[2]
-        if t0_name not in tensors or t1_name not in tensors or t2_name not in tensors:
-            return None
-        t0, t1, t2 = tensors[t0_name], tensors[t1_name], tensors[t2_name]
-        if t0.shape is None or t1.shape is None or t2.shape is None:
-            return None
+        # n_in >= 3: key on ALL inputs (full arity). Arity 3 uses the dedicated 23-tuple builder
+        # (byte-identical to the historical key); arity>=4 uses the generic full-arity builder,
+        # mirroring the mapper which keys every populated INPUT slot.
+        ten: list = []
+        for nm in in_list:
+            if nm not in tensors:
+                return None
+            t = tensors[nm]
+            if getattr(t, "shape", None) is None:
+                return None
+            ten.append(t)
         try:
-            return build_master_key_tuple_22(op, t0, t1, t2), (t0, t1, t2)
+            if n_in == 3:
+                return build_master_key_tuple_22(op, ten[0], ten[1], ten[2]), (ten[0], ten[1], ten[2])
+            return build_master_key_tuple_n(op, ten), tuple(ten)
         except Exception as e:
             logger.debug("Perf lookup key build failed for op {}: {}", getattr(op, "name", "?"), e)
             return None

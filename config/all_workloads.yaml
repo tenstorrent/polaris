@@ -198,6 +198,15 @@ workloads:
     instances:
       llama3_8b_dualmode_decode: { bs: 32, model_name: llama3-8B }
       llama3_8b_dualmode_decode_1L: { bs: 32, model_name: llama3-8B, n_layers: 1 }  # 1-layer variant for HW-refrun layer matching
+      # bs=1 / max_seq_len=1024 MATCH the HW reference (simple_text_demo -k "performance and
+      # batch-1", seq_len=1024; batch-32 decode OOMs on p100a, so batch-1 is the available capture).
+      # Decode tile-pads batch to 32 (act_users) so matmul shapes equal bs=32; the paged KV index
+      # tensors (cur_pos, page_table) track the active batch, so the sim's batch AND seq_len must
+      # equal the capture's. Bump both here to match a new reference captured at a different config.
+      llama3_8b_dualmode_decode_1L_b1: { bs: 1, model_name: llama3-8B, n_layers: 1, max_seq_len: 1024 }
+      # bs=1 FULL-layer variant — for the full-model projection-vs-refrun comparison against the
+      # batch-1 32-layer 260703 capture (seq_len=1024).
+      llama3_8b_dualmode_decode_b1: { bs: 1, model_name: llama3-8B, max_seq_len: 1024 }
 
   - api: TTNN
     name: mistral_decode

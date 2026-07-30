@@ -499,6 +499,10 @@ class Device:
                         'attrs': {'axis': -1}})
         concat.get_perf_counts(concat_inputs, [y])
         concat.update_tensor_counts(concat_inputs, [y])
+        # tt-metal lm_head concats the vocab chunks to L1 interleaved (ttnn.concat(...,
+        # memory_config=L1_MEMORY_CONFIG)). Set the output memory so the downstream logits path
+        # (typecast -> TopK) sees L1_INTERLEAVED, matching the capture.
+        y._memory_config = MemoryConfig(TensorMemoryLayout.INTERLEAVED, BufferType.L1)
         wlgraph.add_op(concat)
         del wlgraph._ops[opname]
         if w_name in wlgraph._tensors and not w.op_in:

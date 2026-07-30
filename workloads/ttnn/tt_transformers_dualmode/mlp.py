@@ -38,6 +38,11 @@ else:
 from workloads.ttnn.tt_transformers_dualmode.ccl import tt_all_reduce
 from workloads.ttnn.tt_transformers_dualmode.model_config import dram_sharded_weight_memcfg
 
+# DRAM-sharded decode matmuls require a sharded output on HW (tt-metal get_mlp_ff1_3_mem_config /
+# get_mlp_ff2_mem_config decode = L1_WIDTH_SHARDED, no-prefetcher). None on Polaris (shim's
+# constant is a 0-stub; the None path already gives 713/713). See attention._DECODE_MM_MEMCFG.
+_DECODE_MM_MEMCFG = None if IS_POLARIS else ttnn.L1_WIDTH_SHARDED_MEMORY_CONFIG
+
 
 def _dummy_weight(shape, device, dtype):
     """Config-only dummy weight (no HF checkpoint), fabricated directly on-device in both
@@ -75,15 +80,23 @@ class MLP:
 
     def forward(self, x: 'ttnn.Tensor', mode) -> 'ttnn.Tensor':
         """HF reference: self.down_proj(self.act_fn(self.gate_proj(x)) * self.up_proj(x))."""
+        # DRAM-sharded weights -> DRAM-sharded matmul program configs on HW (None on Polaris, and
+        # None in prefill which uses a different, non-dram-sharded matmul config — prefill-on-HW is
+        # a separate future path). See model_config.dram_matmul_config.
+        ff13_pc = self.args.mlp_ff13_decode_program_config() if mode == 'decode' else None
+        ff2_pc = self.args.mlp_ff2_decode_program_config() if mode == 'decode' else None
+        # Decode DRAM-sharded matmuls need a sharded output (see _DECODE_MM_MEMCFG); prefill keeps
+        # None (different, non-dram-sharded matmul config).
+        mm_memcfg = _DECODE_MM_MEMCFG if mode == 'decode' else None
         # FF1/FF3 (gate/up) matmuls run at LoFi under the performance preset
         # (tt-metal DecodersPrecision.performance: OpGroup.LI_FF1_FF3 = LOFI).
         w1_out = ttnn.linear(
             x, self.w1, core_grid=None, compute_kernel_config=self.args.compute_kernel_config_lofi,
-            program_config=None, memory_config=None,
+            program_config=ff13_pc, memory_config=mm_memcfg,
         )
         w3_out = ttnn.linear(
             x, self.w3, core_grid=None, compute_kernel_config=self.args.compute_kernel_config_lofi,
-            program_config=None, memory_config=None,
+            program_config=ff13_pc, memory_config=mm_memcfg,
         )
         ttnn.deallocate(x)
 
@@ -97,10 +110,20 @@ class MLP:
         ttnn.deallocate(w3_out)
         ttnn.deallocate(w1_out)
 
+        # Reshard w2_in onto the FF2 (down-proj) input grid before the matmul (tt-metal mlp.py:244-246,
+        # commit d9d52dfe7b6: `w2_in = ttnn.to_memory_config(w2_in, get_mlp_binary_mult_mem_config(mode))`
+        # "w2 may use a different core grid"). This is the capture's 32x14336 L1_WIDTH_SHARDED reshard
+        # (one per decode block). NOTE: we call ttnn.reshard, not to_memory_config — on real ttnn a
+        # sharded->sharded to_memory_config lowers to a single ReshardDeviceOperation (matching the
+        # capture), but the Polaris shim's to_memory_config emits STI+ITS (two ops) for that transition,
+        # whereas ttnn.reshard emits the single Reshard on both paths. Decode-only (prefill mem cfg is None).
+        if mode == 'decode':
+            w2_in = ttnn.reshard(w2_in, self.args.mlp_binary_mult_mem_config())
+
         # FF2 (down) matmul runs at HiFi2 (default LI_FF2 fidelity in the preset).
         w2_out = ttnn.linear(
             w2_in, self.w2, compute_kernel_config=self.args.compute_kernel_config_hifi2,
-            dtype=ttnn.bfloat16, program_config=None, memory_config=None, core_grid=None,
+            dtype=ttnn.bfloat16, program_config=ff2_pc, memory_config=mm_memcfg, core_grid=None,
         )
         ttnn.deallocate(w2_in)
 
