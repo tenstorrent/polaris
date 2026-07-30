@@ -3,8 +3,12 @@
 # SPDX-License-Identifier: Apache-2.0
 
 from enum import Enum, auto
-from itertools import count
 
+# NOTE: this module rebinds several builtin names at module scope as ttnn ops — `min`, `max`,
+# `pow`, `slice`, `sum`. Python resolves globals at call time, so those builtins are shadowed
+# inside *every* function in this file, including ones defined above the rebinding. Reach them
+# via `builtins.<name>` — never the bare name.
+import builtins
 import numbers
 import numpy as np
 from loguru import logger
@@ -14,7 +18,7 @@ from ttsim.ops.tensor import Shape, require_shape_list
 
 from .buffer import BufferType, TensorMemoryLayout
 from .memory import MemoryConfig
-from .tensor import DataType, Layout, Tensor, require_ttnn_tensor, zeros
+from .tensor import DataType, Layout, Tensor, generate_new_op_name, require_ttnn_tensor, zeros
 
 
 class MathFidelity(Enum):
@@ -30,13 +34,6 @@ class MathFidelity(Enum):
     @property
     def cname(self) -> str:
         return self.name.lower()
-
-
-op_counter = count(start=1, step=1)
-
-
-def generate_new_op_name():
-    return f"ttsim.ttnn.Op_{next(op_counter)}"
 
 
 _COMPACT_DTYPES: frozenset[DataType] = frozenset()  # populated after DataType import below
@@ -369,11 +366,13 @@ def permute_pp(args_list, kwargs_dict):
 
 
 def embedding_pp(args_list, kwargs_dict):
-    # TTNN passes in the order indices, weights while Polaris takes weights, indices
+    # TTNN passes (indices, weights); the Embedding op records them in the SAME order as the
+    # hardware EmbeddingsDeviceOperation: input_0 = tokens (indices), input_1 = weight. This is
+    # tokens-first (opposite of ONNX Gather's data-first order) — see embedding_sinf.
     assert len(args_list) == 2, "ttnn.embedding has 2 inputs"
     input_tensor = require_ttnn_tensor(args_list[0], "ttnn.embedding indices")
     weight_tensor = require_ttnn_tensor(args_list[1], "ttnn.embedding weight")
-    return (weight_tensor, input_tensor), kwargs_dict
+    return (input_tensor, weight_tensor), kwargs_dict
 
 
 def layer_norm_pp(args_list, kwargs_dict):
@@ -589,6 +588,41 @@ def conv_transpose2d_pp(args_list, kwargs_dict):
     return (input_tensor, weight_tensor, bias_tensor), kwargs_dict
 
 
+def slice_spec_out_shape(in_shape, slice_spec):
+    """Output shape of numpy basic indexing `slice_spec` applied to shape `in_shape`.
+
+    Computed analytically rather than by materialising a dummy `np.empty(in_shape)` and
+    reading `dummy[slice_spec].shape`: the decode sampling path slices logits of shape
+    [1, 1, 32, vocab], so the dummy would be tens of MB of address space per call.
+
+    Only basic indexing (ints, slices, Ellipsis) is handled — that is the whole of what the
+    hardware SliceDeviceOperation expresses, and advanced indexing would not be a view.
+    """
+    spec = slice_spec if isinstance(slice_spec, tuple) else (slice_spec,)
+
+    n_ellipsis = builtins.sum(1 for s in spec if s is Ellipsis)
+    assert n_ellipsis <= 1, f"ttnn.slice: at most one Ellipsis allowed, got {slice_spec}"
+    if n_ellipsis:
+        pos = spec.index(Ellipsis)
+        fill = len(in_shape) - (len(spec) - 1)
+        assert fill >= 0, f"ttnn.slice: spec {slice_spec} over-indexes shape {in_shape}"
+        spec = spec[:pos] + (builtins.slice(None),) * fill + spec[pos + 1:]
+
+    assert len(spec) <= len(in_shape), f"ttnn.slice: spec {slice_spec} over-indexes shape {in_shape}"
+    # dims the spec does not mention are kept whole
+    spec = spec + (builtins.slice(None),) * (len(in_shape) - len(spec))
+
+    out_shape = []
+    for dim, s in zip(in_shape, spec):
+        if isinstance(s, builtins.slice):
+            out_shape.append(len(range(*s.indices(dim))))
+        else:
+            # an integer index drops the dimension
+            idx = int(s)
+            assert -dim <= idx < dim, f"ttnn.slice: index {idx} out of range for dim of size {dim}"
+    return out_shape
+
+
 def as_pp(args_list, kwargs_dict):
     input_tensor = require_ttnn_tensor(args_list[0], "ttnn.slice input")
     slice_spec = kwargs_dict.get("slice", None)
@@ -596,16 +630,10 @@ def as_pp(args_list, kwargs_dict):
         slice_spec is not None
     ), "ttnn.slice requires 'slice' attribute specifying indices"
 
-    # Compute the shape of the slice
-    # Use numpy to infer the shape
     in_shape = require_shape_list(
         input_tensor.shape, "ttnn.slice input shape must be set"
     )
-    dummy = np.empty(in_shape)
-    sliced = dummy[slice_spec]
-    out_shape = list(sliced.shape)
-
-    kwargs_dict["output_shape"] = out_shape
+    kwargs_dict["output_shape"] = slice_spec_out_shape(in_shape, slice_spec)
     return (input_tensor,), kwargs_dict
 
 
@@ -617,8 +645,7 @@ def topk_pp(args_list, kwargs_dict):
 
     # k may arrive as: a positional K-tensor (ONNX-style ttnn.topk(x, k_tensor)),
     # a positional int (ttnn.topk(x, 32)), or a k= int kwarg (real ttnn
-    # ttnn.topk(x, k=32, ...)). The optional indices_tensor / sub_core_grids
-    # kwargs are HW hints, irrelevant to the sim graph, so they are dropped.
+    # ttnn.topk(x, k=32, ...)).
     inputs: tuple[Tensor, ...] = (input_tensor,)
     k_val = None
     if len(args_list) > 1:
@@ -632,6 +659,15 @@ def topk_pp(args_list, kwargs_dict):
         k_kw = kwargs_dict.get("k")
         assert k_kw is not None, "ttnn.topk requires k (positional tensor/int or k= int)"
         k_val = int(k_kw)
+
+    # Real ttnn passes a pre-allocated index operand via indices_tensor= (uint16), which the HW
+    # TopKDeviceOperation takes as its SECOND input (used to track original positions across a
+    # multi-step reduction). Record it so the sim op is arity-2 like the capture; topk_sinf keys
+    # k off the attr, and skips the ONNX K-tensor path for a non-scalar index operand. (sub_core_grids
+    # remains a HW-only hint and is dropped.)
+    indices_tensor = kwargs_dict.get("indices_tensor")
+    if indices_tensor is not None and isinstance(indices_tensor, Tensor):
+        inputs = inputs + (indices_tensor,)
 
     new_kwargs = {
         "k": k_val,
@@ -953,11 +989,14 @@ def concat(first, *rest, **kwargs):
 
 reshape = single_output_immediate_op("Reshape", preprocess=reshape_pp)
 expand = single_output_immediate_op("Expand", preprocess=expand_pp)
-embedding = single_output_immediate_op("Gather", preprocess=embedding_pp)
+embedding = single_output_immediate_op("Embedding", preprocess=embedding_pp)
 permute = single_output_immediate_op("Transpose", preprocess=permute_pp)
 gather = single_output_immediate_op("TorchGather", preprocess=torchgather_pp)
 transpose = single_output_immediate_op("Transpose", preprocess=transpose_pp)
 split = multiple_output_immediate_op("Split", preprocess=split_pp)
+# ttnn.slice(x, slice=(...)) — arity-1 Slice op (bounds via the 'slice' spec -> output_shape attr,
+# consumed by slice_sinf's arity-1 branch). Matches HW SliceDeviceOperation (arity-1).
+slice = single_output_immediate_op("Slice", preprocess=as_pp)
 
 # Normalization
 layer_norm = single_output_immediate_op("LayerNormalization", preprocess=layer_norm_pp)

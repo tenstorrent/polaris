@@ -875,9 +875,11 @@ def topk_sinf(iTList, oTList, op, **kwargs):
 
     outshape = XShape
     d_axis   = XShape[_axis]
-    # K may come from a second input K-tensor (ONNX-style) or from the 'k' attr
-    # (real ttnn: ttnn.topk(x, k=32, ...)). topk_pp records k in attrs for both.
-    if len(iTList) >= 2 and iTList[1].data is not None:
+    # K may come from a second input K-tensor (ONNX-style, a scalar int64) or from the 'k' attr
+    # (real ttnn: ttnn.topk(x, k=32, ...) — topk_pp records k in attrs). Only treat input_1 as the
+    # K-tensor when it is a scalar (nelems==1); the real-ttnn second input is a large uint16
+    # indices_tensor operand, which must NOT be read as K.
+    if len(iTList) >= 2 and iTList[1].data is not None and iTList[1].nelems() == 1:
         K = iTList[1].clone_by_shape(data_maybe_missing=False)
         assert K.dtype == np.int64, f"Input tensor-K Data-Type should be np.int64 {K}"
         k_value = [x.item() for x in K.data]

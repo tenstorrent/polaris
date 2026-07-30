@@ -48,6 +48,7 @@ op_rsrc_spec:
              DequantizeLinear, Div, Dropout,
              Equal, Erf, Exp, Expand,
              Flatten, Fold,
+             Embedding,
              Gather, GatherElements, GatherND, Gelu, GlobalAveragePool, GridSample, Greater, GreaterOrEqual, GroupNormalization,
              Halo,
              HardSigmoid, Hardswish,
@@ -62,7 +63,7 @@ op_rsrc_spec:
              QuantizeLinear,
              Range, Reciprocal, ReduceMax, ReduceMean, ReduceMin, ReduceProd, ReduceSum, Relu, Reshard, Reshape, Resize,
              ScatterND, ScatterElements, Shape, ShardedToInterleaved, Sigmoid, Sin, Slice, Softmax, SoftmaxCrossEntropyLoss, Softplus, Split, Sqrt, Squeeze, Sub, Sum,
-             Tanh, Tile, Tilize, TilizeWithValPadding, TopK, TorchGather, Transpose, Trilu,
+             Tanh, Tile, Tilize, TilizeWithValPadding, TopK, TorchGather, Transpose, Trilu, Typecast,
              Unsqueeze, Untilize, UntilizeWithUnpadding, Upsample,
              VoxelPooling,
              Where]

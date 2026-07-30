@@ -53,6 +53,7 @@ float32  = DataType.FLOAT32
 bfloat16 = DataType.BFLOAT16
 int64    = DataType.INT64
 uint32   = DataType.UINT32
+uint16   = DataType.UINT16
 bfloat8_b = DataType.BFLOAT8_B
 bfloat4_b = DataType.BFLOAT4_B
 bool      = DataType.BOOL

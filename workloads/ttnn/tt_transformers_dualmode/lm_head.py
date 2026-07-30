@@ -62,16 +62,19 @@ class LMHead:
         #    column split is realized in the backend (wl2archmap op_split_spec, issue
         #    #477) where the arch is known, keeping this front-end graph device-independent.
         #  - HW path: must do the real column split here — a single dim x vocab GEMM would
-        #    L1-OOM on silicon. (num_splits=3 is WH-correct; BH-HW needs the formula-based
-        #    split — tracked follow-up for the HW-validation runs, not exercised here.)
+        #    L1-OOM on silicon. Split sizes are formula-based per arch (model_config
+        #    .lm_head_split_sizes: BH single-chip 8x16032, WH 668*cores) — a hardcoded WH-style
+        #    3-way 42752 split overflowed BH L1 in the matmul circular buffers.
         if IS_POLARIS:
             self.output_weight = _dummy_weight((args.dim, args.vocab_size), mesh_device, args.WEIGHTS_DTYPE)
         else:
-            self.num_splits = 3 if args.vocab_size % 3 == 0 else 1
-            split_size = args.vocab_size // self.num_splits
+            # Arch-correct column split (tt-metal get_lm_head_max_columns_per_device): BH single-chip
+            # -> 8 x 16032, WH -> 668*cores. A too-wide chunk OOMs BH L1 in the matmul CBs, so the
+            # split is formula-based per arch, not hardcoded. Sizes may be uneven (last = remainder).
+            self.split_sizes = args.lm_head_split_sizes()
             self.output_weights = [
-                _dummy_weight((args.dim, split_size), mesh_device, args.WEIGHTS_DTYPE)
-                for _ in range(self.num_splits)
+                _dummy_weight((args.dim, sz), mesh_device, args.WEIGHTS_DTYPE)
+                for sz in self.split_sizes
             ]
 
     def forward(self, x):
@@ -80,16 +83,27 @@ class LMHead:
         # sees a bf8 activation in the capture — pass it rather than inheriting bf16.
         lm_head_dtype = getattr(self.args, 'lm_head_dtype', ttnn.bfloat8_b)
         if IS_POLARIS:
-            # Single logical GEMM (dim x vocab); the backend column-split transform
-            # expands it to N matmuls + N ShardedToInterleaved + Concat per arch.
+            # Single logical GEMM (dim x vocab); the backend column-split transform expands it to
+            # N matmuls + N ShardedToInterleaved + Concat per arch. Output memory = L1 interleaved:
+            # the logical lm_head result is the post-concat logits, which tt-metal places in L1
+            # interleaved (ttnn.concat memory_config=L1_MEMORY_CONFIG). This is what the downstream
+            # sampling typecast reads, so the TopK sees an L1-interleaved input (matches the capture).
             output = ttnn.linear(x, self.output_weight,
                                  compute_kernel_config=self.args.compute_kernel_config_hifi2,
-                                 program_config=None, memory_config=None, dtype=lm_head_dtype)
+                                 program_config=None, memory_config=ttnn.L1_MEMORY_CONFIG,
+                                 dtype=lm_head_dtype)
             return tt_all_reduce(output)  # identity (single-chip)
+        # Each column chunk is a DRAM-sharded matmul (chunk-N-wide weight) -> DRAM-sharded program
+        # config on HW (see model_config.dram_matmul_config). Program config is per-chunk since split
+        # sizes may be uneven (last chunk = remainder).
         outputs = []
-        for w in self.output_weights:
+        for w, sz in zip(self.output_weights, self.split_sizes):
+            lm_head_pc = self.args.lm_head_decode_program_config(sz)
+            # DRAM-sharded matmul needs a sharded output (tt-metal get_lm_head_output_mem_config
+            # decode = L1_WIDTH_SHARDED, no-prefetcher); the following sharded_to_interleaved undoes it.
             o = ttnn.linear(x, w, compute_kernel_config=self.args.compute_kernel_config_hifi2,
-                            program_config=None, memory_config=None, dtype=lm_head_dtype)
+                            program_config=lm_head_pc, memory_config=ttnn.L1_WIDTH_SHARDED_MEMORY_CONFIG,
+                            dtype=lm_head_dtype)
             o = ttnn.sharded_to_interleaved(o, memory_config=None)  # capture STS rows 54/56/58
             outputs.append(o)
         # combine the column chunks back to full vocab (capture Concat row 59)
