@@ -727,13 +727,49 @@ def nlp_concat_heads_decode_sinf(iTList, oTList, op, **kwargs):
     return
 
 
-def sdpa_sinf(iTList, oTList, op, **kwargs):
-    """Shape inference for ScaledDotProductAttention (prefill + decode): output = q (in0) shape.
+def _infer_sdpa_variant(iTList, attrs):
+    """Classify an SDPA op into a variant: explicit sdpa_variant tag, else by arity/attrs (3 inputs
+    = prefill; chunk_start_idx>0 = chunked; else 4-5 inputs = decode)."""
+    v = attrs.get('sdpa_variant')
+    if v:
+        return v
+    if len(iTList) == 3:
+        return 'prefill'
+    if int(attrs.get('chunk_start_idx') or 0) > 0 or attrs.get('is_chunked_prefill'):
+        return 'chunked'
+    return 'decode'
 
-    Inputs (prefill): q, k, v. Inputs (decode/paged): q, k_cache, v_cache, cur_pos, page_table.
-    Output has the same shape as q in all cases.
-    """
-    # Match the op-table registration ARITY_VARIADIC[3-5]: prefill=3 (q,k,v), decode/paged up to 5.
+
+def _sdpa_prefill_perf(iTList, q_shape, op):
+    """Prefill / MLA / cross / windowed / masked SDPA -> compute roofline."""
+    from ttsim.perf.roofline_sdpa import sdpa_config_from_shapes, sdpa_perf_stats
+    k_shape = require_shape_list(iTList[1].shape, "SDPA roofline: k shape must be known")
+    v_shape = require_shape_list(iTList[2].shape, "SDPA roofline: v shape must be known")
+    cfg = sdpa_config_from_shapes(q_shape, k_shape, v_shape, op.attrs)
+    op.perf_stats = sdpa_perf_stats(cfg)
+
+
+def _sdpa_decode_perf(iTList, q_shape, op):
+    """Single-token / paged decode SDPA -> memory-bound KV-stream roofline (paged only scatters the
+    same bytes)."""
+    from ttsim.perf.roofline_sdpa import decode_perf_stats
+    k_shape = require_shape_list(iTList[1].shape, "SDPA decode: k_cache shape must be known")
+    op.perf_stats = decode_perf_stats(q_shape, k_shape, op.attrs)
+
+
+# Single-chip only. Chunked prefill reuses the compute path; multi-chip ring is out of scope
+# (falls to passthrough). Unhandled variants / errors also fall to passthrough.
+_SDPA_FRONTENDS = {
+    'prefill': _sdpa_prefill_perf,
+    'decode': _sdpa_decode_perf,
+    'chunked': _sdpa_prefill_perf,
+}
+
+
+def sdpa_sinf(iTList, oTList, op, **kwargs):
+    """Shape inference + per-variant cost routing for SDPA. Output shape = q; cost via _SDPA_FRONTENDS,
+    unhandled variants use the passthrough estimate."""
+    # Op-table arity ARITY_VARIADIC[3-5]: prefill=3, decode/paged up to 5.
     assert 3 <= len(iTList) <= 5 and len(oTList) == 1
     Q = iTList[0]
     q_shape = require_shape_list(
@@ -743,18 +779,17 @@ def sdpa_sinf(iTList, oTList, op, **kwargs):
     oTList[0].dtype = Q.dtype
 
     elem_size = op.attrs.get('element_size', 2)
-    # Prefill SDPA (q,k,v): cost it with the calibrated SDPA roofline (TEN-4716). Decode/paged
-    # (4-5 inputs) and any shape the model cannot handle fall back to the passthrough estimate.
-    if len(iTList) == 3:
+    variant = _infer_sdpa_variant(iTList, op.attrs)
+    handler = _SDPA_FRONTENDS.get(variant)
+    if handler is not None:
         try:
-            from ttsim.perf.roofline_sdpa import sdpa_config_from_shapes, sdpa_perf_stats
-            k_shape = require_shape_list(iTList[1].shape, "SDPA roofline: k shape must be known")
-            v_shape = require_shape_list(iTList[2].shape, "SDPA roofline: v shape must be known")
-            cfg = sdpa_config_from_shapes(q_shape, k_shape, v_shape, op.attrs)
-            op.perf_stats = sdpa_perf_stats(cfg)
+            handler(iTList, q_shape, op)
             return
-        except Exception:
-            pass  # unsupported shape/attrs -> passthrough below
+        except Exception as e:
+            # Unsupported shape/attrs -> passthrough; warn once so a real bug is not silently masked.
+            from loguru import logger
+            logger.warning(f"SDPA roofline ({variant}) unavailable for {getattr(op, 'name', '?')}, "
+                           f"using passthrough estimate: {e}", once=True)
     op.perf_stats = _passthrough_perf([t.shape for t in iTList], q_shape, elem_size)
     return
 
