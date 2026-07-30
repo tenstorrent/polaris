@@ -47,6 +47,7 @@ def _overlap_frac(qct, causal_like, is_mla):
 DISPATCH_CYCLES_PER_ITER = {
     "prefill_causal": 8900, "prefill_noncausal": 3300, "cross": 1850,
     "windowed": 8700, "masked": 6250, "chunked": 7000, "sparse": 160000, "mla": 104600,
+    "joint": 27405,   # SD3/Flux joint kernel (~8x standard non-causal per-iter; card-fit)
 }
 
 
@@ -119,6 +120,7 @@ class SdpaConfig:
     chunk_start_idx: int = 0       # chunked/paged prefill: absolute start of this Q chunk (prefix len)
     dram_scatter_derate: float = 1.0  # paged KV gather BW penalty (>1 inflates effective bytes)
     is_sparse: bool = False        # sparse-MLA: each query attends TOPK selected latent KV (kv_seq=TOPK)
+    is_joint: bool = False         # SD3/Flux joint attention (own kernel; heavier per-iter dispatch)
     exp_approx_mode: bool = True
     arch: ArchConfig = field(default_factory=ArchConfig)
 
@@ -223,6 +225,7 @@ def sdpa_config_from_shapes(q_shape, k_shape, v_shape, attrs=None, num_cores=110
         q_chunk=qc, k_chunk=kc, num_heads=nh, num_kv_heads=(0 if nkv == nh else nkv),
         num_cores=num_cores, is_causal=bool(attrs.get("is_causal", True)),
         is_sparse=bool(attrs.get("is_sparse", False)),
+        is_joint=bool(attrs.get("is_joint", False)),
         fidelity=str(attrs.get("fidelity") or "HiFi2"),
         input_dtype=dtype, accum_dtype="bfloat16",
         has_attn_mask=bool(attrs.get("has_attn_mask", False)),
@@ -362,7 +365,10 @@ def predict(cfg: SdpaConfig) -> RooflineResult:
                    exp_approx=cfg.exp_approx_mode, arch=a, fpu_overhead_frac=fpu_overhead_frac,
                    sfpu_overhead_per_inner_iter=sfpu_overhead_per_inner_iter, overlap_frac=overlap_frac,
                    mask_add_tiles_per_iter=0.0, sink_passes_per_q=sink_passes)
-    if cfg.is_sparse:
+    if cfg.is_joint:
+        r.regime = "joint"
+        r.low_confidence = True
+    elif cfg.is_sparse:
         # Sparse-MLA: kv_seq=TOPK gives K_eff=TOPK/k_chunk; add the calibrated scattered-gather uplift.
         r.math_active_cycles = round(r.math_active_cycles * (1.0 + a.sparse_gather_overhead_frac))
         r.regime = "sparse"
