@@ -23,6 +23,10 @@ MEASURED_MATH = {
 MEASURED_MATH_MLA = {1024: 189_265, 2048: 743_248, 4096: 2_945_197, 8192: 11_724_964}
 MEASURED_FPU_MLA = {1024: 180_075, 2048: 707_329, 4096: 2_803_206, 8192: 11_160_368}
 
+# 2nd asymmetric-MLA family: real DeepSeek-V3 head count nh=128 (constants fit on nh=16), same
+# 576/512 latent dims, from verif_data/mla_prefill_nh128.csv. De-risks the head-count axis.
+MEASURED_MATH_MLA_NH128 = {1024: 1_602_791, 2048: 6_053_233, 4096: 23_493_786}
+
 # Measured per-core FPU cycles for the head_dim=64 sweep (nh=16, bfp8, HiFi2, causal), from
 # verif_data/sweep_hd64.csv (110 active cores). Anchors the head-dim overhead term.
 MEASURED_FPU_HD64 = {4096: 195_137, 8192: 768_000, 32768: 12_137_416}
@@ -277,6 +281,20 @@ def test_head_dim_overhead_leaves_128_unchanged_and_grows_for_small_head_dim():
         return r.fpu_overhead_cycles / r.fpu_matmul_cycles
     assert abs(frac(128) - ARCH_BH.fpu_overhead_frac) < 1e-3   # rounding only
     assert frac(64) > frac(128)
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("S", [1024, 2048, 4096])
+def test_mla_generalizes_to_second_head_count(S):
+    # The MLA constants were fit on nh=16; a 2nd family at nh=128 (real DeepSeek-V3) must stay
+    # within ~5% MATH, showing the calibration is not tuned to one head count.
+    pred = predict(SdpaConfig(S=S, head_dim=576, v_head_dim=512, q_chunk=128, k_chunk=128,
+                              num_heads=128, num_kv_heads=1, fidelity="HiFi4", input_dtype="bfloat16",
+                              accum_dtype="bfloat16", is_causal=True, exp_approx_mode=False,
+                              num_cores=110, arch=ARCH_BH)).math_active_cycles
+    meas = MEASURED_MATH_MLA_NH128[S]
+    rel = abs(pred - meas) / meas
+    assert rel <= 0.05, f"MLA nh128 S={S}: pred={pred} meas={meas} rel={rel:.3f}"
 
 
 @pytest.mark.unit
