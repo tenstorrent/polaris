@@ -99,28 +99,44 @@ def test_fused_compute_cycles_override_is_honored(S):
 
 
 @pytest.mark.unit
-def test_arch_gate_rejects_non_bh_device():
-    # The roofline is BH-calibrated; execute_op must refuse it on any other device.
+def test_arch_gate_falls_back_on_non_bh_device():
+    # The roofline is BH-calibrated; off-BH execute_op drops it for the generic estimate, not crash.
     device = Device(_MockSimConfig(devname="Wormhole"))
     op = _sdpa_op("sdpa_wh", _baseline_cfg(4096))
-    with pytest.raises(ValueError, match="calibrated for device"):
-        device.execute_op(op)
+    op.perf_stats["instrs"] = {"mov": 4096}   # sinf leaves a device-agnostic fallback count
+    device.execute_op(op)
+    assert op.compute_cycles != int(op.perf_stats["fused_compute_cycles"])
 
 
 @pytest.mark.unit
-def test_arch_gate_refuses_decode_on_non_bh():
-    # Decode is BH-calibrated (baked KV BW + fixed overhead), so the gate must refuse it off-BH.
+def test_arch_gate_falls_back_off_bh():
+    # Decode is BH-calibrated, so off-BH the gate must drop the roofline cost and use the generic
+    # instr estimate (not crash, and not book the BH cost).
     from ttsim.perf.roofline_sdpa import decode_perf_stats
     device = Device(_MockSimConfig(devname="Wormhole"))
-    ps = decode_perf_stats([1, 32, 1, 128], [1, 8, 4096, 128], {"element_size": 2})
+    ps = decode_perf_stats([1, 32, 1, 128], [1, 8, 4096, 128], attrs={"element_size": 2})
+    ps["instrs"] = {"mov": 128}   # sinf leaves a device-agnostic fallback count
     op = SimpleNamespace(
         name="dec_wh", optype="SDPA", uses_compute_pipe="matrix", precision="bfp8",
         repeat_count=1, removed_in_optimization=False, fused_in_optimization=False,
         fused_with_op=None, fused_op_cycles=None, exec_stats={}, compute_cycles=0,
+        compute_is_lower_bound=False,
         mem_rd_cycles=0, mem_wr_cycles=0, mem_rd_cycles_fractional=0.0,
         mem_wr_cycles_fractional=0.0, perf_stats=ps)
-    with pytest.raises(ValueError, match="calibrated for device"):
-        device.execute_op(op)
+    device.execute_op(op)
+    assert op.compute_cycles != int(ps["fused_compute_cycles"])   # generic path, not the BH cost
+
+
+@pytest.mark.unit
+def test_decode_v_head_dim_from_v_cache_shape():
+    # FlashMLA decode: v_head_dim comes from the v_cache tensor, with attrs as the only fallback.
+    from ttsim.perf.roofline_sdpa import decode_config_from_shapes
+    cfg = decode_config_from_shapes([1, 32, 1, 576], [1, 1, 4096, 576],
+                                    v_shape=[1, 1, 4096, 512], attrs={})
+    assert cfg["v_head_dim"] == 512
+    fallback = decode_config_from_shapes([1, 32, 1, 576], [1, 1, 4096, 576],
+                                         attrs={"head_dim_v": 512})
+    assert fallback["v_head_dim"] == 512
 
 
 @pytest.mark.unit

@@ -383,7 +383,7 @@ def predict_decode(cache_len, num_q_heads, num_kv_heads, head_dim, v_head_dim=0,
     abpt = BYTES_PER_TILE[accum_dtype]
     dct_qk = _ceil_div(head_dim, TILE_HW)
     dct_v = _ceil_div(v_head_dim, TILE_HW)
-    kc_tiles = max(1, k_chunk // TILE_HW)   # kernel rounds valid_seq_len up to a chunk
+    kc_tiles = max(1, _ceil_div(k_chunk, TILE_HW))   # round the chunk up to whole tiles
     st_tiles = _ceil_div(attended, k_chunk) * kc_tiles
 
     # Whole KV cache re-streamed once per step. MLA reuses K as V (no separate DRAM V read).
@@ -421,8 +421,8 @@ def predict_decode(cache_len, num_q_heads, num_kv_heads, head_dim, v_head_dim=0,
     return r
 
 
-def decode_config_from_shapes(q_shape, k_shape, attrs=None, num_cores=110, arch=None):
-    """Build predict_decode args from a decode op's q + k_cache shapes + attrs.
+def decode_config_from_shapes(q_shape, k_shape, v_shape=None, attrs=None, num_cores=110, arch=None):
+    """Build predict_decode args from a decode op's q + k_cache (+ v_cache) shapes + attrs.
     q: [batch, num_q_heads, seq_q, head_dim]; k_cache: [batch, num_kv_heads, cache_len, head_dim]."""
     attrs = attrs or {}
     q = list(map(int, q_shape))
@@ -431,7 +431,8 @@ def decode_config_from_shapes(q_shape, k_shape, attrs=None, num_cores=110, arch=
     num_q_heads, head_dim = q[-3], q[-1]
     num_kv_heads, cache_len = k[-3], k[-2]
     dtype = _ELEM_TO_DTYPE.get(int(attrs.get("element_size", 2)), "bfloat16")
-    v_head_dim = int(attrs.get("head_dim_v") or 0)
+    # V head dim from the v_cache tensor (ground truth for FlashMLA), attr only as a fallback.
+    v_head_dim = int(v_shape[-1]) if v_shape else int(attrs.get("head_dim_v") or 0)
     return dict(cache_len=cache_len, num_q_heads=num_q_heads, num_kv_heads=num_kv_heads,
                 head_dim=head_dim, v_head_dim=v_head_dim, k_chunk=int(attrs.get("k_chunk_size") or 128),
                 batch=batch, cur_pos=attrs.get("cur_pos"),
@@ -440,8 +441,8 @@ def decode_config_from_shapes(q_shape, k_shape, attrs=None, num_cores=110, arch=
                 input_dtype=dtype, accum_dtype="bfloat16", num_cores=num_cores, arch=arch or ARCH_BH)
 
 
-def decode_perf_stats(q_shape, k_shape, attrs=None, num_cores=110, arch=None) -> Dict:
-    return predict_decode(**decode_config_from_shapes(q_shape, k_shape, attrs, num_cores, arch)).to_polaris_op_perf_stats()
+def decode_perf_stats(q_shape, k_shape, v_shape=None, attrs=None, num_cores=110, arch=None) -> Dict:
+    return predict_decode(**decode_config_from_shapes(q_shape, k_shape, v_shape, attrs, num_cores, arch)).to_polaris_op_perf_stats()
 
 
 ARCH_BH = ArchConfig(name="BH")
