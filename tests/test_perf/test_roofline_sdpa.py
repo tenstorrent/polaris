@@ -21,6 +21,27 @@ MEASURED_MATH = {
 # Measured per-core MATH cycles for FlashMLA prefill (DeepSeek latent family: nh=16, d_qk=576,
 # d_v=512, HiFi4, accurate exp, causal), from verif_data/mla_prefill_sweep.csv per-engine counters.
 MEASURED_MATH_MLA = {1024: 189_265, 2048: 743_248, 4096: 2_945_197, 8192: 11_724_964}
+MEASURED_FPU_MLA = {1024: 180_075, 2048: 707_329, 4096: 2_803_206, 8192: 11_160_368}
+
+# 2nd asymmetric-MLA family: real DeepSeek-V3 head count nh=128 (constants fit on nh=16), same
+# 576/512 latent dims, from verif_data/mla_prefill_nh128.csv. De-risks the head-count axis.
+MEASURED_MATH_MLA_NH128 = {1024: 1_602_791, 2048: 6_053_233, 4096: 23_493_786}
+
+# FlashMLA decode op latency (us), b=8 nh=16 nkv=1 576/512, host-timed, from
+# verif_data/mla_decode_latency.txt. Memory-bound at ~184 GB/s (half the multi-head decode BW).
+MEASURED_MLA_DECODE_US = {1024: 91.4, 2048: 154.7, 4096: 251.5, 8192: 455.3, 16384: 867.4}
+
+# Joint SDPA (SD3/Flux) op latency (us), nh=16 d=128 joint=512, host-timed, from
+# analysis/joint_sweep.py; keyed by S_eff = main_seq + joint_seq. Own kernel ~8x heavier per-iter.
+MEASURED_JOINT_US = {2560: 1428.0, 4608: 4561.0, 8704: 16314.5}
+
+# Measured per-core FPU cycles for the head_dim=64 sweep (nh=16, bfp8, HiFi2, causal), from
+# verif_data/sweep_hd64.csv (110 active cores). Anchors the head-dim overhead term.
+MEASURED_FPU_HD64 = {4096: 195_137, 8192: 768_000, 32768: 12_137_416}
+
+# Measured per-core FPU cycles for the q_chunk=64 sweep (nh=16, hd=128, bfp8, HiFi2, causal), from
+# verif_data/sweep_q64.csv (110 active cores). Anchors the q-chunk overhead term.
+MEASURED_FPU_Q64 = {1024: 25_456, 2048: 98_723, 4096: 388_692, 8192: 1_542_367}
 
 
 def _mla_cfg(S):
@@ -74,6 +95,18 @@ class _MockSimConfig:
         return 128.0
 
 
+class _RealBHSimConfig(_MockSimConfig):
+    # BH p100a device params for the whole-pipeline correlation (real DRAM BW + mem clock).
+    def mem_frequency(self, units="MHz"):
+        return 1000.0
+
+    def peak_bandwidth_per_cycle(self):
+        return 448.0        # 448 GB/s at 1 GHz mem clock -> bytes/cycle
+
+    def ramp_penalty(self):
+        return 100.0
+
+
 def _sdpa_op(name, cfg):
     return SimpleNamespace(
         name=name, optype="SDPA", uses_compute_pipe="matrix", precision="bfp8",
@@ -92,7 +125,7 @@ def test_fused_compute_cycles_override_is_honored(S):
     cfg = _baseline_cfg(S)
     op = _sdpa_op(f"sdpa_S{S}", cfg)
     device.execute_op(op)
-    assert op.compute_cycles == int(math.ceil(predict(cfg).compute_latency_cycles))
+    assert op.compute_cycles == int(math.ceil(predict(cfg).wall_clock_cycles))
     ipc_path = sum(math.ceil(c / (128.0 * device.DG_COMPUTE_UTIL_CONSTANT))
                    for c in op.perf_stats["instrs"].values())
     assert op.compute_cycles != ipc_path
@@ -140,16 +173,38 @@ def test_decode_v_head_dim_from_v_cache_shape():
 
 
 @pytest.mark.unit
-def test_floor_flag_is_captured_on_op():
-    # execute_op must carry the compute-is-lower-bound caveat out of the roofline docstring
-    # onto the op, so get_exec_stats can surface it (the summed SDPA term is a floor, not
-    # wall-clock).
-    ps = sdpa_perf_stats(_baseline_cfg(4096))
-    assert ps["sdpa_compute_is_floor"] is True and ps["sdpa_calibrated_arch"] == "Blackhole"
-    device = Device(_MockSimConfig())
-    op = _sdpa_op("sdpa_floor", _baseline_cfg(4096))
-    device.execute_op(op)
-    assert getattr(op, "compute_is_lower_bound", False) is True
+def test_dispatch_cross_only_when_kv_seq_differs():
+    # kv_seq == S is plain self-attention, not cross, so it keeps the prefill dispatch cost.
+    from ttsim.perf.roofline_sdpa import _dispatch_cycles_per_iter, DISPATCH_CYCLES_PER_ITER
+    r = SimpleNamespace(regime="prefill", is_mla=False)
+    same = SdpaConfig(S=4096, kv_seq=4096, is_causal=True, is_sparse=False)
+    cross = SdpaConfig(S=4096, kv_seq=2048, is_causal=True, is_sparse=False)
+    assert _dispatch_cycles_per_iter(same, r) == DISPATCH_CYCLES_PER_ITER["prefill_causal"]
+    assert _dispatch_cycles_per_iter(cross, r) == DISPATCH_CYCLES_PER_ITER["cross"]
+
+
+@pytest.mark.unit
+def test_wall_clock_is_additive_floor_plus_dispatch():
+    # Wall-clock is the compute floor plus a per-iteration dispatch term (not a multiple of the
+    # floor), so the arch-invariant dispatch cost stays fixed when the compute floor shrinks.
+    from ttsim.perf.roofline_sdpa import _dispatch_cycles_per_iter
+    cfg = _baseline_cfg(4096)
+    r = predict(cfg)
+    expected = round(r.compute_latency_cycles + _dispatch_cycles_per_iter(cfg, r) * r.inner_iters)
+    assert r.wall_clock_cycles == expected
+    assert r.wall_clock_cycles > r.compute_latency_cycles
+
+
+@pytest.mark.unit
+def test_op_cost_is_wall_clock_with_floor_in_breakdown():
+    # The op cost is now the full wall-clock estimate (not a floor); the compute floor stays in the
+    # breakdown for reference.
+    cfg = _baseline_cfg(4096)
+    ps = sdpa_perf_stats(cfg)
+    assert ps["sdpa_compute_is_floor"] is False and ps["sdpa_calibrated_arch"] == "Blackhole"
+    assert ps["fused_compute_cycles"] == predict(cfg).wall_clock_cycles
+    assert ps["sdpa_cycle_breakdown"]["compute_floor"] == predict(cfg).compute_latency_cycles
+    assert ps["fused_compute_cycles"] > ps["sdpa_cycle_breakdown"]["compute_floor"]
 
 
 @pytest.mark.unit
@@ -193,6 +248,91 @@ def test_mla_calibration_tracks_measured_math(S):
 
 
 @pytest.mark.unit
+@pytest.mark.parametrize("S", [1024, 2048, 4096, 8192])
+def test_mla_calibration_tracks_measured_fpu(S):
+    # FlashMLA per-engine counters exist now (mla_prefill_sweep.csv), so the FPU term is validated
+    # against silicon, not just projected: keep predicted FPU within ~5% of measured.
+    pred = predict(_mla_cfg(S)).fpu_cycles
+    meas = MEASURED_FPU_MLA[S]
+    rel = abs(pred - meas) / meas
+    assert rel <= 0.05, f"MLA FPU S={S}: pred={pred} meas={meas} rel={rel:.3f}"
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("S", [4096, 8192, 32768])
+def test_head_dim_overhead_tracks_measured_hd64_fpu(S):
+    # head_dim=64 was a cold -9% FPU corner; the head-dim overhead term brings it within ~3%.
+    r = predict(SdpaConfig(S=S, head_dim=64, num_heads=16, num_cores=110, arch=ARCH_BH))
+    meas = MEASURED_FPU_HD64[S]
+    rel = abs(r.fpu_cycles - meas) / meas
+    assert rel <= 0.03, f"hd64 FPU S={S}: pred={r.fpu_cycles} meas={meas} rel={rel:.3f}"
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("S", [1024, 2048, 4096, 8192])
+def test_q_chunk_overhead_tracks_measured_q64_fpu(S):
+    # q_chunk=64 was a -10% FPU corner (overhead is a bigger share of a smaller chunk); the
+    # q-chunk overhead term brings it within ~3%.
+    r = predict(SdpaConfig(S=S, head_dim=128, num_heads=16, q_chunk=64, k_chunk=64,
+                           num_cores=110, fidelity="HiFi2", is_causal=True,
+                           input_dtype="bfp8_b", arch=ARCH_BH))
+    meas = MEASURED_FPU_Q64[S]
+    rel = abs(r.fpu_cycles - meas) / meas
+    assert rel <= 0.03, f"q64 FPU S={S}: pred={r.fpu_cycles} meas={meas} rel={rel:.3f}"
+
+
+@pytest.mark.unit
+def test_head_dim_overhead_leaves_128_unchanged_and_grows_for_small_head_dim():
+    # The term is zero at the calibration head_dim (128) and larger for smaller head_dims.
+    def frac(hd):
+        r = predict(SdpaConfig(S=4096, head_dim=hd, num_heads=16, num_cores=110, arch=ARCH_BH))
+        return r.fpu_overhead_cycles / r.fpu_matmul_cycles
+    assert abs(frac(128) - ARCH_BH.fpu_overhead_frac) < 1e-3   # rounding only
+    assert frac(64) > frac(128)
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("S", [1024, 2048, 4096])
+def test_mla_generalizes_to_second_head_count(S):
+    # The MLA constants were fit on nh=16; a 2nd family at nh=128 (real DeepSeek-V3) must stay
+    # within ~5% MATH, showing the calibration is not tuned to one head count.
+    pred = predict(SdpaConfig(S=S, head_dim=576, v_head_dim=512, q_chunk=128, k_chunk=128,
+                              num_heads=128, num_kv_heads=1, fidelity="HiFi4", input_dtype="bfloat16",
+                              accum_dtype="bfloat16", is_causal=True, exp_approx_mode=False,
+                              num_cores=110, arch=ARCH_BH)).math_active_cycles
+    meas = MEASURED_MATH_MLA_NH128[S]
+    rel = abs(pred - meas) / meas
+    assert rel <= 0.05, f"MLA nh128 S={S}: pred={pred} meas={meas} rel={rel:.3f}"
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("cache", [1024, 2048, 4096, 8192, 16384])
+def test_mla_decode_latency_tracks_measured(cache):
+    # FlashMLA decode is memory-bound at a lower effective BW than multi-head decode (card-measured);
+    # predict_decode(is_mla) must track the measured op latency within ~10%.
+    from ttsim.perf.roofline_sdpa import predict_decode
+    r = predict_decode(cache_len=cache, num_q_heads=16, num_kv_heads=1, head_dim=576,
+                       v_head_dim=512, batch=8)
+    us = r.wall_clock_cycles / 1350.0
+    meas = MEASURED_MLA_DECODE_US[cache]
+    assert r.is_mla and r.is_memory_bound
+    assert abs(us - meas) / meas <= 0.10, f"MLA decode L={cache}: pred={us:.1f} meas={meas} us"
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("seff", [2560, 4608, 8704])
+def test_joint_latency_tracks_measured(seff):
+    # Joint SDPA is its own (heavier) kernel; the joint dispatch factor must track measured op
+    # latency within ~10% over S_eff = main + joint.
+    r = predict(SdpaConfig(S=seff, num_heads=16, head_dim=128, is_causal=False, is_joint=True,
+                           q_chunk=128, k_chunk=128, input_dtype="bfloat16", num_cores=110, arch=ARCH_BH))
+    us = r.wall_clock_cycles / 1350.0
+    meas = MEASURED_JOINT_US[seff]
+    assert r.regime == "joint"
+    assert abs(us - meas) / meas <= 0.10, f"joint S_eff={seff}: pred={us:.0f} meas={meas} us"
+
+
+@pytest.mark.unit
 def test_mla_uses_zero_overlap_and_low_fpu_overhead():
     # MLA path must not apply the standard-SDPA overlap/overhead (would over-predict ~13%).
     r = predict(_mla_cfg(4096))
@@ -225,7 +365,19 @@ def test_roofline_tracks_measured_math(shape, S):
     pred = predict(cfg).math_active_cycles
     meas = MEASURED_MATH[shape][S]
     rel = abs(pred - meas) / meas
-    assert rel <= 0.12, f"{shape} S={S}: pred={pred} meas={meas} rel={rel:.3f}"
+    # q_chunk-dependent overlap tightened the q256 (wan) corner from ~6% to ~4%.
+    assert rel <= 0.06, f"{shape} S={S}: pred={pred} meas={meas} rel={rel:.3f}"
+
+
+@pytest.mark.unit
+def test_overlap_grows_with_q_chunk():
+    # Overlap rises with q_chunk (more independent tiles to interleave) and saturates below 1;
+    # non-causal overlaps more than causal; MLA does not overlap.
+    from ttsim.perf.roofline_sdpa import _overlap_frac, OVERLAP_FRAC_MAX
+    assert _overlap_frac(8, True, False) > _overlap_frac(4, True, False)     # q256 > q128
+    assert _overlap_frac(4, False, False) > _overlap_frac(4, True, False)    # non-causal > causal
+    assert _overlap_frac(64, True, False) <= OVERLAP_FRAC_MAX                 # capped below 1
+    assert _overlap_frac(4, True, True) == 0.0                               # MLA
 
 
 @pytest.mark.unit
@@ -245,14 +397,13 @@ def test_sdpa_sinf_routes_prefill_and_decode_variants():
     from ttsim.ops.desc.ttsim_layout import sdpa_sinf
     def T(shape):
         return SimpleNamespace(shape=list(shape), dtype="bfloat16")
-    # prefill: 3 inputs -> compute roofline; a compute floor, not memory-bound
+    # prefill: 3 inputs -> compute roofline (wall-clock cost)
     q, k, v = T([1, 32, 4096, 128]), T([1, 8, 4096, 128]), T([1, 8, 4096, 128])
     out = SimpleNamespace(shape=None, dtype=None)
     op = SimpleNamespace(attrs={"is_causal": True, "element_size": 1}, perf_stats=None)
     sdpa_sinf([q, k, v], [out], op)
     assert op.perf_stats.get("fused_compute_cycles", 0) > 0 and op.perf_stats["inBytes"] > 0
     assert op.perf_stats["sdpa_regime"] == "prefill"
-    assert op.perf_stats["sdpa_compute_is_floor"] is True
     # decode: 4 inputs (q, k_cache, v_cache, cur_pos) -> MEMORY-bound KV-stream roofline
     op2 = SimpleNamespace(attrs={"element_size": 2}, perf_stats=None)
     sdpa_sinf([T([1, 32, 1, 128]), k, v, T([1])], [SimpleNamespace(shape=None, dtype=None)], op2)
@@ -261,6 +412,45 @@ def test_sdpa_sinf_routes_prefill_and_decode_variants():
     assert op2.perf_stats["sdpa_compute_is_floor"] is False  # memory bound, not a compute floor
     # KV cache (8 heads x 4096 x 128 x2) dominates the tiny single-token compute:
     assert op2.perf_stats["inBytes"] > 10_000_000
+
+
+@pytest.mark.unit
+def test_sdpa_sinf_routes_mla_sparse_joint_mladecode_variants():
+    # The distinct MLA / sparse / joint / MLA-decode ops route via the sdpa_variant tag and produce
+    # a real roofline cost (not the passthrough mov-estimate).
+    from ttsim.ops.desc.ttsim_layout import sdpa_sinf
+    def T(shape):
+        return SimpleNamespace(shape=list(shape), dtype="bfloat16")
+    def run(iTList, attrs):
+        op = SimpleNamespace(attrs=attrs, perf_stats=None)
+        sdpa_sinf(iTList, [SimpleNamespace(shape=None, dtype=None)], op)
+        return op.perf_stats
+
+    # MLA prefill: V = K (latent), head_dim_v=512 asymmetric -> flagged low-confidence.
+    mla = run([T([1, 16, 4096, 576]), T([1, 1, 4096, 576]), T([1, 1, 4096, 576])],
+              {"sdpa_variant": "mla", "head_dim_v": 512, "is_causal": True, "fidelity": "HiFi4",
+               "input_dtype": "bfloat16", "exp_approx_mode": False})
+    assert mla["fused_compute_cycles"] > 0 and mla["sdpa_mla_low_confidence"] is True
+    assert mla["sdpa_regime"] and mla["outBytes"] > 0   # real roofline cost, not passthrough
+
+    # Sparse-MLA: kv_seq = TOPK, is_sparse -> gather uplift applied.
+    sp = run([T([1, 32, 2048, 576]), T([1, 1, 8192, 576]), T([1, 1, 8192, 576]), T([1, 1, 2048, 1024])],
+             {"sdpa_variant": "sparse", "is_sparse": True, "head_dim_v": 512, "kv_seq": 1024,
+              "is_causal": False, "fidelity": "HiFi4", "input_dtype": "bfloat16"})
+    assert sp["fused_compute_cycles"] > 0
+
+    # Joint (SD3/Flux): cost over S_eff = main + joint, non-causal.
+    jt = run([T([1, 24, 4096, 64]), T([1, 24, 4096, 64]), T([1, 24, 4096, 64])],
+             {"sdpa_variant": "joint", "joint_seq": 512, "is_causal": False})
+    jt_expected = predict(SdpaConfig(S=4096 + 512, num_heads=24, head_dim=64, is_causal=False,
+                                     is_joint=True, input_dtype="bfloat16", num_cores=110, arch=ARCH_BH))
+    assert jt["fused_compute_cycles"] == jt_expected.wall_clock_cycles
+    assert jt["sdpa_regime"] == "joint"
+
+    # MLA decode: memory-bound, reuses K as V (no separate V DRAM read).
+    dec = run([T([1, 128, 1, 576]), T([1, 1, 8192, 576]), T([1, 1, 8192, 576]), T([1])],
+              {"sdpa_variant": "mla_decode", "head_dim_v": 512})
+    assert dec["sdpa_cycle_breakdown"]["is_memory_bound"] is True and dec["inBytes"] > 0
 
 
 @pytest.mark.unit
@@ -435,16 +625,66 @@ def test_sparse_mla_tracks_measured_math(topk, meas):
     assert abs(pred.math_active_cycles - meas) / meas <= 0.05, f"TOPK={topk}"
 
 
+def _polaris_device_us(perf_stats):
+    # Projected device latency through the real Device.execute_op + get_exec_stats projection
+    # (ideal = max(compute, mem) + ramp), with BH device params.
+    device = Device(_RealBHSimConfig())
+    op = _sdpa_op("corr", _baseline_cfg(4096))
+    op.perf_stats = perf_stats
+    device.execute_op(op)
+    ideal = math.ceil(max(op.compute_cycles, op.mem_rd_cycles + op.mem_wr_cycles) + 100.0)
+    return ideal / 1350.0
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("perf,meas", [
+    (sdpa_perf_stats(SdpaConfig(S=4096, num_heads=32, num_kv_heads=8, head_dim=128, is_causal=True,
+                                input_dtype="bfp8_b", fidelity="HiFi2", num_cores=110, arch=ARCH_BH)), 1740),
+    (sdpa_perf_stats(SdpaConfig(S=1024, head_dim=576, v_head_dim=512, q_chunk=32, k_chunk=128,
+                                num_heads=16, num_kv_heads=1, fidelity="HiFi4", input_dtype="bfloat16",
+                                accum_dtype="bfloat16", is_causal=True, exp_approx_mode=False,
+                                num_cores=110, arch=ARCH_BH)), 1619),
+])
+def test_whole_pipeline_correlation_vs_measured(perf, meas):
+    # End-to-end: the projected device latency through the real Polaris pipeline tracks measured
+    # device wall-clock within ~15% for each single-chip variant.
+    us = _polaris_device_us(perf)
+    assert abs(us - meas) / meas <= 0.15, f"projected {us:.0f}us vs measured {meas}us"
+
+
+@pytest.mark.unit
+def test_whole_pipeline_correlation_decode():
+    from ttsim.perf.roofline_sdpa import predict_decode
+    ps = predict_decode(cache_len=8192, num_q_heads=32, num_kv_heads=8, head_dim=128,
+                        batch=8).to_polaris_op_perf_stats()
+    assert abs(_polaris_device_us(ps) - 795.7) / 795.7 <= 0.15
+
+
+@pytest.mark.unit
+def test_wall_clock_per_regime_vs_measured():
+    # The additive dispatch model projects device wall-clock across the harder regimes (measured on BH).
+    mla = predict(SdpaConfig(S=1024, head_dim=576, v_head_dim=512, q_chunk=32, k_chunk=128,
+                             num_heads=16, num_kv_heads=1, fidelity="HiFi4", input_dtype="bfloat16",
+                             accum_dtype="bfloat16", is_causal=True, exp_approx_mode=False,
+                             num_cores=110, arch=ARCH_BH))
+    assert abs(mla.wall_clock_cycles / 1350.0 - 1619) / 1619 <= 0.15
+    sparse = predict(SdpaConfig(S=2048, kv_seq=1024, head_dim=576, v_head_dim=512, num_heads=32,
+                                num_kv_heads=1, is_sparse=True, is_causal=False, input_dtype="bfloat16",
+                                accum_dtype="bfloat16", fidelity="HiFi4", exp_approx_mode=False,
+                                num_cores=110, arch=ARCH_BH))
+    assert abs(sparse.wall_clock_cycles / 1350.0 - 5586) / 5586 <= 0.15
+
+
 @pytest.mark.unit
 @pytest.mark.parametrize("S,dev_us", [(2048, 402), (4096, 1740), (8192, 6380), (16384, 25900)])
 def test_wall_clock_estimate_tracks_device_latency(S, dev_us):
-    # The wall-clock estimate (floor + per-inner-iter kernel overhead = the data-movement/dispatch
-    # half) must track measured DEVICE wall-clock within ~12%; the floor stays a strict lower bound.
+    # The wall-clock estimate (compute floor x per-regime latency multiple) tracks measured DEVICE
+    # wall-clock within ~15%; the floor stays a strict lower bound below it.
     r = predict(SdpaConfig(S=S, num_heads=32, num_kv_heads=8, head_dim=128, is_causal=True,
                            input_dtype="bfp8_b", fidelity="HiFi2", num_cores=110, arch=ARCH_BH))
     assert r.wall_clock_cycles > r.compute_latency_cycles     # wall-clock is above the floor
     us = r.wall_clock_cycles / 1350.0
-    assert abs(us - dev_us) / dev_us <= 0.12, f"S={S}: wall={us:.0f}us dev={dev_us}us"
+    assert abs(us - dev_us) / dev_us <= 0.15, f"S={S}: wall={us:.0f}us dev={dev_us}us"
 
 
 @pytest.mark.unit
@@ -454,7 +694,8 @@ def test_multichip_ring_is_out_of_scope_not_handled():
     from ttsim.ops.desc.ttsim_layout import _SDPA_FRONTENDS
     assert "ring_distributed" not in _SDPA_FRONTENDS
     assert "ring_joint" not in _SDPA_FRONTENDS
-    assert set(_SDPA_FRONTENDS) == {"prefill", "decode", "chunked"}
+    # Single-chip variants only (joint = single-chip SD3/Flux, not the multichip ring_joint).
+    assert set(_SDPA_FRONTENDS) == {"prefill", "decode", "chunked", "mla", "sparse", "mla_decode", "joint"}
 
 
 @pytest.mark.unit

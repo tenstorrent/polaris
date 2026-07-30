@@ -11,7 +11,7 @@ from dataclasses import dataclass, field
 from typing import Dict
 
 TILE_HW = 32
-BYTES_PER_TILE = {"bfp8_b": 1088, "bfloat16": 2048, "float32": 4096}
+BYTES_PER_TILE = {"bfp4_b": 576, "bfp8_b": 1088, "bfloat16": 2048, "float32": 4096}
 
 
 def _ceil_div(a: int, b: int) -> int:
@@ -22,12 +22,33 @@ def _ceil_div(a: int, b: int) -> int:
 # Device.execute_op can refuse the cost on a non-BH device.
 POLARIS_CALIBRATED_DEVNAME = "Blackhole"
 
-# FPU/SFPU overlap as a fraction of the smaller engine, per regime (measured 0.45-0.86).
-OVERLAP_FRAC_CAUSAL = 0.579
-OVERLAP_FRAC_NONCAUSAL = 0.755
+# FPU/SFPU overlap saturates toward 1 as the q-chunk grows (more independent tiles to interleave):
+# overlap = 1 - k/qct, k fit to measured q_chunk 128 & 256 per regime (measured range 0.45-0.86).
+OVERLAP_K_CAUSAL = 1.81
+OVERLAP_K_NONCAUSAL = 1.28
+OVERLAP_FRAC_MAX = 0.95
 # MLA is matmul-dominated (tiny softmax), so the engines do not overlap. MLA overhead/overlap are
 # a separate calibration (DeepSeek latent family); off-family MLA is flagged low-confidence.
 OVERLAP_FRAC_MLA = 0.0
+
+
+def _overlap_frac(qct, causal_like, is_mla):
+    """FPU/SFPU overlap fraction. Grows with q-chunk (qct = q_chunk/32), capped below 1."""
+    if is_mla:
+        return OVERLAP_FRAC_MLA
+    k = OVERLAP_K_CAUSAL if causal_like else OVERLAP_K_NONCAUSAL
+    return max(0.0, min(OVERLAP_FRAC_MAX, 1.0 - k / qct))
+
+# Device wall-clock = compute floor + front-end/dispatch idle. The idle is a per-iteration cost
+# (measured on BH: gap/inner is flat within a regime), so it is modelled additively rather than as
+# a multiple of the floor. This separates the arch-scaling compute from the ~arch-invariant dispatch,
+# so it transfers to a faster compute engine (shrink the floor, keep the dispatch term). Cycles per
+# inner iteration, per regime.
+DISPATCH_CYCLES_PER_ITER = {
+    "prefill_causal": 8900, "prefill_noncausal": 3300, "cross": 1850,
+    "windowed": 8700, "masked": 6250, "chunked": 7000, "sparse": 160000, "mla": 104600,
+    "joint": 27405,   # SD3/Flux joint kernel (~8x standard non-causal per-iter; card-fit)
+}
 
 
 @dataclass
@@ -40,7 +61,11 @@ class ArchConfig:
     cycles_per_tile_mac: Dict[str, float] = field(
         default_factory=lambda: {"LoFi": 16.0, "HiFi2": 32.0, "HiFi3": 48.0, "HiFi4": 64.0}
     )
-    fpu_overhead_frac: float = 0.132          # LLK template cycles / matmul cycles
+    fpu_overhead_frac: float = 0.132          # LLK template cycles / matmul cycles at head_dim 128, q_chunk 128
+    fpu_overhead_per_inv_dct: float = 0.88    # head-dim overhead scaling; fit across head_dim 64 & 128
+    fpu_overhead_ref_dct_sum: float = 8.0     # dct_qk+dct_v at the calibration head_dim (128)
+    fpu_overhead_per_inv_qct: float = 0.492   # q-chunk overhead scaling; fit across q_chunk 64/128/256
+    fpu_overhead_ref_qct: float = 4.0         # qct at the calibration q_chunk (128)
     fpu_overhead_frac_mla: float = 0.031      # MLA is matmul-dominated -> near-zero template overhead
     sfpu_lanes: int = 32
     exp_tile_cycles: float = 88.2             # approx exp per tile
@@ -58,9 +83,10 @@ class ArchConfig:
     # Decode (memory-bound): measured effective KV-stream BW + a fixed dispatch/ramp latency.
     dram_kv_stream_bw_gbps: float = 343.0
     decode_fixed_overhead_cycles: float = 22000.0   # ~16.3 us @ 1.35 GHz
-    # Compute-bound wall-clock overhead per inner iter. CAUSAL-PREFILL ONLY (does not generalize:
-    # non-causal ~3300, MLA ~100000); wall_clock_cycles is diagnostic, not the Polaris cost.
-    kernel_overhead_per_inner_iter: float = 9000.0
+    # MLA decode streams a single wide latent KV head (d_qk=576): measured effective BW is ~half the
+    # multi-head decode's, with a heavier fixed cost (card-validated, verif_data/mla_decode_latency).
+    dram_kv_stream_bw_gbps_mla: float = 183.8
+    decode_fixed_overhead_cycles_mla: float = 26968.0   # ~20 us @ 1.35 GHz
     clock_ghz: float = 1.35
 
     def cpt(self, fidelity: str) -> float:
@@ -94,6 +120,7 @@ class SdpaConfig:
     chunk_start_idx: int = 0       # chunked/paged prefill: absolute start of this Q chunk (prefix len)
     dram_scatter_derate: float = 1.0  # paged KV gather BW penalty (>1 inflates effective bytes)
     is_sparse: bool = False        # sparse-MLA: each query attends TOPK selected latent KV (kv_seq=TOPK)
+    is_joint: bool = False         # SD3/Flux joint attention (own kernel; heavier per-iter dispatch)
     exp_approx_mode: bool = True
     arch: ArchConfig = field(default_factory=ArchConfig)
 
@@ -121,7 +148,7 @@ class RooflineResult:
     math_idle_cycles: int = 0
     init_overhead_cycles: int = 0
     compute_latency_cycles: int = 0    # compute FLOOR (FPU/SFPU busy + L1 floor + init)
-    wall_clock_cycles: int = 0         # full latency estimate = floor + per-inner-iter overhead
+    wall_clock_cycles: int = 0         # latency estimate = compute floor + per-regime dispatch idle x inner_iters (decode adds memory latency)
     unpack_bytes_total: int = 0        # per-core L1 unpacker bytes (drives the on-chip BW floor only)
     pack_bytes_total: int = 0
     unpack_min_cycles: int = 0
@@ -135,9 +162,9 @@ class RooflineResult:
     def to_polaris_op_perf_stats(self) -> Dict:
         """perf_stats for a fused SDPA op consumed by ttsim Device.execute_op.
 
-        Compute-bound regimes: fused_compute_cycles is a compute-latency floor (sdpa_compute_is_floor
-        True). Memory-bound decode: inBytes carries the KV-stream cost and max(compute, memory) picks
-        it (floor flag False). instrs is empty (ttsim reads it as instruction counts).
+        fused_compute_cycles is the full device wall-clock estimate (compute floor x per-regime
+        latency multiple; decode carries its memory latency). instrs is empty (ttsim reads it as
+        instruction counts); the compute floor stays in the breakdown for reference.
         """
         return {
             "inBytes": self.dram_in_bytes,
@@ -148,16 +175,15 @@ class RooflineResult:
             "inActCount": 0,
             "outActCount": 0,
             "instrs": {},
-            "fused_compute_cycles": self.compute_latency_cycles,
-            # Device.execute_op rejects the cost on a non-BH device, flags the floor as a lower bound
-            # (compute-bound only), and flags not-yet-calibrated variants low-confidence.
+            "fused_compute_cycles": self.wall_clock_cycles,
+            # Device.execute_op rejects the cost off-BH and flags per-regime-calibrated variants.
             "sdpa_calibrated_arch": POLARIS_CALIBRATED_DEVNAME,
-            "sdpa_compute_is_floor": (not self.is_memory_bound),
+            "sdpa_compute_is_floor": False,
             "sdpa_mla_low_confidence": (self.is_mla or self.low_confidence),
             "sdpa_regime": self.regime,
-            # Wall-clock estimate: causal-prefill only, diagnostic (not the Polaris cost).
             "sdpa_wall_clock_cycles": self.wall_clock_cycles,
             "sdpa_cycle_breakdown": {
+                "compute_floor": self.compute_latency_cycles,
                 "fpu_matmul": self.fpu_matmul_cycles,
                 "fpu_overhead": self.fpu_overhead_cycles,
                 "sfpu_exp": self.sfpu_exp_cycles,
@@ -186,7 +212,11 @@ def sdpa_config_from_shapes(q_shape, k_shape, v_shape, attrs=None, num_cores=110
     nh, S, head_dim = q[-3], q[-2], q[-1]
     batch = q[-4] if len(q) >= 4 else 1
     nkv, kv_seq, v_head_dim = k[-3], k[-2], v[-1]
-    dtype = _ELEM_TO_DTYPE.get(int(attrs.get("element_size", 2)), "bfloat16")
+    # MLA carries V in the latent form (V = K[..., :kv_lora]); its v_head_dim comes from the attr,
+    # not the (larger) K tensor dim. Sparse/joint override kv_seq (TOPK / concat) via the attr too.
+    v_head_dim = int(attrs.get("head_dim_v") or v_head_dim)
+    kv_seq = int(attrs.get("kv_seq") or kv_seq)
+    dtype = str(attrs.get("input_dtype") or _ELEM_TO_DTYPE.get(int(attrs.get("element_size", 2)), "bfloat16"))
     qc = int(attrs.get("q_chunk_size") or 128)
     kc = int(attrs.get("k_chunk_size") or qc)
     return SdpaConfig(
@@ -194,6 +224,9 @@ def sdpa_config_from_shapes(q_shape, k_shape, v_shape, attrs=None, num_cores=110
         head_dim=head_dim, v_head_dim=(0 if v_head_dim == head_dim else v_head_dim),
         q_chunk=qc, k_chunk=kc, num_heads=nh, num_kv_heads=(0 if nkv == nh else nkv),
         num_cores=num_cores, is_causal=bool(attrs.get("is_causal", True)),
+        is_sparse=bool(attrs.get("is_sparse", False)),
+        is_joint=bool(attrs.get("is_joint", False)),
+        fidelity=str(attrs.get("fidelity") or "HiFi2"),
         input_dtype=dtype, accum_dtype="bfloat16",
         has_attn_mask=bool(attrs.get("has_attn_mask", False)),
         sliding_window=int(attrs.get("sliding_window") or attrs.get("sliding_window_size") or 0),
@@ -226,6 +259,20 @@ def _windowed_k_eff(S, q_chunk, k_chunk, kv_seq, window, causal):
             k_lo = max(0, q_lo_t - win_tiles // 2) // Skt
         total += max(0.0, float(k_hi - k_lo))
     return total / nq
+
+
+def _dispatch_cycles_per_iter(cfg, r):
+    """Per-regime front-end/dispatch idle per inner iteration (see DISPATCH_CYCLES_PER_ITER)."""
+    if r.is_mla and not cfg.is_sparse:
+        return DISPATCH_CYCLES_PER_ITER["mla"]
+    if cfg.is_sparse:
+        return DISPATCH_CYCLES_PER_ITER["sparse"]
+    if r.regime in DISPATCH_CYCLES_PER_ITER:
+        return DISPATCH_CYCLES_PER_ITER[r.regime]
+    if cfg.kv_seq and cfg.kv_seq != cfg.S:
+        return DISPATCH_CYCLES_PER_ITER["cross"]
+    return (DISPATCH_CYCLES_PER_ITER["prefill_causal"] if cfg.is_causal
+            else DISPATCH_CYCLES_PER_ITER["prefill_noncausal"])
 
 
 def _engine_cycles(r, *, Q, K_eff, K_eff_gt0, inner_iters, qct, kct, dct_qk, dct_v, cpt,
@@ -300,13 +347,17 @@ def predict(cfg: SdpaConfig) -> RooflineResult:
     cpt = a.cpt(cfg.fidelity)
 
     # MLA uses its own overhead/overlap; a masked op behaves causal-like (causal overlap).
-    fpu_overhead_frac = a.fpu_overhead_frac_mla if r.is_mla else a.fpu_overhead_frac
+    if r.is_mla:
+        fpu_overhead_frac = a.fpu_overhead_frac_mla
+    else:
+        # LLK template overhead is a larger share of a smaller matmul, so scale it with both
+        # 1/head_dim and 1/q_chunk (fewer tiles per call -> overhead is a bigger fraction).
+        fpu_overhead_frac = (a.fpu_overhead_frac
+            + a.fpu_overhead_per_inv_dct * (1.0 / (dct_qk + dct_v) - 1.0 / a.fpu_overhead_ref_dct_sum)
+            + a.fpu_overhead_per_inv_qct * (1.0 / qct - 1.0 / a.fpu_overhead_ref_qct))
     sfpu_overhead_per_inner_iter = a.sfpu_overhead_per_inner_iter_mla if r.is_mla else a.sfpu_overhead_per_inner_iter
     causal_like = cfg.is_causal or cfg.has_attn_mask
-    if r.is_mla:
-        overlap_frac = OVERLAP_FRAC_MLA
-    else:
-        overlap_frac = OVERLAP_FRAC_CAUSAL if causal_like else OVERLAP_FRAC_NONCAUSAL
+    overlap_frac = _overlap_frac(qct, causal_like, r.is_mla)
 
     sink_passes = 1.0 if cfg.attention_sink else 0.0
     _engine_cycles(r, Q=Q, K_eff=K_eff, K_eff_gt0=K_eff_gt0, inner_iters=r.inner_iters,
@@ -314,7 +365,10 @@ def predict(cfg: SdpaConfig) -> RooflineResult:
                    exp_approx=cfg.exp_approx_mode, arch=a, fpu_overhead_frac=fpu_overhead_frac,
                    sfpu_overhead_per_inner_iter=sfpu_overhead_per_inner_iter, overlap_frac=overlap_frac,
                    mask_add_tiles_per_iter=0.0, sink_passes_per_q=sink_passes)
-    if cfg.is_sparse:
+    if cfg.is_joint:
+        r.regime = "joint"
+        r.low_confidence = True
+    elif cfg.is_sparse:
         # Sparse-MLA: kv_seq=TOPK gives K_eff=TOPK/k_chunk; add the calibrated scattered-gather uplift.
         r.math_active_cycles = round(r.math_active_cycles * (1.0 + a.sparse_gather_overhead_frac))
         r.regime = "sparse"
@@ -355,8 +409,9 @@ def predict(cfg: SdpaConfig) -> RooflineResult:
     l1_floor = max(r.unpack_min_cycles, r.pack_min_cycles)
     r.init_overhead_cycles = round(a.init_overhead_cycles)
     r.compute_latency_cycles = round(max(r.math_active_cycles, l1_floor) + r.init_overhead_cycles)
-    # Wall-clock estimate = floor + per-inner-iter kernel overhead (causal-prefill diagnostic only).
-    r.wall_clock_cycles = round(r.compute_latency_cycles + r.inner_iters * a.kernel_overhead_per_inner_iter)
+    # Wall-clock estimate = compute floor + per-regime front-end/dispatch idle per inner iteration.
+    r.wall_clock_cycles = round(r.compute_latency_cycles
+                                + _dispatch_cycles_per_iter(cfg, r) * r.inner_iters)
     r.math_idle_cycles = round(r.inner_iters * a.idle_per_inner_iter)
     return r
 
@@ -414,9 +469,11 @@ def predict_decode(cache_len, num_q_heads, num_kv_heads, head_dim, v_head_dim=0,
 
     # Memory-bound latency = fixed dispatch/ramp + KV stream at the measured decode BW. Carried in
     # fused_compute_cycles (the byte-path can't add the fixed term); device.execute_op's max() keeps it.
-    mem_cycles = r.dram_in_bytes * a.clock_ghz / a.dram_kv_stream_bw_gbps
-    r.init_overhead_cycles = round(a.decode_fixed_overhead_cycles)
-    r.compute_latency_cycles = round(max(r.math_active_cycles, mem_cycles) + a.decode_fixed_overhead_cycles)
+    bw = a.dram_kv_stream_bw_gbps_mla if is_mla else a.dram_kv_stream_bw_gbps
+    fixed = a.decode_fixed_overhead_cycles_mla if is_mla else a.decode_fixed_overhead_cycles
+    mem_cycles = r.dram_in_bytes * a.clock_ghz / bw
+    r.init_overhead_cycles = round(fixed)
+    r.compute_latency_cycles = round(max(r.math_active_cycles, mem_cycles) + fixed)
     r.wall_clock_cycles = r.compute_latency_cycles
     return r
 
