@@ -695,6 +695,49 @@ class transformer:
                      memory_config=memory_config,
                      scale=scale)
 
+    @staticmethod
+    def flash_mla_prefill(q, k, *, head_dim_v, scale=None, is_causal=True,
+                          program_config=None, compute_kernel_config=None,
+                          memory_config=None, **kwargs):
+        """FlashMLA prefill (latent form): V = K[..., :head_dim_v], so K serves as V. Routes to the
+        MLA roofline via the head_dim_v attr (asymmetric d_qk/d_v)."""
+        from .ttnn_shim import scaled_dot_product_attention_op as _sdpa
+        return _sdpa(q, k, k, memory_config=memory_config, sdpa_variant='mla',
+                     head_dim_v=int(head_dim_v), is_causal=bool(is_causal),
+                     fidelity='HiFi4', exp_approx_mode=False, scale=scale)
+
+    @staticmethod
+    def flash_mla_decode(q, k, *, head_dim_v, cur_pos_tensor=None, page_table_tensor=None,
+                         scale=None, program_config=None, compute_kernel_config=None,
+                         memory_config=None, **kwargs):
+        """FlashMLA decode (memory-bound): reuses K as V. Routes to the decode roofline."""
+        from .ttnn_shim import scaled_dot_product_attention_op as _sdpa
+        return _sdpa(q, k, k, cur_pos_tensor, page_table_tensor, memory_config=memory_config,
+                     sdpa_variant='mla_decode', head_dim_v=int(head_dim_v), scale=scale)
+
+    @staticmethod
+    def sparse_sdpa(q, kv, sparse_idx, head_dim_v, *, scale=None, is_causal=False,
+                    program_config=None, compute_kernel_config=None, memory_config=None, **kwargs):
+        """Sparse-MLA: each query attends its TOPK selected latent KV (indices [..., TOPK]). Routes to
+        the roofline as MLA cross-attention with kv_seq=TOPK + the scattered-gather uplift."""
+        from .ttnn_shim import scaled_dot_product_attention_op as _sdpa
+        topk = int(sparse_idx.logical_shape()._shape[-1])
+        return _sdpa(q, kv, kv, sparse_idx, memory_config=memory_config, sdpa_variant='sparse',
+                     is_sparse=True, head_dim_v=int(head_dim_v), kv_seq=topk, is_causal=bool(is_causal),
+                     fidelity='HiFi4', exp_approx_mode=False, scale=scale)
+
+    @staticmethod
+    def joint_scaled_dot_product_attention(q, k, v, joint_tensor_q, joint_tensor_k, joint_tensor_v,
+                                           *, joint_strategy=None, scale=None, program_config=None,
+                                           compute_kernel_config=None, memory_config=None, **kwargs):
+        """Joint SDPA (SD3/Flux): main + joint streams attend over their concatenation, non-causal.
+        Routes to the joint roofline (cost over S_eff = main + joint); returns (out, joint_out)."""
+        from .ttnn_shim import scaled_dot_product_attention_op as _sdpa
+        joint_seq = int(joint_tensor_q.logical_shape()._shape[-2])
+        out = _sdpa(q, k, v, memory_config=memory_config, sdpa_variant='joint',
+                    joint_seq=joint_seq, is_causal=False, scale=scale)
+        return out, joint_tensor_q
+
 
 class experimental:
     def __init__(self):

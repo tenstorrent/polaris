@@ -750,12 +750,26 @@ def _sdpa_prefill_perf(iTList, q_shape, op):
 
 
 def _sdpa_decode_perf(iTList, q_shape, op):
-    """Single-token / paged decode SDPA -> memory-bound KV-stream roofline (paged only scatters the
-    same bytes)."""
+    """Single-token / paged decode SDPA (incl. MLA decode) -> memory-bound KV-stream roofline
+    (paged only scatters the same bytes; MLA reuses K as V so no separate V read)."""
     from ttsim.perf.roofline_sdpa import decode_perf_stats
     k_shape = require_shape_list(iTList[1].shape, "SDPA decode: k_cache shape must be known")
     v_shape = require_shape_list(iTList[2].shape, "SDPA decode: v_cache shape must be known")
     op.perf_stats = decode_perf_stats(q_shape, k_shape, v_shape=v_shape, attrs=op.attrs)
+
+
+def _sdpa_joint_perf(iTList, q_shape, op):
+    """Joint SDPA (SD3/Flux): main + joint token streams attend over their concatenation, non-causal.
+    Model as one non-causal prefill over S_eff = main_seq + joint_seq."""
+    from ttsim.perf.roofline_sdpa import sdpa_config_from_shapes, sdpa_perf_stats
+    k_shape = require_shape_list(iTList[1].shape, "SDPA joint: k shape must be known")
+    v_shape = require_shape_list(iTList[2].shape, "SDPA joint: v shape must be known")
+    joint_seq = int(op.attrs.get("joint_seq") or 0)
+    q, k, v = (list(map(int, s)) for s in (q_shape, k_shape, v_shape))
+    seff = q[-2] + joint_seq
+    qj, kj, vj = q[:-2] + [seff, q[-1]], k[:-2] + [seff, k[-1]], v[:-2] + [seff, v[-1]]
+    attrs = dict(op.attrs); attrs["is_causal"] = False
+    op.perf_stats = sdpa_perf_stats(sdpa_config_from_shapes(qj, kj, vj, attrs))
 
 
 # Single-chip only. Chunked prefill reuses the compute path; multi-chip ring is out of scope
@@ -764,6 +778,10 @@ _SDPA_FRONTENDS = {
     'prefill': _sdpa_prefill_perf,
     'decode': _sdpa_decode_perf,
     'chunked': _sdpa_prefill_perf,
+    'mla': _sdpa_prefill_perf,           # FlashMLA prefill (asymmetric v_head_dim via head_dim_v attr)
+    'sparse': _sdpa_prefill_perf,        # sparse-MLA (is_sparse + kv_seq=TOPK attrs)
+    'mla_decode': _sdpa_decode_perf,     # FlashMLA decode (memory-bound, reuses K as V)
+    'joint': _sdpa_joint_perf,           # SD3/Flux joint attention (concatenated streams)
 }
 
 
