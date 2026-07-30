@@ -39,11 +39,14 @@ def _overlap_frac(qct, causal_like, is_mla):
     k = OVERLAP_K_CAUSAL if causal_like else OVERLAP_K_NONCAUSAL
     return max(0.0, min(OVERLAP_FRAC_MAX, 1.0 - k / qct))
 
-# Device wall-clock as a per-regime multiple of the compute floor (measured on BH; the kernel is
-# latency-bound, ~90% idle for MLA). Used to project real op latency, not just the compute floor.
-WALL_FACTOR = {
-    "prefill_causal": 2.5, "prefill_noncausal": 1.6, "cross": 1.3,
-    "windowed": 2.5, "masked": 2.1, "chunked": 2.2, "sparse": 4.75, "mla": 11.0,
+# Device wall-clock = compute floor + front-end/dispatch idle. The idle is a per-iteration cost
+# (measured on BH: gap/inner is flat within a regime), so it is modelled additively rather than as
+# a multiple of the floor. This separates the arch-scaling compute from the ~arch-invariant dispatch,
+# so it transfers to a faster compute engine (shrink the floor, keep the dispatch term). Cycles per
+# inner iteration, per regime.
+DISPATCH_CYCLES_PER_ITER = {
+    "prefill_causal": 8900, "prefill_noncausal": 3300, "cross": 1850,
+    "windowed": 8700, "masked": 6250, "chunked": 7000, "sparse": 160000, "mla": 104600,
 }
 
 
@@ -139,7 +142,7 @@ class RooflineResult:
     math_idle_cycles: int = 0
     init_overhead_cycles: int = 0
     compute_latency_cycles: int = 0    # compute FLOOR (FPU/SFPU busy + L1 floor + init)
-    wall_clock_cycles: int = 0         # latency estimate = compute floor x per-regime wall factor (decode adds memory latency)
+    wall_clock_cycles: int = 0         # latency estimate = compute floor + per-regime dispatch idle x inner_iters (decode adds memory latency)
     unpack_bytes_total: int = 0        # per-core L1 unpacker bytes (drives the on-chip BW floor only)
     pack_bytes_total: int = 0
     unpack_min_cycles: int = 0
@@ -245,17 +248,18 @@ def _windowed_k_eff(S, q_chunk, k_chunk, kv_seq, window, causal):
     return total / nq
 
 
-def _wall_factor(cfg, r):
-    """Per-regime device-wall / compute-floor ratio (see WALL_FACTOR)."""
+def _dispatch_cycles_per_iter(cfg, r):
+    """Per-regime front-end/dispatch idle per inner iteration (see DISPATCH_CYCLES_PER_ITER)."""
     if r.is_mla and not cfg.is_sparse:
-        return WALL_FACTOR["mla"]
+        return DISPATCH_CYCLES_PER_ITER["mla"]
     if cfg.is_sparse:
-        return WALL_FACTOR["sparse"]
-    if r.regime in WALL_FACTOR:
-        return WALL_FACTOR[r.regime]
+        return DISPATCH_CYCLES_PER_ITER["sparse"]
+    if r.regime in DISPATCH_CYCLES_PER_ITER:
+        return DISPATCH_CYCLES_PER_ITER[r.regime]
     if cfg.kv_seq and cfg.kv_seq != cfg.S:
-        return WALL_FACTOR["cross"]
-    return WALL_FACTOR["prefill_causal"] if cfg.is_causal else WALL_FACTOR["prefill_noncausal"]
+        return DISPATCH_CYCLES_PER_ITER["cross"]
+    return (DISPATCH_CYCLES_PER_ITER["prefill_causal"] if cfg.is_causal
+            else DISPATCH_CYCLES_PER_ITER["prefill_noncausal"])
 
 
 def _engine_cycles(r, *, Q, K_eff, K_eff_gt0, inner_iters, qct, kct, dct_qk, dct_v, cpt,
@@ -389,8 +393,9 @@ def predict(cfg: SdpaConfig) -> RooflineResult:
     l1_floor = max(r.unpack_min_cycles, r.pack_min_cycles)
     r.init_overhead_cycles = round(a.init_overhead_cycles)
     r.compute_latency_cycles = round(max(r.math_active_cycles, l1_floor) + r.init_overhead_cycles)
-    # Wall-clock estimate = compute floor x the per-regime latency multiple (measured on BH).
-    r.wall_clock_cycles = round(r.compute_latency_cycles * _wall_factor(cfg, r))
+    # Wall-clock estimate = compute floor + per-regime front-end/dispatch idle per inner iteration.
+    r.wall_clock_cycles = round(r.compute_latency_cycles
+                                + _dispatch_cycles_per_iter(cfg, r) * r.inner_iters)
     r.math_idle_cycles = round(r.inner_iters * a.idle_per_inner_iter)
     return r
 

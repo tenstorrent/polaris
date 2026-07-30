@@ -161,14 +161,26 @@ def test_decode_v_head_dim_from_v_cache_shape():
 
 
 @pytest.mark.unit
-def test_wall_factor_cross_only_when_kv_seq_differs():
-    # kv_seq == S is plain self-attention, not cross, so it keeps the prefill wall factor.
-    from ttsim.perf.roofline_sdpa import _wall_factor, WALL_FACTOR
+def test_dispatch_cross_only_when_kv_seq_differs():
+    # kv_seq == S is plain self-attention, not cross, so it keeps the prefill dispatch cost.
+    from ttsim.perf.roofline_sdpa import _dispatch_cycles_per_iter, DISPATCH_CYCLES_PER_ITER
     r = SimpleNamespace(regime="prefill", is_mla=False)
     same = SdpaConfig(S=4096, kv_seq=4096, is_causal=True, is_sparse=False)
     cross = SdpaConfig(S=4096, kv_seq=2048, is_causal=True, is_sparse=False)
-    assert _wall_factor(same, r) == WALL_FACTOR["prefill_causal"]
-    assert _wall_factor(cross, r) == WALL_FACTOR["cross"]
+    assert _dispatch_cycles_per_iter(same, r) == DISPATCH_CYCLES_PER_ITER["prefill_causal"]
+    assert _dispatch_cycles_per_iter(cross, r) == DISPATCH_CYCLES_PER_ITER["cross"]
+
+
+@pytest.mark.unit
+def test_wall_clock_is_additive_floor_plus_dispatch():
+    # Wall-clock is the compute floor plus a per-iteration dispatch term (not a multiple of the
+    # floor), so the arch-invariant dispatch cost stays fixed when the compute floor shrinks.
+    from ttsim.perf.roofline_sdpa import _dispatch_cycles_per_iter
+    cfg = _baseline_cfg(4096)
+    r = predict(cfg)
+    expected = round(r.compute_latency_cycles + _dispatch_cycles_per_iter(cfg, r) * r.inner_iters)
+    assert r.wall_clock_cycles == expected
+    assert r.wall_clock_cycles > r.compute_latency_cycles
 
 
 @pytest.mark.unit
@@ -558,12 +570,12 @@ def test_whole_pipeline_correlation_decode():
 
 @pytest.mark.unit
 def test_wall_clock_per_regime_vs_measured():
-    # Per-regime wall_factor projects device wall-clock across the harder regimes (measured on BH).
+    # The additive dispatch model projects device wall-clock across the harder regimes (measured on BH).
     mla = predict(SdpaConfig(S=1024, head_dim=576, v_head_dim=512, q_chunk=32, k_chunk=128,
                              num_heads=16, num_kv_heads=1, fidelity="HiFi4", input_dtype="bfloat16",
                              accum_dtype="bfloat16", is_causal=True, exp_approx_mode=False,
                              num_cores=110, arch=ARCH_BH))
-    assert abs(mla.wall_clock_cycles / 1350.0 - 1619) / 1619 <= 0.15   # MLA ~11x floor
+    assert abs(mla.wall_clock_cycles / 1350.0 - 1619) / 1619 <= 0.15
     sparse = predict(SdpaConfig(S=2048, kv_seq=1024, head_dim=576, v_head_dim=512, num_heads=32,
                                 num_kv_heads=1, is_sparse=True, is_causal=False, input_dtype="bfloat16",
                                 accum_dtype="bfloat16", fidelity="HiFi4", exp_approx_mode=False,
