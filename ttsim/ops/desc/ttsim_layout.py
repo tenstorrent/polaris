@@ -768,7 +768,7 @@ def _sdpa_joint_perf(iTList, q_shape, op):
     q, k, v = (list(map(int, s)) for s in (q_shape, k_shape, v_shape))
     seff = q[-2] + joint_seq
     qj, kj, vj = q[:-2] + [seff, q[-1]], k[:-2] + [seff, k[-1]], v[:-2] + [seff, v[-1]]
-    attrs = dict(op.attrs); attrs["is_causal"] = False
+    attrs = dict(op.attrs); attrs["is_causal"] = False; attrs["is_joint"] = True
     op.perf_stats = sdpa_perf_stats(sdpa_config_from_shapes(qj, kj, vj, attrs))
 
 
