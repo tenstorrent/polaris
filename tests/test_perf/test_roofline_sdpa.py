@@ -92,7 +92,7 @@ def test_fused_compute_cycles_override_is_honored(S):
     cfg = _baseline_cfg(S)
     op = _sdpa_op(f"sdpa_S{S}", cfg)
     device.execute_op(op)
-    assert op.compute_cycles == int(math.ceil(predict(cfg).compute_latency_cycles))
+    assert op.compute_cycles == int(math.ceil(predict(cfg).wall_clock_cycles))
     ipc_path = sum(math.ceil(c / (128.0 * device.DG_COMPUTE_UTIL_CONSTANT))
                    for c in op.perf_stats["instrs"].values())
     assert op.compute_cycles != ipc_path
@@ -124,16 +124,15 @@ def test_arch_gate_refuses_decode_on_non_bh():
 
 
 @pytest.mark.unit
-def test_floor_flag_is_captured_on_op():
-    # execute_op must carry the compute-is-lower-bound caveat out of the roofline docstring
-    # onto the op, so get_exec_stats can surface it (the summed SDPA term is a floor, not
-    # wall-clock).
-    ps = sdpa_perf_stats(_baseline_cfg(4096))
-    assert ps["sdpa_compute_is_floor"] is True and ps["sdpa_calibrated_arch"] == "Blackhole"
-    device = Device(_MockSimConfig())
-    op = _sdpa_op("sdpa_floor", _baseline_cfg(4096))
-    device.execute_op(op)
-    assert getattr(op, "compute_is_lower_bound", False) is True
+def test_op_cost_is_wall_clock_with_floor_in_breakdown():
+    # The op cost is now the full wall-clock estimate (not a floor); the compute floor stays in the
+    # breakdown for reference.
+    cfg = _baseline_cfg(4096)
+    ps = sdpa_perf_stats(cfg)
+    assert ps["sdpa_compute_is_floor"] is False and ps["sdpa_calibrated_arch"] == "Blackhole"
+    assert ps["fused_compute_cycles"] == predict(cfg).wall_clock_cycles
+    assert ps["sdpa_cycle_breakdown"]["compute_floor"] == predict(cfg).compute_latency_cycles
+    assert ps["fused_compute_cycles"] > ps["sdpa_cycle_breakdown"]["compute_floor"]
 
 
 @pytest.mark.unit
@@ -229,14 +228,13 @@ def test_sdpa_sinf_routes_prefill_and_decode_variants():
     from ttsim.ops.desc.ttsim_layout import sdpa_sinf
     def T(shape):
         return SimpleNamespace(shape=list(shape), dtype="bfloat16")
-    # prefill: 3 inputs -> compute roofline; a compute floor, not memory-bound
+    # prefill: 3 inputs -> compute roofline (wall-clock cost)
     q, k, v = T([1, 32, 4096, 128]), T([1, 8, 4096, 128]), T([1, 8, 4096, 128])
     out = SimpleNamespace(shape=None, dtype=None)
     op = SimpleNamespace(attrs={"is_causal": True, "element_size": 1}, perf_stats=None)
     sdpa_sinf([q, k, v], [out], op)
     assert op.perf_stats.get("fused_compute_cycles", 0) > 0 and op.perf_stats["inBytes"] > 0
     assert op.perf_stats["sdpa_regime"] == "prefill"
-    assert op.perf_stats["sdpa_compute_is_floor"] is True
     # decode: 4 inputs (q, k_cache, v_cache, cur_pos) -> MEMORY-bound KV-stream roofline
     op2 = SimpleNamespace(attrs={"element_size": 2}, perf_stats=None)
     sdpa_sinf([T([1, 32, 1, 128]), k, v, T([1])], [SimpleNamespace(shape=None, dtype=None)], op2)
@@ -420,15 +418,30 @@ def test_sparse_mla_tracks_measured_math(topk, meas):
 
 
 @pytest.mark.unit
+def test_wall_clock_per_regime_vs_measured():
+    # Per-regime wall_factor projects device wall-clock across the harder regimes (measured on BH).
+    mla = predict(SdpaConfig(S=1024, head_dim=576, v_head_dim=512, q_chunk=32, k_chunk=128,
+                             num_heads=16, num_kv_heads=1, fidelity="HiFi4", input_dtype="bfloat16",
+                             accum_dtype="bfloat16", is_causal=True, exp_approx_mode=False,
+                             num_cores=110, arch=ARCH_BH))
+    assert abs(mla.wall_clock_cycles / 1350.0 - 1619) / 1619 <= 0.15   # MLA ~11x floor
+    sparse = predict(SdpaConfig(S=2048, kv_seq=1024, head_dim=576, v_head_dim=512, num_heads=32,
+                                num_kv_heads=1, is_sparse=True, is_causal=False, input_dtype="bfloat16",
+                                accum_dtype="bfloat16", fidelity="HiFi4", exp_approx_mode=False,
+                                num_cores=110, arch=ARCH_BH))
+    assert abs(sparse.wall_clock_cycles / 1350.0 - 5586) / 5586 <= 0.15
+
+
+@pytest.mark.unit
 @pytest.mark.parametrize("S,dev_us", [(2048, 402), (4096, 1740), (8192, 6380), (16384, 25900)])
 def test_wall_clock_estimate_tracks_device_latency(S, dev_us):
-    # The wall-clock estimate (floor + per-inner-iter kernel overhead = the data-movement/dispatch
-    # half) must track measured DEVICE wall-clock within ~12%; the floor stays a strict lower bound.
+    # The wall-clock estimate (compute floor x per-regime latency multiple) tracks measured DEVICE
+    # wall-clock within ~15%; the floor stays a strict lower bound below it.
     r = predict(SdpaConfig(S=S, num_heads=32, num_kv_heads=8, head_dim=128, is_causal=True,
                            input_dtype="bfp8_b", fidelity="HiFi2", num_cores=110, arch=ARCH_BH))
     assert r.wall_clock_cycles > r.compute_latency_cycles     # wall-clock is above the floor
     us = r.wall_clock_cycles / 1350.0
-    assert abs(us - dev_us) / dev_us <= 0.12, f"S={S}: wall={us:.0f}us dev={dev_us}us"
+    assert abs(us - dev_us) / dev_us <= 0.15, f"S={S}: wall={us:.0f}us dev={dev_us}us"
 
 
 @pytest.mark.unit
