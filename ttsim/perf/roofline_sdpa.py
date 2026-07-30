@@ -11,7 +11,7 @@ from dataclasses import dataclass, field
 from typing import Dict
 
 TILE_HW = 32
-BYTES_PER_TILE = {"bfp8_b": 1088, "bfloat16": 2048, "float32": 4096}
+BYTES_PER_TILE = {"bfp4_b": 576, "bfp8_b": 1088, "bfloat16": 2048, "float32": 4096}
 
 
 def _ceil_div(a: int, b: int) -> int:
@@ -206,7 +206,11 @@ def sdpa_config_from_shapes(q_shape, k_shape, v_shape, attrs=None, num_cores=110
     nh, S, head_dim = q[-3], q[-2], q[-1]
     batch = q[-4] if len(q) >= 4 else 1
     nkv, kv_seq, v_head_dim = k[-3], k[-2], v[-1]
-    dtype = _ELEM_TO_DTYPE.get(int(attrs.get("element_size", 2)), "bfloat16")
+    # MLA carries V in the latent form (V = K[..., :kv_lora]); its v_head_dim comes from the attr,
+    # not the (larger) K tensor dim. Sparse/joint override kv_seq (TOPK / concat) via the attr too.
+    v_head_dim = int(attrs.get("head_dim_v") or v_head_dim)
+    kv_seq = int(attrs.get("kv_seq") or kv_seq)
+    dtype = str(attrs.get("input_dtype") or _ELEM_TO_DTYPE.get(int(attrs.get("element_size", 2)), "bfloat16"))
     qc = int(attrs.get("q_chunk_size") or 128)
     kc = int(attrs.get("k_chunk_size") or qc)
     return SdpaConfig(
@@ -214,6 +218,8 @@ def sdpa_config_from_shapes(q_shape, k_shape, v_shape, attrs=None, num_cores=110
         head_dim=head_dim, v_head_dim=(0 if v_head_dim == head_dim else v_head_dim),
         q_chunk=qc, k_chunk=kc, num_heads=nh, num_kv_heads=(0 if nkv == nh else nkv),
         num_cores=num_cores, is_causal=bool(attrs.get("is_causal", True)),
+        is_sparse=bool(attrs.get("is_sparse", False)),
+        fidelity=str(attrs.get("fidelity") or "HiFi2"),
         input_dtype=dtype, accum_dtype="bfloat16",
         has_attn_mask=bool(attrs.get("has_attn_mask", False)),
         sliding_window=int(attrs.get("sliding_window") or attrs.get("sliding_window_size") or 0),
