@@ -31,6 +31,10 @@ MEASURED_MATH_MLA_NH128 = {1024: 1_602_791, 2048: 6_053_233, 4096: 23_493_786}
 # verif_data/mla_decode_latency.txt. Memory-bound at ~184 GB/s (half the multi-head decode BW).
 MEASURED_MLA_DECODE_US = {1024: 91.4, 2048: 154.7, 4096: 251.5, 8192: 455.3, 16384: 867.4}
 
+# Joint SDPA (SD3/Flux) op latency (us), nh=16 d=128 joint=512, host-timed, from
+# analysis/joint_sweep.py; keyed by S_eff = main_seq + joint_seq. Own kernel ~8x heavier per-iter.
+MEASURED_JOINT_US = {2560: 1428.0, 4608: 4561.0, 8704: 16314.5}
+
 # Measured per-core FPU cycles for the head_dim=64 sweep (nh=16, bfp8, HiFi2, causal), from
 # verif_data/sweep_hd64.csv (110 active cores). Anchors the head-dim overhead term.
 MEASURED_FPU_HD64 = {4096: 195_137, 8192: 768_000, 32768: 12_137_416}
@@ -316,6 +320,19 @@ def test_mla_decode_latency_tracks_measured(cache):
 
 
 @pytest.mark.unit
+@pytest.mark.parametrize("seff", [2560, 4608, 8704])
+def test_joint_latency_tracks_measured(seff):
+    # Joint SDPA is its own (heavier) kernel; the joint dispatch factor must track measured op
+    # latency within ~10% over S_eff = main + joint.
+    r = predict(SdpaConfig(S=seff, num_heads=16, head_dim=128, is_causal=False, is_joint=True,
+                           q_chunk=128, k_chunk=128, input_dtype="bfloat16", num_cores=110, arch=ARCH_BH))
+    us = r.wall_clock_cycles / 1350.0
+    meas = MEASURED_JOINT_US[seff]
+    assert r.regime == "joint"
+    assert abs(us - meas) / meas <= 0.10, f"joint S_eff={seff}: pred={us:.0f} meas={meas} us"
+
+
+@pytest.mark.unit
 def test_mla_uses_zero_overlap_and_low_fpu_overhead():
     # MLA path must not apply the standard-SDPA overlap/overhead (would over-predict ~13%).
     r = predict(_mla_cfg(4096))
@@ -426,8 +443,9 @@ def test_sdpa_sinf_routes_mla_sparse_joint_mladecode_variants():
     jt = run([T([1, 24, 4096, 64]), T([1, 24, 4096, 64]), T([1, 24, 4096, 64])],
              {"sdpa_variant": "joint", "joint_seq": 512, "is_causal": False})
     jt_expected = predict(SdpaConfig(S=4096 + 512, num_heads=24, head_dim=64, is_causal=False,
-                                     input_dtype="bfloat16", num_cores=110, arch=ARCH_BH))
+                                     is_joint=True, input_dtype="bfloat16", num_cores=110, arch=ARCH_BH))
     assert jt["fused_compute_cycles"] == jt_expected.wall_clock_cycles
+    assert jt["sdpa_regime"] == "joint"
 
     # MLA decode: memory-bound, reuses K as V (no separate V DRAM read).
     dec = run([T([1, 128, 1, 576]), T([1, 1, 8192, 576]), T([1, 1, 8192, 576]), T([1])],
