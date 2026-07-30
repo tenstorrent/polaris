@@ -3072,6 +3072,77 @@ def paged_fill_cache_op(cache, input_tensor, page_table=None, batch_idx=0,
     return out_tensor
 
 
+def manual_seed_op(seeds, user_ids=None, sub_core_grids=None, element_size=2):
+    """ManualSeed: seed the on-device RNG for sampling (decode). Passthrough SimOp;
+    output shape = seeds so the graph edge exists."""
+    assert seeds.device is not None, "manual_seed_op requires seeds on device"
+    op_name = generate_new_op_name()
+    in_tensors = [t for t in (seeds, user_ids) if t is not None]
+    out_tensor = Tensor(
+        name=op_name + '.out',
+        shape=seeds.logical_shape()._shape,
+        dtype=seeds.dtype,
+        layout=seeds.get_layout(),
+        op_out=[op_name],
+        device=seeds.device,
+    )
+    for t in in_tensors:
+        t.op_in.append(op_name)
+    opinfo = {
+        'name': op_name,
+        'optype': 'ManualSeed',
+        'inList': [t.name for t in in_tensors],
+        'outList': [out_tensor.name],
+        'attrs': {'element_size': element_size},
+    }
+    opobj = SimOp(opinfo)
+    opobj.get_perf_counts(in_tensors, [out_tensor])
+    opobj.update_tensor_counts(in_tensors, [out_tensor])
+    _propagate_ttnn_dtype([seeds], [out_tensor])
+    seeds.device.add_op(opobj)
+    return out_tensor
+
+
+def sampling_op(topk_values, topk_indices, k=None, p=None, temp=None,
+                output_tensor=None, sub_core_grids=None, memory_config=None, element_size=2):
+    """Sampling (decode): sample one token per user from gathered top-k values/indices.
+
+    Inputs: topk_values, topk_indices (+ optional k/p/temp param tensors). Output =
+    output_tensor's shape when preallocated, else topk_values with last dim -> 1."""
+    assert topk_values.device is not None, "sampling_op requires tensors on device"
+    op_name = generate_new_op_name()
+    in_tensors = [t for t in (topk_values, topk_indices, k, p, temp) if t is not None]
+    if output_tensor is not None:
+        out_shape = list(output_tensor.logical_shape()._shape)
+        out_dtype = output_tensor.dtype
+    else:
+        out_shape = list(topk_values.logical_shape()._shape[:-1]) + [1]
+        out_dtype = topk_indices.dtype
+    out_tensor = Tensor(
+        name=op_name + '.out',
+        shape=out_shape,
+        dtype=out_dtype,
+        layout=topk_indices.get_layout(),
+        op_out=[op_name],
+        device=topk_values.device,
+    )
+    for t in in_tensors:
+        t.op_in.append(op_name)
+    opinfo = {
+        'name': op_name,
+        'optype': 'Sampling',
+        'inList': [t.name for t in in_tensors],
+        'outList': [out_tensor.name],
+        'attrs': {'element_size': element_size},
+    }
+    opobj = SimOp(opinfo)
+    opobj.get_perf_counts(in_tensors, [out_tensor])
+    opobj.update_tensor_counts(in_tensors, [out_tensor])
+    _propagate_ttnn_dtype([topk_indices], [out_tensor])
+    topk_values.device.add_op(opobj)
+    return out_tensor
+
+
 def paged_fused_update_cache_op(k_cache, k, v_cache, v, update_idxs_tensor=None,
                                  page_table=None, memory_config=None, element_size=2):
     """PagedFusedUpdateCache (decode): update K and V caches in place.

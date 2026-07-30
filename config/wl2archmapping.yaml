@@ -57,6 +57,7 @@ op_rsrc_spec:
              Max, MaxPool, Mean, Min, Mish, Mul,
              Neg, ConcatHeads, CreateQKVHeads, NLPCreateQKVHeadsDecode, NLPConcatHeadsDecode, # transformer head ops (prefill+decode) from ttnn_shim
              RotaryEmbeddingLlama, RotaryEmbeddingLlamaFusedQK, PagedFillCache, PagedFusedUpdateCache, NonMaxSuppression, NonZero, # transformer rope/cache ops from ttnn_shim
+             PlusOne, ManualSeed, Sampling, # decode sampling-tail ops from ttnn_shim
              Pad, Permute, Pow,
              QuantizeLinear,
              Reciprocal, ReduceMax, ReduceMean, ReduceMin, ReduceProd, ReduceSum, Relu, Reshard, Reshape, Resize,

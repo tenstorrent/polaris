@@ -29,7 +29,7 @@ from .types import TILE_HEIGHT, TILE_WIDTH
 from .core   import CoreCoord, CoreRange, CoreRangeSet, CoreGrid
 from .op     import *
 from .ttnn_shim import to_layout, permute, ttnn_reshape as reshape
-from .ttnn_shim import untilize_with_unpadding, tilize_with_val_padding
+from .ttnn_shim import untilize_with_unpadding, tilize_with_val_padding, untilize
 from ttsim.ops.tensor import Shape
 
 
@@ -54,6 +54,7 @@ bfloat16 = DataType.BFLOAT16
 int64    = DataType.INT64
 uint32   = DataType.UINT32
 bfloat8_b = DataType.BFLOAT8_B
+bfloat4_b = DataType.BFLOAT4_B
 bool      = DataType.BOOL
 int32     = DataType.INT32
 

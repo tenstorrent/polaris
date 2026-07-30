@@ -92,6 +92,11 @@ def expand_tensor_attrs(row: Dict[str, Any], input_index: int, in_or_out: str = 
     layout = (row.get(f'{prefix}_LAYOUT') or '').strip()
     dtype = (row.get(f'{prefix}_DATATYPE') or '').strip()
     memory_raw = (row.get(f'{prefix}_MEMORY') or '').strip()
+    # Device index is perf-irrelevant; normalize DEV_<n>_ -> DEV_1_ to match the LUT-key
+    # convention (the sim-side builder and existing LUTs use DEV_1). Captures taken on
+    # device 0 (e.g. the llama3 decode refrun) would otherwise mismatch every key's memory field.
+    if memory_raw:
+        memory_raw = re.sub(r'^DEV_\d+_', 'DEV_1_', memory_raw)
     if not layout and not dtype and not memory_raw:
         return None
     return {'layout': layout, 'dtype': dtype, 'memory': memory_raw}

@@ -116,7 +116,23 @@ _MATH_FIDELITY_KEY_IDX = 8  # position of MATH FIDELITY in the key tuple
 # ``compute_kernel_config``.  For all other ops the hardware kernel
 # determines fidelity internally; the LUT key stores ``N/A`` so that
 # the runtime default (also ``N/A``) matches unconditionally.
-_MATH_FIDELITY_CALLER_CONTROLLED_OPS = frozenset({"layernorm"})
+# Ops whose real MATH FIDELITY is written into the LUT key (else normalized to N/A).
+# Intentionally ASYMMETRIC with the lookup side: lookup (_op_math_fidelity) keys the mf
+# whenever the SimOp carries a math_fidelity attr, so only workloads that emit it (llama3
+# linears carry HiFi2/LoFi) get a real mf on the lookup side.
+#
+# ⚠ SHARED-LUT CAVEAT: `matmul` is included so a llama3 LUT built from a capture carries the
+# real per-matmul fidelity (HiFi2 for qkv/o/w2/lm_head, LoFi for FF1/FF3). But VGG/ViT emit
+# matmuls via the non-`linear` path with NO mf attr → their lookup keys stay N/A. So a SHARED
+# LUT (e.g. whb0_n150 v5, VGG+ViT) must NOT be rebuilt with this mapper until VGG/ViT matmuls
+# also emit their mf, or their real-mf LUT rows will N/A-mismatch and regress. The shipped v5
+# is untouched here; only per-workload (llama3) LUTs are rebuilt with matmul mf.
+# conv2d/pool remain excluded (same N/A-keyed VGG/ViT blast radius, no consumer yet).
+_MATH_FIDELITY_CALLER_CONTROLLED_OPS = frozenset({
+    "layernorm",
+    "rotaryembeddingllamafusedqk", "pagedfusedupdatecache", "topk", "sampling",
+    "matmul",
+})
 KEY_TUPLE_COLUMN_NAMES = [
     "OP CODE",
     "INPUT_0_W_PAD[LOGICAL]",

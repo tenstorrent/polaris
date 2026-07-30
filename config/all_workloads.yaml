@@ -185,6 +185,21 @@ workloads:
       llama3_8b_prefill: { bs: 1, model_name: llama3-8B }
 
   - api: TTNN
+    name: llama3_dualmode_prefill
+    basedir: workloads/ttnn/llama3_dualmode
+    module : run_llama3_dualmode@test_llama3_prefill.py
+    instances:
+      llama3_8b_dualmode_prefill: { bs: 1, model_name: llama3-8B }
+
+  - api: TTNN
+    name: llama3_dualmode_decode
+    basedir: workloads/ttnn/llama3_dualmode
+    module : run_llama3_dualmode_decode@test_llama3_decode.py
+    instances:
+      llama3_8b_dualmode_decode: { bs: 32, model_name: llama3-8B }
+      llama3_8b_dualmode_decode_1L: { bs: 32, model_name: llama3-8B, n_layers: 1 }  # 1-layer variant for HW-refrun layer matching
+
+  - api: TTNN
     name: mistral_decode
     basedir: workloads/ttnn/mistral
     module : test_model_inference@test_model.py
