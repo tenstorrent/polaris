@@ -726,6 +726,7 @@ def unsqueeze_to_4D(input_tensor):
         shape=new_shape,
         dtype=DataType.from_numpy(input_tensor.dtype.name),
         device=input_tensor.device,
+        layout=input_tensor.get_layout(),
     )
 
 

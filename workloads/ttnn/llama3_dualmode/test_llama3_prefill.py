@@ -1,0 +1,104 @@
+#!/usr/bin/env python
+# SPDX-FileCopyrightText: (C) 2026 Tenstorrent AI ULC
+# SPDX-License-Identifier: Apache-2.0
+"""Dual-mode llama3 PREFILL runner.
+
+Uses the dual-mode workloads.ttnn.tt_transformers_dualmode components (which run on real HW
+via real ttnn when IRD_ARCH_NAME is set, and analytically via the Polaris shim otherwise).
+The existing shim-only workloads/ttnn/llama3 + workloads/ttnn/tt_transformers are left
+untouched. Builds the prefill graph on-device; Polaris extracts the WorkloadGraph from the
+device after this returns.
+
+Config (paged_attention=1, num_devices=1, dummy weights) is pinned per the migration plan;
+graph is grounded in the BH prefill capture (project_llama3_prefill_op_sequence).
+"""
+import os
+import sys
+
+sys.path.append(os.path.join(os.path.dirname(__file__), '../../..'))
+
+from loguru import logger
+
+IS_POLARIS = os.getenv('IRD_ARCH_NAME', '') == ''
+if IS_POLARIS:
+    import ttsim.front.ttnn as ttnn
+    from ttsim.front.ttnn.device import Device as TTNNDevice
+else:
+    import ttnn  # type: ignore[import-not-found, no-redef]
+
+from workloads.ttnn.tt_transformers_dualmode.model import Transformer
+from workloads.ttnn.tt_transformers_dualmode.model_config import ModelArgs
+from workloads.ttnn.tt_transformers_dualmode.rope import get_prefill_rot_mat
+
+_NUM_LAYERS = {'llama3-8B': 32, 'llama3-3B': 28, 'llama3-1B': 16, 'llama3-70B': 80}
+
+
+class PagedAttentionConfig:
+    """Minimal paged-attention config (block_size + max_num_blocks) for the KV cache shape."""
+    def __init__(self, block_size=32, max_num_blocks=1024):
+        self.block_size = block_size
+        self.max_num_blocks = max_num_blocks
+
+
+def run_llama3_dualmode(wlname: str, ttnn_device, cfg: dict):
+    assert isinstance(cfg, dict), 'cfg must be a dictionary'
+    assert isinstance(wlname, str), 'wlname must be a string'
+
+    model_name = cfg.get('model_name', 'llama3-8B')
+    seq_len = cfg.get('seq_len', 128)
+    assert seq_len % 128 == 0, 'prefill seq_len must be divisible by 128'
+    batch_size = 1  # prefill supports batch_size = 1 only
+    num_layers = cfg.get('n_layers', _NUM_LAYERS.get(model_name, 32))
+    dtype = ttnn.bfloat8_b
+
+    paged_attention_config = PagedAttentionConfig(
+        block_size=cfg.get('page_block_size', 32),
+        max_num_blocks=cfg.get('page_max_num_blocks', 1024),
+    )
+
+    logger.info(f'Loading dual-mode TT model {model_name} ({num_layers} layers, seq_len={seq_len})...')
+    args = ModelArgs(
+        ttnn_device, model_name=model_name, instruct=True,
+        max_batch_size=batch_size, max_seq_len=cfg.get('max_seq_len', 128 * 1024),
+    )
+    args.n_layers = num_layers
+
+    state_dict: dict = {}
+    model = Transformer(
+        args=args, mesh_device=ttnn_device, dtype=dtype, state_dict=state_dict,
+        weight_cache_path=None, paged_attention_config=paged_attention_config,
+        use_paged_kv_cache=False,
+    )
+
+    # Encoded prompt -> embedding -> 4D hidden state (the runner unsqueezes; model.forward does not).
+    # Tokens are uint32 to match the HW EmbeddingsDeviceOperation index dtype (and the HW branch
+    # below), so the embedding op's input dtype / LUT key is identical across both modes.
+    if IS_POLARIS:
+        tokens = ttnn._rand(shape=[batch_size, seq_len], device=ttnn_device, dtype=ttnn.uint32)
+    else:
+        import torch  # type: ignore[import-not-found]
+        tokens = ttnn.from_torch(
+            torch.randint(0, args.vocab_size, (batch_size, seq_len)), dtype=ttnn.uint32, device=ttnn_device,
+        )
+    x = model.embd(tokens)
+    x = ttnn.unsqueeze_to_4D(x)
+
+    rot_mats = get_prefill_rot_mat(
+        args.head_dim, ttnn_device, seq_len, theta=args.rope_theta,
+        scale_factor=args.rope_scaling_factor, orig_context_len=args.orig_context_len,
+    )
+
+    tt_out = model.ttnn_prefill_forward(x, rot_mats=rot_mats, user_id=0, get_last_token=seq_len - 1)
+
+    expected = [1, 1, seq_len, args.vocab_size]
+    if list(tt_out.shape) == expected:
+        logger.info(f'Output shape is correct {expected}')
+    else:
+        logger.warning(f'Output shape {list(tt_out.shape)} != expected {expected}')
+    logger.info(f'Finished dual-mode prefill for {model_name}.')
+
+
+if __name__ == '__main__':
+    name = sys.argv[1] if len(sys.argv) > 1 else 'llama3-8B'
+    dev = ttnn.open_device(device_id=0)
+    run_llama3_dualmode(wlname='llama3_dualmode', ttnn_device=dev, cfg={'model_name': name, 'n_layers': 1})

@@ -559,6 +559,48 @@ def rotary_embedding_llama_sinf(iTList, oTList, op, **kwargs):
     return
 
 
+def plus_one_sinf(iTList, oTList, op, **kwargs):
+    """Shape inference for PlusOne (in-place position-counter increment): output = input shape."""
+    assert len(iTList) == 1 and len(oTList) == 1
+    X = iTList[0]
+    in_shape = require_shape_list(
+        X.shape, "PlusOne shape inference: input tensor shape must be known",
+    )
+    oTList[0].shape = list(in_shape)
+    oTList[0].dtype = X.dtype
+    elem_size = op.attrs.get('element_size', 2)
+    op.perf_stats = _passthrough_perf([t.shape for t in iTList], in_shape, elem_size)
+    return
+
+
+def manual_seed_sinf(iTList, oTList, op, **kwargs):
+    """Shape inference for ManualSeed: output = seeds (in0) shape."""
+    assert 1 <= len(iTList) <= 2 and len(oTList) == 1
+    X = iTList[0]
+    in_shape = require_shape_list(X.shape, "ManualSeed shape inference: seeds shape must be known")
+    oTList[0].shape = list(in_shape)
+    oTList[0].dtype = X.dtype
+    elem_size = op.attrs.get('element_size', 2)
+    op.perf_stats = _passthrough_perf([t.shape for t in iTList], in_shape, elem_size)
+    return
+
+
+def sampling_sinf(iTList, oTList, op, **kwargs):
+    """Shape inference for Sampling: one sampled index per user (topk_values last dim -> 1).
+
+    Inputs: topk_values, topk_indices, [k, p, temp].
+    """
+    assert 2 <= len(iTList) <= 5 and len(oTList) == 1
+    V = iTList[0]
+    in_shape = require_shape_list(V.shape, "Sampling shape inference: topk_values shape must be known")
+    out_shape = list(in_shape[:-1]) + [1]
+    oTList[0].shape = out_shape
+    oTList[0].dtype = iTList[1].dtype
+    elem_size = op.attrs.get('element_size', 2)
+    op.perf_stats = _passthrough_perf([t.shape for t in iTList], out_shape, elem_size)
+    return
+
+
 def rotary_embedding_llama_fused_qk_sinf(iTList, oTList, op, **kwargs):
     """Shape inference for RotaryEmbeddingLlamaFusedQK (decode): 2 outputs (q, k).
 
@@ -768,6 +810,9 @@ def register_layout_ops():
         ['NLPCreateQKVHeadsDecode', 'ARITY_1->3', d, 'COMMON', 24, 21, 1, 1, 3, 3, nlp_create_qkv_heads_decode_sinf, True, True, True, True, True],
         ['NLPConcatHeadsDecode', 'ARITY_1->1', d, 'COMMON', 24, 21, 1, 1, 1, 1, nlp_concat_heads_decode_sinf, True, True, True, True, True],
         ['ScaledDotProductAttention', 'ARITY_VARIADIC[3-5]->1', d, 'COMMON', 24, 21, 5, 3, 1, 1, sdpa_sinf, True, True, True, True, True],
+        ['PlusOne', 'ARITY_1->1', d, 'COMMON', 24, 21, 1, 1, 1, 1, plus_one_sinf, True, True, True, True, True],
+        ['ManualSeed', 'ARITY_VARIADIC[1-2]->1', d, 'COMMON', 24, 21, 2, 1, 1, 1, manual_seed_sinf, True, True, True, True, True],
+        ['Sampling', 'ARITY_VARIADIC[2-5]->1', d, 'COMMON', 24, 21, 5, 2, 1, 1, sampling_sinf, True, True, True, True, True],
     ]
     register_ops('layout', _optbl)
     return

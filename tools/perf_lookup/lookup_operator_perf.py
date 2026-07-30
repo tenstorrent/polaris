@@ -35,6 +35,7 @@ non-trivial rank-4 shape with the same ``X`` (see :func:`build_master_key_tuple_
 from __future__ import annotations
 
 import math
+import re
 import sys
 from dataclasses import dataclass
 from pathlib import Path
@@ -102,6 +103,27 @@ _DRAM_INTERLEAVED_STR = "DEV_1_DRAM_INTERLEAVED"
 _LAYOUT_ROWMAJOR_TO_TILE_FALLBACK_OPCODES = frozenset({"halo", "sigmoid"})
 _ROW_MAJOR_STR = "ROW_MAJOR"
 _TILE_STR = "TILE"
+
+# Device-index reconciliation between sim and LUT.
+# The sim's key builder (shape_canonical.tensor_memory_str) hardcodes a "DEV_1_"
+# prefix on every memory tag (a fixed single-chip placeholder — Polaris is a
+# single-chip simulator), whereas a LUT built from a profiler capture carries the
+# real silicon DEVICE ID (e.g. "DEV_0_" for device 0). Keys are compared verbatim,
+# so a capture-built LUT would miss on every memory field purely because of the
+# device prefix. The device-normalized fallback (see lookup) reconciles this WITHOUT
+# mutating stored LUT data: it strips the DEV_<n>_ prefix on both sides and matches
+# only when exactly one LUT entry agrees on every non-device field. Genuine
+# multi-device captures (>1 entry differing only in device) stay distinct and are
+# left to exact matching — the fallback declines rather than guess.
+_DEVICE_PREFIX_RE = re.compile(r"^DEV_\d+_", re.IGNORECASE)
+
+
+def _device_normalized_key(key: tuple) -> tuple:
+    """Return *key* with the ``DEV_<n>_`` prefix stripped from every memory-tag
+    field, so keys that differ only in device index compare equal."""
+    return tuple(
+        _DEVICE_PREFIX_RE.sub("", x) if isinstance(x, str) else x for x in key
+    )
 
 # VGG UNet decoder: Polaris propagates HEIGHT_SHARDED through the post-concat ITS path, but
 # the LUT records those ops as BLOCK_SHARDED (hardware auto-selects BLOCK for smaller tensors).
@@ -421,7 +443,15 @@ def _input0_wzyx_for_master_key(op: Any, tensor_0: Any) -> Tuple[int, int, int, 
     return (w, z, y, x)
 
 
-_MATH_FIDELITY_CALLER_CONTROLLED_OPS = frozenset({"layernorm"})
+# layernorm: caller sets mf (capture HiFi2). The llama3-only ops below are added here too —
+# they are absent from every existing (VGG/ViT) LUT, so this cannot break any current hit
+# (capture shows them at HiFi4, which is exactly this set's default). matmul/conv2d/pool are
+# deliberately NOT added: existing LUTs key them under N/A, so adding them would regress those
+# hits until a coordinated LUT repopulation (see project_math_fidelity_set_too_narrow).
+_MATH_FIDELITY_CALLER_CONTROLLED_OPS = frozenset({
+    "layernorm",
+    "rotaryembeddingllamafusedqk", "pagedfusedupdatecache", "topk", "sampling",
+})
 
 
 def _op_math_fidelity(op: Any) -> str:
@@ -785,9 +815,22 @@ class OperatorPerfMap:
         self._entries: Dict[tuple, dict] = load_existing_yaml(yaml_path)
         self._source_path = yaml_path
         self._use_hybrid_curve = bool(use_hybrid_curve)
+        self._device_norm_index: Optional[Dict[tuple, list]] = None
 
     def __len__(self) -> int:
         return len(self._entries)
+
+    def _device_normalized_index(self) -> Dict[tuple, list]:
+        """Lazily build (and cache) an index of entries keyed by their
+        device-normalized key, mapping to the list of ``(original_key, entry)``
+        that collapse to it. A list longer than one means genuine multi-device
+        ambiguity, which the device-normalized fallback declines to resolve."""
+        if self._device_norm_index is None:
+            idx: Dict[tuple, list] = {}
+            for k, v in self._entries.items():
+                idx.setdefault(_device_normalized_key(k), []).append((k, v))
+            self._device_norm_index = idx
+        return self._device_norm_index
 
     def _stats_from_entry(
         self,
@@ -1108,6 +1151,27 @@ class OperatorPerfMap:
                         key8,
                         self._source_path,
                     )
+
+        # Device-index reconciliation (last fallback): the sim hardcodes a "DEV_1_"
+        # memory prefix while a capture-built LUT carries the real DEVICE ID (e.g.
+        # "DEV_0_"). After all exact/substitution attempts miss, retry ignoring the
+        # device prefix — but only when exactly one LUT entry agrees on every
+        # non-device field. >1 candidate = genuine multi-device ambiguity → decline.
+        if entry_val is None:
+            cands = self._device_normalized_index().get(_device_normalized_key(key_t))
+            if cands is not None and len(cands) == 1:
+                orig_key, ev = cands[0]
+                entry_val = ev
+                lookup_key = orig_key
+                hit_source = "device_normalized"
+            elif cands is not None and len(cands) > 1:
+                logger.debug(
+                    "Perf lookup: device-normalized fallback declined for op={!r} — "
+                    "{} multi-device candidates differ only in device index (lut={})",
+                    getattr(op, "name", None),
+                    len(cands),
+                    self._source_path,
+                )
 
         if entry_val is None:
             same_op_shape_keys = _lut_keys_matching_op_and_wzyx(self._entries, key_t)
