@@ -27,6 +27,10 @@ MEASURED_FPU_MLA = {1024: 180_075, 2048: 707_329, 4096: 2_803_206, 8192: 11_160_
 # verif_data/sweep_hd64.csv (110 active cores). Anchors the head-dim overhead term.
 MEASURED_FPU_HD64 = {4096: 195_137, 8192: 768_000, 32768: 12_137_416}
 
+# Measured per-core FPU cycles for the q_chunk=64 sweep (nh=16, hd=128, bfp8, HiFi2, causal), from
+# verif_data/sweep_q64.csv (110 active cores). Anchors the q-chunk overhead term.
+MEASURED_FPU_Q64 = {1024: 25_456, 2048: 98_723, 4096: 388_692, 8192: 1_542_367}
+
 
 def _mla_cfg(S):
     return SdpaConfig(S=S, head_dim=576, v_head_dim=512, q_chunk=32, k_chunk=128,
@@ -238,6 +242,19 @@ def test_head_dim_overhead_tracks_measured_hd64_fpu(S):
     meas = MEASURED_FPU_HD64[S]
     rel = abs(r.fpu_cycles - meas) / meas
     assert rel <= 0.03, f"hd64 FPU S={S}: pred={r.fpu_cycles} meas={meas} rel={rel:.3f}"
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("S", [1024, 2048, 4096, 8192])
+def test_q_chunk_overhead_tracks_measured_q64_fpu(S):
+    # q_chunk=64 was a -10% FPU corner (overhead is a bigger share of a smaller chunk); the
+    # q-chunk overhead term brings it within ~3%.
+    r = predict(SdpaConfig(S=S, head_dim=128, num_heads=16, q_chunk=64, k_chunk=64,
+                           num_cores=110, fidelity="HiFi2", is_causal=True,
+                           input_dtype="bfp8_b", arch=ARCH_BH))
+    meas = MEASURED_FPU_Q64[S]
+    rel = abs(r.fpu_cycles - meas) / meas
+    assert rel <= 0.03, f"q64 FPU S={S}: pred={r.fpu_cycles} meas={meas} rel={rel:.3f}"
 
 
 @pytest.mark.unit
