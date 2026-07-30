@@ -176,6 +176,12 @@ class Device:
         return
 
     def execute_graph(self, wlgraph, wlmapspec, *, disable_fusion: bool = False):
+        # 0) ARCH-AWARE COLUMN SPLIT: expand a matched matmul (e.g. lm_head) into arch-
+        # appropriate column tiles + concat.  Runs BEFORE get_ordered_nodes so precision /
+        # resources / execute_op (LUT lookup) all see the expanded graph.  Keeps the front-end
+        # graph device-independent (the arch is only known here at the backend).  See #477.
+        self._split_column_ops(wlgraph, getattr(wlmapspec, 'split_spec', None))
+
         graph_ordered_nodes = wlgraph.get_ordered_nodes()
 
         # 1) SET PRECISION FOR ALL OPS
@@ -309,6 +315,195 @@ class Device:
     def _profiler_pct_to_exec_fraction(v: float) -> float:
         """Convert validated LUT utilization from percentage (0–100) to exec_stats fraction (0–1)."""
         return float(v) / 100.0
+
+    def _is_blackhole(self) -> bool:
+        """True when this device is a Blackhole package (arch package name 'Blackhole').
+
+        Mirrors tt-metal is_blackhole(); used to pick arch-specific realizations at the
+        backend (the front-end graph is device-independent)."""
+        return str(getattr(self, 'devname', '') or '').lower() == 'blackhole'
+
+    def _is_wormhole(self) -> bool:
+        """True when this device is a Wormhole package. Mirrors _is_blackhole() (devname is
+        the arch package name, e.g. 'Wormhole'/'Blackhole'/'Grendel')."""
+        return str(getattr(self, 'devname', '') or '').lower() == 'wormhole'
+
+    @staticmethod
+    def _lm_head_core_grid_num_cores(dim: int) -> int:
+        """Number of cores in tt-metal's lm_head core grid for a given model dim.
+
+        Replicates tt-metal models/tt_transformers/tt/model_config.py (~lines 699-715):
+        start lm_head_num_rows=8, cores_per_row=8; shrink until dim % (TILE*rows*cols)==0.
+        For dim=4096 -> 8x8 = 64 cores (=> WH max_columns 668*64 = 42752)."""
+        tile, rows, cols = 32, 8, 8
+        while dim % (tile * rows * cols) != 0:
+            rows -= 1
+            if rows == 0:
+                cols -= 1
+                if cols == 0:
+                    raise ValueError(f"lm_head core grid: no rows/cols with dim({dim}) % (32*rows*cols)==0")
+                rows = 8
+        return rows * cols
+
+    def _lm_head_chunk_widths(self, vocab: int, dim: int) -> list:
+        """Arch-specific lm_head vocab column-tile widths (single-chip, prefetcher off).
+
+        Mirrors tt-metal ModelArgs.get_lm_head_max_columns_per_device + LMHead dram_sharded
+        split (models/tt_transformers/tt/{model_config,lm_head}.py):
+          - BH single-chip: max_columns = size_per_device // 8 -> 8 x 16032 for vocab=128256
+          - WH:             max_columns = 668 * num_cores       -> 3 x 42752 for dim=4096
+        size_per_device = padded_vocab (num_devices=1). BH max_columns is derived from the
+        PADDED size (not the raw vocab) and rounded up to a tile, so a non-tile-aligned vocab
+        still yields <=8 tile-aligned chunks; the 128256 llama3 vocab is already tile-aligned,
+        so this is 8 x 16032 either way. The vocab column-split is a WH/BH L1-sizing
+        optimization with no analogue on other packages, so a non-WH/BH device returns a single
+        full-width chunk (no split) rather than borrowing the Wormhole formula."""
+        tile = 32
+        size_per_device = math.ceil(vocab / tile) * tile
+        if self._is_blackhole():
+            # tt-metal NUM_LM_HEAD_COLUMNS=8 (num_devices not 4/8 branch); split the PADDED
+            # size into 8 tile-aligned columns.
+            max_cols = math.ceil(size_per_device / 8 / tile) * tile
+        elif self._is_wormhole():
+            max_cols = 668 * self._lm_head_core_grid_num_cores(dim)
+        else:
+            # Non-WH/BH package (e.g. Grendel): no arch-specific column-tiling — skip the split
+            # (single full-width chunk) instead of applying the Wormhole formula to an arch it
+            # wasn't derived for. _split_one_matmul_columns treats len==1 as "leave the op as-is".
+            return [size_per_device]
+        n = math.ceil(size_per_device / max_cols)
+        widths = [min(size_per_device, max_cols)] * (n - 1)
+        widths.append(size_per_device - sum(widths))
+        return widths
+
+    def _split_column_ops(self, wlgraph: Any, split_spec: Any) -> None:
+        """Expand matched matmuls into arch-appropriate column tiles + Concat (config-driven,
+        wl2archmap op_split_spec). The arch is this device's. For each rule, finds MatMuls
+        whose output-0 last-dim == match_output_x (optionally input-0 last-dim ==
+        match_input_x), computes per-arch tile widths, and rewrites the op into N chunk
+        matmuls (each cloning the weight/output tensor at the tile width) whose outputs
+        Concat back into the original output tensor. Idempotent: after the split no MatMul
+        still matches the rule — the inserted Concat re-emits the full vocab-width output,
+        but it is not a MatMul, so a re-run finds no targets. See #477."""
+        if split_spec is None or getattr(split_spec, 'is_empty', lambda: True)():
+            return
+        total_split = 0
+        for rule in split_spec.rules:
+            targets = []
+            for opname in list(wlgraph._ops.keys()):  # snapshot; we mutate _ops in the loop
+                op = wlgraph._ops[opname]
+                if getattr(op, 'removed_in_optimization', False):
+                    continue
+                # Exactly 2 inputs (x, w) and 1 output (y): _split_one_matmul_columns rewrites
+                # inList[0]/inList[1] -> outList[0], so a matmul/linear with a bias (3rd input)
+                # or extra outputs would have those silently dropped — skip it rather than mangle.
+                if str(op.optype).upper() != str(rule.op_type).upper() \
+                        or len(op.inList) != 2 or len(op.outList) != 1:
+                    continue
+                out_t = wlgraph._tensors.get(op.outList[0])
+                in0_t = wlgraph._tensors.get(op.inList[0])
+                if out_t is None or in0_t is None or out_t.shape is None:
+                    continue
+                if int(out_t.shape[-1]) != int(rule.match_output_x):
+                    continue
+                if rule.match_input_x is not None and (
+                    in0_t.shape is None or int(in0_t.shape[-1]) != int(rule.match_input_x)):
+                    continue
+                targets.append(opname)
+            for opname in targets:
+                if self._split_one_matmul_columns(wlgraph, opname, rule):
+                    total_split += 1
+        if total_split:
+            wlgraph.rebuild_graph()
+            logger.debug("Column-split {} matmul(s) into arch tiles ({})", total_split,
+                         'blackhole' if self._is_blackhole() else 'wormhole')
+
+    def _split_one_matmul_columns(self, wlgraph: Any, opname: str, rule: Any) -> bool:
+        from ttsim.front.ttnn.buffer import BufferType, TensorMemoryLayout
+        from ttsim.front.ttnn.memory import MemoryConfig
+        from ttsim.ops import SimOp
+        op = wlgraph._ops[opname]
+        x_name, w_name = op.inList[0], op.inList[1]
+        y_name = op.outList[0]
+        x = wlgraph._tensors[x_name]
+        w = wlgraph._tensors[w_name]
+        y = wlgraph._tensors[y_name]
+        if w.shape is None or len(w.shape) < 2:
+            return False
+        dim, vocab = int(w.shape[0]), int(w.shape[-1])
+        if rule.kind == 'lm_head_vocab':
+            widths = self._lm_head_chunk_widths(vocab, dim)
+        else:
+            raise ValueError(f"unknown column-split kind: {rule.kind}")
+        if len(widths) <= 1:
+            return False  # single tile — leave the op as-is
+        if opname in x.op_in:
+            x.op_in.remove(opname)
+        # Scrub the split op from the weight's consumer list too — otherwise w.op_in keeps
+        # the (soon-deleted) opname, leaving a dangling reference and defeating the
+        # `not w.op_in` cleanup below (the original weight tensor would never be freed).
+        if opname in w.op_in:
+            w.op_in.remove(opname)
+        chunk_out_names = []
+        for i, wi in enumerate(widths):
+            m_i_name = f"{opname}.split{i}"
+            w_i = w.clone()
+            w_i.rename(f"{w_name}.split{i}")
+            w_i.set_shape([dim, int(wi)])
+            w_i.op_in = [m_i_name]
+            w_i.op_out = []
+            wlgraph._tensors[w_i.name] = w_i
+            y_i = y.clone()
+            y_i.rename(f"{y_name}.split{i}")
+            y_i.set_shape(list(y.shape)[:-1] + [int(wi)])
+            y_i.op_in = []
+            y_i.op_out = [m_i_name]
+            wlgraph._tensors[y_i.name] = y_i
+            m_i = SimOp({'name': m_i_name, 'optype': op.optype,
+                         'inList': [x_name, w_i.name], 'outList': [y_i.name],
+                         'attrs': dict(op.attrs)})
+            x.op_in.append(m_i_name)
+            m_i.get_perf_counts([x, w_i], [y_i])
+            m_i.update_tensor_counts([x, w_i], [y_i])
+            wlgraph.add_op(m_i)
+            # HW: each chunk matmul output is L1 width-sharded and a ShardedToInterleaved
+            # stages it to L1 interleaved before the Concat (capture STS: in0
+            # TILE/BFLOAT8_B/L1_WIDTH_SHARDED -> out L1_INTERLEAVED). Restore the lm_head
+            # output dtype (matmul shape-inf may reset it) so the STS key carries bf8.
+            y_i._ttnn_dtype = y._ttnn_dtype
+            y_i.dtype = y.dtype
+            y_i._memory_config = MemoryConfig(TensorMemoryLayout.WIDTH_SHARDED, BufferType.L1)
+            sts_name = f"{m_i_name}.sti"
+            y_i.op_in = [sts_name]
+            y_sti = y_i.clone()
+            y_sti.rename(f"{y_name}.split{i}.sti")
+            y_sti._memory_config = MemoryConfig(TensorMemoryLayout.INTERLEAVED, BufferType.L1)
+            y_sti.op_in = []
+            y_sti.op_out = [sts_name]
+            wlgraph._tensors[y_sti.name] = y_sti
+            sts = SimOp({'name': sts_name, 'optype': 'ShardedToInterleaved',
+                         'inList': [y_i.name], 'outList': [y_sti.name], 'attrs': {}})
+            sts.get_perf_counts([y_i], [y_sti])
+            sts.update_tensor_counts([y_i], [y_sti])
+            wlgraph.add_op(sts)
+            chunk_out_names.append(y_sti.name)
+        concat_name = f"{opname}.concat"
+        concat_inputs = []
+        for cn in chunk_out_names:
+            ct = wlgraph._tensors[cn]
+            ct.op_in.append(concat_name)
+            concat_inputs.append(ct)
+        y.op_out = [concat_name]
+        concat = SimOp({'name': concat_name, 'optype': 'Concat',
+                        'inList': list(chunk_out_names), 'outList': [y_name],
+                        'attrs': {'axis': -1}})
+        concat.get_perf_counts(concat_inputs, [y])
+        concat.update_tensor_counts(concat_inputs, [y])
+        wlgraph.add_op(concat)
+        del wlgraph._ops[opname]
+        if w_name in wlgraph._tensors and not w.op_in:
+            del wlgraph._tensors[w_name]
+        return True
 
     def _annotate_conv_x_pad_logical(self, wlgraph: Any) -> None:
         """Tag conv2d/conv_transpose2d input tensors (+ upstream passthrough chain) with HW-padded channels.

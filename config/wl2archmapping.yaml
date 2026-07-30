@@ -66,3 +66,12 @@ op_rsrc_spec:
              Unsqueeze, Untilize, UntilizeWithUnpadding, Upsample,
              VoxelPooling,
              Where]
+
+# Arch-aware column split (issue #477): the llama3 lm_head is emitted as ONE canonical
+# GEMM (dim x vocab) in the device-independent front end; the backend expands it into the
+# arch's L1-sized vocab column tiles + Concat (BH: 8 x 16032; WH: 3 x 42752), matching the
+# HW capture. Only the lm_head produces a vocab(128256)-wide matmul, so match on output_x.
+op_split_spec:
+  - op_type: MatMul
+    match_output_x: 128256   # llama3 vocab_size
+    kind: lm_head_vocab

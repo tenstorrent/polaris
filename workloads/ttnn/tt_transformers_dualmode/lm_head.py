@@ -51,25 +51,45 @@ class LMHead:
         self.mesh_device = mesh_device
         self.dtype = dtype
         self.vocab_size = args.vocab_size
-        # Column-split the vocab into chunks (the max_columns_per_device split): the capture
-        # splits 128256 -> 3 x 42752 as 3 DRAM-sharded matmuls + 3 ShardedToInterleaved + Concat
-        # (rows 53-59). Per-chunk dummy output weights (dim, vocab/num_splits).
-        self.num_splits = 3 if args.vocab_size % 3 == 0 else 1
-        split_size = args.vocab_size // self.num_splits
-        self.output_weights = [
-            _dummy_weight((args.dim, split_size), mesh_device, args.WEIGHTS_DTYPE)
-            for _ in range(self.num_splits)
-        ]
+        # Column-split the vocab into chunks (the max_columns_per_device split).
+        # The HW column-tiles the vocab (L1 sizing): num_splits and chunk width are
+        # arch-dependent (tt-metal get_lm_head_max_columns_per_device: BH single-chip
+        # 128256//8=16032 -> 8 chunks; WH 668*num_cores=42752 -> 3 chunks), each a
+        # DRAM-sharded matmul + ShardedToInterleaved, then Concat back to full vocab.
+        #
+        # DUAL-MODE split of responsibility:
+        #  - POLARIS path: emit ONE canonical GEMM (dim x vocab). The arch-specific
+        #    column split is realized in the backend (wl2archmap op_split_spec, issue
+        #    #477) where the arch is known, keeping this front-end graph device-independent.
+        #  - HW path: must do the real column split here — a single dim x vocab GEMM would
+        #    L1-OOM on silicon. (num_splits=3 is WH-correct; BH-HW needs the formula-based
+        #    split — tracked follow-up for the HW-validation runs, not exercised here.)
+        if IS_POLARIS:
+            self.output_weight = _dummy_weight((args.dim, args.vocab_size), mesh_device, args.WEIGHTS_DTYPE)
+        else:
+            self.num_splits = 3 if args.vocab_size % 3 == 0 else 1
+            split_size = args.vocab_size // self.num_splits
+            self.output_weights = [
+                _dummy_weight((args.dim, split_size), mesh_device, args.WEIGHTS_DTYPE)
+                for _ in range(self.num_splits)
+            ]
 
     def forward(self, x):
+        # lm_head matmul explicitly downcasts its output to bfp8 (tt-metal lm_head.py:
+        # dtype=lm_head_dtype, default bfloat8_b) so the downstream ShardedToInterleaved
+        # sees a bf8 activation in the capture — pass it rather than inheriting bf16.
+        lm_head_dtype = getattr(self.args, 'lm_head_dtype', ttnn.bfloat8_b)
+        if IS_POLARIS:
+            # Single logical GEMM (dim x vocab); the backend column-split transform
+            # expands it to N matmuls + N ShardedToInterleaved + Concat per arch.
+            output = ttnn.linear(x, self.output_weight,
+                                 compute_kernel_config=self.args.compute_kernel_config_hifi2,
+                                 program_config=None, memory_config=None, dtype=lm_head_dtype)
+            return tt_all_reduce(output)  # identity (single-chip)
         outputs = []
         for w in self.output_weights:
-            # lm_head matmul explicitly downcasts its output to bfp8 (tt-metal lm_head.py:
-            # dtype=lm_head_dtype, default bfloat8_b), so the following ShardedToInterleaved
-            # sees a bf8 activation in the capture — pass it rather than inheriting bf16.
             o = ttnn.linear(x, w, compute_kernel_config=self.args.compute_kernel_config_hifi2,
-                            program_config=None, memory_config=None,
-                            dtype=getattr(self.args, 'lm_head_dtype', ttnn.bfloat8_b))
+                            program_config=None, memory_config=None, dtype=lm_head_dtype)
             o = ttnn.sharded_to_interleaved(o, memory_config=None)  # capture STS rows 54/56/58
             outputs.append(o)
         # combine the column chunks back to full vocab (capture Concat row 59)

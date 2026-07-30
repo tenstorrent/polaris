@@ -142,6 +142,38 @@ class WorkloadGraph():
 
         return
 
+    def rebuild_graph(self):
+        """Rebuild the NetworkX graph + summary structures from the current _ops/_tensors.
+
+        Use after in-place op-graph surgery that adds/removes SimOps (e.g. the backend
+        arch-aware column-split transform), so get_ordered_nodes()/get_successors() and the
+        input/output node/tensor sets reflect the mutated graph. Ops flagged
+        removed_in_optimization and dangling consumer references are skipped. Idempotent.
+        """
+        self._graph = nx.MultiDiGraph()
+        self._optype_hist = defaultdict(int)
+        for op_name, op_info in self._ops.items():
+            if getattr(op_info, 'removed_in_optimization', False):
+                continue
+            self._graph.add_node(op_name)
+            self._optype_hist[op_info.optype] += 1
+            for o in op_info.outList:
+                if o not in self._tensors:
+                    continue
+                for inode in self._tensors[o].op_in:
+                    if inode in self._ops and not getattr(self._ops[inode], 'removed_in_optimization', False):
+                        self._graph.add_edge(op_name, inode, name=o)
+        self._input_tensors  = list(set([tname for tname, tval in self._tensors.items() if tval.op_out == []]))
+        self._output_tensors = list(set([tname for tname, tval in self._tensors.items() if tval.op_in == []]))
+        # Filter dangling consumer/producer references (ops removed or flagged
+        # removed_in_optimization) so the node sets honour this method's contract and never
+        # surface op names absent from _ops after in-place graph surgery.
+        def _op_live(name: str) -> bool:
+            return name in self._ops and not getattr(self._ops[name], 'removed_in_optimization', False)
+        self._input_nodes    = list(set([o for t in self._input_tensors for o in self._tensors[t].op_in if _op_live(o)]))
+        self._output_nodes   = list(set([o for t in self._output_tensors for o in self._tensors[t].op_out if _op_live(o)]))
+        return
+
     def __str__(self):
         indent = 4
         ostr = ""
