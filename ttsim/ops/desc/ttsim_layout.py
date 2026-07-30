@@ -754,7 +754,8 @@ def _sdpa_decode_perf(iTList, q_shape, op):
     same bytes)."""
     from ttsim.perf.roofline_sdpa import decode_perf_stats
     k_shape = require_shape_list(iTList[1].shape, "SDPA decode: k_cache shape must be known")
-    op.perf_stats = decode_perf_stats(q_shape, k_shape, op.attrs)
+    v_shape = require_shape_list(iTList[2].shape, "SDPA decode: v_cache shape must be known")
+    op.perf_stats = decode_perf_stats(q_shape, k_shape, v_shape=v_shape, attrs=op.attrs)
 
 
 # Single-chip only. Chunked prefill reuses the compute path; multi-chip ring is out of scope
@@ -784,6 +785,9 @@ def sdpa_sinf(iTList, oTList, op, **kwargs):
     if handler is not None:
         try:
             handler(iTList, q_shape, op)
+            # Keep a device-agnostic instr count so non-calibrated devices still get an estimate.
+            if not op.perf_stats.get('instrs'):
+                op.perf_stats['instrs'] = {'mov': _nelems(q_shape)}
             return
         except Exception as e:
             # Unsupported shape/attrs -> passthrough; warn once so a real bug is not silently masked.
