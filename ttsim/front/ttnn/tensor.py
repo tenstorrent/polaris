@@ -495,13 +495,36 @@ class Tensor(SimTensor):
         )
 
     def clone(self, clone_num=0):
-        """Create a clone of the tensor with the same shape, dtype, and device."""
-        cloned_tensor = Tensor(
+        """Faithful metadata clone: same shape, dtype, layout, memory_config, and device.
+        Metadata only — SimTensors carry no data, so this is not a torch-style data copy.
+
+        Real ttnn clone preserves the tensor's layout and memory_config — so the previous
+        copy (shape+dtype+device only) was an unfaithful mimic that silently dropped
+        ``layout`` and ``_memory_config``. Both are LUT-key fields, so a lossy clone would
+        make any op built from the copy miss the LUT. Preserve the true ttnn dtype via
+        ``_ttnn_dtype`` (bfloat8_b/bfloat4_b are indistinguishable once mapped to numpy
+        float32). No active caller depended on the lossy behavior."""
+        dtype = self._ttnn_dtype if self._ttnn_dtype is not None else DataType.from_numpy(self.dtype.name)
+        return Tensor(
             shape=self.shape,
-            dtype=DataType.from_numpy(self.dtype.name),
+            dtype=dtype,
+            layout=self.layout,
+            memory_config=self._memory_config,
             device=self.device,
         )
-        return cloned_tensor
+
+    def rename(self, new_name):
+        """Rename this tensor, keeping the front-end device registry consistent.
+
+        ``Tensor.__init__`` registered this tensor in ``device.tensors`` under its original
+        (often auto-generated) name; a bare ``self.name = x`` would leave a stale
+        ``old_name -> tensor`` entry and never register the new name. Used by backend graph
+        surgery (e.g. the lm_head column-split) that clones tensors and then renames them."""
+        if self.device is not None:
+            self.device.tensors.pop(self.name, None)
+        self.name = new_name
+        if self.device is not None:
+            self.device.add_tensor(self)
 
     def new_zeros(self, shape):
         return Tensor(
