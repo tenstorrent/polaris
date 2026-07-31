@@ -15,13 +15,7 @@ import math
 
 import pytest
 
-from ttsim.back.read_latency import (
-    TILE_ELEMS,
-    ReadLatencyBreakdown,
-    effective_bandwidth_bpc,
-    predict_read_latency,
-    predict_read_latency_breakdown,
-)
+from ttsim.back.read_latency import TILE_ELEMS, predict_read_latency
 
 # (N bytes, Q transactions, measured latency cycles) - Blackhole, riscv_1.
 CSV_ROWS = [
@@ -66,15 +60,57 @@ def test_mean_error_is_small(bh_read_latency_cfg):
     assert mean_err <= 0.05, f"mean rel err {mean_err:.1%} too high"
 
 
-def test_layer1_is_unary_special_case(bh_read_latency_cfg):
-    # Layer 1 == single channel, Q=1. Q=1 interleaved touches one channel anyway,
-    # so the two should agree for Q=1.
-    for N, Q, _ in CSV_ROWS:
-        if Q != 1:
-            continue
-        unary = predict_read_latency(N, 1, num_channels=1, cfg=bh_read_latency_cfg)
-        interleaved_q1 = predict_read_latency(N, 1, num_channels=NUM_CHANNELS, cfg=bh_read_latency_cfg)
-        assert math.isclose(unary, interleaved_q1, rel_tol=1e-9)
+def _base(cfg, hops=None):
+    hops = cfg.default_hops if hops is None else hops
+    return cfg.tdram_cyc + 2.0 * hops * cfg.chop_cyc_per_hop
+
+
+def test_issue_arm_closed_form(bh_read_latency_cfg):
+    # N=64, Q=16 is deep in the issue regime (transport arm is ~570 vs ~1060), so the
+    # prediction must equal the issue arm exactly. Pins the Tdetect barrier tail into
+    # this arm and the delta_issue * Q slope: the 45-row gates above tolerate dropping
+    # Tdetect entirely, so assert the structure here rather than only the fit.
+    cfg = bh_read_latency_cfg
+    N, Q = 64, 16
+    expected = cfg.delta_issue_cyc * Q + _base(cfg) + cfg.tdetect_cyc + N / cfg.b_channel_bpc
+    got = predict_read_latency(N, Q, num_channels=NUM_CHANNELS, cfg=cfg)
+    assert math.isclose(got, expected, rel_tol=1e-12)
+
+
+def test_transport_arm_closed_form(bh_read_latency_cfg):
+    # N=16 KB, Q=3 is streaming-bound (transport ~1346 vs issue ~1246). Q=3 is chosen
+    # to sit exactly at n* = ceil(62/24) = 3, so this also pins ceil (floor would give
+    # n*=2 and drop one delta_issue) and the absence of Tdetect from this arm.
+    cfg = bh_read_latency_cfg
+    N, Q = 16384, 3
+    n_star = math.ceil(cfg.noc_inbound_bpc / cfg.b_channel_bpc)
+    assert n_star == Q, "test point no longer sits at n*; pick a new Q"
+    b_eff = min(min(Q, NUM_CHANNELS) * cfg.b_channel_bpc, cfg.noc_inbound_bpc)
+    expected = Q * cfg.delta_issue_cyc + _base(cfg) + (Q * N) / b_eff
+    got = predict_read_latency(N, Q, num_channels=NUM_CHANNELS, cfg=cfg)
+    assert math.isclose(got, expected, rel_tol=1e-12)
+    # Tdetect is intentionally omitted here; if it leaked in, `got` would be larger.
+    assert got < expected + cfg.tdetect_cyc
+
+
+def test_channel_count_only_matters_below_n_star(bh_read_latency_cfg):
+    # b_eff is capped at noc_inbound_bpc, so any channel count >= n* = 3 saturates the
+    # inbound link and yields identical predictions. Documents why p100a (7 channels)
+    # and p150a (8) score the same, and pins that num_channels is nonetheless wired
+    # through: a 1-channel part is strictly slower once the queue is deep.
+    cfg = bh_read_latency_cfg
+    n_star = math.ceil(cfg.noc_inbound_bpc / cfg.b_channel_bpc)
+    for N in (64, 2048, 16384):
+        for Q in (1, 4, 64, 256):
+            at_n_star = predict_read_latency(N, Q, num_channels=n_star, cfg=cfg)
+            for channels in (n_star + 1, 7, 8, 64):
+                assert math.isclose(
+                    predict_read_latency(N, Q, num_channels=channels, cfg=cfg),
+                    at_n_star, rel_tol=1e-12,
+                ), f"N={N} Q={Q}: {channels} channels differs from {n_star}"
+    single = predict_read_latency(16384, 64, num_channels=1, cfg=cfg)
+    many = predict_read_latency(16384, 64, num_channels=n_star, cfg=cfg)
+    assert single > many
 
 
 def test_latency_monotonic_in_size_and_queue(bh_read_latency_cfg):
@@ -96,8 +132,19 @@ def test_latency_monotonic_in_size_and_queue(bh_read_latency_cfg):
 def test_effective_bandwidth_saturates_near_noc_ceiling(bh_read_latency_cfg):
     cfg = bh_read_latency_cfg
     # Deep queue + large pages should approach the NoC inbound ceiling.
-    bw = effective_bandwidth_bpc(16384, 256, num_channels=NUM_CHANNELS, cfg=cfg)
+    tlat = predict_read_latency(16384, 256, num_channels=NUM_CHANNELS, cfg=cfg)
+    bw = (256 * 16384) / tlat
     assert 0.85 * cfg.noc_inbound_bpc <= bw <= cfg.noc_inbound_bpc + 1.0
+
+
+def test_small_transactions_are_latency_bound(bh_read_latency_cfg):
+    # The premise of the model: for small N the latency is dominated by the fixed
+    # head and per-read issue cost, not by the bytes moved. Latency per byte is
+    # therefore orders of magnitude worse than the streaming rate.
+    cfg = bh_read_latency_cfg
+    small_bw = (64 * 4) / predict_read_latency(64, 4, num_channels=NUM_CHANNELS, cfg=cfg)
+    large_bw = (16384 * 256) / predict_read_latency(16384, 256, num_channels=NUM_CHANNELS, cfg=cfg)
+    assert small_bw < 0.05 * large_bw
 
 
 def test_tile_page_size_default():
@@ -108,49 +155,24 @@ def test_zero_bytes_is_zero_latency(bh_read_latency_cfg):
     assert predict_read_latency(0, 4, cfg=bh_read_latency_cfg) == 0.0
 
 
-# --- ReadLatencyBreakdown (decomposition for timing integration) ------------
+@pytest.mark.parametrize("field,bad", [
+    ('tdram_cyc', 0.0), ('tdram_cyc', -1.0),
+    ('tdetect_cyc', -1.0),
+    # Divisors: a mistyped 0 would otherwise surface as a bare ZeroDivisionError,
+    # and a negative rate as a silently negative latency.
+    ('noc_inbound_bpc', 0.0), ('b_channel_bpc', 0.0), ('b_channel_bpc', -24.0),
+    ('delta_issue_cyc', 0.0), ('chop_cyc_per_hop', 0.0),
+    ('default_hops', -1), ('fclk_mhz', 0.0),
+])
+def test_calibration_rejects_nonpositive_constants(field, bad):
+    from pydantic import ValidationError
 
-@pytest.mark.parametrize("N,Q,_measured", CSV_ROWS)
-def test_breakdown_tlat_matches_scalar(N, Q, _measured, bh_read_latency_cfg):
-    # The decomposed form must return the exact same total as the scalar function.
-    scalar = predict_read_latency(N, Q, num_channels=NUM_CHANNELS, cfg=bh_read_latency_cfg)
-    bd = predict_read_latency_breakdown(N, Q, num_channels=NUM_CHANNELS, cfg=bh_read_latency_cfg)
-    assert isinstance(bd, ReadLatencyBreakdown)
-    assert bd.tlat == scalar
+    from ttsim.config.simconfig import MemoryReadLatencyModel
 
-
-@pytest.mark.parametrize("N,Q,_measured", CSV_ROWS)
-def test_breakdown_components_sum_to_tlat(N, Q, _measured, bh_read_latency_cfg):
-    # Invariant: base + tdetect + issue_cost + delivery == tlat (binding arm).
-    bd = predict_read_latency_breakdown(N, Q, num_channels=NUM_CHANNELS, cfg=bh_read_latency_cfg)
-    total = bd.base + bd.tdetect + bd.issue_cost + bd.delivery
-    assert math.isclose(total, bd.tlat, rel_tol=1e-9)
-    assert math.isclose(bd.exposed + bd.hideable, bd.tlat, rel_tol=1e-9)
-    assert bd.binding in ("issue", "transport")
-
-
-def test_breakdown_binding_regimes(bh_read_latency_cfg):
-    # Small N with a deep queue is issue-bound; large N*Q streams -> transport-bound.
-    small = predict_read_latency_breakdown(64, 256, num_channels=NUM_CHANNELS, cfg=bh_read_latency_cfg)
-    assert small.binding == "issue"
-    assert small.tdetect == bh_read_latency_cfg.tdetect_cyc
-    large = predict_read_latency_breakdown(16384, 256, num_channels=NUM_CHANNELS, cfg=bh_read_latency_cfg)
-    assert large.binding == "transport"
-    # Transport arm omits the barrier tail.
-    assert large.tdetect == 0.0
-
-
-def test_breakdown_exposed_is_size_independent_when_issue_bound(bh_read_latency_cfg):
-    # In the issue-bound arm, exposed latency (base+tdetect+delta*Q) does not depend
-    # on N; only the hideable delivery (N/b_channel) grows with N.
-    a = predict_read_latency_breakdown(64, 64, num_channels=NUM_CHANNELS, cfg=bh_read_latency_cfg)
-    b = predict_read_latency_breakdown(256, 64, num_channels=NUM_CHANNELS, cfg=bh_read_latency_cfg)
-    assert a.binding == "issue" and b.binding == "issue"
-    assert math.isclose(a.exposed, b.exposed, rel_tol=1e-9)
-    assert b.delivery > a.delivery
-
-
-def test_breakdown_zero_bytes(bh_read_latency_cfg):
-    bd = predict_read_latency_breakdown(0, 4, cfg=bh_read_latency_cfg)
-    assert bd.tlat == 0.0
-    assert bd.exposed == 0.0 and bd.hideable == 0.0
+    good = dict(
+        tdram_cyc=375.0, tdetect_cyc=10.0, noc_inbound_bpc=62.0, delta_issue_cyc=38.0,
+        chop_cyc_per_hop=8.0, b_channel_bpc=24.0, default_hops=4,
+    )
+    assert MemoryReadLatencyModel(**good) is not None
+    with pytest.raises(ValidationError, match=field):
+        MemoryReadLatencyModel(**{**good, field: bad})

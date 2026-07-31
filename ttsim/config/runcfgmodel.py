@@ -131,15 +131,10 @@ class PolarisRunConfig(BaseModel, extra='forbid'):
 
     enable_dm_latency: Optional[bool] = Field(
         default=False,
-        description='Enable the O2O data-movement read-latency model (polaris --enable_dm_latency)',
-    )
-
-    dm_latency_mode: Optional[str] = Field(
-        default='report',
         description=(
-            "O2O read-latency integration mode: 'report' (log only) or 'apply' "
-            "(add exposed read latency to timing; implies enable_dm_latency). "
-            "polaris --dm_latency_mode"
+            'Enable the DRAM read-latency model, so small transactions are latency-bound '
+            'rather than bandwidth-bound (polaris --enable_dm_latency). '
+            'See doc/READ_LATENCY_MODEL.md'
         ),
     )
 

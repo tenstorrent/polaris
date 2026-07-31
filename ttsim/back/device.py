@@ -11,14 +11,7 @@ from loguru import logger
 
 from ttsim.utils.types import get_bpe, get_sim_dtype
 from ttsim.utils.lfc import resolve_lfc_path
-from ttsim.back.read_latency import (
-    ReadLatencyConfig,
-    ReadSourceDescriptor,
-    TILE_ELEMS,
-    predict_read_latency,
-    predict_read_latency_for_source,
-    read_latency_breakdown_for_source,
-)
+from ttsim.back.read_latency import ReadLatencyConfig, TILE_ELEMS, predict_read_latency
 from tools.perf_lookup.lookup_operator_perf import resolve_operator_lookup_core_count
 
 LOG     = logger
@@ -115,7 +108,6 @@ class Device:
         *,
         operator_lookup_hybrid_curve: Optional[bool] = None,
         enable_dm_latency: bool = False,
-        dm_latency_mode: str = 'report',
     ):
         compute_ips = [ipg for ipg in simcfg_obj.ipgroups if ipg.iptype == 'compute']
         memory_ips  = [ipg for ipg in simcfg_obj.ipgroups if ipg.iptype == 'memory']
@@ -135,26 +127,15 @@ class Device:
         self.peak_bw_bytes_per_cycle  = simcfg_obj.peak_bandwidth_per_cycle()
         self.eff_bw_bytes_per_cycle   = self.peak_bw_bytes_per_cycle * self.DG_MEMORY_UTIL_CONSTANT
 
-        # data-movement read-latency model (off by default; --enable_dm_latency).
-        # When enabled, execute_op reports a predicted read latency per op, keyed by
-        # each input's memory-config regime. HW constants are sourced exclusively from
-        # the arch YAML memory block's `read_latency` section
-        # (config/tt_bh.yaml -> MemoryReadLatencyModel); the block is required when the
-        # feature is enabled (no Python-side fallback). One ReadLatencyConfig is built
-        # per regime; num_dram_channels seeds the default source count (the per-op
-        # descriptor overrides it with real channel/producer-core counts).
-        # dm_latency_mode: 'report' (compute + log only, timing unchanged) or 'apply'
-        # (add the exposed read latency to mem-read cycles). 'apply' implies
-        # the model is enabled.
-        if dm_latency_mode not in ('report', 'apply'):
-            raise ValueError(
-                f"dm_latency_mode must be 'report' or 'apply', got {dm_latency_mode!r}"
-            )
-        self.dm_latency_mode = dm_latency_mode
-        self.dm_apply_timing = (dm_latency_mode == 'apply')
-        self.enable_dm_latency = bool(enable_dm_latency) or self.dm_apply_timing
-        self.dm_read_regimes: dict[str, ReadLatencyConfig] = {}
-        self.dm_read_default_regime: str = 'DRAM_INTERLEAVED'
+        # DRAM read-latency model (off by default; --enable_dm_latency). When enabled,
+        # execute_op takes the max of the bandwidth-limited read cost and the predicted
+        # read latency, so small transactions become latency-bound instead of
+        # bandwidth-bound. HW constants are sourced exclusively from the arch YAML memory
+        # block's `read_latency` section (config/tt_bh.yaml -> MemoryReadLatencyModel);
+        # the block is required when the feature is enabled (no Python-side fallback).
+        # See doc/READ_LATENCY_MODEL.md.
+        self.enable_dm_latency = bool(enable_dm_latency)
+        self.dm_read_cfg: Optional[ReadLatencyConfig] = None
         #: fclk (NoC) clock used to convert predicted fclk-cycle latency to devclk.
         self.dm_fclk_MHz: float = self.freq_MHz
         if self.enable_dm_latency:
@@ -165,16 +146,16 @@ class Device:
                     "--enable_dm_latency requires a 'read_latency' calibration block in the "
                     f"memory IP of the arch spec, but device '{self.name}' (memory "
                     f"'{getattr(mem_block, 'name', '?')}') defines none. Add a read_latency "
-                    "section (default_regime + regimes) to the memory block."
+                    "section (tdram_cyc, tdetect_cyc, noc_inbound_bpc, ...) to the memory block."
                 )
-            num_units = max(1, int(getattr(self.memory_ip, 'num_units', 1) or 1))
-            self.dm_read_default_regime = rl_params.default_regime
             # fclk defaults to the matrix compute clock (BH: NoC tied to AI clock).
-            self.dm_fclk_MHz = float(getattr(rl_params, 'fclk_mhz', None) or self.freq_MHz)
-            self.dm_read_regimes = {
-                regime_name: ReadLatencyConfig(num_dram_channels=num_units, **params.model_dump())
-                for regime_name, params in rl_params.regimes.items()
-            }
+            self.dm_fclk_MHz = (
+                self.freq_MHz if rl_params.fclk_mhz is None else float(rl_params.fclk_mhz)
+            )
+            self.dm_read_cfg = ReadLatencyConfig(
+                num_dram_channels=max(1, int(getattr(self.memory_ip, 'num_units', 1) or 1)),
+                **rl_params.model_dump(exclude={'fclk_mhz'}),
+            )
 
         # Load tt-perf master operator lookup if specified (see doc/tools/perf_lookup/LOOKUP_TABLE_MASTER.md)
         self.operator_perf_map: Optional[Any] = None
@@ -248,7 +229,7 @@ class Device:
         # 3) EXECUTE OPS RESOURCES FOR ALL OPS : FIND COMPUTE/MEM CYCLES
         for opname in graph_ordered_nodes:
             op = wlgraph.get_op(opname)
-            self.execute_op(op, wlgraph)
+            self.execute_op(op)
 
         # 4) GRAPH OPTIMIZATION: REMOVE NODES IF POSSIBLE
         wlgraph.remove_nodes(wlmapspec.removal_spec)
@@ -314,7 +295,7 @@ class Device:
 
         return
 
-    def execute_op(self, op, wlgraph=None):
+    def execute_op(self, op):
         if TYPE_CHECKING:
             assert op.perf_stats is not None, f"SimOp {op.name} has no perf_stats set, cannot execute"
 
@@ -352,183 +333,66 @@ class Device:
         mem_rd_cycles_devclk_fractional = mem_rd_cycles_memclk * mem_to_dev_ratio
         mem_wr_cycles_devclk_fractional = mem_wr_cycles_memclk * mem_to_dev_ratio
 
-        # read-latency model. Always populates op.dm_read_* (report). In 'apply'
-        # mode the exposed (non-overlappable) latency is converted from fclk
-        # to this op's device-clock domain and added to the bandwidth read cycles below;
-        # the streaming (hideable) term is dropped since bandwidth already covers it.
-        exposed_devclk = 0.0
+        # Reads cost the worse of the bandwidth-limited time and the fixed read latency:
+        # small transactions are latency-bound, large ones stay bandwidth-bound and are
+        # unaffected.
         if self.enable_dm_latency:
-            self._report_dm_read_latency(op, wlgraph)
-            if self.dm_apply_timing:
-                exposed_devclk = op.dm_read_exposed_cycles * devfreq_MHz / self.dm_fclk_MHz
-        op.dm_read_exposed_devclk_cycles = exposed_devclk
+            mem_rd_cycles_devclk_fractional = max(
+                mem_rd_cycles_devclk_fractional, self._dm_read_latency_devclk(op, devfreq_MHz)
+            )
 
-        # Bandwidth-only read cycles, kept separate so the aggregate memory-bandwidth
-        # self-check (which compares against bytes/BW) stays valid in 'apply' mode.
-        op.mem_rd_cycles_bw_fractional = mem_rd_cycles_devclk_fractional
-
-        # Store fractional values for accurate aggregation. Effective read cycles =
-        # streaming (bandwidth) + exposed fixed latency (0 unless dm apply mode).
-        op.mem_rd_cycles_fractional = mem_rd_cycles_devclk_fractional + exposed_devclk
+        # Store fractional values for accurate aggregation
+        op.mem_rd_cycles_fractional = mem_rd_cycles_devclk_fractional
         op.mem_wr_cycles_fractional = mem_wr_cycles_devclk_fractional
 
         # Store ceiled values for per-op scheduling (backward compatibility)
-        op.mem_rd_cycles = math.ceil(op.mem_rd_cycles_fractional)
+        op.mem_rd_cycles = math.ceil(mem_rd_cycles_devclk_fractional)
         op.mem_wr_cycles = math.ceil(mem_wr_cycles_devclk_fractional)
 
         return
 
-    def _report_dm_read_latency(self, op, wlgraph=None) -> None:
-        """Compute and report the predicted read latency for op (report-only).
+    def _dm_read_latency_devclk(self, op, devfreq_MHz: float) -> float:
+        """Predicted DRAM read latency for ``op``, in this op's device-clock domain.
 
-        Regime-aware: each read input's MemoryConfig (buffer_type + layout + shard
-        grid) selects a calibrated parameter set, and per-input latencies are combined
-        with max (reads from distinct sources proceed concurrently). Inputs without
-        a memory config (the TTSIM/ONNX path) collapse to a single default-regime
-        descriptor keyed off perf_stats['inBytes'] — identical to the pre-regime
-        behavior.
+        Maps arch details (DRAM channels, core count) and workload details (read bytes,
+        precision) onto the model's transaction shape: reads are tile-paged and fanned
+        across the compute grid, so each core issues Q = pages / cores transactions of
+        one tile each. Both divisions round up: a partial tile still costs a whole
+        transaction, and a partial round across the grid still leaves some core issuing
+        one more read than its peers, and the barrier waits for that core.
+
+        Also sets ``op.dm_read_latency_cycles`` (fclk), which is logged at DEBUG.
         """
-        descriptors = self._build_read_source_descriptors(op, wlgraph)
-        if not descriptors:
+        assert self.dm_read_cfg is not None, "read-latency model enabled without a config"
+        in_bytes = op.perf_stats['inBytes'] if op.perf_stats else 0
+        if not in_bytes or in_bytes <= 0:
             op.dm_read_latency_cycles = 0.0
-            op.dm_read_exposed_cycles = 0.0
-            return
+            return 0.0
 
-        # Combine inputs with max: reads from distinct sources proceed concurrently.
-        scored = [
-            (
-                d,
-                read_latency_breakdown_for_source(
-                    d,
-                    regimes=self.dm_read_regimes,
-                    default_regime=self.dm_read_default_regime,
-                ),
-            )
-            for d in descriptors
-        ]
-        binding, bd = max(scored, key=lambda dt: dt[1].tlat)
-        op.dm_read_latency_cycles = bd.tlat
-        # Exposed (fill+drain+issue) is the non-overlappable part the additive-latency
-        # timing path would add on top of the bandwidth read cost; delivery
-        # is dropped there (already modeled by mem_rd bandwidth). Stored report-only.
-        op.dm_read_exposed_cycles = bd.exposed
-        INFO(
-            "DM-READ-LAT op={} regime={} N={}B Q={} sources={} consumers={} "
-            "bind={} exposed={:.0f} hideable={:.0f} inputs={} -> Tlat={:.0f} cyc",
-            op.name, binding.regime, int(binding.page_bytes), binding.queue_depth(),
-            binding.n_sources, binding.n_consumers, bd.binding, bd.exposed, bd.hideable,
-            len(descriptors), bd.tlat,
-        )
-
-    def _build_read_source_descriptors(self, op, wlgraph):
-        """Derive a ``ReadSourceDescriptor`` per read input from its ``MemoryConfig``.
-
-        Uses the same tensor-lookup path as the LUT-key builder (``wlgraph._tensors`` +
-        ``tensor._memory_config``). When *no* input carries a memory config (TTSIM/ONNX
-        path, or ``wlgraph`` unavailable), returns a single default-regime DRAM
-        descriptor from ``perf_stats['inBytes']`` so numbers match the legacy model.
-        """
-        num_cores = max(1, int(getattr(self.compute_ip, 'num_units', 1) or 1))
-        num_dram_channels = max(1, int(getattr(self.memory_ip, 'num_units', 1) or 1))
         bpe = get_bpe(get_sim_dtype(op.precision)) if op.precision else 1
-        tile_bytes = TILE_ELEMS * bpe  # one 32x32 tile = default DRAM page
+        page_bytes = TILE_ELEMS * bpe  # one 32x32 tile per DRAM read
+        # get_bpe returns -1 for an unmapped dtype; fail loudly rather than let the
+        # model's N <= 0 guard silently turn itself off for this op.
+        assert page_bytes > 0, (
+            f"op {op.name}: precision {op.precision!r} has no known bytes-per-element "
+            f"(bpe={bpe}), cannot size a DRAM read page"
+        )
+        num_cores = max(1, int(getattr(self.compute_ip, 'num_units', 1) or 1))
+        total_pages = max(1, math.ceil(in_bytes / page_bytes))
+        # Queue depth = reads issued per core before the barrier.
+        queue_depth = max(1, math.ceil(total_pages / num_cores))
 
-        def _legacy_single_descriptor():
-            in_bytes = op.perf_stats['inBytes'] if op.perf_stats else 0
-            if not in_bytes or in_bytes <= 0:
-                return []
-            return [ReadSourceDescriptor(
-                regime=self.dm_read_default_regime,
-                total_bytes=float(in_bytes), page_bytes=float(tile_bytes),
-                n_sources=num_dram_channels, n_consumers=num_cores,
-            )]
-
-        tensors = getattr(wlgraph, '_tensors', None) if wlgraph is not None else None
-        in_list = getattr(op, 'inList', None) or []
-        if not tensors or not in_list:
-            return _legacy_single_descriptor()
-
-        # Local import: the TTSIM/ONNX path may not have ttnn available.
-        try:
-            from ttsim.front.ttnn.buffer import BufferType
-        except Exception:
-            BufferType = None  # type: ignore[assignment]
-
-        descriptors = []
-        saw_memory_config = False
-        for tname in in_list:
-            t = tensors.get(tname)
-            if t is None:
-                continue
-            try:
-                nbytes = float(t.nbytes(op.precision)) if op.precision else float(t.nbytes())
-            except Exception:
-                continue
-            if nbytes <= 0:
-                continue
-            mc = getattr(t, '_memory_config', None)
-            if mc is None:
-                # Weight/const or ONNX tensor with no placement info -> default regime.
-                descriptors.append(ReadSourceDescriptor(
-                    regime=self.dm_read_default_regime,
-                    total_bytes=nbytes, page_bytes=float(tile_bytes),
-                    n_sources=num_dram_channels, n_consumers=num_cores,
-                ))
-                continue
-            saw_memory_config = True
-            regime = mc.to_canonical_memory_tag()
-            is_l1 = BufferType is not None and getattr(mc, 'buffer_type', None) == BufferType.L1
-            sharded = mc.is_sharded() if hasattr(mc, 'is_sharded') else False
-            grid_cores = self._shard_grid_core_count(getattr(mc, 'shard_spec', None))
-            if sharded:
-                # Sharded: each source holds a contiguous shard; N ~ bytes / #shards.
-                n_sources = grid_cores or num_dram_channels
-                n_consumers = grid_cores or num_cores
-                page_bytes = max(float(tile_bytes), nbytes / max(1, n_sources))
-                is_local = is_l1  # first-order: L1 shard co-located with its consumer
-            else:
-                # Interleaved: tile-paged reads fanned across DRAM channels / full grid.
-                n_sources = num_dram_channels
-                n_consumers = num_cores
-                page_bytes = float(tile_bytes)
-                is_local = False
-            descriptors.append(ReadSourceDescriptor(
-                regime=regime, total_bytes=nbytes, page_bytes=page_bytes,
-                n_sources=n_sources, n_consumers=n_consumers, is_local=is_local,
-            ))
-
-        # If nothing carried a memory config, prefer the legacy single-descriptor form
-        # so report-only numbers stay identical to the pre-regime model.
-        if not saw_memory_config:
-            return _legacy_single_descriptor()
-        return descriptors
-
-    @staticmethod
-    def _shard_grid_core_count(shard_spec) -> int:
-        """Best-effort core count from a ShardSpec grid (0 if unknown).
-
-        The grid may be a ``(x, y)`` tuple, a nested pair of corner coords, or a
-        CoreRangeSet-like object; this handles the common shapes and returns 0 when
-        it cannot infer a count (caller falls back to a device-level default).
-        """
-        if shard_spec is None:
-            return 0
-        grid = getattr(shard_spec, 'grid', None)
-        if grid is None:
-            return 0
-        try:
-            if isinstance(grid, (tuple, list)) and len(grid) == 2 and all(
-                isinstance(v, (int, float)) for v in grid
-            ):
-                return max(0, int(grid[0]) * int(grid[1]))
-            num_cores = getattr(grid, 'num_cores', None)
-            if callable(num_cores):
-                return max(0, int(num_cores()))
-            if isinstance(num_cores, (int, float)):
-                return max(0, int(num_cores))
-        except Exception:
-            return 0
-        return 0
+        tlat_fclk = predict_read_latency(
+            page_bytes, Q=queue_depth,
+            num_channels=self.dm_read_cfg.num_dram_channels, cfg=self.dm_read_cfg,
+        )
+        op.dm_read_latency_cycles = tlat_fclk
+        DEBUG(
+            "DM-READ-LAT op={} N={}B Q={} channels={} inBytes={} -> Tlat={:.0f} fclk cyc",
+            op.name, page_bytes, queue_depth, self.dm_read_cfg.num_dram_channels,
+            in_bytes, tlat_fclk,
+        )
+        return tlat_fclk * devfreq_MHz / self.dm_fclk_MHz
 
     @staticmethod
     def _profiler_pct_to_exec_fraction(v: float) -> float:
@@ -1071,8 +935,6 @@ class Device:
                 mem_wr_cycles = 0
                 op.mem_rd_cycles_fractional = 0.0
                 op.mem_wr_cycles_fractional = 0.0
-                # LUT measures end-to-end latency; drop any added exposed latency too.
-                op.mem_rd_cycles_bw_fractional = 0.0
                 mem_rd_util = 0.0
                 mem_wr_util = 0.0
                 if master_stats.memory_traffic is not None:
@@ -1222,20 +1084,6 @@ class Device:
         tot_mem_wr_cycles_fractional = sum(op_stat_iter('mem_wr_cycles_fractional', repeat=True))
         tot_mem_rd_cycles = math.ceil(tot_mem_rd_cycles_fractional)
         tot_mem_wr_cycles = math.ceil(tot_mem_wr_cycles_fractional)
-        # Bandwidth-only read cycles (excludes any added exposed dm-latency); used for
-        # the memory-bandwidth self-check so 'apply' mode does not trip it. Falls back to
-        # the effective fractional when the BW-only field is absent (e.g. ops built
-        # outside execute_op in unit tests), where the two are equal by construction.
-        tot_mem_rd_cycles_bw_fractional = 0.0
-        for _bw_opname in graph_ordered_nodes:
-            _bw_op = wlgraph.get_op(_bw_opname)
-            if _bw_op.removed_in_optimization or _bw_op.fused_in_optimization:
-                continue
-            _bw = getattr(_bw_op, 'mem_rd_cycles_bw_fractional', None)
-            if _bw is None:
-                _bw = getattr(_bw_op, 'mem_rd_cycles_fractional', 0.0)
-            tot_mem_rd_cycles_bw_fractional += _bw * _bw_op.repeat_count
-        tot_mem_rd_cycles_bw = math.ceil(tot_mem_rd_cycles_bw_fractional)
 
         tot_matrix_pipe_util  = tot_matrix_cycles / tot_ideal_cycles * self.DG_COMPUTE_UTIL_CONSTANT
         tot_vector_pipe_util  = tot_vector_cycles / tot_ideal_cycles * self.DG_COMPUTE_UTIL_CONSTANT
@@ -1315,20 +1163,22 @@ class Device:
             mem_to_dev_ratio = self.freq_MHz / self.memfreq_MHz
             expected_bytes_per_device_clock = self.eff_bw_bytes_per_cycle / mem_to_dev_ratio
 
-            if tot_mem_rd_cycles_bw > 0:
-                actual_bytes_per_device_clock = tot_inBytes / tot_mem_rd_cycles_bw
+            if tot_mem_rd_cycles > 0:
+                actual_bytes_per_device_clock = tot_inBytes / tot_mem_rd_cycles
                 # Allow for a single cycle of rounding error from the final ceil operation
                 expected_cycles = (tot_inBytes / self.eff_bw_bytes_per_cycle) * mem_to_dev_ratio
-                # Check both directions: cycles should be close to expected (within +1 for ceiling).
-                # Uses BW-only cycles so --dm_latency_mode apply (which adds exposed latency
-                # to tot_mem_rd_cycles) does not trip this bandwidth-accounting check.
-                if tot_mem_rd_cycles_bw > expected_cycles + 1 or tot_mem_rd_cycles_bw < expected_cycles - 1:
+                # Check both directions: cycles should be close to expected (within +1 for
+                # ceiling). With the read-latency model on, latency-bound ops legitimately
+                # cost more than bytes/BW, so only the under-count direction is an error.
+                too_low = tot_mem_rd_cycles < expected_cycles - 1
+                too_high = tot_mem_rd_cycles > expected_cycles + 1 and not self.enable_dm_latency
+                if too_low or too_high:
                     raise ValueError(
                         f"Memory bandwidth validation failed (read):\n"
                         f"  Calculated bytes_per_device_clock: {actual_bytes_per_device_clock:.2f}\n"
                         f"  Expected bytes_per_device_clock:   {expected_bytes_per_device_clock:.2f}\n"
                         f"  Ratio (actual/expected):           {actual_bytes_per_device_clock / expected_bytes_per_device_clock:.2f}\n"
-                        f"  Actual cycles: {tot_mem_rd_cycles_bw}, Expected: {expected_cycles:.2f}\n"
+                        f"  Actual cycles: {tot_mem_rd_cycles}, Expected: {expected_cycles:.2f}\n"
                         f"This indicates an inconsistency in memory traffic accounting."
                     )
             if tot_mem_wr_cycles > 0:

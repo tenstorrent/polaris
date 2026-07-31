@@ -266,24 +266,13 @@ def setup_cmdline_args(argv: list[str] | None = None) -> argparse.Namespace:
         action='store_true',
         default=False,
         help=(
-            'Enable the O2O data-movement read-latency model. When set, each op '
-            'gets a predicted DRAM read latency (Tlat) computed and reported. '
-            'Default off preserves the existing flat bytes/bandwidth memory model.'
+            'Enable the DRAM read-latency model, making memory-read cycles the max of '
+            'the bandwidth-limited cost and the predicted read latency, so small '
+            'transactions are latency-bound rather than bandwidth-bound. Blackhole only '
+            '(requires a read_latency block in the arch spec). Default off preserves the '
+            'existing flat bytes/bandwidth memory model. See doc/READ_LATENCY_MODEL.md.'
         ),
     )
-    parser.add_argument(
-        '--dm_latency_mode',
-        dest='dm_latency_mode',
-        choices=['report', 'apply'],
-        default='report',
-        help=(
-            "O2O read-latency integration mode. 'report' (default) computes and logs "
-            "the predicted latency without affecting timing. 'apply' (Option C) adds "
-            "the exposed (non-overlappable) read latency to memory-read cycles; it "
-            "implies --enable_dm_latency."
-        ),
-    )
-
     #cmdline args processing
     args = parser.parse_args(argv)
     check_args(args)
@@ -384,8 +373,7 @@ def execute_wl_on_dev(_wl, _dl, _wspec, _dspec, wlmapspec, _WLG,
                       _odir, study, _enable_memalloc, outputfmt, flag_dump_stats_csv,
                       operator_lookup_hybrid_curve: bool = False,
                       disable_fusion: bool = False,
-                      enable_dm_latency: bool = False,
-                      dm_latency_mode: str = 'report'):
+                      enable_dm_latency: bool = False):
     # TODO: Reduce number of arguments to this function
     study_dir = _odir / study
     stat_dir    = study_dir / 'STATS'
@@ -437,7 +425,6 @@ def execute_wl_on_dev(_wl, _dl, _wspec, _dspec, wlmapspec, _WLG,
                 dev_obj,
                 operator_lookup_hybrid_curve=use_hybrid_lut_curve,
                 enable_dm_latency=enable_dm_latency,
-                dm_latency_mode=dm_latency_mode,
             )
             cur_device.execute_graph(wlgraph, wlmapspec, disable_fusion=disable_fusion)
 
@@ -505,7 +492,6 @@ def polaris(args: argparse.Namespace | runcfgmodel.PolarisRunConfig) -> int:
             operator_lookup_hybrid_curve=bool(args.operator_lookup_hybrid_curve),
             disable_fusion=bool(getattr(args, 'disable_fusion', False)),
             enable_dm_latency=bool(getattr(args, 'enable_dm_latency', False)),
-            dm_latency_mode=str(getattr(args, 'dm_latency_mode', 'report')),
         )
         summary_stats = sorted(summary_stats, key=lambda x: (x['wlname'], x['devname'], x['freq_Mhz'], x['wlinstance'], x['bs']))
 
