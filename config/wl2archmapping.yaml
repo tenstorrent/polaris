@@ -41,26 +41,26 @@ op_fusion_spec:
 
 op_rsrc_spec:
   compute:
-    matrix: [Matmul, Conv, ConvTranspose, Gemm, MultiheadAttention, ScaledDotProductAttention]
-    vector: [Add, And, ArgMax, AveragePool,
+    matrix: [Matmul, Conv, ConvTranspose, Einsum, Gemm, MultiheadAttention, ScaledDotProductAttention]
+    vector: [Abs, Add, And, ArgMax, AveragePool,
              BatchNormalization,
              Cast, Clip, Concat, Constant, ConstantOfShape, Cos, CumSum,
              DequantizeLinear, Div, Dropout,
              Equal, Erf, Exp, Expand,
              Flatten, Fold,
-             Gather, GatherND, Gelu, GlobalAveragePool, GridSample, Greater, GroupNormalization,
+             Gather, GatherElements, GatherND, Gelu, GlobalAveragePool, GridSample, Greater, GreaterOrEqual, GroupNormalization,
              Halo,
              HardSigmoid, Hardswish,
              Identity, If, InterleavedToSharded, IsNaN,
              Move,
-             LayerNormalization, LeakyRelu, Log, Less,
-             Max, MaxPool, Mean, Min, Mish, Mul,
-             Neg, ConcatHeads, CreateQKVHeads, NLPCreateQKVHeadsDecode, NLPConcatHeadsDecode, # transformer head ops (prefill+decode) from ttnn_shim
+             LayerNormalization, LeakyRelu, LessOrEqual, Log, Less,
+             Max, MaxPool, Mean, Min, Mish, Mod, Mul,
+             Neg, Not, ConcatHeads, CreateQKVHeads, NLPCreateQKVHeadsDecode, NLPConcatHeadsDecode, # transformer head ops (prefill+decode) from ttnn_shim
              RotaryEmbeddingLlama, RotaryEmbeddingLlamaFusedQK, PagedFillCache, PagedFusedUpdateCache, NonMaxSuppression, NonZero, # transformer rope/cache ops from ttnn_shim
              PlusOne, ManualSeed, Sampling, # decode sampling-tail ops from ttnn_shim
              Pad, Permute, Pow,
              QuantizeLinear,
-             Reciprocal, ReduceMax, ReduceMean, ReduceMin, ReduceProd, ReduceSum, Relu, Reshard, Reshape, Resize,
+             Range, Reciprocal, ReduceMax, ReduceMean, ReduceMin, ReduceProd, ReduceSum, Relu, Reshard, Reshape, Resize,
              ScatterND, ScatterElements, Shape, ShardedToInterleaved, Sigmoid, Sin, Slice, Softmax, SoftmaxCrossEntropyLoss, Softplus, Split, Sqrt, Squeeze, Sub, Sum,
              Tanh, Tile, Tilize, TilizeWithValPadding, TopK, TorchGather, Transpose, Trilu,
              Unsqueeze, Untilize, UntilizeWithUnpadding, Upsample,
