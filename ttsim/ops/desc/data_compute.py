@@ -30,20 +30,28 @@ def try_compute_data(compute_func, iTList, op):
     Returns:
         Computed numpy array if all inputs have data, None otherwise
     """
+    from loguru import logger
+
+    # Some lightweight test doubles for `op` only set .attrs/.optype (no .name),
+    # so guard with getattr rather than assuming the full SimOp interface.
+    op_name = getattr(op, "name", "<unknown>")
+    op_type = getattr(op, "optype", "<unknown>")
+
     # Check if all required inputs have data
-    if all(t.data is not None for t in iTList):
-        try:
-            return compute_func(iTList, op)
-        except Exception as e:
-            # Data computation failed, return None
-            # Shape inference still works!
-            import warnings
-
-            warnings.warn(f"Data computation failed for {op.optype}: {e}")
-            return None
-
-
-#     return None
+    missing = [i for i, t in enumerate(iTList) if t.data is None]
+    if missing:
+        logger.warning(
+            "SKIP DATA COMPUTE for {} ({}): input(s) {} have no data",
+            op_name, op_type, missing,
+        )
+        return None
+    try:
+        return compute_func(iTList, op)
+    except Exception as e:
+        # Data computation failed, return None
+        # Shape inference still works!
+        logger.warning("DATA COMPUTE FAILED for {} ({}): {}", op_name, op_type, e)
+        return None
 
 
 def compute_maxpool2d(iTList, op) -> np.ndarray:
@@ -142,7 +150,21 @@ def compute_concat(iTList, op) -> np.ndarray:
         Y: Concatenated output
     """
     axis = op.attrs.get("axis", 1)
-    arrays = [t.data for t in iTList]
+    # Reshape each input's raw data to match its own declared tensor shape
+    # before concatenating. Some upstream ops (e.g. Gather with a scalar
+    # index) can produce 0-d/rank-mismatched .data even though the tensor's
+    # declared .shape is correct (e.g. [1]) -- concatenating raw .data as-is
+    # then fails with "arrays must have same number of dimensions". Guard
+    # with getattr since some lightweight test doubles only provide .data
+    # (no .shape attribute) -- for those, just use the raw data as-is,
+    # matching the pre-fix behavior.
+    arrays = []
+    for t in iTList:
+        arr = np.asarray(t.data)
+        shape = getattr(t, "shape", None)
+        if shape is not None:
+            arr = arr.reshape(shape)
+        arrays.append(arr)
     return np.concatenate(arrays, axis=axis)
 
 
@@ -990,8 +1012,30 @@ def compute_sub(iTList, op) -> np.ndarray:
 
 
 def compute_div(iTList, op) -> np.ndarray:
-    """Element-wise division with broadcasting"""
-    return iTList[0].data / iTList[1].data
+    """Element-wise division with broadcasting.
+
+    ONNX spec: Div on integer-typed tensors truncates toward zero (like C's
+    `/`), NOT numpy's default true/float division. Truncating late (after a
+    downstream Mul/int() cast) instead of at the Div node itself can shift
+    results by 1, e.g. (432+2)/3 = 144.667 -> int() truncates to 144, but
+    144.667*2 = 289.33 -> int() truncates to 289 instead of the correct
+    144*2 = 288.
+    """
+    a, b = np.asarray(iTList[0].data), np.asarray(iTList[1].data)
+    if np.issubdtype(a.dtype, np.integer) and np.issubdtype(b.dtype, np.integer):
+        out_dtype = np.result_type(a, b)
+        return np.trunc(a / b).astype(out_dtype)
+    return a / b
+
+
+def compute_equal(iTList, op) -> np.ndarray:
+    """Element-wise equality comparison"""
+    return np.equal(iTList[0].data, iTList[1].data)
+
+
+def compute_not(iTList, op) -> np.ndarray:
+    """Element-wise logical NOT"""
+    return np.logical_not(iTList[0].data)
 
 
 def compute_sqrt(iTList, op) -> np.ndarray:
@@ -1977,19 +2021,22 @@ def compute_gather(iTList, op) -> np.ndarray:
     indices = iTList[1].data.astype(np.int64)
     axis = op.attrs.get('axis', 0)
 
-    # Expand indices to match data's number of dimensions for np.take_along_axis
-    # ONNX Gather: output_shape = data.shape[:axis] + indices.shape + data.shape[axis+1:]
-    # We need to expand indices shape to match this
+    # ONNX Gather semantics: output_shape = data.shape[:axis] + indices.shape + data.shape[axis+1:],
+    # i.e. every position along `axis` is independently replaced by a full lookup into `data`
+    # using `indices` (which may be of arbitrary rank, including 0). This is exactly what
+    # np.take(..., axis=axis) implements. (np.take_along_axis is a different op -- it requires
+    # indices to be broadcastable against data shape-for-shape outside `axis`, which silently
+    # produces wrong-rank/wrong-shape results whenever indices' rank doesn't happen to be < data's
+    # rank, e.g. when both data and indices are rank-2 with a coincidentally-matching trailing dim.)
     data_rank = len(data.shape)
-    indices_rank = len(indices.shape)
-
-    if indices_rank < data_rank:
-        # Need to expand indices to have same rank as data
-        # Insert new axes before and after the indices dimensions
-        new_shape = [1] * axis + list(indices.shape) + [1] * (data_rank - axis - indices_rank)
-        indices = indices.reshape(new_shape)
-
-    return np.take_along_axis(data, indices, axis=axis)
+    norm_axis = axis if axis >= 0 else axis + data_rank
+    result = np.take(data, indices, axis=norm_axis)
+    # np.take returns a bare numpy scalar (not an ndarray) when the output would be
+    # rank-0 (data_rank==1 and indices is itself a scalar/rank-0). Polaris represents
+    # such scalars as shape [1] rather than true rank-0 [] (see resolve_tensor's
+    # "treating it as scalar shape [1]" convention), so normalize to at least 1-D here
+    # to stay consistent and to satisfy SimTensor's ndarray-only data requirement.
+    return np.atleast_1d(result)
 
 
 def compute_squeeze(iTList, op) -> np.ndarray:
@@ -2334,7 +2381,12 @@ def compute_floor(iTList, op) -> np.ndarray:
 
 
 def compute_mod(iTList, op) -> np.ndarray:
-    return np.fmod(iTList[0].data, iTList[1].data)
+    """Element-wise modulo (ONNX Mod semantics: fmod attr controls C-fmod vs Python-mod)."""
+    fmod = op.attrs.get('fmod', 0)
+    a, b = iTList[0].data, iTList[1].data
+    if fmod:
+        return np.fmod(a, b)
+    return np.mod(a, b)
 
 
 def compute_reducemin(iTList, op) -> np.ndarray:

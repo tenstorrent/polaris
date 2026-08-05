@@ -148,9 +148,13 @@ def einsum_sinf(iTList, oTList, op, **kwargs):
     from .data_compute import compute_einsum
 
     output_t = oTList[0]
-    subscripts = op.attrs.get("subscripts", "")
+    # ONNX's documented attribute name is "equation" (e.g. "bhwc,hkc->bhwk").
+    # Some frontends/older exports may still populate "subscripts" instead,
+    # so fall back to that rather than assuming every model uses "equation" --
+    # this keeps any other model already relying on "subscripts" working too.
+    subscripts = op.attrs.get("equation") or op.attrs.get("subscripts", "")
 
-    assert subscripts, "Einsum requires 'subscripts' attribute"
+    assert subscripts, "Einsum requires an 'equation' (or legacy 'subscripts') attribute"
     assert len(iTList) >= 1, "Einsum requires at least one input"
 
     # Parse subscripts to determine output shape
@@ -173,7 +177,8 @@ def einsum_sinf(iTList, oTList, op, **kwargs):
         assert tensor.check_shape(), f"Input shape not defined: {tensor}"
         assert len(sub) == len(
             tensor.shape
-        ), f"Subscript length ({len(sub)}) must match tensor rank ({len(tensor.shape)})"
+        ), (f"Subscript length ({len(sub)}) must match tensor rank ({len(tensor.shape)}) "
+            f"for tensor {tensor.name} shape={list(tensor.shape)} equation={subscripts!r}")
 
         for label, size in zip(sub, tensor.shape):
             if label != " ":  # Skip spaces
