@@ -13,7 +13,6 @@ block, and drives single ops through ``Device.execute_op``.
 import pytest
 
 from ttsim.back.device import Device
-from ttsim.back.read_latency import predict_read_latency
 from ttsim.config import get_arspec_from_yaml
 from ttsim.graph.wl_graph import WorkloadGraph
 from ttsim.ops.op import SimOp
@@ -71,7 +70,7 @@ def test_disabled_by_default():
 def test_enabled_device_loads_calibration():
     device = _make_device(enable_dm_latency=True)
     assert device.dm_read_cfg is not None
-    assert device.dm_read_cfg.num_dram_channels == 7
+    assert device.dm_read_channels == 7
     # fclk defaults to the matrix compute clock when the YAML omits fclk_mhz.
     assert device.dm_fclk_MHz == device.freq_MHz
 
@@ -147,11 +146,12 @@ def test_partial_page_rounds_up():
     device._dm_read_latency_devclk(op, device.freq_MHz)
     at_q2 = op.dm_read_latency_cycles
 
+    channels = device.dm_read_channels
     assert at_q1 == pytest.approx(
-        predict_read_latency(page_bytes, 1, num_channels=cfg.num_dram_channels, cfg=cfg)
+        cfg.predict_read_latency(page_bytes, 1, num_channels=channels)
     )
     assert at_q2 == pytest.approx(
-        predict_read_latency(page_bytes, 2, num_channels=cfg.num_dram_channels, cfg=cfg)
+        cfg.predict_read_latency(page_bytes, 2, num_channels=channels)
     )
     assert at_q2 > at_q1
 

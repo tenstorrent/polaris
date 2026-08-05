@@ -11,7 +11,7 @@ from loguru import logger
 
 from ttsim.utils.types import get_bpe, get_sim_dtype
 from ttsim.utils.lfc import resolve_lfc_path
-from ttsim.back.read_latency import ReadLatencyConfig, TILE_ELEMS, predict_read_latency
+from ttsim.config.simconfig import MemoryReadLatencyModel
 from tools.perf_lookup.lookup_operator_perf import resolve_operator_lookup_core_count
 
 LOG     = logger
@@ -19,6 +19,11 @@ INFO    = LOG.info
 DEBUG   = LOG.debug
 ERROR   = LOG.error
 WARNING = LOG.warning
+
+#: Elements in one 32x32 tile. One tile is the default DRAM read "page" for the
+#: read-latency model. Distinct from ttsim.front.ttnn.types.TILE_HW, which is this
+#: same 1024 but named for height*width.
+TILE_ELEMS = 32 * 32
 
 class Component:
     def __init__(self, name: str, atype: str, **kwargs):
@@ -135,7 +140,10 @@ class Device:
         # the block is required when the feature is enabled (no Python-side fallback).
         # See doc/READ_LATENCY_MODEL.md.
         self.enable_dm_latency = bool(enable_dm_latency)
-        self.dm_read_cfg: Optional[ReadLatencyConfig] = None
+        self.dm_read_cfg: Optional[MemoryReadLatencyModel] = None
+        #: DRAM channels the reads interleave across; not part of the read_latency
+        #: block, it comes from the memory IP's num_units.
+        self.dm_read_channels: int = 1
         #: fclk (NoC) clock used to convert predicted fclk-cycle latency to devclk.
         self.dm_fclk_MHz: float = self.freq_MHz
         if self.enable_dm_latency:
@@ -152,10 +160,8 @@ class Device:
             self.dm_fclk_MHz = (
                 self.freq_MHz if rl_params.fclk_mhz is None else float(rl_params.fclk_mhz)
             )
-            self.dm_read_cfg = ReadLatencyConfig(
-                num_dram_channels=max(1, int(getattr(self.memory_ip, 'num_units', 1) or 1)),
-                **rl_params.model_dump(exclude={'fclk_mhz'}),
-            )
+            self.dm_read_cfg = rl_params
+            self.dm_read_channels = max(1, int(getattr(self.memory_ip, 'num_units', 1) or 1))
 
         # Load tt-perf master operator lookup if specified (see doc/tools/perf_lookup/LOOKUP_TABLE_MASTER.md)
         self.operator_perf_map: Optional[Any] = None
@@ -382,14 +388,13 @@ class Device:
         # Queue depth = reads issued per core before the barrier.
         queue_depth = max(1, math.ceil(total_pages / num_cores))
 
-        tlat_fclk = predict_read_latency(
-            page_bytes, Q=queue_depth,
-            num_channels=self.dm_read_cfg.num_dram_channels, cfg=self.dm_read_cfg,
+        tlat_fclk = self.dm_read_cfg.predict_read_latency(
+            page_bytes, Q=queue_depth, num_channels=self.dm_read_channels,
         )
         op.dm_read_latency_cycles = tlat_fclk
         DEBUG(
             "DM-READ-LAT op={} N={}B Q={} channels={} inBytes={} -> Tlat={:.0f} fclk cyc",
-            op.name, page_bytes, queue_depth, self.dm_read_cfg.num_dram_channels,
+            op.name, page_bytes, queue_depth, self.dm_read_channels,
             in_bytes, tlat_fclk,
         )
         return tlat_fclk * devfreq_MHz / self.dm_fclk_MHz

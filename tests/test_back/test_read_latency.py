@@ -15,7 +15,7 @@ import math
 
 import pytest
 
-from ttsim.back.read_latency import TILE_ELEMS, predict_read_latency
+from ttsim.back.device import TILE_ELEMS
 
 # (N bytes, Q transactions, measured latency cycles) - Blackhole, riscv_1.
 CSV_ROWS = [
@@ -43,7 +43,7 @@ REL_TOL = 0.15
 
 @pytest.mark.parametrize("N,Q,measured", CSV_ROWS)
 def test_predicted_latency_matches_microbenchmark(N, Q, measured, bh_read_latency_cfg):
-    predicted = predict_read_latency(N, Q, num_channels=NUM_CHANNELS, cfg=bh_read_latency_cfg)
+    predicted = bh_read_latency_cfg.predict_read_latency(N, Q, num_channels=NUM_CHANNELS)
     rel_err = abs(predicted - measured) / measured
     assert rel_err <= REL_TOL, (
         f"N={N} Q={Q}: predicted={predicted:.1f} measured={measured} "
@@ -53,7 +53,7 @@ def test_predicted_latency_matches_microbenchmark(N, Q, measured, bh_read_latenc
 
 def test_mean_error_is_small(bh_read_latency_cfg):
     errs = [
-        abs(predict_read_latency(N, Q, num_channels=NUM_CHANNELS, cfg=bh_read_latency_cfg) - m) / m
+        abs(bh_read_latency_cfg.predict_read_latency(N, Q, num_channels=NUM_CHANNELS) - m) / m
         for N, Q, m in CSV_ROWS
     ]
     mean_err = sum(errs) / len(errs)
@@ -73,7 +73,7 @@ def test_issue_arm_closed_form(bh_read_latency_cfg):
     cfg = bh_read_latency_cfg
     N, Q = 64, 16
     expected = cfg.delta_issue_cyc * Q + _base(cfg) + cfg.tdetect_cyc + N / cfg.b_channel_bpc
-    got = predict_read_latency(N, Q, num_channels=NUM_CHANNELS, cfg=cfg)
+    got = cfg.predict_read_latency(N, Q, num_channels=NUM_CHANNELS)
     assert math.isclose(got, expected, rel_tol=1e-12)
 
 
@@ -87,7 +87,7 @@ def test_transport_arm_closed_form(bh_read_latency_cfg):
     assert n_star == Q, "test point no longer sits at n*; pick a new Q"
     b_eff = min(min(Q, NUM_CHANNELS) * cfg.b_channel_bpc, cfg.noc_inbound_bpc)
     expected = Q * cfg.delta_issue_cyc + _base(cfg) + (Q * N) / b_eff
-    got = predict_read_latency(N, Q, num_channels=NUM_CHANNELS, cfg=cfg)
+    got = cfg.predict_read_latency(N, Q, num_channels=NUM_CHANNELS)
     assert math.isclose(got, expected, rel_tol=1e-12)
     # Tdetect is intentionally omitted here; if it leaked in, `got` would be larger.
     assert got < expected + cfg.tdetect_cyc
@@ -102,14 +102,14 @@ def test_channel_count_only_matters_below_n_star(bh_read_latency_cfg):
     n_star = math.ceil(cfg.noc_inbound_bpc / cfg.b_channel_bpc)
     for N in (64, 2048, 16384):
         for Q in (1, 4, 64, 256):
-            at_n_star = predict_read_latency(N, Q, num_channels=n_star, cfg=cfg)
+            at_n_star = cfg.predict_read_latency(N, Q, num_channels=n_star)
             for channels in (n_star + 1, 7, 8, 64):
                 assert math.isclose(
-                    predict_read_latency(N, Q, num_channels=channels, cfg=cfg),
+                    cfg.predict_read_latency(N, Q, num_channels=channels),
                     at_n_star, rel_tol=1e-12,
                 ), f"N={N} Q={Q}: {channels} channels differs from {n_star}"
-    single = predict_read_latency(16384, 64, num_channels=1, cfg=cfg)
-    many = predict_read_latency(16384, 64, num_channels=n_star, cfg=cfg)
+    single = cfg.predict_read_latency(16384, 64, num_channels=1)
+    many = cfg.predict_read_latency(16384, 64, num_channels=n_star)
     assert single > many
 
 
@@ -118,13 +118,13 @@ def test_latency_monotonic_in_size_and_queue(bh_read_latency_cfg):
     for Q in (1, 4, 16, 64, 256):
         prev = 0.0
         for N in (64, 128, 256, 512, 1024, 2048, 4096, 8192, 16384):
-            cur = predict_read_latency(N, Q, num_channels=NUM_CHANNELS, cfg=bh_read_latency_cfg)
+            cur = bh_read_latency_cfg.predict_read_latency(N, Q, num_channels=NUM_CHANNELS)
             assert cur >= prev - 1e-9
             prev = cur
     for N in (64, 4096, 16384):
         prev = 0.0
         for Q in (1, 4, 16, 64, 256):
-            cur = predict_read_latency(N, Q, num_channels=NUM_CHANNELS, cfg=bh_read_latency_cfg)
+            cur = bh_read_latency_cfg.predict_read_latency(N, Q, num_channels=NUM_CHANNELS)
             assert cur >= prev - 1e-9
             prev = cur
 
@@ -132,7 +132,7 @@ def test_latency_monotonic_in_size_and_queue(bh_read_latency_cfg):
 def test_effective_bandwidth_saturates_near_noc_ceiling(bh_read_latency_cfg):
     cfg = bh_read_latency_cfg
     # Deep queue + large pages should approach the NoC inbound ceiling.
-    tlat = predict_read_latency(16384, 256, num_channels=NUM_CHANNELS, cfg=cfg)
+    tlat = cfg.predict_read_latency(16384, 256, num_channels=NUM_CHANNELS)
     bw = (256 * 16384) / tlat
     assert 0.85 * cfg.noc_inbound_bpc <= bw <= cfg.noc_inbound_bpc + 1.0
 
@@ -142,8 +142,8 @@ def test_small_transactions_are_latency_bound(bh_read_latency_cfg):
     # head and per-read issue cost, not by the bytes moved. Latency per byte is
     # therefore orders of magnitude worse than the streaming rate.
     cfg = bh_read_latency_cfg
-    small_bw = (64 * 4) / predict_read_latency(64, 4, num_channels=NUM_CHANNELS, cfg=cfg)
-    large_bw = (16384 * 256) / predict_read_latency(16384, 256, num_channels=NUM_CHANNELS, cfg=cfg)
+    small_bw = (64 * 4) / cfg.predict_read_latency(64, 4, num_channels=NUM_CHANNELS)
+    large_bw = (16384 * 256) / cfg.predict_read_latency(16384, 256, num_channels=NUM_CHANNELS)
     assert small_bw < 0.05 * large_bw
 
 
@@ -152,7 +152,7 @@ def test_tile_page_size_default():
 
 
 def test_zero_bytes_is_zero_latency(bh_read_latency_cfg):
-    assert predict_read_latency(0, 4, cfg=bh_read_latency_cfg) == 0.0
+    assert bh_read_latency_cfg.predict_read_latency(0, 4, num_channels=NUM_CHANNELS) == 0.0
 
 
 @pytest.mark.parametrize("field,bad", [

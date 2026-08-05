@@ -4,7 +4,7 @@
 import os
 import re
 from collections import Counter
-from math import isclose
+from math import ceil, isclose
 from typing import TYPE_CHECKING, Any, List, Optional, Type, Union
 
 from loguru import logger
@@ -391,15 +391,12 @@ class ComputeBlockModel(BaseModel, extra='forbid'):
 
 
 class MemoryReadLatencyModel(BaseModel, extra='forbid'):
-    """DRAM read-latency hardware constants (see ttsim/back/read_latency.py).
+    """First-order analytical model for DRAM read latency, plus its calibration.
 
-    Per-memory-technology calibration for the DRAM read-latency model and the
-    single source of truth for these constants. Field names mirror
-    ``ReadLatencyConfig`` (minus ``num_dram_channels``, which comes from the
-    memory IP's ``num_units``); ``Device`` builds the config via
-    ``ReadLatencyConfig(num_dram_channels=..., **model_dump(exclude={'fclk_mhz'}))``.
-    Cycle counts are in the NoC/fabric clock domain (``fclk``). Consumed when
-    ``--enable_dm_latency``.
+    Per-memory-technology calibration and the single source of truth for these
+    constants; ``predict_read_latency`` is the model they parameterize. Cycle counts
+    are in the NoC/fabric clock domain (``fclk``). Consumed when
+    ``--enable_dm_latency``; see doc/READ_LATENCY_MODEL.md.
 
     Rate and cost fields are constrained positive: the model divides by
     ``b_channel_bpc`` and ``noc_inbound_bpc``, so a mistyped ``0`` would otherwise
@@ -425,6 +422,66 @@ class MemoryReadLatencyModel(BaseModel, extra='forbid'):
     #: ``None`` -> the matrix compute clock (on Blackhole the NoC is tied to the
     #: AI clock, so ``fclk ~= matrix clock``).
     fclk_mhz: float | None = Field(default=None, gt=0)
+
+    def predict_read_latency(
+        self, N: float, Q: int = 1, *, num_channels: int, hops: Optional[int] = None
+    ) -> float:
+        """Predict read latency in fclk cycles for Q reads of N bytes each.
+
+        Models one Tensix core issuing Q ``noc_async_read`` transactions of N bytes
+        each from DRAM, followed by a barrier. The latency is the larger of two arms
+        -- whichever constraint binds:
+
+        * issue-bound:     delta_issue * Q + Tdram + 2*hops*Chop + Tdetect + N/B_channel
+        * transport-bound: min(Q, n*) * delta_issue + Tdram + 2*hops*Chop + Q*N/B_eff
+
+        where B_eff = min(min(Q, num_channels) * B_channel, noc_inbound_bpc) and
+        n* = ceil(noc_inbound_bpc / B_channel) is the number of channels needed to
+        saturate the NoC inbound link.
+
+        Small transactions are latency-bound rather than bandwidth-bound: the fixed
+        DRAM access bucket, the NoC round-trip and the per-read issue cost dominate,
+        and a flat bytes/bandwidth model underestimates their cost badly. Device takes
+        the max of this prediction and the bandwidth-limited cost, so large
+        transactions are unaffected.
+
+        Intentionally first-order: NoC congestion / VC contention, row-miss / refresh
+        penalties, and non-DRAM (L1-resident) sources are out of scope.
+
+        Args:
+            N: transaction (page) size in bytes for a single noc_async_read.
+            Q: number of reads issued (per core) before the barrier.
+            num_channels: DRAM channels the reads interleave across. Not part of this
+                block -- it comes from the memory IP's ``num_units``. Pass 1 for the
+                single-channel case.
+            hops: gating-channel hop distance; defaults to ``default_hops``.
+
+        Returns:
+            Predicted latency in fclk cycles.
+        """
+        if N <= 0:
+            return 0.0
+        hops = self.default_hops if hops is None else hops
+        num_channels = max(1, int(num_channels))
+        Q = max(1, int(Q))
+
+        base = self.tdram_cyc + 2.0 * hops * self.chop_cyc_per_hop
+
+        # Issue-bound arm: serial per-read issue dominates (small N / large Q).
+        issue_bound = self.delta_issue_cyc * Q + base + self.tdetect_cyc + N / self.b_channel_bpc
+
+        # Transport-bound arm: NoC-inbound-limited streaming dominates (large N*Q).
+        n_star = ceil(self.noc_inbound_bpc / self.b_channel_bpc)
+        # The min(Q, num_channels) factor is carried from the calibrated source formula
+        # but cannot change the result under the shipped Blackhole constants: it only
+        # bites when Q < num_channels and Q * b_channel < noc_inbound (i.e. Q <= 2), and
+        # at Q <= 2 this arm reduces to issue_bound - tdetect and always loses the
+        # max(). Kept for fidelity under a different calibration; do not expect a test
+        # to cover it.
+        b_eff = min(min(Q, num_channels) * self.b_channel_bpc, self.noc_inbound_bpc)
+        transport_bound = min(Q, n_star) * self.delta_issue_cyc + base + (Q * N) / b_eff
+
+        return max(issue_bound, transport_bound)
 
 
 class MemoryBlockModel(BaseModel, extra='forbid'):

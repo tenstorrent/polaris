@@ -9,11 +9,12 @@ section - single core, single channel, queue depth Q=1, swept 64 B - 512 KB via
 ``test_bw_and_latency -m 1 -l -p <N> -i 1000``.
 
 The unary closed form is a *different* formula from the production model in
-``ttsim/back/read_latency.py``: it models the >32 KB pipelined ("dual-rate") flit
-delivery regime, which the production two-arm model deliberately does not. Polaris
-never calls it, so it lives here as a calibration reference — it exists to confirm
-that the conf page's fixed-head number (438 cyc = Tissue+Tnoc+Tdram+Tdetect) and the
-flit delivery rates are consistent with the constants shipped in the arch YAML.
+``MemoryReadLatencyModel.predict_read_latency``: it models the >32 KB pipelined
+("dual-rate") flit delivery regime, which the production two-arm model deliberately
+does not. Polaris never calls it, so it lives here as a calibration reference — it
+exists to confirm that the conf page's fixed-head number (438 cyc =
+Tissue+Tnoc+Tdram+Tdetect) and the flit delivery rates are consistent with the
+constants shipped in the arch YAML.
 
 Rows are (N bytes, conf "Predicted" cyc, conf "Measured" cyc).
 """

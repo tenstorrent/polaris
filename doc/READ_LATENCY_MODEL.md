@@ -16,9 +16,8 @@ Off by default. Enable with `polaris.py --enable_dm_latency` (or `enable_dm_late
 
 | Concern | Location |
 |---|---|
-| The analytical model (pure function, no Polaris types) | `ttsim/back/read_latency.py` |
+| The analytical model, its constant schema and validation | `MemoryReadLatencyModel` in `ttsim/config/simconfig.py` |
 | Calibrated HW constants (single source of truth) | `config/tt_bh.yaml`, memory block `read_latency:` |
-| Constant schema / validation | `MemoryReadLatencyModel` in `ttsim/config/simconfig.py` |
 | Arch+workload derivation and timing integration | `Device._dm_read_latency_devclk` / `Device.execute_op` in `ttsim/back/device.py` |
 | Calibration tests (microbenchmark ground truth) | `tests/test_back/test_read_latency.py` |
 | Layer-1 unary cross-check | `tests/test_back/test_read_latency_layer1.py` |
@@ -28,7 +27,7 @@ Upstream source: the O2O "Read Latency Modeling" Confluence page (2433646619), i
 
 ## The model
 
-`predict_read_latency(N, Q, hops, num_channels, cfg)` predicts the latency, in NoC/fabric clock cycles (fclk), of one Tensix core issuing `Q` `noc_async_read` transactions of `N` bytes each from DRAM, followed by a barrier. It is the larger of two arms — whichever constraint binds:
+`MemoryReadLatencyModel.predict_read_latency(N, Q, num_channels, hops)` predicts the latency, in NoC/fabric clock cycles (fclk), of one Tensix core issuing `Q` `noc_async_read` transactions of `N` bytes each from DRAM, followed by a barrier. It is the larger of two arms — whichever constraint binds:
 
 ```
 base            = Tdram + 2 * hops * Chop
@@ -61,7 +60,7 @@ If a future calibration shows the fill is genuinely exposed on bandwidth-bound o
 
 All constants live in the arch YAML and are **required** when the feature is enabled; there is no Python-side fallback. Enabling `--enable_dm_latency` on an arch whose memory block has no `read_latency:` section raises a `ValueError` naming the device. Today only `config/tt_bh.yaml` (the `gddr6_bh` memory IP) carries one — `config/tt_wh.yaml` does not, so the flag is Blackhole-only. The check happens per device during construction, so pairing the flag with a multi-arch spec such as `config/all_archs.yaml` aborts the sweep partway rather than skipping the unsupported devices.
 
-The rate and cost fields are schema-constrained positive, because the model divides by `b_channel_bpc` and `noc_inbound_bpc`: a mistyped `0` would otherwise surface as a bare `ZeroDivisionError` with no indication of which field was wrong, and a negative constant would yield a silently negative latency that `max()` quietly absorbs.
+The fields are schema-constrained non-negative, and strictly positive wherever zero is not physically meaningful: a mistyped `0` in either divisor (`b_channel_bpc`, `noc_inbound_bpc`) would otherwise surface as a bare `ZeroDivisionError` with no indication of which field was wrong, and a negative constant anywhere would yield a silently negative latency that `max()` quietly absorbs. `tdetect_cyc` and `default_hops` are the two that do allow zero, since a free barrier and a zero-hop distance are both coherent calibrations.
 
 ```yaml
 read_latency:
@@ -76,7 +75,7 @@ read_latency:
 
 Two values are **not** in this block:
 
-- `num_dram_channels` comes from the memory IP group's `num_units` on the specific package instance — 7 on p100a, 8 on p150a/p150b, from the same shared constants. Note this has **no effect on any shipped Blackhole config**: `B_eff` is capped at `noc_inbound_bpc = 62` and `n* = ceil(62/24) = 3`, so every channel count ≥ 3 gives a bit-identical prediction. The parameter only matters for a hypothetical 1- or 2-channel part.
+- `num_channels` is a required argument to `predict_read_latency` rather than a field, because it comes from the memory IP group's `num_units` on the specific package instance — 7 on p100a, 8 on p150a/p150b — while the block itself is shared across packages. Note this has **no effect on any shipped Blackhole config**: `B_eff` is capped at `noc_inbound_bpc = 62` and `n* = ceil(62/24) = 3`, so every channel count ≥ 3 gives a bit-identical prediction. The parameter only matters for a hypothetical 1- or 2-channel part.
 - `fclk_mhz` is an optional field on the block. When absent (the current state) fclk defaults to the matrix compute clock, which is correct on Blackhole because the NoC is tied to the AI clock. Both are 1350 MHz on p100a, so the fclk→devclk conversion is currently a no-op — but the conversion is applied unconditionally, so a future arch with a decoupled NoC clock only needs the YAML field.
 
 ## Arch and workload derivation
@@ -102,7 +101,7 @@ Fit gates alone are a weak guard on *structure*: a 45-row fit at 15%/5% tolerate
 
 One known-uncovered mutation: dropping the `min(Q, ·)` factor from `B_eff` changes nothing under the shipped constants (see the comment at that line), so no test can distinguish it.
 
-`test_read_latency_layer1.py` is a separate cross-check against the conf page's Layer-1 table (single core, single channel, Q=1, 64 B – 512 KB). It carries a *local* reference implementation of the unary closed form, which models a >32 KB pipelined dual-rate flit delivery regime that the production two-arm model deliberately does not. Polaris never calls it. It lives in the test, with its five constants inline, so that the arch YAML and the production dataclass are not burdened with fields nothing reads. Do not promote it back into `read_latency.py` without a production caller.
+`test_read_latency_layer1.py` is a separate cross-check against the conf page's Layer-1 table (single core, single channel, Q=1, 64 B – 512 KB). It carries a *local* reference implementation of the unary closed form, which models a >32 KB pipelined dual-rate flit delivery regime that the production two-arm model deliberately does not. Polaris never calls it. It lives in the test, with its five constants inline, so that the arch YAML and `MemoryReadLatencyModel` are not burdened with fields nothing reads. Do not promote it into the production model without a production caller.
 
 One known discrepancy, documented in that test: the conf page's 128 KB "Predicted" cell reads 4714, but the page's own formula yields 4679.68 and the measured value is 4679. Treated as a typo on the page.
 
