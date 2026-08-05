@@ -59,7 +59,7 @@ ipblocks:
         # DRAM read-latency model HW constants (NoC/fabric clock cycles). Single source
         # of truth for MemoryReadLatencyModel; consumed by Device when --enable_dm_latency.
         # Calibrated against the Blackhole DRAM Interleaved Page Read microbenchmark.
-        # See doc/READ_LATENCY_MODEL.md and ttsim/config/simconfig.py.
+        # See ttsim/config/simconfig.py.
         read_latency:
             tdram_cyc            : 375.0   # DRAM access bucket (row activate + CAS + burst)
             tdetect_cyc          : 10.0    # barrier-clear tail

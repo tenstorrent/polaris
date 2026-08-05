@@ -138,7 +138,6 @@ class Device:
         # bandwidth-bound. HW constants are sourced exclusively from the arch YAML memory
         # block's `read_latency` section (config/tt_bh.yaml -> MemoryReadLatencyModel);
         # the block is required when the feature is enabled (no Python-side fallback).
-        # See doc/READ_LATENCY_MODEL.md.
         self.enable_dm_latency = bool(enable_dm_latency)
         self.dm_read_cfg: Optional[MemoryReadLatencyModel] = None
         #: DRAM channels the reads interleave across; not part of the read_latency

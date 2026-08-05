@@ -396,12 +396,14 @@ class MemoryReadLatencyModel(BaseModel, extra='forbid'):
     Per-memory-technology calibration and the single source of truth for these
     constants; ``predict_read_latency`` is the model they parameterize. Cycle counts
     are in the NoC/fabric clock domain (``fclk``). Consumed when
-    ``--enable_dm_latency``; see doc/READ_LATENCY_MODEL.md.
+    ``--enable_dm_latency``.
 
-    Rate and cost fields are constrained positive: the model divides by
-    ``b_channel_bpc`` and ``noc_inbound_bpc``, so a mistyped ``0`` would otherwise
-    surface as a bare ZeroDivisionError, and a negative constant would silently
-    yield a negative latency instead of failing.
+    Fields are constrained non-negative, and strictly positive where zero is not
+    physically meaningful: the model divides by ``b_channel_bpc`` and
+    ``noc_inbound_bpc``, so a mistyped ``0`` would otherwise surface as a bare
+    ZeroDivisionError, and a negative constant would silently yield a negative
+    latency instead of failing. ``tdetect_cyc`` and ``default_hops`` do allow zero,
+    since a free barrier and a zero-hop distance are both coherent calibrations.
     """
     #: DRAM access bucket (row-hit best case): row activate + CAS + burst.
     tdram_cyc: float = Field(gt=0)

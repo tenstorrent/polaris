@@ -133,8 +133,7 @@ class PolarisRunConfig(BaseModel, extra='forbid'):
         default=False,
         description=(
             'Enable the DRAM read-latency model, so small transactions are latency-bound '
-            'rather than bandwidth-bound (polaris --enable_dm_latency). '
-            'See doc/READ_LATENCY_MODEL.md'
+            'rather than bandwidth-bound (polaris --enable_dm_latency).'
         ),
     )
 

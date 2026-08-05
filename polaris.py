@@ -270,7 +270,7 @@ def setup_cmdline_args(argv: list[str] | None = None) -> argparse.Namespace:
             'the bandwidth-limited cost and the predicted read latency, so small '
             'transactions are latency-bound rather than bandwidth-bound. Blackhole only '
             '(requires a read_latency block in the arch spec). Default off preserves the '
-            'existing flat bytes/bandwidth memory model. See doc/READ_LATENCY_MODEL.md.'
+            'existing flat bytes/bandwidth memory model.'
         ),
     )
     #cmdline args processing
