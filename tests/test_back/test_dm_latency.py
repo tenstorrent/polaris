@@ -14,6 +14,8 @@ import pytest
 
 from ttsim.back.device import Device
 from ttsim.config import get_arspec_from_yaml
+from ttsim.front.ttnn.buffer import BufferType, TensorMemoryLayout
+from ttsim.front.ttnn.memory import MemoryConfig
 from ttsim.graph.wl_graph import WorkloadGraph
 from ttsim.ops.op import SimOp
 from ttsim.ops.tensor import SimTensor
@@ -154,6 +156,105 @@ def test_partial_page_rounds_up():
         cfg.predict_read_latency(page_bytes, 2, num_channels=channels)
     )
     assert at_q2 > at_q1
+
+
+@pytest.mark.unit
+def test_page_width_follows_tensor_bytes_not_compute_precision():
+    """The page is sized by the data's storage width, not by ``op.precision``.
+
+    ``op.precision`` comes from the arch mapping keyed by optype and describes the
+    precision the math runs at; on TTNN workloads it disagrees with the tensors (an
+    INT8 compute precision over bfloat16 data). Sizing the page from it would both
+    halve N and double the page count, since ``inBytes`` counts storage bytes.
+    """
+    device = _make_device(enable_dm_latency=True)
+    cfg = device.dm_read_cfg
+    assert cfg is not None
+    op = _run_single_op(device, dim=SMALL_DIM)
+
+    # Two 32x32 bfloat16 tiles under an INT8 compute precision, as llama3_decode emits.
+    op.precision = 'int8'
+    op.perf_stats['inBytes'] = 4096
+    op.perf_stats['inElems'] = 2048
+    device._dm_read_latency_devclk(op, device.freq_MHz)
+
+    assert device._dm_read_bytes_per_elem(op, 4096) == 2
+    # 2048 B pages (2 of them, Q=1) -- not 1024 B pages with 4 of them.
+    assert op.dm_read_latency_cycles == pytest.approx(
+        cfg.predict_read_latency(2048, 1, num_channels=device.dm_read_channels)
+    )
+
+    # With no element count reported, op.precision remains the fallback.
+    del op.perf_stats['inElems']
+    assert device._dm_read_bytes_per_elem(op, 4096) == 1
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    'memory_layout, buffer_type, applies',
+    [
+        (TensorMemoryLayout.INTERLEAVED, BufferType.DRAM, True),
+        (TensorMemoryLayout.HEIGHT_SHARDED, BufferType.L1, False),
+        (TensorMemoryLayout.BLOCK_SHARDED, BufferType.L1, False),
+        (TensorMemoryLayout.INTERLEAVED, BufferType.L1, False),
+        # DRAM, but sharded: the calibration is for interleaved banks specifically.
+        (TensorMemoryLayout.WIDTH_SHARDED, BufferType.DRAM, False),
+    ],
+)
+def test_model_prices_dram_interleaved_reads_only(memory_layout, buffer_type, applies):
+    """Only DRAM-interleaved operands are priced; the rest keep the bandwidth estimate.
+
+    The constants describe a NoC walk to an interleaved DRAM bank, so an L1-resident or
+    sharded read is a transaction the model was never fit against. TTNN decode workloads
+    are almost entirely L1-sharded, and pricing those reads with these constants
+    over-charges them.
+    """
+    device = _make_device(enable_dm_latency=True)
+    graph, op = _build_graph(SMALL_DIM)
+    graph._tensors['in1']._memory_config = MemoryConfig(memory_layout, buffer_type)
+    device.execute_op(op, graph)
+
+    baseline = _run_single_op(_make_device(), dim=SMALL_DIM)
+    if applies:
+        assert op.mem_rd_cycles_fractional > baseline.mem_rd_cycles_fractional
+    else:
+        assert op.mem_rd_cycles_fractional == pytest.approx(baseline.mem_rd_cycles_fractional)
+
+
+@pytest.mark.unit
+def test_one_sharded_operand_disqualifies_the_op():
+    """Every input is gated, not just the first.
+
+    A read is one transaction shape; if any operand sits somewhere the model was not
+    calibrated for, the op as a whole is not something it can price.
+    """
+    device = _make_device(enable_dm_latency=True)
+    graph, op = _build_graph(SMALL_DIM)
+    extra = SimTensor({'name': 'in2', 'shape': [SMALL_DIM, SMALL_DIM], 'dtype': 'float32'})
+    extra.op_in = ['op']
+    graph.add_tensor(extra)
+    op.inList = ['in1', 'in2']
+    graph._tensors['in1']._memory_config = MemoryConfig(TensorMemoryLayout.INTERLEAVED, BufferType.DRAM)
+    assert device._dm_read_model_applies(op, graph)
+
+    extra._memory_config = MemoryConfig(TensorMemoryLayout.HEIGHT_SHARDED, BufferType.L1)
+    assert not device._dm_read_model_applies(op, graph)
+
+
+@pytest.mark.unit
+def test_operands_without_a_memory_config_stay_eligible():
+    """Unplaced operands are eligible: absence of a config is not evidence of sharding.
+
+    The ONNX front end never attaches one, and Polaris's flat memory model already
+    assumes that traffic is DRAM, so refusing them would disable the model on every
+    non-TTNN workload.
+    """
+    device = _make_device(enable_dm_latency=True)
+    graph, op = _build_graph(SMALL_DIM)
+    assert graph._tensors['in1'].memory_config() is None
+    assert device._dm_read_model_applies(op, graph)
+    # And with no graph to consult at all (callers that cost a bare op).
+    assert device._dm_read_model_applies(op, None)
 
 
 @pytest.mark.unit
