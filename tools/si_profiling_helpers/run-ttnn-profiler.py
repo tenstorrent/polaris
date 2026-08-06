@@ -528,7 +528,12 @@ def run_profiler(
     """
     # Use the current interpreter (sys.executable) so tracy runs under the same
     # venv/python as this wrapper, rather than relying on whatever 'python3' is on PATH.
-    argv = [sys.executable, '-m', 'tracy', '-p', '-r', '-v',
+    # --check-exit-code makes tracy propagate the wrapped command's non-zero exit
+    # (tt-metal tools/tracy/__main__.py); without it tracy still generates its report and
+    # exits 0 even when the pytest failed/timed out, so anyfails() below would see a false
+    # success and run the remaining passes + merge on a truncated capture (the failure only
+    # surfacing later as a confusing merge row-count mismatch).
+    argv = [sys.executable, '-m', 'tracy', '-p', '-r', '-v', '--check-exit-code',
             f'--op-support-count={op_support_count}', '-o', output_dir]
     if collect_noc_traces:
         argv.append('--collect-noc-traces')
