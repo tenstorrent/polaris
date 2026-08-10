@@ -125,7 +125,7 @@ Only the **versioned** mapping (**`schema_name`**, **`schema_version`**, **`entr
 
 ## Record key (`entries[i]['key']`)
 
-The logical key is a **9-, 16-, or 23-tuple** (built from Excel columns in **`tt_perf_mapper.build_key_tuple`**). Under **`key`**, the wire form is a **YAML mapping** whose field names are **`KEY_TUPLE_YAML_KEYS`** in `tt_perf_master_schema.py` (fixed order; values are the same scalars as the Excel-driven tuple).
+The logical key is a **full-arity tuple** of length **9 + 7·(n_inputs−1)** — i.e. **9, 16, 23, 30, 37, 44, 51, or 58** for 1–8 inputs (built from Excel columns in **`tt_perf_mapper.build_key_tuple`**). Standard ops key on **all** populated input slots (input_0..input_7), so >3-input ops (e.g. `pagedfusedupdatecache`, `scaleddotproductattention`) key on every operand; arity ≤3 keys are byte-identical to the historical 9/16/23-tuples (schema **v5**). Input slots must be **contiguous** (no gaps). Under **`key`**, the wire form is a **YAML mapping** whose field names are **`KEY_TUPLE_YAML_KEYS`** in `tt_perf_master_schema.py` (fixed order; values are the same scalars as the Excel-driven tuple). (Note: the version references above still say `2`/range `1–2` from earlier drift; the authoritative changelog is `MASTER_YAML_SCHEMA_VERSION` in `tt_perf_master_schema.py`, currently **5**.)
 
 - **`op_code`:** Polaris **layer type** (e.g. `matmul`, `eltwise`, `tilize`, `tilizewithvalpadding`, `untilize`, `untilizewithunpadding`).
 - **`input_0_w_pad_logical`**, **`input_0_z_pad_logical`**, **`input_0_y_pad_logical`**, **`input_0_x_pad_logical`:** logical pad integers (aligned with **`INPUT_0_*_PAD[LOGICAL]`**).

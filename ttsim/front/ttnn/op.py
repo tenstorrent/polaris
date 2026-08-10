@@ -3,8 +3,12 @@
 # SPDX-License-Identifier: Apache-2.0
 
 from enum import Enum, auto
-from itertools import count
 
+# NOTE: this module rebinds several builtin names at module scope as ttnn ops — `min`, `max`,
+# `pow`, `slice`, `sum`. Python resolves globals at call time, so those builtins are shadowed
+# inside *every* function in this file, including ones defined above the rebinding. Reach them
+# via `builtins.<name>` — never the bare name.
+import builtins
 import numbers
 import numpy as np
 from loguru import logger
@@ -14,7 +18,7 @@ from ttsim.ops.tensor import Shape, require_shape_list
 
 from .buffer import BufferType, TensorMemoryLayout
 from .memory import MemoryConfig
-from .tensor import DataType, Layout, Tensor, require_ttnn_tensor, zeros
+from .tensor import DataType, Layout, Tensor, generate_new_op_name, require_ttnn_tensor, zeros
 
 
 class MathFidelity(Enum):
@@ -30,13 +34,6 @@ class MathFidelity(Enum):
     @property
     def cname(self) -> str:
         return self.name.lower()
-
-
-op_counter = count(start=1, step=1)
-
-
-def generate_new_op_name():
-    return f"ttsim.ttnn.Op_{next(op_counter)}"
 
 
 _COMPACT_DTYPES: frozenset[DataType] = frozenset()  # populated after DataType import below
@@ -100,6 +97,30 @@ def _propagate_memory_config(inputs: list[Tensor], outputs: list[Tensor]) -> Non
             o._memory_config = src
 
 
+def _resolve_output_layout(kwargs: dict, tensor_args: list[Tensor]) -> "Layout | None":
+    """Determine an op output's ``layout`` the way tt-metal does.
+
+    An explicit ``layout=`` kwarg names the output layout of a layout-changing
+    op (e.g. ``ttnn.embedding(..., layout=TILE_LAYOUT)`` emits a tilized result
+    from ROW_MAJOR indices), so it wins.  Otherwise the output inherits the
+    primary tensor input's layout — layout-preserving ops (layer_norm, add,
+    mul, softmax, reshape, …) keep the activation's layout, matching HW.
+
+    Companion to ``_propagate_ttnn_dtype`` / ``_propagate_memory_config`` for
+    the ``.layout`` attribute, which SimTensor tracks directly (not as an
+    overlay), so it must be set at construction time — the padded shape is
+    derived from the layout during shape inference.  Returns ``None`` when no
+    layout can be determined (Tensor coerces that to ``Layout.DEFAULT``).
+    """
+    lay = kwargs.get("layout", None)
+    if lay is not None:
+        return lay
+    for t in tensor_args:
+        if isinstance(t, Tensor):
+            return t.get_layout()
+    return None
+
+
 def single_output_immediate_op(optype, /, preprocess=None):
 
     def _impl(*args, **kwargs):
@@ -124,7 +145,8 @@ def single_output_immediate_op(optype, /, preprocess=None):
 
         op_name = generate_new_op_name()
         opinfo  = {'name': op_name, 'optype': optype, 'inList': [], 'attrs': kwargs}
-        C = Tensor(name=op_name + ".out", op_out=[op_name], device=device)
+        C = Tensor(name=op_name + ".out", op_out=[op_name], device=device,
+                   layout=_resolve_output_layout(kwargs, tensor_args))
 
         new_args = []
         for i, x in enumerate(args):
@@ -190,6 +212,12 @@ def single_output_immediate_op(optype, /, preprocess=None):
         opobj.update_tensor_counts(new_args, [C])
 
         _propagate_ttnn_dtype(tensor_args, [C])
+        # An explicit output dtype (e.g. ttnn.mul(..., dtype=bfloat8_b) — the MLP
+        # gate*up downcast) wins over the propagated dtype, matching real ttnn where
+        # the dtype= kwarg names the output type. Mirrors linear()'s handling.
+        out_dt = kwargs.get("output_dtype", kwargs.get("dtype", None))
+        if isinstance(out_dt, DataType):
+            C._ttnn_dtype = out_dt
         _propagate_memory_config(tensor_args, [C])
 
         mem_cfg = kwargs.get("memory_config", None)
@@ -220,8 +248,10 @@ def multiple_output_immediate_op(optype, /, preprocess=None):
         opinfo = {"name": op_name, "optype": optype, "inList": [], "attrs": kwargs}
         out_tensors = []
         num_outputs = kwargs.get("num_outputs", 2)
+        out_layout = _resolve_output_layout(kwargs, tensor_args)
         for out_idx in range(num_outputs):
-            C = Tensor(name=f"{op_name}.out.{out_idx}", op_out=[op_name], device=device)
+            C = Tensor(name=f"{op_name}.out.{out_idx}", op_out=[op_name], device=device,
+                       layout=out_layout)
             out_tensors.append(C)
 
         new_args = []
@@ -309,14 +339,21 @@ def expand_pp(args_list, kwargs_dict):
 
 def split_pp(args_list, kwargs_dict):
     inT = require_ttnn_tensor(args_list[0], "ttnn.split input")
-    outT = require_ttnn_tensor(args_list[1], "ttnn.split output template")
-    split_sizes = kwargs_dict.get("split_sizes", None)
-    num_splits = kwargs_dict.get("num_splits", None)
     axis = kwargs_dict.get("dim", 0)
-    kwargs_dict["split_sizes"] = split_sizes
-    kwargs_dict["num_splits"] = num_splits
+    second = args_list[1] if len(args_list) > 1 else None
+    if isinstance(second, Tensor):  # legacy ONNX output-template form
+        kwargs_dict["split_sizes"] = kwargs_dict.get("split_sizes", None)
+        kwargs_dict["num_splits"] = kwargs_dict.get("num_splits", None)
+        kwargs_dict["axis"] = axis
+        return (inT, second), kwargs_dict
+    # Real ttnn: ttnn.split(x, split_size:int, dim=...) — chunks of split_size along dim.
+    split_size = second if isinstance(second, int) else kwargs_dict.get("split_size")
+    assert split_size is not None, "ttnn.split requires split_size (int) or an output-template tensor"
+    dim_size = require_shape_list(inT.shape, "ttnn.split input shape must be set")[axis]
+    assert dim_size % split_size == 0, f"ttnn.split: dim size {dim_size} not divisible by split_size {split_size}"
+    kwargs_dict["num_outputs"] = dim_size // split_size
     kwargs_dict["axis"] = axis
-    return (inT, outT), kwargs_dict
+    return (inT,), kwargs_dict
 
 
 def permute_pp(args_list, kwargs_dict):
@@ -329,11 +366,13 @@ def permute_pp(args_list, kwargs_dict):
 
 
 def embedding_pp(args_list, kwargs_dict):
-    # TTNN passes in the order indices, weights while Polaris takes weights, indices
+    # TTNN passes (indices, weights); the Embedding op records them in the SAME order as the
+    # hardware EmbeddingsDeviceOperation: input_0 = tokens (indices), input_1 = weight. This is
+    # tokens-first (opposite of ONNX Gather's data-first order) — see embedding_sinf.
     assert len(args_list) == 2, "ttnn.embedding has 2 inputs"
     input_tensor = require_ttnn_tensor(args_list[0], "ttnn.embedding indices")
     weight_tensor = require_ttnn_tensor(args_list[1], "ttnn.embedding weight")
-    return (weight_tensor, input_tensor), kwargs_dict
+    return (input_tensor, weight_tensor), kwargs_dict
 
 
 def layer_norm_pp(args_list, kwargs_dict):
@@ -365,7 +404,11 @@ def layer_norm_pp(args_list, kwargs_dict):
     if memory_config is not None:
         kwargs_dict['memory_config'] = memory_config
     if compute_kernel_config is not None:
+        # compute_kernel_config is normally a ComputeKernelConfig (has .math_fidelity), but
+        # callers may pass a bare MathFidelity enum — honor both.
         mf = getattr(compute_kernel_config, 'math_fidelity', None)
+        if mf is None and isinstance(compute_kernel_config, MathFidelity):
+            mf = compute_kernel_config
         if mf is not None:
             kwargs_dict['math_fidelity'] = mf.name
 
@@ -545,6 +588,41 @@ def conv_transpose2d_pp(args_list, kwargs_dict):
     return (input_tensor, weight_tensor, bias_tensor), kwargs_dict
 
 
+def slice_spec_out_shape(in_shape, slice_spec):
+    """Output shape of numpy basic indexing `slice_spec` applied to shape `in_shape`.
+
+    Computed analytically rather than by materialising a dummy `np.empty(in_shape)` and
+    reading `dummy[slice_spec].shape`: the decode sampling path slices logits of shape
+    [1, 1, 32, vocab], so the dummy would be tens of MB of address space per call.
+
+    Only basic indexing (ints, slices, Ellipsis) is handled — that is the whole of what the
+    hardware SliceDeviceOperation expresses, and advanced indexing would not be a view.
+    """
+    spec = slice_spec if isinstance(slice_spec, tuple) else (slice_spec,)
+
+    n_ellipsis = builtins.sum(1 for s in spec if s is Ellipsis)
+    assert n_ellipsis <= 1, f"ttnn.slice: at most one Ellipsis allowed, got {slice_spec}"
+    if n_ellipsis:
+        pos = spec.index(Ellipsis)
+        fill = len(in_shape) - (len(spec) - 1)
+        assert fill >= 0, f"ttnn.slice: spec {slice_spec} over-indexes shape {in_shape}"
+        spec = spec[:pos] + (builtins.slice(None),) * fill + spec[pos + 1:]
+
+    assert len(spec) <= len(in_shape), f"ttnn.slice: spec {slice_spec} over-indexes shape {in_shape}"
+    # dims the spec does not mention are kept whole
+    spec = spec + (builtins.slice(None),) * (len(in_shape) - len(spec))
+
+    out_shape = []
+    for dim, s in zip(in_shape, spec):
+        if isinstance(s, builtins.slice):
+            out_shape.append(len(range(*s.indices(dim))))
+        else:
+            # an integer index drops the dimension
+            idx = int(s)
+            assert -dim <= idx < dim, f"ttnn.slice: index {idx} out of range for dim of size {dim}"
+    return out_shape
+
+
 def as_pp(args_list, kwargs_dict):
     input_tensor = require_ttnn_tensor(args_list[0], "ttnn.slice input")
     slice_spec = kwargs_dict.get("slice", None)
@@ -552,34 +630,52 @@ def as_pp(args_list, kwargs_dict):
         slice_spec is not None
     ), "ttnn.slice requires 'slice' attribute specifying indices"
 
-    # Compute the shape of the slice
-    # Use numpy to infer the shape
     in_shape = require_shape_list(
         input_tensor.shape, "ttnn.slice input shape must be set"
     )
-    dummy = np.empty(in_shape)
-    sliced = dummy[slice_spec]
-    out_shape = list(sliced.shape)
-
-    kwargs_dict["output_shape"] = out_shape
+    kwargs_dict["output_shape"] = slice_spec_out_shape(in_shape, slice_spec)
     return (input_tensor,), kwargs_dict
 
 
 def topk_pp(args_list, kwargs_dict):
     input_tensor = require_ttnn_tensor(args_list[0], "ttnn.topk input")
-    k_tensor = require_ttnn_tensor(args_list[1], "ttnn.topk k")
     axis = kwargs_dict.get("dim", -1)
     largest = kwargs_dict.get("largest", True)
     sorted = kwargs_dict.get("sorted", True)
 
-    k_shape = require_shape_list(k_tensor.shape, "ttnn.topk k shape must be set")
-    kwargs_dict = {
-        "k": k_shape[0],
+    # k may arrive as: a positional K-tensor (ONNX-style ttnn.topk(x, k_tensor)),
+    # a positional int (ttnn.topk(x, 32)), or a k= int kwarg (real ttnn
+    # ttnn.topk(x, k=32, ...)).
+    inputs: tuple[Tensor, ...] = (input_tensor,)
+    k_val = None
+    if len(args_list) > 1:
+        second = args_list[1]
+        if isinstance(second, Tensor):
+            k_val = require_shape_list(second.shape, "ttnn.topk k shape must be set")[0]
+            inputs = (input_tensor, second)
+        elif isinstance(second, int):
+            k_val = int(second)
+    if k_val is None:
+        k_kw = kwargs_dict.get("k")
+        assert k_kw is not None, "ttnn.topk requires k (positional tensor/int or k= int)"
+        k_val = int(k_kw)
+
+    # Real ttnn passes a pre-allocated index operand via indices_tensor= (uint16), which the HW
+    # TopKDeviceOperation takes as its SECOND input (used to track original positions across a
+    # multi-step reduction). Record it so the sim op is arity-2 like the capture; topk_sinf keys
+    # k off the attr, and skips the ONNX K-tensor path for a non-scalar index operand. (sub_core_grids
+    # remains a HW-only hint and is dropped.)
+    indices_tensor = kwargs_dict.get("indices_tensor")
+    if indices_tensor is not None and isinstance(indices_tensor, Tensor):
+        inputs = inputs + (indices_tensor,)
+
+    new_kwargs = {
+        "k": k_val,
         "axis": axis,
         "largest": 1 if largest else 0,
         "sorted": 1 if sorted else 0,
     }
-    return (input_tensor, k_tensor), kwargs_dict
+    return inputs, new_kwargs
 
 
 def zeros_like(input_tensor, memory_config=None):
@@ -893,11 +989,14 @@ def concat(first, *rest, **kwargs):
 
 reshape = single_output_immediate_op("Reshape", preprocess=reshape_pp)
 expand = single_output_immediate_op("Expand", preprocess=expand_pp)
-embedding = single_output_immediate_op("Gather", preprocess=embedding_pp)
+embedding = single_output_immediate_op("Embedding", preprocess=embedding_pp)
 permute = single_output_immediate_op("Transpose", preprocess=permute_pp)
 gather = single_output_immediate_op("TorchGather", preprocess=torchgather_pp)
 transpose = single_output_immediate_op("Transpose", preprocess=transpose_pp)
 split = multiple_output_immediate_op("Split", preprocess=split_pp)
+# ttnn.slice(x, slice=(...)) — arity-1 Slice op (bounds via the 'slice' spec -> output_shape attr,
+# consumed by slice_sinf's arity-1 branch). Matches HW SliceDeviceOperation (arity-1).
+slice = single_output_immediate_op("Slice", preprocess=as_pp)
 
 # Normalization
 layer_norm = single_output_immediate_op("LayerNormalization", preprocess=layer_norm_pp)
@@ -1202,6 +1301,12 @@ def _with_halo(op_fn, is_transpose: bool = False, move_before_conv: bool = False
                 'stride': stride,
                 'is_transpose': is_transpose,
                 'element_size': halo_input.element_size(),
+                # HW HaloDeviceOperation always emits a ROW_MAJOR output (the
+                # layout-normalization point feeding the RM-input conv), regardless
+                # of whether its input arrived TILE (post tile-layout conv) or RM.
+                # Force it here so the auto-emitted Move (which inherits) and the
+                # downstream conv both see ROW_MAJOR, matching the silicon capture.
+                'layout': Layout.ROW_MAJOR_LAYOUT,
             }
             if 'input_tensor' in kwargs:
                 kwargs['input_tensor'] = halo(kwargs['input_tensor'], **halo_attrs)
@@ -1397,6 +1502,22 @@ outer = single_output_immediate_op("MatMul", preprocess=outer_pp)
 grid_sample = single_output_immediate_op("GridSample")
 assign = single_output_immediate_op("Assign", preprocess=as_pp)
 topk = multiple_output_immediate_op("TopK", preprocess=topk_pp)
+plus_one = single_output_immediate_op("PlusOne")  # in-place position-counter increment (decode bookkeeping)
+
+
+def manual_seed(seeds=None, user_ids=None, sub_core_grids=None):
+    """Seed the on-device RNG for decode sampling (emits a ManualSeed op)."""
+    from .ttnn_shim import manual_seed_op as _ms
+    return _ms(seeds, user_ids, sub_core_grids=sub_core_grids)
+
+
+def sampling(topk_values, topk_indices, *, k=None, p=None, temp=None,
+             output_tensor=None, sub_core_grids=None, memory_config=None):
+    """Sample one token per user from gathered top-k values/indices (emits a Sampling op)."""
+    from .ttnn_shim import sampling_op as _samp
+    return _samp(topk_values, topk_indices, k=k, p=p, temp=temp,
+                 output_tensor=output_tensor, sub_core_grids=sub_core_grids,
+                 memory_config=memory_config)
 
 
 Tensor.__add__ = add  # type: ignore
@@ -1436,8 +1557,23 @@ def linear(*args, **kwargs):
     attrs = {}
     if act is not None:
         attrs["fused_activation"] = act
+    # Record the matmul math_fidelity from compute_kernel_config (a ComputeKernelConfig
+    # with .math_fidelity, or a bare MathFidelity enum) — mirrors layer_norm_pp. This is
+    # currently key-neutral (matmul is not in _MATH_FIDELITY_CALLER_CONTROLLED_OPS, so the
+    # LUT key stores 'N/A'); it makes the source-faithful per-matmul fidelity available in
+    # attrs for when matmul mf is keyed in a coordinated LUT rebuild.
+    ckc = kwargs.get("compute_kernel_config", None)
+    if ckc is not None:
+        _mf = getattr(ckc, "math_fidelity", None)
+        if _mf is None and isinstance(ckc, MathFidelity):
+            _mf = ckc
+        if _mf is not None:
+            attrs["math_fidelity"] = _mf.name
     opinfo = {'name': op_name, 'optype': 'MatMul', 'inList': [], 'attrs': attrs}
-    C = Tensor(name=op_name + ".out", op_out=[op_name], device=device)
+    # Output layout follows the activation input A (matmul preserves layout on HW),
+    # unless an explicit layout= kwarg overrides it — mirrors single_output_immediate_op.
+    C = Tensor(name=op_name + ".out", op_out=[op_name], device=device,
+               layout=_resolve_output_layout(kwargs, [A, B]))
 
     input_tensors = []
     for x in [A, B]:
@@ -1463,7 +1599,13 @@ def linear(*args, **kwargs):
     if output_dtype is not None and isinstance(output_dtype, DataType):
         C._ttnn_dtype = output_dtype
     else:
-        _propagate_ttnn_dtype(input_tensors, [C])
+        # Matmul output dtype follows the ACTIVATION (input A) only — not the weight
+        # (B) or bias. A compact weight dtype (e.g. the bf4 FF1/FF3 weights) does NOT
+        # downcast the output on HW (tt-metal: output = activation dtype unless an
+        # explicit dtype= is given; the capture's w1/w3 outputs feeding Mul are bf16
+        # despite bf4 weights). Propagating from all inputs would leak the weight's
+        # compact dtype into every downstream activation.
+        _propagate_ttnn_dtype([A], [C])
 
     _propagate_memory_config(input_tensors, [C])
 

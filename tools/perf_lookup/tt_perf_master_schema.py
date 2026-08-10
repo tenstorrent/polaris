@@ -17,33 +17,32 @@ import math
 import numbers
 
 # Labeled record key under ``entries[i]['key']``. Order aligns with Excel ``KEY_TUPLE_COLUMN_NAMES``.
-KEY_TUPLE_YAML_KEYS = [
-    "op_code",
-    "input_0_w_pad_logical",
-    "input_0_z_pad_logical",
-    "input_0_y_pad_logical",
-    "input_0_x_pad_logical",
-    "input_0_layout",
-    "input_0_datatype",
-    "input_0_memory",
-    "math_fidelity",
-    "input_1_w_pad_logical",
-    "input_1_z_pad_logical",
-    "input_1_y_pad_logical",
-    "input_1_x_pad_logical",
-    "input_1_layout",
-    "input_1_datatype",
-    "input_1_memory",
-    "input_2_w_pad_logical",
-    "input_2_z_pad_logical",
-    "input_2_y_pad_logical",
-    "input_2_x_pad_logical",
-    "input_2_layout",
-    "input_2_datatype",
-    "input_2_memory",
-]
+#
+# Layout: op_code, input_0 (7 fields), math_fidelity, then input_1..input_{MAX-1} (7 fields each).
+# The key covers ALL populated inputs (full-arity fidelity) — profiler rows expose INPUT_0..INPUT_7,
+# so ops with >3 operands (e.g. PagedFusedUpdateCache, ScaledDotProductAttention) are keyed on every
+# input rather than a first-3 truncation. Arity 1/2/3 keys are byte-identical to the historical
+# 9/16/23-tuples (input_0/1/2 order unchanged), so <=3-input ops (VGG/ViT/most llama3) are unaffected.
+# Per-arity tuple lengths: 9,16,23,30,37,44,51,58 for 1..8 inputs.
+MAX_KEY_INPUTS = 8  # profiler emits INPUT_0..INPUT_7
+_INPUT_SLOT_SUFFIXES = ("w_pad_logical", "z_pad_logical", "y_pad_logical", "x_pad_logical",
+                        "layout", "datatype", "memory")
+
+
+def _input_slot_keys(i: int) -> list:
+    return [f"input_{i}_{s}" for s in _INPUT_SLOT_SUFFIXES]
+
+
+KEY_TUPLE_YAML_KEYS = (
+    ["op_code"] + _input_slot_keys(0) + ["math_fidelity"]
+    + [k for i in range(1, MAX_KEY_INPUTS) for k in _input_slot_keys(i)]
+)
 
 _KEY_TUPLE_YAML_KEYS_SET = frozenset(KEY_TUPLE_YAML_KEYS)
+
+# Valid standard-op key tuple lengths: 9 (1 input) + 7 per extra input -> {9,16,23,30,37,44,51,58}
+# for arity 1..MAX_KEY_INPUTS. (Per-op variants halo/ITS use their own lengths, handled separately.)
+STANDARD_KEY_TUPLE_LENGTHS = frozenset(9 + 7 * k for k in range(MAX_KEY_INPUTS))
 
 # Per-op variant key tuples.
 # Halo v3: standard 9 fields + 6 sliding-window geometry fields = 15 fields.
@@ -115,7 +114,10 @@ MASTER_YAML_SCHEMA_NAME_KEY = "schema_name"
 # v2: math_fidelity added to key tuple (v1 files still load via default-fill in labeled_key_map_to_tuple).
 # v3: per-op variant tuples — halo (15-field) and interleavedtosharded (10-field).
 # v4: halo gains is_transpose (16-field) so ConvTranspose halos don't collide with Conv halos.
-MASTER_YAML_SCHEMA_VERSION = 4
+# v5: full-arity keys — standard ops keyed on ALL populated inputs (input_3..input_7), so >3-input
+#     ops (PagedFusedUpdateCache, ScaledDotProductAttention) key on every operand instead of a
+#     first-3 truncation. Adds standard-op tuple lengths 30/37/44/51/58; arity<=3 keys unchanged.
+MASTER_YAML_SCHEMA_VERSION = 5
 MASTER_YAML_SCHEMA_VERSION_KEY = "schema_version"
 MASTER_YAML_ENTRIES_KEY = "entries"
 MASTER_YAML_RECORD_KEY_FIELD = "key"
@@ -142,8 +144,10 @@ def tuple_to_labeled_key_map(key_t: tuple) -> dict:
                 f"ITS key tuple length must be {len(ITS_KEY_TUPLE_YAML_KEYS)}, got {n}"
             )
         return dict(zip(ITS_KEY_TUPLE_YAML_KEYS, key_t))
-    if n not in (9, 16, 23):
-        raise ValueError(f"Key tuple length must be 9, 16, or 23 for standard ops (or use halo/its variant), got {n}")
+    if n not in STANDARD_KEY_TUPLE_LENGTHS:
+        raise ValueError(
+            f"Key tuple length must be one of {sorted(STANDARD_KEY_TUPLE_LENGTHS)} for standard ops "
+            f"(or use halo/its variant), got {n}")
     return dict(zip(KEY_TUPLE_YAML_KEYS[:n], key_t))
 
 
@@ -192,31 +196,29 @@ def labeled_key_map_to_tuple(d: dict) -> tuple:
         raise ValueError(f"Unknown labeled-key field(s): {unknown_list}")
     if "math_fidelity" not in filtered:
         filtered["math_fidelity"] = MATH_FIDELITY_NA
-    has_i2 = any(str(k).startswith("input_2_") for k in filtered)
-    has_i1 = any(str(k).startswith("input_1_") for k in filtered)
-    if has_i2:
-        names23 = KEY_TUPLE_YAML_KEYS
-        missing = [nm for nm in names23 if nm not in filtered]
-        if missing:
-            raise ValueError(
-                "Labeled key with any input_2 field must define all 23 fields; "
-                f"missing: {missing}"
-            )
-        return tuple(filtered[nm] for nm in names23)
-    if has_i1:
-        names16 = KEY_TUPLE_YAML_KEYS[:16]
-        missing = [nm for nm in names16 if nm not in filtered]
-        if missing:
-            raise ValueError(
-                "Labeled key with any input_1 field must define all 16 fields; "
-                f"missing: {missing}"
-            )
-        return tuple(filtered[nm] for nm in names16)
-    names9 = KEY_TUPLE_YAML_KEYS[:9]
-    missing = [nm for nm in names9 if nm not in filtered]
+    # Full-arity standard path: the key covers input_0..input_k for the highest populated slot k
+    # (input slots must be contiguous — no gaps). Tuple length = 9 + 7*k (9/16/23/30/37/44/51/58).
+    present_slots = sorted(
+        i for i in range(MAX_KEY_INPUTS)
+        if any(str(k).startswith(f"input_{i}_") for k in filtered)
+    )
+    if not present_slots or present_slots[0] != 0:
+        raise ValueError("Labeled key must define input_0 fields")
+    max_slot = present_slots[-1]
+    if present_slots != list(range(max_slot + 1)):
+        missing_slots = [i for i in range(max_slot + 1) if i not in present_slots]
+        raise ValueError(
+            f"Labeled-key input slots must be contiguous; input_{max_slot} present but "
+            f"input slot(s) {missing_slots} missing"
+        )
+    n = 9 + 7 * max_slot
+    names = KEY_TUPLE_YAML_KEYS[:n]
+    missing = [nm for nm in names if nm not in filtered]
     if missing:
-        raise ValueError(f"Labeled key (9-field) missing: {missing}")
-    return tuple(filtered[nm] for nm in names9)
+        raise ValueError(
+            f"Labeled key (arity {max_slot + 1}) must define all {n} fields; missing: {missing}"
+        )
+    return tuple(filtered[nm] for nm in names)
 
 
 def yaml_labeled_key_to_tuple(k: dict) -> tuple:
@@ -225,8 +227,13 @@ def yaml_labeled_key_to_tuple(k: dict) -> tuple:
         raise TypeError(f"Entry key must be a mapping, got {type(k)!r}")
     key_t = labeled_key_map_to_tuple(k)
     n = len(key_t)
-    if n not in (9, 10, 15, 16, 23):
-        raise ValueError(f"Key tuple length must be 9, 10, 15, 16, or 23, got {n}")
+    # standard-op lengths (9/16/23/30/37/44/51/58) plus per-op variants: ITS=10, halo v3=15.
+    # halo v4 is 16 (v3 + is_transpose) and is accepted because 16 is ALSO the 2-input standard
+    # length, not because of an explicit entry here — revisit if the standard lengths ever change.
+    # test_halo_v4_key_length_accepted pins that coincidence.
+    if n not in (STANDARD_KEY_TUPLE_LENGTHS | {10, 15}):
+        raise ValueError(
+            f"Key tuple length must be one of {sorted(STANDARD_KEY_TUPLE_LENGTHS | {10, 15})}, got {n}")
     return key_t
 
 

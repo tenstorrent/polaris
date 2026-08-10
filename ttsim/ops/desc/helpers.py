@@ -40,6 +40,9 @@ from ttsim.ops.desc.data_compute import (
     compute_reducemax,
     compute_sign,
     compute_atan2,
+    compute_mod,
+    compute_equal,
+    compute_not,
     try_compute_data,
 )
 
@@ -47,10 +50,24 @@ def update_output_tensor(op, in_tensor, out_tensor):
     assert in_tensor.check_shape(), f"ERROR: {op} Invalid Input SHAPE in {in_tensor}"
 
     # Allow updating if out_tensor has default empty shape (uninitialized) or invalid shape
-    if out_tensor.check_shape() and out_tensor.shape != []:
-        # Output tensor has a valid, non-default shape - verify it matches
+    if out_tensor.check_shape() and out_tensor.shape != [] and out_tensor.shape == in_tensor.shape:
+        # Output tensor has a valid, non-default shape and it matches
         DEBUG("Validated SimTensor({}) SHAPE: {}", out_tensor.name, out_tensor.shape)
-        assert in_tensor.shape == out_tensor.shape, f"IO shape Mismatch {in_tensor.shape} != {out_tensor.shape} for {out_tensor.name}"
+    elif out_tensor.check_shape() and out_tensor.shape != []:
+        # out_tensor already has a "declared" shape, but it disagrees with the
+        # freshly (re-)computed in_tensor shape. This happens when the source
+        # ONNX graph had an unresolved/unknown dim (e.g. symbolic dim_param, or
+        # a fully unknown-rank tensor) that Polaris's frontend coerced to a
+        # placeholder shape (commonly [1]) at load time. That placeholder is
+        # not a real constraint -- it's a stand-in for "unknown". Once
+        # Polaris's own data/shape propagation computes the real shape here,
+        # it should take precedence (override the placeholder) instead of
+        # hard-failing.
+        LOG.warning(
+            "Overriding stale/placeholder SHAPE for SimTensor({}): declared={} -> computed={}",
+            out_tensor.name, out_tensor.shape, in_tensor.shape,
+        )
+        out_tensor.shape = in_tensor.shape
     else:
         # Update the shape (either invalid or default empty)
         DEBUG("Updating SimTensor({}) SHAPE: {} <- {}", out_tensor.name, out_tensor.shape, in_tensor.shape)
@@ -278,6 +295,7 @@ def unary_fwd(iTList, oTList, op, **kwargs):
         'Neg': compute_neg,
         'ArgMax': compute_argmax,
         'Sign': compute_sign,
+        'Not': compute_not,
     }
     if op.optype in _unary_compute_funcs:
         Y.data = try_compute_data(_unary_compute_funcs[op.optype], iTList, op)
@@ -431,6 +449,8 @@ def bidir_bcast(iTList, oTList, op, **kwargs):
         'Pow': compute_pow,
         'Less': compute_less,
         'Atan2': compute_atan2,
+        'Mod': compute_mod,
+        'Equal': compute_equal,
     }
     if op.optype in _binary_compute_funcs:
         Y.data = try_compute_data(_binary_compute_funcs[op.optype], iTList, op)

@@ -144,6 +144,40 @@ class WL2ArchLayer2ComputePipe(BaseModel):
         return WL2ArchLayer2ComputePipe(wl_map=op2rsrc)
 
 
+class WL2ArchColumnSplitRule(BaseModel):
+    """One column-split rule: match a MatMul and expand it into arch-appropriate column
+    tiles at the backend (see ttsim.back.device.Device._split_column_ops), where the arch
+    is known. Keeps the front-end graph device-independent.
+
+    ``kind`` selects the tiling formula. ``lm_head_vocab`` mirrors tt-metal
+    ``ModelArgs.get_lm_head_max_columns_per_device`` + the LMHead dram_sharded column split
+    (single-chip: BH vocab//8 -> 8 tiles; WH 668*lm_head_core_grid_cores(dim) -> 3 tiles for
+    dim=4096). The op is identified by output-0 last-dim == ``match_output_x`` (the vocab;
+    only the lm_head produces a vocab-wide matmul), optionally narrowed by input-0 last-dim
+    == ``match_input_x`` (the model dim)."""
+    op_type: str = Field(..., description="SimOp optype to match (e.g. MatMul)")
+    match_output_x: int = Field(..., description="Match ops whose output-0 last-dim equals this (vocab)")
+    match_input_x: Optional[int] = Field(default=None, description="Optional: also require input-0 last-dim == this (model dim)")
+    kind: str = Field(default="lm_head_vocab", description="Column-split formula selector")
+
+
+class WL2ArchColumnSplit(BaseModel):
+    """Column-split specifications: a list of rules (empty when op_split_spec is absent)."""
+    rules: List[WL2ArchColumnSplitRule] = Field(default_factory=list, description="Column-split rules")
+
+    @staticmethod
+    def from_list(spec: Optional[List[Dict[str, Any]]]) -> 'WL2ArchColumnSplit':
+        if not spec:
+            return WL2ArchColumnSplit(rules=[])
+        return WL2ArchColumnSplit(rules=[WL2ArchColumnSplitRule(**r) for r in spec])
+
+    def is_empty(self) -> bool:
+        return not self.rules
+
+    def __str__(self):
+        return f"Column Splits: {self.rules}"
+
+
 class WL2ArchMap(BaseModel):
     """
     Represents the workload to architecture mapping.
@@ -152,6 +186,8 @@ class WL2ArchMap(BaseModel):
     removal_spec: WL2ArchRemovalLayers = Field(..., description="Null layers specifications")
     fusion_spec: WL2ArchFusedLayers = Field(..., description="Fused layers specifications")
     rsrc_spec: WL2ArchLayer2ComputePipe = Field(..., description="Resource specifications for operations")
+    split_spec: WL2ArchColumnSplit = Field(default_factory=WL2ArchColumnSplit,
+                                           description="Column-split specifications (optional)")
 
     def layer_2_datatype(self, layer_name: LayerName) -> TypeName:
         """
@@ -165,7 +201,8 @@ class WL2ArchMap(BaseModel):
                 f"Data Types: {self.data_type_spec}\n"
                 f"Null Layers: {self.removal_spec}\n"
                 f"Fused Layers: {self.fusion_spec}\n"
-                f"Resource Specs: {self.rsrc_spec}")
+                f"Resource Specs: {self.rsrc_spec}\n"
+                f"Column Splits: {self.split_spec}")
 
     @staticmethod
     def from_yaml(cfg_yaml_file: str) -> 'WL2ArchMap':
@@ -181,12 +218,15 @@ class WL2ArchMap(BaseModel):
         removal_spec = WL2ArchRemovalLayers.from_list(cfg_dict['op_removal_spec'])
         fusion_spec = WL2ArchFusedLayers.from_list(cfg_dict['op_fusion_spec'])
         rsrc_spec = WL2ArchLayer2ComputePipe.from_dict(cfg_dict['op_rsrc_spec'])
+        # op_split_spec is optional (backward-compatible with existing mapping files).
+        split_spec = WL2ArchColumnSplit.from_list(cfg_dict.get('op_split_spec'))
 
         return WL2ArchMap(
             data_type_spec=data_type_spec,
             removal_spec=removal_spec,
             fusion_spec=fusion_spec,
-            rsrc_spec=rsrc_spec
+            rsrc_spec=rsrc_spec,
+            split_spec=split_spec
         )
 
 

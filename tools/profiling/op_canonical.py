@@ -45,6 +45,10 @@ PROFILER_PREFIX_RULES: tuple[tuple[str, str], ...] = (
     ("Softmax", "softmax"),
     ("LayerNorm", "layernorm"),
     ("RMSNorm", "rms_norm"),
+    # Decode head variants are DISTINCT kernels from prefill — keep their own canonical
+    # (must precede the base NLPCreateQKVHeads/NLPConcatHeads prefixes; first-match-wins).
+    ("NLPCreateQKVHeadsDecode", "nlpcreateqkvheadsdecode"),
+    ("NLPConcatHeadsDecode", "nlpconcatheadsdecode"),
     ("NLPCreateQKVHeads", "createqkvheads"),
     ("CreateQKVHeadsDeviceOperation", "createqkvheads"),  # Profiler form → canonical
     ("CreateQKVHeads", "createqkvheads"),
@@ -59,6 +63,11 @@ PROFILER_PREFIX_RULES: tuple[tuple[str, str], ...] = (
     ("PagedFusedUpdateCache", "pagedfusedupdatecache"),
     ("PagedFillCache", "pagedfillcache"),
     ("Sdpa", "scaleddotproductattention"),
+    # decode sampling-tail ops — canonical = lowercased shim optype (sim/HW agree).
+    ("TopK", "topk"),
+    ("ManualSeed", "manualseed"),
+    ("Sampling", "sampling"),
+    ("PlusOne", "plusone"),
     ("UntilizeWithValUnpadding", "untilizewithunpadding"),  # Polaris variant with "Val"
     ("UntilizeWithUnpadding", "untilizewithunpadding"),
     ("Untilize", "untilize"),
@@ -68,8 +77,10 @@ PROFILER_PREFIX_RULES: tuple[tuple[str, str], ...] = (
     ("Reshape", "reshape"),
     ("Transpose", "transpose"),
     ("Permute", "permute"),
+    ("Typecast", "typecast"),
     ("Concat", "concat"),
     ("Split", "split"),
+    ("Slice", "slice"),
     ("Embedding", "embedding"),
     ("Reduce", "reduce"),
     ("Pow", "pow"),
@@ -218,6 +229,8 @@ CANONICAL_TO_STATS_DISPLAY: Dict[str, str] = {
     "untilizewithunpadding": "UntilizeWithUnpadding",
     "concat": "Concat",
     "split": "Split",
+    "slice": "Slice",
+    "typecast": "Typecast",
     "embedding": "Embedding",
     "reduce": "Reduce",
     "fold": "Fold",

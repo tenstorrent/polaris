@@ -1289,3 +1289,115 @@ def test_loader_normalizes_non_finite_util_to_zero(tmp_path: Path):
     assert st.matrix_pipe_util == pytest.approx(0.0)
     assert st.vector_pipe_util == pytest.approx(0.0)
     assert st.mem_util == pytest.approx(0.0)
+
+
+def _softmax_dev_entry(dev_memory: str, msecs: float):
+    """A minimal 9-tuple softmax LUT entry whose input_0_memory carries *dev_memory*."""
+    return {
+        "key": {
+            "op_code": "softmax",
+            "input_0_w_pad_logical": 1,
+            "input_0_z_pad_logical": 1,
+            "input_0_y_pad_logical": 2,
+            "input_0_x_pad_logical": 3,
+            "input_0_layout": "TILE",
+            "input_0_datatype": "BFLOAT16",
+            "input_0_memory": dev_memory,
+            "math_fidelity": "N/A",
+        },
+        "value": _flat_single_value(8, msecs=msecs),
+    }
+
+
+@pytest.mark.unit
+def test_device_normalized_fallback_hits_capture_dev0_lut(tmp_path: Path):
+    """A LUT built from a profiler capture carries the real DEVICE ID (``DEV_0_``),
+    but the sim's key builder hardcodes ``DEV_1_``. After the exact-key miss, the
+    device-normalized fallback matches the single entry that agrees on every
+    non-device field. Mirrors the llama3-vs-capture-LUT reconciliation.
+    """
+    from tools.perf_lookup.lookup_operator_perf import OperatorPerfMap
+
+    doc = {
+        "schema_name": "correqn.tt-perf-master",
+        "schema_version": 4,
+        "entries": [_softmax_dev_entry("DEV_0_DRAM_INTERLEAVED", msecs=0.03)],
+    }
+    p = tmp_path / "dev0.yaml"
+    p.write_text(yaml.dump(doc, sort_keys=False), encoding="utf-8")
+    m = OperatorPerfMap(p)
+
+    # Sim tensor → default DEV_1_ memory prefix (shape_canonical.tensor_memory_str),
+    # TILE layout to match the entry's non-device fields.
+    t0 = SimTensor({"name": "a", "shape": [1, 2, 3], "op_in": [], "op_out": []})
+    t0.layout = SimpleNamespace(name="TILE_LAYOUT")
+    op = SimpleNamespace(optype="Softmax", precision="BF16", inList=["a"])
+    g = SimpleNamespace(_tensors={"a": t0})
+
+    st = m.lookup(op, g, core_count=8)
+    assert st is not None, "device-normalized fallback should reconcile DEV_1 sim key with DEV_0 LUT entry"
+    assert st.hit_source == "device_normalized"
+    assert st.msecs == pytest.approx(0.03)
+    # Literal (DEV_1) missed; resolved is the DEV_0 entry actually in the LUT.
+    assert st.key_literal[7] == "DEV_1_DRAM_INTERLEAVED"
+    assert st.key_resolved[7] == "DEV_0_DRAM_INTERLEAVED"
+    assert st.key_resolved in m._entries
+    assert st.key_literal not in m._entries
+
+
+@pytest.mark.unit
+def test_device_exact_match_preferred_over_normalized(tmp_path: Path):
+    """When the LUT already uses the sim's ``DEV_1_`` convention (e.g. the shipped
+    whb0_n150 LUT), the exact match wins and the device fallback never fires — so
+    VGG-style workloads keep a ``direct`` hit, not ``device_normalized``.
+    """
+    from tools.perf_lookup.lookup_operator_perf import OperatorPerfMap
+
+    doc = {
+        "schema_name": "correqn.tt-perf-master",
+        "schema_version": 4,
+        "entries": [_softmax_dev_entry("DEV_1_DRAM_INTERLEAVED", msecs=0.05)],
+    }
+    p = tmp_path / "dev1.yaml"
+    p.write_text(yaml.dump(doc, sort_keys=False), encoding="utf-8")
+    m = OperatorPerfMap(p)
+
+    t0 = SimTensor({"name": "a", "shape": [1, 2, 3], "op_in": [], "op_out": []})
+    t0.layout = SimpleNamespace(name="TILE_LAYOUT")
+    op = SimpleNamespace(optype="Softmax", precision="BF16", inList=["a"])
+    g = SimpleNamespace(_tensors={"a": t0})
+
+    st = m.lookup(op, g, core_count=8)
+    assert st is not None
+    assert st.hit_source == "direct"
+    assert st.key_literal == st.key_resolved
+
+
+@pytest.mark.unit
+def test_device_normalized_fallback_declines_multidevice_ambiguity(tmp_path: Path):
+    """Two LUT entries that differ ONLY in device index (a genuine multi-device
+    capture) collapse to the same device-normalized key. The fallback must decline
+    rather than guess — returning a miss — so multi-device data is never silently
+    flattened onto one timing.
+    """
+    from tools.perf_lookup.lookup_operator_perf import OperatorPerfMap
+
+    doc = {
+        "schema_name": "correqn.tt-perf-master",
+        "schema_version": 4,
+        "entries": [
+            _softmax_dev_entry("DEV_0_DRAM_INTERLEAVED", msecs=0.03),
+            _softmax_dev_entry("DEV_2_DRAM_INTERLEAVED", msecs=0.09),
+        ],
+    }
+    p = tmp_path / "multidev.yaml"
+    p.write_text(yaml.dump(doc, sort_keys=False), encoding="utf-8")
+    m = OperatorPerfMap(p)
+
+    t0 = SimTensor({"name": "a", "shape": [1, 2, 3], "op_in": [], "op_out": []})
+    t0.layout = SimpleNamespace(name="TILE_LAYOUT")
+    op = SimpleNamespace(optype="Softmax", precision="BF16", inList=["a"])
+    g = SimpleNamespace(_tensors={"a": t0})
+
+    st = m.lookup(op, g, core_count=8)
+    assert st is None, "ambiguous multi-device candidates must not be reconciled by the device fallback"

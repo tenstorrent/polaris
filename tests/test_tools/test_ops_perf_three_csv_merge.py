@@ -2,6 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 import csv
+from pathlib import Path
 
 import pytest
 
@@ -12,6 +13,7 @@ from tools.si_profiling_helpers.ops_perf_three_csv_merge import (
     classify_file,
     detect_by_op_code_period,
     detect_iteration_boundaries,
+    drop_signpost_rows,
     iteration_summary,
     pick_median_iteration,
     run_merge,
@@ -284,6 +286,36 @@ def test_pick_measured_indices_override():
 
 
 # ---------------------------------------------------------------------------
+# drop_signpost_rows
+# ---------------------------------------------------------------------------
+
+def _signpost_row(op_code):
+    # TT-Metal emits signpost markers with OP TYPE 'signpost' and no GLOBAL CALL COUNT.
+    return {'OP CODE': op_code, 'OP TYPE': 'signpost', 'GLOBAL CALL COUNT': ''}
+
+
+@pytest.mark.unit
+def test_drop_signpost_rows_removes_markers():
+    rows = [_signpost_row('start'), *_rows(['conv', 'relu']), _signpost_row('stop')]
+    kept = drop_signpost_rows(rows, Path('x.csv'))
+    assert [r['OP CODE'] for r in kept] == ['conv', 'relu']
+    assert all(r['OP TYPE'] != 'signpost' for r in kept)
+
+
+@pytest.mark.unit
+def test_drop_signpost_rows_case_insensitive():
+    rows = [{'OP CODE': 'start', 'OP TYPE': 'SignPost', 'GLOBAL CALL COUNT': ''}, *_rows(['conv'])]
+    assert len(drop_signpost_rows(rows, Path('x.csv'))) == 1
+
+
+@pytest.mark.unit
+def test_drop_signpost_rows_noop_when_absent():
+    rows = _rows(['conv', 'relu'])
+    kept = drop_signpost_rows(rows, Path('x.csv'))
+    assert kept == rows
+
+
+# ---------------------------------------------------------------------------
 # classify_file
 # ---------------------------------------------------------------------------
 
@@ -389,6 +421,41 @@ def test_merge_appends_overhead_ratio_columns(tmp_path):
     # Row B: raw=0 -> blank (no division), not '0' or 'inf'.
     assert rows['Add'][COL_FPU_UTIL_RAW] == ''
     assert rows['Add'][COL_MEM_UTIL_RAW] == ''
+
+
+def _e2e_signpost(op_code):
+    # Signpost marker row as tt-metal writes it: OP TYPE 'signpost', empty GLOBAL CALL COUNT.
+    r = {c: '' for c in _E2E_COLS}
+    r['OP CODE'] = op_code
+    r['OP TYPE'] = 'signpost'
+    return r
+
+
+@pytest.mark.unit
+def test_merge_skips_signpost_rows(tmp_path):
+    # ResNet50/WH capture pathology: each pass wraps its ops in start/stop Tracy
+    # signposts, emitted as rows with an empty GLOBAL CALL COUNT. Pre-fix these
+    # crashed join-key parsing ("Empty 'GLOBAL CALL COUNT'"); they must now be
+    # dropped so the merge succeeds and they never reach the output.
+    keys = [(1024, 'Matmul'), (2048, 'Add')]
+
+    def with_signposts(op_rows):
+        return [_e2e_signpost('start'), *op_rows, _e2e_signpost('stop')]
+
+    _write_csv(tmp_path / 'noctrace.csv',
+               with_signposts([_e2e_row(g, op, 1200, dram='45.2') for g, op in keys]))
+    _write_csv(tmp_path / 'fpuutil.csv',
+               with_signposts([_e2e_row(g, op, 1100, fpu='62.1') for g, op in keys]))
+    _write_csv(tmp_path / 'vanilla.csv',
+               with_signposts([_e2e_row(g, op, 1000) for g, op in keys]))
+
+    out = tmp_path / 'merged_ops.csv'
+    run_merge(tmp_path, out, dram_peak_bw_gbps=288.0, duration_rel_tol=1e9, encoding='utf-8')
+
+    with out.open(newline='') as fh:
+        rows = list(csv.DictReader(fh))
+    assert {r['OP CODE'] for r in rows} == {'Matmul', 'Add'}
+    assert all(r['OP TYPE'] != 'signpost' for r in rows)
 
 
 # fpu-only analysis columns (extras the fpu pass carries beyond the noctrace schema)
