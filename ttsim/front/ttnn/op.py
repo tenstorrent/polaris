@@ -546,8 +546,8 @@ def max_pool2d_pp(args_list, kwargs_dict):
     )
     kernel_size = kwargs_dict["kernel_size"]
     stride = kwargs_dict.get("stride", kernel_size)
-    padding = kwargs_dict.get("padding", 0)
-    dilation = kwargs_dict.get("dilation", 1)
+    padding = kwargs_dict.get("padding", (0, 0))
+    dilation = kwargs_dict.get("dilation", (1, 1))
     ceil_mode = kwargs_dict.get("ceil_mode", False)
 
     kwargs_dict = {
@@ -1493,6 +1493,15 @@ conv_transpose2d = _with_halo(_conv_transpose2d_raw, is_transpose=True, move_bef
 global_avg_pool2d = single_output_immediate_op("GlobalAveragePool")
 _max_pool2d_raw = single_output_immediate_op("MaxPool", preprocess=max_pool2d_pp)
 max_pool2d = _with_halo(_max_pool2d_raw)
+
+# ttnn.avg_pool2d: windowed 2D average pooling. Reuses max_pool2d_pp for kwarg normalization
+# (kernel_size/stride/padding/dilation/ceil_mode -> kernel_shape/strides/pads/dilations/ceil_mode
+# is identical for both pooling flavors) but targets the "AveragePool" op descriptor
+# (ttsim/ops/desc/nn.py:avgpool_sinf), which has its own shape inference and perf-stats formula
+# (add/div/mov instruction counts) distinct from MaxPool's (cmp/mov) -- so Polaris's cost model
+# actually distinguishes avg-pool from max-pool rather than the two being silently interchangeable.
+_avg_pool2d_raw = single_output_immediate_op("AveragePool", preprocess=max_pool2d_pp)
+avg_pool2d = _with_halo(_avg_pool2d_raw)
 
 # Matrix Multiplication
 matmul = single_output_immediate_op("MatMul")
