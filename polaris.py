@@ -5,12 +5,13 @@ import os
 import sys
 import argparse
 import cProfile
+import difflib
 from loguru import logger
 import time
 import tracemalloc
 from itertools import product
 from pathlib import Path
-from typing import Any, Set, Optional
+from typing import Any, Callable, Iterable, Set, Optional, TypeVar
 
 from ttsim.config import TTSimHLRunSummary, get_arspec_from_yaml, get_wlmapspec_from_yaml, get_wlspec_from_yaml
 from ttsim.front.onnx.onnx2nx import onnx2graph  # NOTE: import from ttsim.front had potential cyclic dependency
@@ -72,11 +73,61 @@ def check_args(args):
         validate_datatype(args.datatype)
     return
 
-def apply_filter(L, filter_csv_str, get_param_func):
-    if filter_csv_str is not None:
-        filter_fields = filter_csv_str.split(',')
-        L = [x for x in L if get_param_func(x).upper() in [f.upper() for f in filter_fields]]
-    return L
+FilterItem = TypeVar('FilterItem')
+
+
+class SpecSelectionError(Exception):
+    """A --filter* entry names nothing in the spec, or the selection it produces is empty."""
+
+
+# Above this many candidates, spelling out every legal value buries the error instead of
+# explaining it (the workload-instance domain runs to three figures), so the message falls
+# back to near-matches plus a count and the full list goes to the debug log.
+MAX_LISTED_FILTER_VALUES = 20
+
+
+def describe_unmatched(flag_name: str, unmatched: list[str], available: list[str]) -> str:
+    """Build the error text for filter entries that name nothing, with near-match hints."""
+    upper2orig = {a.upper(): a for a in available}
+    parts = [f'--{flag_name}: no match for {unmatched}']
+    for u in unmatched:
+        close = difflib.get_close_matches(u.upper(), list(upper2orig), n=3)
+        if close:
+            parts.append(f"'{u}': did you mean {[upper2orig[c] for c in close]}?")
+    if len(available) <= MAX_LISTED_FILTER_VALUES:
+        parts.append(f'available: {available}')
+    else:
+        parts.append(f'{len(available)} values available -- re-run with --log_level debug to list them')
+    DEBUG('--{}: available values: {}', flag_name, available)
+    return '; '.join(parts)
+
+
+def apply_filter(L: list[FilterItem], filter_csv_str: str | None, get_param_func: Callable[[FilterItem], str],
+                 flag_name: str = 'filter', domain: Iterable[str] | None = None) -> list[FilterItem]:
+    """Narrow L to the entries whose key appears in the comma-separated filter string.
+
+    Every filter entry must name a value that exists in `domain` -- the full set of values
+    the key takes in the loaded spec, collected before any other filter is applied. An entry
+    naming nothing is a typo or a name that has since been renamed or removed, so it raises
+    instead of silently selecting nothing. Validating against the full domain (rather than
+    against whatever survived an earlier filter) keeps 'unknown name' distinct from 'these
+    filters are individually valid but jointly select nothing'.
+
+    `domain` defaults to the keys present in L, which is correct when no other filter runs
+    against the same list.
+    """
+    if filter_csv_str is None:
+        return L
+    filter_fields = [f.strip() for f in filter_csv_str.split(',') if f.strip() != '']
+    if not filter_fields:
+        raise SpecSelectionError(f'--{flag_name} was given but lists no values')
+    available = sorted({get_param_func(x) for x in L} if domain is None else set(domain))
+    available_upper = {a.upper() for a in available}
+    unmatched = sorted(f for f in filter_fields if f.upper() not in available_upper)
+    if unmatched:
+        raise SpecSelectionError(describe_unmatched(flag_name, unmatched, available))
+    wanted = {f.upper() for f in filter_fields}
+    return [x for x in L if get_param_func(x).upper() in wanted]
 
 def get_wlgraph(TBL, wlg, wln, wli, gcfg, wpath, enable_memalloc):
     xrows = [xrec for xrec in TBL if xrec[0] == wlg and xrec[1] == wln and xrec[2] == wli]
@@ -290,12 +341,11 @@ def get_devices(devspec, fsweep, filterarch):
         device_list = [(d,f) for d in devs for f in fsweep.getvals()]
     else:
         device_list = [(d,None) for d in devs]
-    devlist = sorted(apply_filter(device_list, filterarch, lambda x: x[0]))
+    devlist = sorted(apply_filter(device_list, filterarch, lambda x: x[0], 'filterarch', devs))
 
-    if (len(devlist) == 0):
-        WARNING("Device specification is unknown!")
-    else:
-        INFO('reading device specification {}: found {:4d} #devices', devspec, len(devlist))
+    if len(devlist) == 0:
+        raise SpecSelectionError(f'no devices selected from {devspec}')
+    INFO('reading device specification {}: found {:4d} #devices', devspec, len(devlist))
     if fsweep.check():
         INFO('reading frequency sweep {}: found {:4d} #frequencies', " "*26, len(fsweep.getvals()))
     return devlist, devs
@@ -314,16 +364,32 @@ def get_workloads(wlspec, bsweep, filterwlg, filterwl, filterwli):
                     wl_list += [(wlapi, wl.name, wli_name, wli_cfg, None)]
     INFO('reading workload specification {}: found {:4d} #workloads', wlspec, len(wl_list))
     #for ndx, tmp in enumerate(wl_list): INFO('{}: {}', ndx, tmp)
-    wl_list = apply_filter(wl_list, filterwlg, lambda x: x[0])
-    wl_list = apply_filter(wl_list, filterwl,  lambda x: x[1])
-    wl_list = apply_filter(wl_list, filterwli, lambda x: x[2])
+    # Domains are collected up-front, so each filter is validated against every value the
+    # spec offers rather than against whatever an earlier filter left behind.
+    wlg_domain = {x[0] for x in wl_list}
+    wln_domain = {x[1] for x in wl_list}
+    wli_domain = {x[2] for x in wl_list}
+    wl_list = apply_filter(wl_list, filterwlg, lambda x: x[0], 'filterwlg', wlg_domain)
+    wl_list = apply_filter(wl_list, filterwl,  lambda x: x[1], 'filterwl',  wln_domain)
+    wl_list = apply_filter(wl_list, filterwli, lambda x: x[2], 'filterwli', wli_domain)
     wl_list = sorted(wl_list)
     num_batches   = len(bsweep.getvals()) if bsweep.check() else 1
     num_workloads = len(wl_list) // num_batches
     if num_workloads == 0:
-        WARNING('Number of workloads is 0 - no workloads to run')
-    else:
-        INFO('reading workloads specification {}: found {:4d} #workloads', wlspec, num_workloads)
+        # An empty result means one of two different mistakes, and pointing at the wrong one
+        # sends the reader to the wrong file: with no filters given the spec itself defines
+        # nothing to run, whereas with filters given each named something real (apply_filter
+        # would have raised otherwise) but they share no workload.
+        given = [f'--{name}' for name, val in (('filterwlg', filterwlg),
+                                               ('filterwl',  filterwl),
+                                               ('filterwli', filterwli)) if val is not None]
+        if not given:
+            raise SpecSelectionError(f'{wlspec} defines no workload instances to run')
+        raise SpecSelectionError(
+            f'no workloads selected from {wlspec}: {"/".join(given)} '
+            f'{"is" if len(given) == 1 else "are"} individually valid but select no workload in common'
+        )
+    INFO('reading workloads specification {}: found {:4d} #workloads', wlspec, num_workloads)
     if bsweep.check():
         INFO('reading batch sweep                   : found {} #batch-sizes', num_batches)
     return wl_list, workload_specs
@@ -447,8 +513,18 @@ def polaris(args: argparse.Namespace | runcfgmodel.PolarisRunConfig) -> int:
     os.makedirs(odir,        exist_ok=True)
     os.makedirs(summary_dir, exist_ok=True)
 
-    device_list, devspec  = get_devices(args.archspec, freqsweep, args.filterarch)
-    workload_list, wlspec = get_workloads(args.wlspec, batchsweep, args.filterwlg, args.filterwl, args.filterwli)
+    try:
+        device_list, devspec  = get_devices(args.archspec, freqsweep, args.filterarch)
+        workload_list, wlspec = get_workloads(args.wlspec, batchsweep, args.filterwlg, args.filterwl, args.filterwli)
+    except SpecSelectionError as e:
+        ERROR('{}', e)
+        # Returning here still has to honour --enable_cprofile: the profiler was started
+        # above, and leaving it enabled would follow the caller out of polaris() for the
+        # in-process callers (polproj.py, tests).
+        if args.enable_cprofile:
+            profiler.disable()
+            profiler.dump_stats("polaris_cprofile_stats.prof")
+        return 1
     wlmapspec = get_wlmapspec_from_yaml(args.wlmapspec)
 
     if args.datatype is not None:
@@ -512,11 +588,12 @@ def main(argv: list[str] | None = None) -> int:
 
 if __name__ == '__main__':
     start_time = time.perf_counter()
-    num_exps   = main()
+    status     = main()
     end_time   = time.perf_counter()
     del_time   = end_time - start_time
 
-    if num_exps > 0:
-        logger.info(f"Completed {num_exps} jobs in {del_time:0.2f} seconds @ {num_exps/del_time:.0f} jobs per sec")
-    else:
-        logger.info('')
+    # main() returns a status (0 ok / non-zero failed), not a job count -- the run's own
+    # 'completed with N experiments' line reports the count. Propagate the status, or a
+    # failed run leaves this script exiting 0 and CI cannot see it.
+    logger.info(f"Polaris finished in {del_time:0.2f} seconds")
+    exit(status)
