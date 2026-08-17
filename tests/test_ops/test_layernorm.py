@@ -287,18 +287,15 @@ def test_layernorm_memory_validation(capsys, request):
     # Load device configuration once
     polaris_root = Path(__file__).parent.parent.parent
     config_path = polaris_root / "config" / "tt_wh.yaml"
-    try:
-        ipgroups, packages = get_arspec_from_yaml(config_path)
-        device_pkg = packages["n150"]
-        device = Device(device_pkg)
+    ipgroups, packages = get_arspec_from_yaml(config_path)
+    device_pkg = packages["n150"]
+    device = Device(device_pkg)
 
-        logger.debug(f"\nDevice: {device.devname} ({device.name})")
-        logger.debug(f"Frequency: {device.freq_MHz} MHz")
-        logger.debug(
-            f"Peak Bandwidth: {device.simconfig_obj.peak_bandwidth(freq_units='GHz'):.2f} GB/s"
-        )
-    except Exception as e:
-        pytest.skip(f"Could not load device config: {e}")
+    logger.debug(f"\nDevice: {device.devname} ({device.name})")
+    logger.debug(f"Frequency: {device.freq_MHz} MHz")
+    logger.debug(
+        f"Peak Bandwidth: {device.simconfig_obj.peak_bandwidth(freq_units='GHz'):.2f} GB/s"
+    )
 
     # Test cases: different tensor shapes and normalization axes
     test_cases = [
