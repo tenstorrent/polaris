@@ -809,6 +809,18 @@ def sdpa_sinf(iTList, oTList, op, **kwargs):
     oTList[0].dtype = Q.dtype
 
     elem_size = op.attrs.get('element_size', 2)
+    # Prefill SDPA (q,k,v): cost it with the calibrated SDPA roofline (TEN-4716). Decode/paged
+    # (4-5 inputs) and any shape the model cannot handle fall back to the passthrough estimate.
+    if len(iTList) == 3:
+        try:
+            from ttsim.perf.roofline_sdpa import sdpa_config_from_shapes, sdpa_perf_stats
+            k_shape = require_shape_list(iTList[1].shape, "SDPA roofline: k shape must be known")
+            v_shape = require_shape_list(iTList[2].shape, "SDPA roofline: v shape must be known")
+            cfg = sdpa_config_from_shapes(q_shape, k_shape, v_shape, op.attrs)
+            op.perf_stats = sdpa_perf_stats(cfg)
+            return
+        except Exception:
+            pass  # unsupported shape/attrs -> passthrough below
     op.perf_stats = _passthrough_perf([t.shape for t in iTList], q_shape, elem_size)
     return
 
