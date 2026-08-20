@@ -27,14 +27,6 @@ hw_id_board() {
 
 hw_id_write() {
     local dir="$1"
-    # A --fail-check-only run (run-ttnn-profiler.py) writes to <dir>--failcheckonly and produces NO
-    # capture (no perf CSVs, no merge), so there is nothing to attribute to a board — intentionally
-    # skip hw_id for it, quietly (this is expected, not an error). The '--failcheckonly' suffix is
-    # kept in sync with run-ttnn-profiler.py's --fail-check-only behavior.
-    if [ -n "$dir" ] && [ ! -d "$dir" ] && [ -d "${dir}--failcheckonly" ]; then
-        echo "hw_id: --fail-check-only run (${dir}--failcheckonly) — no capture provenance to record" >&2
-        return 0
-    fi
     if [ -z "$dir" ] || [ ! -d "$dir" ]; then
         echo "hw_id_write: output dir '$dir' not found — skipping hw_id capture" >&2
         return 0
