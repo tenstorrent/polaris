@@ -59,14 +59,16 @@ Optional Arguments:
                         These generated directories can be very large; use this flag
                         if their contents are not needed for analysis.
     --dryrun, -n        Show commands without executing them
-    --skip-fail-check   Skip the no-tracy pre-flight run (go straight to the Tracy passes).
-                        By default a fast pre-flight runs the command once WITHOUT tracy and
-                        aborts before the expensive Tracy passes if it fails.
-    --fail-check-only   Run ONLY the no-tracy pre-flight, then stop (no Tracy passes, no merge).
-                        Exits non-zero if the command fails. Use to validate a command before
-                        committing to a full capture. Mutually exclusive with --skip-fail-check.
-                        The output dir gets a '--failcheckonly' suffix so it can't collide with
-                        or be mistaken for a full capture written to the same --output-dir.
+    --fail-check / --no-fail-check
+                        Run an unprofiled (no-tracy) pre-flight before the Tracy passes.
+                        DEFAULT: off (--no-fail-check). The pre-flight runs the command once
+                        WITHOUT tracy and aborts before the expensive Tracy passes if it fails.
+                        It is a COMPLETE workload run, not a quick check -- only trivially
+                        broken commands fail quickly; a working workload costs a full run
+                        (~278s for ResNet50 on BH p100a). Off by default
+                        because tracy now runs with --check-exit-code, so a failed/timed-out
+                        capture pass already aborts the run (see run_profiler); pass --fail-check
+                        to also gate on a plain non-profiled run first.
     --disable-dram-drop-guard  Disable the DRAM-drop guard (on by default). Normally, if the
                         profiler DRAM-buffer-overflow marker appears too frequently (capture likely
                         incomplete), the command is given a grace period and then force-stopped.
@@ -79,7 +81,7 @@ Output Structure:
         ├── run_status.json        # Live run-status sidecar: overall + per-step state (machine-readable)
         ├── STATUS.txt             # Same, rendered as a human table (watch/cat it during a run)
         ├── merged_ops_<RUNID>.csv  # 3-CSV merge (full mode only; RUNID = output-dir name)
-        ├── failcheck/              # No-tracy pre-flight artifacts (unless --skip-fail-check)
+        ├── failcheck/              # No-tracy pre-flight artifacts (only with --fail-check)
         ├── raw/                    # Tracy raw profiling output (.logs/, reports/, generated/)
         ├── perf/                   # Tracy performance counter output (full mode only)
         └── trace/                  # Tracy NOC trace output (full mode only)
@@ -97,15 +99,17 @@ Prerequisites:
     - loguru package must be installed
 
 Notes:
-    - Before the profiling passes, a fast no-tracy pre-flight runs the command once (unless
-      --skip-fail-check) so a trivially-broken command (import error, bad -k selector, arg
-      error) fails fast instead of wasting the expensive Tracy capture. With --fail-check-only
-      the script runs just that pre-flight and stops (no Tracy passes, no merge).
-    - The script then runs up to 3 profiling passes:
+    - By default the Tracy passes run directly; tracy is invoked with --check-exit-code so a
+      failed/timed-out capture pass aborts the run at the point of failure. Pass --fail-check to
+      additionally run an unprofiled (no-tracy) pre-flight first, so a trivially-broken command
+      (import error, bad -k selector, arg error) fails before any capture starts. Note it is a
+      complete workload run, so only broken commands fail quickly -- a working one pays for a
+      full extra run.
+    - The script runs up to 3 profiling passes:
       1. Raw profiling with TTNN config overrides
       2. Performance counter collection (unless --basic-only)
       3. NOC trace collection (unless --basic-only)
-    - Execution stops if the pre-flight or any pass fails
+    - Execution stops if the pre-flight (when enabled with --fail-check) or any pass fails
     - DRAM-drop guard (on by default; --disable-dram-drop-guard turns it off): if the profiler
       DRAM-buffer-overflow marker ("Profiler DRAM buffers were full, markers were dropped!") is
       seen too frequently, the command is given a grace period to finish and then force-stopped,
@@ -464,10 +468,11 @@ def run_failcheck(command: str, pytest_mode: bool, failcheck_dir: str,
                   dram_drop_guard: bool = True,
                   status: "RunStatus | None" = None,
                   step_name: str | None = None) -> subprocess.CompletedProcess[str] | None:
-    """Fast pre-flight: run the workload command ONCE WITHOUT tracy, to fail fast on a
+    """Unprofiled pre-flight: run the workload command ONCE WITHOUT tracy, to fail fast on a
     trivially-broken command (import error, bad -k selector, collection/arg error) before the
-    expensive 3-pass Tracy capture. Returns CompletedProcess (None on dryrun). NOT a profiling
-    pass -- no tracy, no perf/noc collection."""
+    expensive 3-pass Tracy capture. This is a COMPLETE workload run -- only broken commands fail
+    quickly. Returns CompletedProcess (None on dryrun). NOT a profiling pass -- no tracy, no
+    perf/noc collection."""
     # The --command is encoded to survive tracy's report-mode round-trip: tracy joins its argv back
     # into one string and re-runs it under shell=True, so a spaced -k expression is wrapped in
     # nested quotes in the presets (e.g. -k '"performance and batch-32"'). This pre-flight runs the
@@ -935,12 +940,13 @@ def main() -> int:
         help='Remove npe_viz and .logs directories from output directory after run. These directories can be very large; use this flag if their contents are not needed.',
     )
     parser.add_argument('--dryrun', '-n', action='store_true', help='show but do not execute commands')
-    parser.add_argument('--skip-fail-check', action='store_true',
-                        help='Skip the no-tracy pre-flight run (go straight to the Tracy passes)')
-    parser.add_argument('--fail-check-only', action='store_true',
-                        help='Run ONLY the no-tracy pre-flight, then stop (no Tracy passes, no merge). '
-                             'Exits non-zero if the command fails. Appends a "--failcheckonly" suffix to '
-                             'the output dir. Mutually exclusive with --skip-fail-check.')
+    parser.add_argument('--fail-check', action=argparse.BooleanOptionalAction, default=False,
+                        help='Run an unprofiled (no-tracy) pre-flight before the Tracy passes '
+                             '(default: off, --no-fail-check). It is a complete workload run, not a '
+                             'quick check -- only trivially broken commands fail fast. '
+                             'Off by default since tracy runs with --check-exit-code, '
+                             'which already aborts the run on a failed/timed-out capture pass; pass '
+                             '--fail-check to also gate on a plain non-profiled run first.')
     parser.add_argument('--disable-dram-drop-guard', action='store_true',
                         help='Disable the DRAM-drop guard (on by default). Normally, if the profiler '
                              'DRAM-buffer-overflow marker appears too frequently (capture likely incomplete), '
@@ -953,15 +959,8 @@ def main() -> int:
     )
     args = parser.parse_args()
 
-    if args.fail_check_only and args.skip_fail_check:
-        parser.error('--fail-check-only and --skip-fail-check are mutually exclusive.')
-
     command = args.command
     output_dir = os.path.realpath(args.output_dir)
-    if args.fail_check_only:
-        # Mark a fail-check-only run's output dir so it can't collide with / be mistaken for a
-        # full capture written to the same --output-dir.
-        output_dir += '--failcheckonly'
     pytest_mode = args.pytest
     report_name = args.report_name
     enable_logging = not args.disable_logging
@@ -978,7 +977,7 @@ def main() -> int:
         # pass now pins TT_METAL_LOGS_PATH / TT_METAL_PROFILER_DIR to its own
         # output dir (see run_profiler), so tt-metal writes nothing into cwd and
         # concurrent runs from the same directory no longer collide.
-        if not args.basic_only and not args.fail_check_only and not is_npe_on_path():
+        if not args.basic_only and not is_npe_on_path():
             logger.error('NPE not on path; source tt-npe/ENV_SETUP')
             return 1
         os.makedirs(output_dir)
@@ -996,15 +995,14 @@ def main() -> int:
     failcheck_dir = os.path.join(output_dir, 'failcheck')
 
     # Plan the pipeline steps for the live run-status sidecar (no sidecar in dryrun). 'merge' is
-    # planned only for a full capture (not --basic-only / --fail-check-only). Steps that never start
-    # (short-circuited after an earlier failure) are marked 'skipped' at finalize().
+    # planned only for a full capture (not --basic-only). Steps that never start (short-circuited
+    # after an earlier failure) are marked 'skipped' at finalize().
     step_names = ['board_reset']
-    if not args.skip_fail_check:
+    if args.fail_check:
         step_names.append('failcheck')
-    if not args.fail_check_only:
-        step_names.append('raw')
-        if not args.basic_only:
-            step_names += ['perf', 'trace', 'merge']
+    step_names.append('raw')
+    if not args.basic_only:
+        step_names += ['perf', 'trace', 'merge']
     status = RunStatus(output_dir, command, pytest_mode, step_names) if not args.dryrun else None
 
     def _start(step: str) -> None:
@@ -1032,10 +1030,12 @@ def main() -> int:
         results.append(reset_res)
         _finish('board_reset', reset_res)
 
-    # Pre-flight: run the command once WITHOUT tracy so a trivially-broken command aborts before
-    # the expensive 3-pass Tracy capture. Appending to results makes the pass guards below and the
-    # merge short-circuit, and main() already exits non-zero when anyfails.
-    if not anyfails(results) and not args.skip_fail_check:
+    # Pre-flight (opt-in via --fail-check): run the command once WITHOUT tracy so a trivially-broken
+    # command aborts before the expensive 3-pass Tracy capture. Off by default — tracy now runs with
+    # --check-exit-code, so a failed/timed-out capture pass already trips anyfails() and aborts.
+    # Appending to results makes the pass guards below and the merge short-circuit, and main()
+    # already exits non-zero when anyfails.
+    if not anyfails(results) and args.fail_check:
         _start('failcheck')
         fc = run_failcheck(command, pytest_mode, failcheck_dir, show_output=show_output, dryrun=args.dryrun,
                            log_path=os.path.join(output_dir, 'failcheck_results_typescript.txt'),
@@ -1045,18 +1045,6 @@ def main() -> int:
         if anyfails(results):
             logger.error('no-tracy fail-check failed -- aborting before the Tracy capture passes. '
                          'Fix the command; see failcheck_results_typescript.txt.')
-
-    # --fail-check-only: stop after the pre-flight; no Tracy passes, no merge. Exit code reflects
-    # whether the command (or the preceding board reset) passed.
-    if args.fail_check_only:
-        _finalize()
-        if not args.dryrun:
-            if anyfails(results):
-                logger.error('--fail-check-only: pre-flight (or board reset) failed; exiting non-zero. '
-                             'See failcheck_results_typescript.txt.')
-                return 1
-            logger.info('--fail-check-only: command passed the no-tracy pre-flight; skipping Tracy passes and merge.')
-        return 0
 
     if not anyfails(results):
         logger.info('board reset successful, starting profiling runs')
