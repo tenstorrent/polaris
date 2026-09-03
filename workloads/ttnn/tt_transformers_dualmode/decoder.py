@@ -27,6 +27,7 @@ else:
 
 from workloads.ttnn.tt_transformers_dualmode.attention import Attention
 from workloads.ttnn.tt_transformers_dualmode.mlp import MLP
+from workloads.ttnn.tt_transformers_dualmode.model_config import dram_shard_core_grid_for_k
 from workloads.ttnn.tt_transformers_dualmode.rmsnorm import RMSNorm
 
 
@@ -112,7 +113,7 @@ class TransformerBlock:
             # width-shard spec for the residual/norm boundary reshards (capture rows 43/49/51)
             wcfg = ttnn.create_sharded_memory_config(
                 shape=(list(x.shape)[-2], self.dim),
-                core_grid=self.mesh_device.compute_with_storage_grid_size(),
+                core_grid=dram_shard_core_grid_for_k(self.dim),
                 strategy=ttnn.ShardStrategy.WIDTH,
                 orientation=ttnn.ShardOrientation.ROW_MAJOR,
                 use_height_and_width_as_shard_shape=False,
@@ -123,6 +124,13 @@ class TransformerBlock:
             page_table=page_table, chunk_page_table=chunk_page_table,
             chunk_start_idx=chunk_start_idx, kv_cache=kv_cache,
         )
+        # tt-metal reshards the ATTENTION output onto the residual spec BEFORE residual #1
+        # (decoder.py:274 `attn_out = ttnn.to_memory_config(attn_out, skip_mem_cfg)`, commit
+        # d9d52dfe7b6), and adds the MLP output directly (line 299, no pre-reshard). We previously
+        # did the mirror (resharded ff_out, not attn_out) — same 3 reshards/block but phase-shifted
+        # vs the capture, netting 1 fewer 32x4096 reshard at the final-norm boundary. Match tt-metal.
+        if decode:
+            attn_out = ttnn.reshard(attn_out, wcfg)     # attn out -> residual spec (capture Reshard row 21)
         h = ttnn.add(x, attn_out, memory_config=None)   # residual #1
         ttnn.deallocate(attn_out)
         if decode:
@@ -130,9 +138,7 @@ class TransformerBlock:
 
         ff_in = self.ff_norm(h, mode)
         ff_out = self.feed_forward.forward(ff_in, mode)
-        if decode:
-            ff_out = ttnn.reshard(ff_out, wcfg)          # ff2 -> residual spec (capture Reshard row 49)
-        out = ttnn.add(h, ff_out, memory_config=None)   # residual #2
+        out = ttnn.add(h, ff_out, memory_config=None)   # residual #2 (MLP out added directly, per tt-metal)
         if decode:
             out = ttnn.reshard(out, wcfg)                # block out -> next-norm spec (capture Reshard row 51)
         return out

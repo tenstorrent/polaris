@@ -26,6 +26,10 @@ Merge **exactly three** TT-Metal-style ops perf CSV files found under a root dir
 - Empty, `-`, or non-numeric: **skip** the range check for that cell.
 - Strip whitespace; whitespace-only is blank. **Zero** means parses to **0.0** after strip.
 
+## Input row filtering (signpost markers)
+
+Immediately after reading each CSV (before validation, classification, iteration detection, and join-key parsing), rows whose `OP TYPE` is **`signpost`** (case-insensitive) are dropped. These are Tracy signpost markers (e.g. the `start`/`stop` pair a perf test wraps around its profiled region), emitted by TT-Metal's ops-log post-processor with an empty `GLOBAL CALL COUNT`; `signpost` is the only non-op `OP TYPE` it writes. They carry no device-op data, so removing them keeps every downstream step operating on real ops only (and prevents the empty `GLOBAL CALL COUNT` from failing join-key parsing). A **`loguru` `info`** line records the count dropped per file. The same filter rule is applied to all three inputs; agreement of the three files after filtering is still enforced separately by the existing row-count-equality and identical-join-key-set checks (see *Join keys and sorting*), not by this step.
+
 ## Iteration filtering
 
 TT-Metal device-perf harnesses (e.g. `run_device_perf(num_iterations=N)`) may concatenate multiple iterations of the same model in one CSV. This script reduces the input to a single iteration so downstream tools (e.g. `tt_perf_mapper`) consume one row per op.

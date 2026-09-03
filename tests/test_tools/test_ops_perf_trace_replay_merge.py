@@ -187,6 +187,42 @@ def test_main_merges_trace_replay_capture(tmp_path):
     assert {r['DEVICE KERNEL DURATION [ns]'] for r in rows} == {'100'}
 
 
+def _tr_signpost(name):
+    # Tracy signpost marker as TT-Metal emits it: OP TYPE 'signpost', empty GLOBAL CALL
+    # COUNT and no replay session.
+    r = {c: '' for c in _TR_COLS}
+    r['OP CODE'] = name
+    r['OP TYPE'] = 'signpost'
+    return r
+
+
+@pytest.mark.unit
+def test_main_drops_signpost_rows_in_trace_replay(tmp_path):
+    # A trace+replay capture whose passes are wrapped in start/stop Tracy signposts
+    # (empty GLOBAL CALL COUNT). The signpost drop lives in the shared run_merge, so it
+    # must cover the trace+replay variant too: the merge must succeed and the marker
+    # rows must never reach the output. (Same root cause as the ResNet50 3-CSV failure.)
+    def wrapped(**kw):
+        capture = _capture_rows({'': 999, '1': 100, '2': 200}, **kw)
+        return [_tr_signpost('start'), *capture, _tr_signpost('stop')]
+
+    _write_csv(tmp_path / 'trace.csv', wrapped(dram='45.2'))
+    _write_csv(tmp_path / 'perf.csv', wrapped(fpu='62.1'))
+    _write_csv(tmp_path / 'raw.csv', wrapped())
+
+    out = tmp_path / 'merged_ops.csv'
+    rc = main([
+        '--input-dir', str(tmp_path), '--dram-peak-bw-gbps', '288.0',
+        '--output', str(out), '--duration-rel-tol', '1e9',
+    ])
+    assert rc == 0
+
+    with out.open(newline='') as fh:
+        rows = list(csv.DictReader(fh))
+    assert {r['OP CODE'] for r in rows} == {'Matmul', 'Add'}
+    assert all(r['OP TYPE'] != 'signpost' for r in rows)
+
+
 @pytest.mark.unit
 def test_main_errors_on_non_trace_replay_capture(tmp_path):
     # No populated replay-session id -> not a trace+replay capture -> exit 1.

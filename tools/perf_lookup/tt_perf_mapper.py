@@ -56,6 +56,7 @@ from tools.profiling.op_canonical import (
 
 from tools.perf_lookup.tt_perf_master_loader import load_existing_yaml
 from tools.perf_lookup.tt_perf_master_schema import (
+    MAX_KEY_INPUTS,
     MASTER_CURVE_FAMILY_KEY,
     MASTER_CURVE_FAMILY_LINEAR,
     MASTER_CURVE_FAMILY_POWER,
@@ -133,31 +134,24 @@ _MATH_FIDELITY_CALLER_CONTROLLED_OPS = frozenset({
     "rotaryembeddingllamafusedqk", "pagedfusedupdatecache", "topk", "sampling",
     "matmul",
 })
-KEY_TUPLE_COLUMN_NAMES = [
-    "OP CODE",
-    "INPUT_0_W_PAD[LOGICAL]",
-    "INPUT_0_Z_PAD[LOGICAL]",
-    "INPUT_0_Y_PAD[LOGICAL]",
-    "INPUT_0_X_PAD[LOGICAL]",
-    "INPUT_0_LAYOUT",
-    "INPUT_0_DATATYPE",
-    "INPUT_0_MEMORY",
-    "MATH FIDELITY",
-    "INPUT_1_W_PAD[LOGICAL]",
-    "INPUT_1_Z_PAD[LOGICAL]",
-    "INPUT_1_Y_PAD[LOGICAL]",
-    "INPUT_1_X_PAD[LOGICAL]",
-    "INPUT_1_LAYOUT",
-    "INPUT_1_DATATYPE",
-    "INPUT_1_MEMORY",
-    "INPUT_2_W_PAD[LOGICAL]",
-    "INPUT_2_Z_PAD[LOGICAL]",
-    "INPUT_2_Y_PAD[LOGICAL]",
-    "INPUT_2_X_PAD[LOGICAL]",
-    "INPUT_2_LAYOUT",
-    "INPUT_2_DATATYPE",
-    "INPUT_2_MEMORY",
-]
+# Profiler CSV key columns: OP CODE, INPUT_0 (7), MATH FIDELITY, then INPUT_1..INPUT_{MAX-1} (7 each).
+# Generated to cover all profiler input slots (INPUT_0..INPUT_7) for full-arity keys; INPUT_0/1/2
+# order is unchanged from the historical explicit list. INPUT_3..7 are optional in a CSV (a capture
+# without them keys shorter — the slot reads as blank).
+_INPUT_COL_SUFFIXES = ("W_PAD[LOGICAL]", "Z_PAD[LOGICAL]", "Y_PAD[LOGICAL]", "X_PAD[LOGICAL]",
+                       "LAYOUT", "DATATYPE", "MEMORY")
+
+
+def _input_col_names(i: int) -> list:
+    return [f"INPUT_{i}_{s}" for s in _INPUT_COL_SUFFIXES]
+
+
+KEY_TUPLE_COLUMN_NAMES = (
+    ["OP CODE"] + _input_col_names(0) + ["MATH FIDELITY"]
+    + [c for i in range(1, MAX_KEY_INPUTS) for c in _input_col_names(i)]
+)
+# Core columns always required in a capture (op + input_0/1/2); INPUT_3..7 are optional.
+_CORE_KEY_COLUMN_NAMES = KEY_TUPLE_COLUMN_NAMES[:KEY_TUPLE_PREFIX_LEN + 2 * KEY_TUPLE_INPUT_SLOT_LEN]
 
 # Excel column (nanoseconds). Master YAML duration key is ``MASTER_DURATION_MS_KEY`` (imported from schema).
 EXCEL_DURATION_COLUMN = "DEVICE KERNEL DURATION [ns]"
@@ -425,7 +419,9 @@ def validate_columns(
     core_col = resolve_core_col(table)
     duration_col = EXCEL_DURATION_COLUMN
     cs = table.column_set
-    missing_key = [c for c in KEY_TUPLE_COLUMN_NAMES if c not in cs]
+    # Require the core columns (op + input_0/1/2); INPUT_3..7 are optional (a capture without
+    # them keys shorter — the higher slots read as blank in build_key_tuple).
+    missing_key = [c for c in _CORE_KEY_COLUMN_NAMES if c not in cs]
     if missing_key:
         raise KeyError(
             f"Key-tuple columns missing: {missing_key}. Available: {list(table.columns)}"
@@ -470,6 +466,25 @@ def parse_pad(cell) -> int | None:
     if m is None:
         return None
     return int(m.group(2))
+
+
+def parse_pad_padded(cell) -> int | None:
+    """Parse padded[logical] -> padded (int). Return None if not match."""
+    if is_na(cell):
+        return None
+    m = PAD_PATTERN.match(str(cell).strip())
+    return int(m.group(1)) if m is not None else None
+
+
+# Ops whose input_0 batch dim (Y) is tile-padded from a smaller logical batch, so the LUT must key
+# Y on the PADDED value to match the sim (which keys its padded tensor shape) and the actual device
+# work (32 tile rows). parse_pad keys the logical value, which under-counts these:
+#   - nlpcreateqkvheadsdecode: decode batch-1 records Y as "32[1]" (padded 32, logical 1).
+#   - reshard: the attention head-dim reshard records Y as "32[8]" (padded 32, logical 8 KV heads);
+#     the hidden-dim reshards are "32[32]" (pad==logical) so they are unaffected by this rule.
+# Scoped to ops whose padded!=logical here; VGG/ViT reshards are pad==logical so keying on pad is a
+# no-op for them (and their LUTs are separate files, not rebuilt here).
+_KEY_INPUT0_Y_ON_PAD: frozenset[str] = frozenset({"nlpcreateqkvheadsdecode", "reshard"})
 
 
 def _input1_blank(cell) -> bool:
@@ -538,12 +553,14 @@ def build_key_tuple(
     key_cols: list[str],
     pad_suffixes: tuple[str, ...],
 ) -> tuple[tuple | None, str | None]:
-    """Build key tuple: 9, 16, or 23 fields (OP + INPUT_0 + MATH_FIDELITY; optional INPUT_1; optional INPUT_2).
+    """Build a full-arity key tuple: OP + INPUT_0 + MATH_FIDELITY, plus each populated
+    input slot INPUT_1..INPUT_{MAX_KEY_INPUTS-1}. Lengths are 9 (arity 1), then +7 per
+    populated slot (16, 23, 30, 37, 44, 51, 58 for arities 2..8).
 
-    Rules: each of INPUT_1_* and INPUT_2_* is either all blank or all valid (no mixing).
-    If INPUT_1_* is all blank, INPUT_2_* must be all blank (length 9).
-    If INPUT_1_* is all set and INPUT_2_* all blank → length 16.
-    If both slots are all set → length 23. INPUT_2 without INPUT_1 is invalid.
+    Rules: each INPUT_k_* slot is either all blank or all valid (no mixing). Populated
+    slots must be contiguous — the first blank slot ends the key (fixing its arity); a
+    populated slot after a blank one is invalid (profiler operands have no gaps). Missing
+    INPUT_3..7 columns (older captures) read as blank.
 
     Returns (tuple, None) on success, or (None, failure_reason) on skip.
     """
@@ -554,71 +571,59 @@ def build_key_tuple(
     n0 = KEY_TUPLE_PREFIX_LEN
     n1 = KEY_TUPLE_INPUT_SLOT_LEN
     prefix_cols = key_cols[:n0]
-    input1_cols = key_cols[n0 : n0 + n1]
-    input2_cols = key_cols[n0 + n1 : n0 + n1 + n1]
     values: list = []
     for col in prefix_cols:
         err = _append_key_field(values, col, row, pad_suffixes)
         if err is not None:
             return None, err
 
-    # Op codes in PREALLOC_OUTPUT_AS_INPUT1_OPS treat any populated INPUT_1_* as
-    # the optional preallocated output tensor — not a real operand.  Force arity-1
-    # (drop INPUT_1, and INPUT_2) so the LUT key is consistent across rows that
-    # do/don't pre-allocate the output buffer.  See op_canonical.py for the rule
-    # and its reference in tt-metal source.
+    # Op codes in PREALLOC_OUTPUT_AS_INPUT1_OPS treat any populated INPUT_1_* as the optional
+    # preallocated output tensor — not a real operand.  Force arity-1 (drop all input slots) so
+    # the LUT key is consistent across rows that do/don't pre-allocate the output buffer.  See
+    # op_canonical.py for the rule and its reference in tt-metal source.
     op_code_canon = str(values[0]).strip().lower() if values else ""
+    # For tile-padded decode ops, re-key input_0 Y (index 3) on the padded value so the LUT key
+    # matches the sim (which keys its padded tensor shape) and the actual device work (32 tile rows).
+    # Done before the PREALLOC early-return because reshard is both prealloc AND tile-padded.
+    if op_code_canon in _KEY_INPUT0_Y_ON_PAD and len(values) > 3:
+        padded_y = parse_pad_padded(row.get(key_cols[3]))
+        if padded_y is not None:
+            values[3] = padded_y
     if op_code_canon in PREALLOC_OUTPUT_AS_INPUT1_OPS:
-        i1_blank = True
-        i1_filled = False
-        i2_blank = True
-        i2_filled = False
-    else:
-        i1_blank = _all_input1_blank(row, input1_cols)
-        i1_filled = _all_input1_non_blank(row, input1_cols, pad_suffixes)
-        i2_blank = _all_input1_blank(row, input2_cols)
-        i2_filled = _all_input1_non_blank(row, input2_cols, pad_suffixes)
-
-    if i1_blank:
-        if not i2_blank and not i2_filled:
-            blank2 = [c for c in input2_cols if not _input1_cell_filled(c, row, pad_suffixes)]
-            filled2 = [c for c in input2_cols if _input1_cell_filled(c, row, pad_suffixes)]
-            return None, (
-                "INPUT_2_* must be either all blank or all non-blank; "
-                f"mixed row: non-blank in {filled2!r}, blank or invalid in {blank2!r}"
-            )
-        if i2_filled:
-            return None, (
-                "INPUT_2_* is set but INPUT_1_* is blank; ternary ops require both "
-                "INPUT_1_* and INPUT_2_* when the third input is used."
-            )
         return _normalize_math_fidelity(tuple(values)), None
 
-    if not i1_filled:
-        blank_cols = [c for c in input1_cols if not _input1_cell_filled(c, row, pad_suffixes)]
-        filled_cols = [c for c in input1_cols if _input1_cell_filled(c, row, pad_suffixes)]
-        return None, (
-            "INPUT_1_* must be either all blank or all non-blank; "
-            f"mixed row: non-blank in {filled_cols!r}, blank or invalid in {blank_cols!r}"
-        )
-    for col in input1_cols:
-        err = _append_key_field(values, col, row, pad_suffixes)
-        if err is not None:
-            return None, err
-
-    if i2_blank:
-        return _normalize_math_fidelity(tuple(values)), None
-    if not i2_filled:
-        blank2 = [c for c in input2_cols if not _input1_cell_filled(c, row, pad_suffixes)]
-        filled2 = [c for c in input2_cols if _input1_cell_filled(c, row, pad_suffixes)]
-        return None, (
-            "INPUT_2_* must be either all blank or all non-blank; "
-            f"mixed row: non-blank in {filled2!r}, blank or invalid in {blank2!r}"
-        )
-    for col in input2_cols:
-        err = _append_key_field(values, col, row, pad_suffixes)
-        if err is not None:
-            return None, err
+    # Full-arity key: append each populated input slot INPUT_1..INPUT_{MAX-1}.  Each slot is
+    # all-blank or all-filled, and filled slots must be contiguous (INPUT_k filled requires
+    # INPUT_1..k all filled) — profiler operands are ordered with no gaps.  The first blank slot
+    # ends the key (setting its arity); >3-input ops (e.g. pagedfusedupdatecache) key on every
+    # operand.  Missing INPUT_3..7 columns (older captures) read as blank.
+    seen_blank = False
+    for slot in range(1, MAX_KEY_INPUTS):
+        slot_cols = key_cols[n0 + (slot - 1) * n1 : n0 + slot * n1]
+        blank = _all_input1_blank(row, slot_cols)
+        filled = _all_input1_non_blank(row, slot_cols, pad_suffixes)
+        if not blank and not filled:
+            blank_cols = [c for c in slot_cols if not _input1_cell_filled(c, row, pad_suffixes)]
+            filled_cols = [c for c in slot_cols if _input1_cell_filled(c, row, pad_suffixes)]
+            return None, (
+                f"INPUT_{slot}_* must be either all blank or all non-blank; "
+                f"mixed row: non-blank in {filled_cols!r}, blank or invalid in {blank_cols!r}"
+            )
+        if filled:
+            if seen_blank:
+                return None, (
+                    f"INPUT_{slot}_* is set but an earlier input slot is blank; "
+                    "profiler operands must be contiguous (no gaps between input slots)."
+                )
+            for col in slot_cols:
+                err = _append_key_field(values, col, row, pad_suffixes)
+                if err is not None:
+                    return None, err
+        else:
+            seen_blank = True
+    # input_0 Y re-keying on the padded value already ran above (before the PREALLOC
+    # early-return, so it also covers prealloc ops like reshard); values[3] is untouched by
+    # the input-slot loop, so no need to repeat it here.
     return _normalize_math_fidelity(tuple(values)), None
 
 

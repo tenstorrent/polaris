@@ -41,28 +41,38 @@ op_fusion_spec:
 
 op_rsrc_spec:
   compute:
-    matrix: [Matmul, Conv, ConvTranspose, Gemm, MultiheadAttention, ScaledDotProductAttention]
-    vector: [Add, And, ArgMax, AveragePool,
+    matrix: [Matmul, Conv, ConvTranspose, Einsum, Gemm, MultiheadAttention, ScaledDotProductAttention]
+    vector: [Abs, Add, And, ArgMax, AveragePool,
              BatchNormalization,
              Cast, Clip, Concat, Constant, ConstantOfShape, Cos, CumSum,
              DequantizeLinear, Div, Dropout,
              Equal, Erf, Exp, Expand,
              Flatten, Fold,
-             Gather, GatherND, Gelu, GlobalAveragePool, GridSample, Greater, GroupNormalization,
+             Embedding,
+             Gather, GatherElements, GatherND, Gelu, GlobalAveragePool, GridSample, Greater, GreaterOrEqual, GroupNormalization,
              Halo,
              HardSigmoid, Hardswish,
              Identity, If, InterleavedToSharded, IsNaN,
              Move,
-             LayerNormalization, LeakyRelu, Log, Less,
-             Max, MaxPool, Mean, Min, Mish, Mul,
-             Neg, ConcatHeads, CreateQKVHeads, NLPCreateQKVHeadsDecode, NLPConcatHeadsDecode, # transformer head ops (prefill+decode) from ttnn_shim
+             LayerNormalization, LeakyRelu, LessOrEqual, Log, Less,
+             Max, MaxPool, Mean, Min, Mish, Mod, Mul,
+             Neg, Not, ConcatHeads, CreateQKVHeads, NLPCreateQKVHeadsDecode, NLPConcatHeadsDecode, # transformer head ops (prefill+decode) from ttnn_shim
              RotaryEmbeddingLlama, RotaryEmbeddingLlamaFusedQK, PagedFillCache, PagedFusedUpdateCache, NonMaxSuppression, NonZero, # transformer rope/cache ops from ttnn_shim
              PlusOne, ManualSeed, Sampling, # decode sampling-tail ops from ttnn_shim
              Pad, Permute, Pow,
              QuantizeLinear,
-             Reciprocal, ReduceMax, ReduceMean, ReduceMin, ReduceProd, ReduceSum, Relu, Reshard, Reshape, Resize,
+             Range, Reciprocal, ReduceMax, ReduceMean, ReduceMin, ReduceProd, ReduceSum, Relu, Reshard, Reshape, Resize,
              ScatterND, ScatterElements, Shape, ShardedToInterleaved, Sigmoid, Sin, Slice, Softmax, SoftmaxCrossEntropyLoss, Softplus, Split, Sqrt, Squeeze, Sub, Sum,
-             Tanh, Tile, Tilize, TilizeWithValPadding, TopK, TorchGather, Transpose, Trilu,
+             Tanh, Tile, Tilize, TilizeWithValPadding, TopK, TorchGather, Transpose, Trilu, Typecast,
              Unsqueeze, Untilize, UntilizeWithUnpadding, Upsample,
              VoxelPooling,
              Where]
+
+# Arch-aware column split (issue #477): the llama3 lm_head is emitted as ONE canonical
+# GEMM (dim x vocab) in the device-independent front end; the backend expands it into the
+# arch's L1-sized vocab column tiles + Concat (BH: 8 x 16032; WH: 3 x 42752), matching the
+# HW capture. Only the lm_head produces a vocab(128256)-wide matmul, so match on output_x.
+op_split_spec:
+  - op_type: MatMul
+    match_output_x: 128256   # llama3 vocab_size
+    kind: lm_head_vocab

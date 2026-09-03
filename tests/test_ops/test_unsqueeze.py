@@ -525,116 +525,108 @@ class TestUnsqueezeMemory:
     @pytest.mark.performance
     def test_unsqueeze_memory_performance(self, capsys):
         """Benchmark Unsqueeze operation memory performance: NumPy vs ttsim."""
-        try:
-            # Load device config
-            polaris_root = Path(__file__).parent.parent.parent
-            config_path = polaris_root / "config" / "tt_wh.yaml"
-            ipgroups, packages = get_arspec_from_yaml(config_path)
-            device_pkg = packages["n150"]
-            device = Device(device_pkg)
+        if not MEMORY_TEST_AVAILABLE:
+            pytest.skip("Device config not available for memory estimation")
 
-            # Test data - medium sized tensor with multiple axes
-            test_data = np.random.randn(64, 128).astype(np.float32)
-            test_axes = [0, 3]  # Insert dims at positions 0 and 3
+        # Load device config
+        polaris_root = Path(__file__).parent.parent.parent
+        config_path = polaris_root / "config" / "tt_wh.yaml"
+        ipgroups, packages = get_arspec_from_yaml(config_path)
+        device_pkg = packages["n150"]
+        device = Device(device_pkg)
 
-            logger.info(f"\n{'='*70}")
-            logger.info("Unsqueeze Operation Memory Performance")
-            logger.info(f"{'='*70}")
-            logger.info(f"\nDevice: {device.devname} ({device.name})")
-            logger.info(f"Compute frequency: {device.freq_MHz} MHz")
-            logger.info(f"Memory frequency: {device.memfreq_MHz} MHz")
-            logger.info(f"Test data shape: {test_data.shape}")
-            logger.info(f"Axes to unsqueeze: {test_axes}")
+        # Test data - medium sized tensor with multiple axes
+        test_data = np.random.randn(64, 128).astype(np.float32)
+        test_axes = [0, 3]  # Insert dims at positions 0 and 3
 
-            # Benchmark NumPy
-            numpy_stats = self._calculate_numpy_memory_stats(
-                test_data, test_axes, iterations=100
-            )
+        logger.info(f"\n{'='*70}")
+        logger.info("Unsqueeze Operation Memory Performance")
+        logger.info(f"{'='*70}")
+        logger.info(f"\nDevice: {device.devname} ({device.name})")
+        logger.info(f"Compute frequency: {device.freq_MHz} MHz")
+        logger.info(f"Memory frequency: {device.memfreq_MHz} MHz")
+        logger.info(f"Test data shape: {test_data.shape}")
+        logger.info(f"Axes to unsqueeze: {test_axes}")
 
-            # Benchmark ttsim
-            ttsim_stats = self._calculate_ttsim_memory_stats(
-                test_data, test_axes, device
-            )
+        # Benchmark NumPy
+        numpy_stats = self._calculate_numpy_memory_stats(
+            test_data, test_axes, iterations=100
+        )
 
-            if ttsim_stats is None:
-                logger.info(
-                    "\nWarning: Could not calculate ttsim memory stats (perf_stats unavailable)"
-                )
-                return
+        # Benchmark ttsim
+        ttsim_stats = self._calculate_ttsim_memory_stats(
+            test_data, test_axes, device
+        )
 
-            # Display comparison
-            logger.info(f"\n{'='*60}")
-            logger.info("Memory Performance Comparison")
-            logger.info(f"{'='*60}")
-
-            logger.info("\n-- Execution Time --")
-            logger.info(f"NumPy:  {numpy_stats['execution_time_ms']:.6f} ms")
-            logger.info(f"ttsim:  {ttsim_stats['execution_time_ms']:.6f} ms")
-
-            logger.info("\n-- Throughput (Inferences/sec) --")
-            logger.info(f"NumPy:  {numpy_stats['inferences_per_sec']:.2f}")
-            logger.info(f"ttsim:  {ttsim_stats['inferences_per_sec']:.2f}")
-
-            logger.info("\n-- Data Movement --")
-            logger.info(f"NumPy:  {numpy_stats['data_movement_MB']:.3f} MB")
-            logger.info(f"ttsim:  {ttsim_stats['data_movement_MB']:.3f} MB")
-
-            logger.info("\n-- Total Operations --")
-            logger.info(f"NumPy:  {numpy_stats['total_operations']:,}")
-            logger.info(f"ttsim:  {ttsim_stats['total_operations']:,}")
-
-            logger.info("\n-- Arithmetic Intensity (ops/byte) --")
-            logger.info(f"NumPy:  {numpy_stats['arithmetic_intensity']:.4f}")
-            logger.info(f"ttsim:  {ttsim_stats['arithmetic_intensity']:.4f}")
-
-            logger.info("\n-- ttsim-Only Memory Analysis --")
+        if ttsim_stats is None:
             logger.info(
-                f"Memory Efficiency (vs Effective):  {ttsim_stats['memory_efficiency']:.1%}"
+                "\nWarning: Could not calculate ttsim memory stats (perf_stats unavailable)"
             )
-            logger.info(
-                f"Memory BW Utilization (vs Peak):   {ttsim_stats['mem_bw_utilization']:.1%}"
-            )
-            logger.info(
-                f"Bottleneck:                         {ttsim_stats['bottleneck']}"
-            )
-            logger.info(
-                f"Memory Pressure Score:              {ttsim_stats['memory_pressure']:.3f}"
-            )
+            return
 
-            logger.info("\n-- ttsim Memory Cycles Breakdown --")
-            logger.info(f"Compute Cycles:    {ttsim_stats['compute_cycles']}")
-            logger.info(f"Memory Cycles:     {ttsim_stats['memory_cycles']}")
-            logger.info(f"  Read Cycles:     {ttsim_stats['mem_rd_cycles']}")
-            logger.info(f"  Write Cycles:    {ttsim_stats['mem_wr_cycles']}")
-            logger.info(f"Memory Read Util:  {ttsim_stats['mem_rd_util']:.1%}")
-            logger.info(f"Memory Write Util: {ttsim_stats['mem_wr_util']:.1%}")
+        # Display comparison
+        logger.info(f"\n{'='*60}")
+        logger.info("Memory Performance Comparison")
+        logger.info(f"{'='*60}")
 
-            logger.info(f"\n{'='*60}\n")
+        logger.info("\n-- Execution Time --")
+        logger.info(f"NumPy:  {numpy_stats['execution_time_ms']:.6f} ms")
+        logger.info(f"ttsim:  {ttsim_stats['execution_time_ms']:.6f} ms")
 
-            # Assert basic sanity checks
-            assert (
-                numpy_stats["execution_time_ms"] > 0
-            ), "NumPy execution time should be positive"
-            assert (
-                ttsim_stats["execution_time_ms"] > 0
-            ), "ttsim execution time should be positive"
-            # For unsqueeze, operations might be minimal (shape manipulation)
-            assert (
-                numpy_stats["total_operations"] >= 0
-            ), "NumPy operations should be non-negative"
-            assert (
-                ttsim_stats["total_operations"] >= 0
-            ), "ttsim operations should be non-negative"
+        logger.info("\n-- Throughput (Inferences/sec) --")
+        logger.info(f"NumPy:  {numpy_stats['inferences_per_sec']:.2f}")
+        logger.info(f"ttsim:  {ttsim_stats['inferences_per_sec']:.2f}")
 
-        except Exception as e:
-            logger.info(
-                f"\nWarning: Could not complete memory performance test: {e}"
-            )
-            import traceback
+        logger.info("\n-- Data Movement --")
+        logger.info(f"NumPy:  {numpy_stats['data_movement_MB']:.3f} MB")
+        logger.info(f"ttsim:  {ttsim_stats['data_movement_MB']:.3f} MB")
 
-            traceback.print_exc()
-            # Don't fail the test if memory profiling fails
-            pytest.skip(f"Memory performance test skipped: {e}")
+        logger.info("\n-- Total Operations --")
+        logger.info(f"NumPy:  {numpy_stats['total_operations']:,}")
+        logger.info(f"ttsim:  {ttsim_stats['total_operations']:,}")
+
+        logger.info("\n-- Arithmetic Intensity (ops/byte) --")
+        logger.info(f"NumPy:  {numpy_stats['arithmetic_intensity']:.4f}")
+        logger.info(f"ttsim:  {ttsim_stats['arithmetic_intensity']:.4f}")
+
+        logger.info("\n-- ttsim-Only Memory Analysis --")
+        logger.info(
+            f"Memory Efficiency (vs Effective):  {ttsim_stats['memory_efficiency']:.1%}"
+        )
+        logger.info(
+            f"Memory BW Utilization (vs Peak):   {ttsim_stats['mem_bw_utilization']:.1%}"
+        )
+        logger.info(
+            f"Bottleneck:                         {ttsim_stats['bottleneck']}"
+        )
+        logger.info(
+            f"Memory Pressure Score:              {ttsim_stats['memory_pressure']:.3f}"
+        )
+
+        logger.info("\n-- ttsim Memory Cycles Breakdown --")
+        logger.info(f"Compute Cycles:    {ttsim_stats['compute_cycles']}")
+        logger.info(f"Memory Cycles:     {ttsim_stats['memory_cycles']}")
+        logger.info(f"  Read Cycles:     {ttsim_stats['mem_rd_cycles']}")
+        logger.info(f"  Write Cycles:    {ttsim_stats['mem_wr_cycles']}")
+        logger.info(f"Memory Read Util:  {ttsim_stats['mem_rd_util']:.1%}")
+        logger.info(f"Memory Write Util: {ttsim_stats['mem_wr_util']:.1%}")
+
+        logger.info(f"\n{'='*60}\n")
+
+        # Assert basic sanity checks
+        assert (
+            numpy_stats["execution_time_ms"] > 0
+        ), "NumPy execution time should be positive"
+        assert (
+            ttsim_stats["execution_time_ms"] > 0
+        ), "ttsim execution time should be positive"
+        # For unsqueeze, operations might be minimal (shape manipulation)
+        assert (
+            numpy_stats["total_operations"] >= 0
+        ), "NumPy operations should be non-negative"
+        assert (
+            ttsim_stats["total_operations"] >= 0
+        ), "ttsim operations should be non-negative"
 
 
 # ===========================================================================
@@ -667,18 +659,15 @@ def test_unsqueeze_memory_validation(capsys, request):
     # Load device configuration once
     polaris_root = Path(__file__).parent.parent.parent
     config_path = polaris_root / "config" / "tt_wh.yaml"
-    try:
-        ipgroups, packages = get_arspec_from_yaml(config_path)
-        device_pkg = packages["n150"]
-        device = Device(device_pkg)
+    ipgroups, packages = get_arspec_from_yaml(config_path)
+    device_pkg = packages["n150"]
+    device = Device(device_pkg)
 
-        logger.info(f"\nDevice: {device.devname} ({device.name})")
-        logger.info(f"Frequency: {device.freq_MHz} MHz")
-        logger.info(
-            f"Peak Bandwidth: {device.simconfig_obj.peak_bandwidth(freq_units='GHz'):.2f} GB/s"
-        )
-    except Exception as e:
-        pytest.skip(f"Could not load device config: {e}")
+    logger.info(f"\nDevice: {device.devname} ({device.name})")
+    logger.info(f"Frequency: {device.freq_MHz} MHz")
+    logger.info(
+        f"Peak Bandwidth: {device.simconfig_obj.peak_bandwidth(freq_units='GHz'):.2f} GB/s"
+    )
 
     # Test cases: different shapes and axes patterns
     test_cases = [

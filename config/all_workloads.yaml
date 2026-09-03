@@ -198,6 +198,15 @@ workloads:
     instances:
       llama3_8b_dualmode_decode: { bs: 32, model_name: llama3-8B }
       llama3_8b_dualmode_decode_1L: { bs: 32, model_name: llama3-8B, n_layers: 1 }  # 1-layer variant for HW-refrun layer matching
+      # bs=1 / max_seq_len=1024 MATCH the HW reference (simple_text_demo -k "performance and
+      # batch-1", seq_len=1024; batch-32 decode OOMs on p100a, so batch-1 is the available capture).
+      # Decode tile-pads batch to 32 (act_users) so matmul shapes equal bs=32; the paged KV index
+      # tensors (cur_pos, page_table) track the active batch, so the sim's batch AND seq_len must
+      # equal the capture's. Bump both here to match a new reference captured at a different config.
+      llama3_8b_dualmode_decode_1L_b1: { bs: 1, model_name: llama3-8B, n_layers: 1, max_seq_len: 1024 }
+      # bs=1 FULL-layer variant — for the full-model projection-vs-refrun comparison against the
+      # batch-1 32-layer 260703 capture (seq_len=1024).
+      llama3_8b_dualmode_decode_b1: { bs: 1, model_name: llama3-8B, max_seq_len: 1024 }
 
   - api: TTNN
     name: mistral_decode
@@ -511,6 +520,7 @@ workloads:
     instances:
       vgg_unet_bh_b1_perf_report: { bs: 1, model_name: vgg-unet-bh-b1-perf-report }
 
+
   - api: TTNN
     name: PI0
     basedir: workloads/ttnn/PI0/tt
@@ -527,3 +537,106 @@ workloads:
       bs: 1
     instances:
       pi0_base: { image_size: 224, patch_size: 14, num_images: 1, lang_seq_len: 256 }
+
+
+  - api: TTNN
+    name: gemma3_decoder_prefill
+    basedir: workloads/ttnn/gemma3
+    module: run_decoder_inference@test_decoder_prefill.py
+    instances:
+      gemma3_decoder_prefill_seq128:
+        bs: 1
+        max_seq_len: 128
+        paged_attention: true
+        model_name: gemma3-decoder-prefill-seq128
+      gemma3_decoder_prefill_seq256:
+        bs: 1
+        max_seq_len: 256
+        paged_attention: true
+        model_name: gemma3-decoder-prefill-seq256
+      gemma3_decoder_prefill_seq512:
+        bs: 1
+        max_seq_len: 512
+        paged_attention: true
+        model_name: gemma3-decoder-prefill-seq512
+
+  - api: TTNN
+    name: gemma3_decoder_decode
+    basedir: workloads/ttnn/gemma3
+    module: run_decoder_inference@test_decoder.py
+    instances:
+      gemma3_decoder_basic:
+        bs: 1
+        max_seq_len: 128
+        model_name: gemma3-decoder-basic
+
+  # Gemma3 Vision Pipeline Tests
+  - api: TTNN
+    name: gemma3_vision
+    basedir: workloads/ttnn/gemma3
+    module: run_gemma_vision@test_vision_pipeline.py
+    instances:
+      gemma3_vision_bs1:
+        bs: 1
+        model_name: gemma3-vision-bs1
+      gemma3_vision_bs2:
+        bs: 2
+        model_name: gemma3-vision-bs2
+
+  # ----- Gemma3 vision per-component workloads -----
+
+  - api: TTNN
+    name: gemma3_vision_patch_embedding
+    basedir: workloads/ttnn/gemma3
+    module: run_conv2d_inference@test_patch_embedding.py
+    instances:
+      gemma3_vision_patch_embedding_bs1: { bs: 1, model_name: gemma3-vision-patch-embedding-bs1 }
+
+  - api: TTNN
+    name: gemma3_vision_embedding
+    basedir: workloads/ttnn/gemma3
+    module: run_vision_embedding_integration@test_vision_embedding.py
+    instances:
+      gemma3_vision_embedding_bs1: { bs: 1, model_name: gemma3-vision-embedding-bs1 }
+
+  - api: TTNN
+    name: gemma3_vision_attention
+    basedir: workloads/ttnn/gemma3
+    module: run_attention_inference@test_vision_attention.py
+    instances:
+      gemma3_vision_attention_bs1: { bs: 1, batch: 1, model_name: gemma3-vision-attention-bs1 }
+
+  - api: TTNN
+    name: gemma3_vision_mlp
+    basedir: workloads/ttnn/gemma3
+    module: run_mlp_inference@test_vision_mlp.py
+    instances:
+      gemma3_vision_mlp_bs1: { bs: 1, batch: 1, model_name: gemma3-vision-mlp-bs1 }
+
+  - api: TTNN
+    name: gemma3_vision_rmsnorm
+    basedir: workloads/ttnn/gemma3
+    module: run_rmsnorm_inference@test_vision_rmsnorm.py
+    instances:
+      gemma3_vision_rmsnorm_bs1: { bs: 1, batch_size: 1, seq_len: 128, model_name: gemma3-vision-rmsnorm-bs1 }
+
+  - api: TTNN
+    name: gemma3_vision_ln_post
+    basedir: workloads/ttnn/gemma3
+    module: run_llama_rms_norm@test_vision_rmsnorm.py
+    instances:
+      gemma3_vision_ln_post_bs1: { bs: 1, model_name: gemma3-vision-ln-post-bs1 }
+
+  - api: TTNN
+    name: gemma3_vision_transformer_block
+    basedir: workloads/ttnn/gemma3
+    module: run_block_inference@test_vision_transformer_block.py
+    instances:
+      gemma3_vision_transformer_block_bs1: { bs: 1, batch: 1, model_name: gemma3-vision-transformer-block-bs1 }
+
+  - api: TTNN
+    name: gemma3_vision_transformer
+    basedir: workloads/ttnn/gemma3
+    module: run_image_transformer_inference@test_vision_transformer.py
+    instances:
+      gemma3_vision_transformer_bs1: { bs: 1, batch: 1, model_name: gemma3-vision-transformer-bs1 }
