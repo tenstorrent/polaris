@@ -150,7 +150,7 @@ def parse_stablehlo(text, wlname):
         # runtime inputs (input_ids / mask / position ids) are integer-typed -> not params.
         is_weight = (dt in _FLOATS) and (shp is not None) and (len(shp) >= 1)
         fg.T(nm, shp, dt, is_param=is_weight)
-    alias = {}
+    alias: dict = {}
     resolve = _resolve_fn(alias)
     line_re = re.compile(r"^\s*%([\w.]+)\s*=\s*(.*)$")
     i = 0
@@ -248,7 +248,7 @@ _TTIR_DROP = {"empty", "iota"}
 
 
 def _ttir_reduce_attrs(attrblk):
-    attrs = {}
+    attrs: dict = {}
     dm = re.search(r"dim_arg\s*=\s*\[([^\]]*)\]", attrblk)
     if dm:
         attrs["axes"] = [int(x) for x in re.findall(r"-?\d+", dm.group(1).split(":")[0])]
