@@ -9,3 +9,4 @@ workloads:
       matmul_only: { path: matmul_only.mlir, bs: 1 }
       mlp_block:   { path: mlp_block.mlir,   bs: 1 }
       mlp_forge_real: { path: mlp_forge_real.mlir, bs: 1 }
+      bert: { path: bert.ttir.mlir, bs: 1 }
