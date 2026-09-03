@@ -1,3 +1,5 @@
+// SPDX-FileCopyrightText: (C) 2025 Tenstorrent AI ULC
+// SPDX-License-Identifier: Apache-2.0
 module @jit_enc attributes {mhlo.num_partitions = 1 : i32, mhlo.num_replicas = 1 : i32} {
   ttcore.device_module {
     builtin.module @jit_enc attributes {mhlo.num_partitions = 1 : i32, mhlo.num_replicas = 1 : i32} {
