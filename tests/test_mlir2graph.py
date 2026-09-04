@@ -74,3 +74,30 @@ def test_bert_base_ttir_shape_inference():
         op.get_perf_counts(it, ot)
         for t in ot:
             assert t.shape is not None
+
+
+@pytest.mark.unit
+def test_parse_vit_base_real_ttir():
+    """Real Forge TTIR of a 12-layer ViT-base encoder parses to 97 MatMuls
+    (12 layers x 8 attention/FFN matmuls + 1 linear patch-embed) and emits the
+    class-token Concat that ViT needs on top of the transformer op families."""
+    fg = parse_mlir(f"{EXAMPLES}/vit.ttir.mlir")
+    matmuls = [op for op in fg.ops if op.optype == "MatMul"]
+    assert len(matmuls) == 97
+    concats = [op for op in fg.ops if op.optype == "Concat"]
+    assert len(concats) == 1                       # cls-token prepend
+    assert concats[0].attrs.get("axis") is not None  # ttir.concat `dim = N` -> axis
+    optypes = {op.optype for op in fg.ops}
+    assert {"MatMul", "Add", "Concat", "Transpose", "Reshape"} <= optypes
+
+
+@pytest.mark.unit
+def test_vit_base_ttir_shape_inference():
+    """Shape inference resolves every op of the ViT-base TTIR graph."""
+    gg = mlir2graph("vit", f"{EXAMPLES}/vit.ttir.mlir")
+    for _, op in gg._ops.items():
+        it = [gg._tensors[x] for x in op.inList]
+        ot = [gg._tensors[x] for x in op.outList]
+        op.get_perf_counts(it, ot)
+        for t in ot:
+            assert t.shape is not None
