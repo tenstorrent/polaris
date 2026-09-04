@@ -211,8 +211,40 @@ def parse_stablehlo(text, wlname):
             g = lambda mm, k: [int(x) for x in mm.group(k).split(",") if x.strip()] if mm else []
             _emit_dot_general(fg, i, res, a, b, g(cd, 1), g(cd, 2), g(bd, 1), g(bd, 2), rshp, rdt)
             continue
+        if op == "convolution":
+            # StableHLO NCHW/OIHW conv -> Polaris Conv (ONNX-style attrs). Used by ViT's
+            # patch-embedding and by CNNs.
+            inp, wt = resolve(operands[0]), resolve(operands[1])
+
+            def _pl(key: str) -> list:
+                m = re.search(key + r"\s*=\s*\[([^\]]*)\]", rhs)
+                return [int(x) for x in re.findall(r"-?\d+", m.group(1))] if m else []
+            strides = _pl("stride") or [1, 1]
+            dilations = _pl("rhs_dilate") or [1, 1]
+            pads: list = [0, 0, 0, 0]
+            pm = re.search(r"pad\s*=\s*\[\[([^\]]*)\],\s*\[([^\]]*)\]\]", rhs)
+            if pm:
+                pt, pb = [int(x) for x in re.findall(r"-?\d+", pm.group(1))]
+                pl, pr = [int(x) for x in re.findall(r"-?\d+", pm.group(2))]
+                pads = [pt, pl, pb, pr]
+            gm = re.search(r"feature_group_count\s*=\s*(\d+)", rhs)
+            group = int(gm.group(1)) if gm else 1
+            wsh = fg.tensors[wt].shape                       # [O, I, kH, kW]
+            ksh = list(wsh[2:]) if wsh and len(wsh) >= 4 else []
+            fg.T(res, rshp, rdt)
+            fg.ops.append(FOp(name=f"conv_{i}", optype="Conv", inList=[inp, wt], outList=[res],
+                              attrs={"kernel_shape": ksh, "strides": strides, "pads": pads,
+                                     "dilations": dilations, "group": group}))
+            continue
+        if op == "concatenate":
+            ins = [resolve(x) for x in operands]
+            am = re.search(r"dim\s*=\s*(\d+)", rhs)
+            fg.T(res, rshp, rdt)
+            fg.ops.append(FOp(name=f"concat_{i}", optype="Concat", inList=ins, outList=[res],
+                              attrs={"axis": int(am.group(1)) if am else 0}))
+            continue
         if op in ("call", "gather", "compare", "select", "and", "or", "not", "slice",
-                  "dynamic_slice", "dynamic_update_slice", "concatenate", "clamp", "reverse",
+                  "dynamic_slice", "dynamic_update_slice", "clamp", "reverse",
                   "is_finite", "sign", "floor"):
             # non-compute bookkeeping (embedding lookup / attention-mask machinery):
             # native BERT models do not model these either; keep result as a leaf so the
@@ -258,6 +290,9 @@ def _ttir_reduce_attrs(attrblk):
     pm = re.search(r"permutation\s*=\s*array<i64:\s*([\d,\s]*)>", attrblk)
     if pm:
         attrs["perm"] = [int(x) for x in pm.group(1).split(",") if x.strip()]
+    cm = re.search(r"\bdim\s*=\s*(-?\d+)", attrblk)   # ttir.concat: dim = N -> Concat axis
+    if cm:
+        attrs["axis"] = int(cm.group(1))
     return attrs
 
 
