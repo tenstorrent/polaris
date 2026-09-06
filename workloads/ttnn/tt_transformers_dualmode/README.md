@@ -55,12 +55,12 @@ else:
 The Polaris path never reads an HF checkpoint. Config comes from a Polaris-side
 `ModelArgs` (llama3-8B params, audited vs tt-metal); weights are fabricated as
 shape-correct dummies (`dummy_weights=True`, `ttnn._rand`/`ttnn.zeros`). No
-`safetensors`/`transformers`/`huggingface_hub` on the Polaris path. (Design doc §5.)
+`safetensors`/`transformers`/`huggingface_hub` on the Polaris path.
 
 ## Config pins (so only the captured path runs)
 
 `rope_type=llama3` (→ RotarySetup), `paged_attention=1`, `num_devices=1` (single-chip,
-no CCL), `use_prefetcher=True`, no chunked prefill. (Design doc §8c.)
+no CCL), `use_prefetcher=True`, no chunked prefill.
 
 ## Per-file convention
 
@@ -69,7 +69,7 @@ tt-metal), the tt-metal source path it mirrors, and any audit fixes vs the base.
 
 ## References
 
-- Design doc: GDrive `plan-and-other-internal-docs/workloads/llama3_polaris_migration_plan.md`
-  (§2 layout, §5 HF consumption, §8 call→op map + config pins).
-- Memory `project_llama3_migration_planning`.
-- The `migrate-workload-dual-mode` skill (the procedure this follows).
+- Each ported file's module docstring names the tt-metal source path it mirrors
+  (see "Per-file convention" above).
+- Upstream reference implementation: `models/tt_transformers` in
+  [tenstorrent/tt-metal](https://github.com/tenstorrent/tt-metal).
