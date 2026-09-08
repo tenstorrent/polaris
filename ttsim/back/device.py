@@ -267,21 +267,40 @@ class Device:
         if TYPE_CHECKING:
             assert op.perf_stats is not None, f"SimOp {op.name} has no perf_stats set, cannot execute"
 
-        #find compute cycles
-        op.compute_cycles = 0
-        for instr,instr_count in op.perf_stats['instrs'].items():
-            # Enhanced error handling to provide context when instruction lookup fails
-            # (e.g., when an operation needs an instruction not in its primary pipe)
-            try:
-                peak_ipc = self.simconfig_obj.peak_ipc(op.uses_compute_pipe, instr, op.precision)
-            except AssertionError as e:
-                raise AssertionError(
-                    f"Failed to get peak IPC for operation '{op.name}' (optype={op.optype}): "
-                    f"instruction='{instr}', pipe='{op.uses_compute_pipe}', precision='{op.precision}'. "
-                    f"Original error: {e}"
-                ) from e
-            real_ipc = peak_ipc * self.DG_COMPUTE_UTIL_CONSTANT
-            op.compute_cycles += math.ceil(instr_count / real_ipc)
+        # find compute cycles. A fused op may carry a precomputed per-op cycle count
+        # (e.g. the SDPA roofline); otherwise use the generic instrs/IPC lookup.
+        fused_cycles = op.perf_stats.get('fused_compute_cycles')
+        # The SDPA roofline is calibrated for one device only; off that device fall back to the
+        # generic instr estimate rather than booking a cross-arch cost (sinf has no device context).
+        calib_dev = op.perf_stats.get('sdpa_calibrated_arch')
+        calib_sku = op.perf_stats.get('sdpa_calibrated_sku')
+        # Envelope gate, fail closed: both the package and the device instance (the SKU, e.g.
+        # p100a vs p150a) must match the calibration, otherwise use the generic estimate.
+        cross_arch = (calib_dev is not None and calib_dev != self.devname) or \
+                     (calib_sku is not None and calib_sku != self.name)
+        if cross_arch:
+            logger.warning(f"SDPA roofline for {op.name!r} is calibrated for {calib_dev!r} "
+                           f"{calib_sku or ''}, not {self.devname!r} {self.name!r}; using the "
+                           f"generic estimate instead.", once=True)
+        if fused_cycles is not None and not cross_arch:
+            op.compute_cycles = int(math.ceil(fused_cycles))
+            # Flag whether the fused cycles are a floor (lower bound) so the rollup can surface it.
+            op.compute_is_lower_bound = bool(op.perf_stats.get('sdpa_compute_is_floor', False))
+        else:
+            op.compute_cycles = 0
+            for instr,instr_count in op.perf_stats['instrs'].items():
+                # Enhanced error handling to provide context when instruction lookup fails
+                # (e.g., when an operation needs an instruction not in its primary pipe)
+                try:
+                    peak_ipc = self.simconfig_obj.peak_ipc(op.uses_compute_pipe, instr, op.precision)
+                except AssertionError as e:
+                    raise AssertionError(
+                        f"Failed to get peak IPC for operation '{op.name}' (optype={op.optype}): "
+                        f"instruction='{instr}', pipe='{op.uses_compute_pipe}', precision='{op.precision}'. "
+                        f"Original error: {e}"
+                    ) from e
+                real_ipc = peak_ipc * self.DG_COMPUTE_UTIL_CONSTANT
+                op.compute_cycles += math.ceil(instr_count / real_ipc)
 
         # Find memory cycles.
         # NOTE: This calculation is done at the unit of bytes to avoid potential ambiguity of GB (1024 or 1000)
@@ -919,6 +938,12 @@ class Device:
                     'memory_traffic'   : memory_traffic,
                     'mem_util'         : mem_util,
                     'uses_perf_lookup' : uses_perf_lookup,
+                    # True when the cost is an SDPA roofline compute floor (lower bound), not a
+                    # LUT-measured wall-clock. A LUT hit overrides the roofline, so only holds on a miss.
+                    'compute_is_lower_bound': (
+                        bool(getattr(op, 'compute_is_lower_bound', False))
+                        and not uses_perf_lookup
+                    ),
                     # LUT-key trail: ``lut_key`` is the literal key built from the
                     # op + tensor state; ``lut_key_resolved`` is the entry the
                     # lookup chain actually matched after any fallback

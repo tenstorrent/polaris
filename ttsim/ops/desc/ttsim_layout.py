@@ -793,13 +793,75 @@ def nlp_concat_heads_decode_sinf(iTList, oTList, op, **kwargs):
     return
 
 
-def sdpa_sinf(iTList, oTList, op, **kwargs):
-    """Shape inference for ScaledDotProductAttention (prefill + decode): output = q (in0) shape.
+def _sdpa_known_shape(t, what):
+    """Roofline handlers fail fast with ValueError (the type sdpa_sinf catches) on unknown shapes."""
+    if t.shape is None:
+        raise ValueError(f"SDPA roofline: {what} shape must be known")
+    return require_shape_list(t.shape)
 
-    Inputs (prefill): q, k, v. Inputs (decode/paged): q, k_cache, v_cache, cur_pos, page_table.
-    Output has the same shape as q in all cases.
-    """
-    # Match the op-table registration ARITY_VARIADIC[3-5]: prefill=3 (q,k,v), decode/paged up to 5.
+
+def _infer_sdpa_variant(iTList, attrs):
+    """Classify an SDPA op into a variant: explicit sdpa_variant tag, else by arity/attrs (3 inputs
+    = prefill; chunk_start_idx>0 = chunked; else 4-5 inputs = decode)."""
+    v = attrs.get('sdpa_variant')
+    if v:
+        return v
+    if len(iTList) == 3:
+        return 'prefill'
+    if int(attrs.get('chunk_start_idx') or 0) > 0 or attrs.get('is_chunked_prefill'):
+        return 'chunked'
+    return 'decode'
+
+
+def _sdpa_prefill_perf(iTList, q_shape, op):
+    """Prefill / MLA / cross / windowed / masked SDPA -> compute roofline."""
+    from ttsim.perf.roofline_sdpa import sdpa_config_from_shapes, sdpa_perf_stats
+    k_shape = _sdpa_known_shape(iTList[1], "k")
+    v_shape = _sdpa_known_shape(iTList[2], "v")
+    cfg = sdpa_config_from_shapes(q_shape, k_shape, v_shape, op.attrs)
+    op.perf_stats = sdpa_perf_stats(cfg)
+
+
+def _sdpa_decode_perf(iTList, q_shape, op):
+    """Single-token / paged decode SDPA (incl. MLA decode) -> memory-bound KV-stream roofline
+    (paged only scatters the same bytes; MLA reuses K as V so no separate V read)."""
+    from ttsim.perf.roofline_sdpa import decode_perf_stats
+    k_shape = _sdpa_known_shape(iTList[1], "k_cache")
+    v_shape = _sdpa_known_shape(iTList[2], "v_cache")
+    op.perf_stats = decode_perf_stats(q_shape, k_shape, v_shape=v_shape, attrs=op.attrs)
+
+
+def _sdpa_joint_perf(iTList, q_shape, op):
+    """Joint SDPA (SD3/Flux): main + joint token streams attend over their concatenation, non-causal.
+    Model as one non-causal prefill over S_eff = main_seq + joint_seq."""
+    from ttsim.perf.roofline_sdpa import sdpa_config_from_shapes, sdpa_perf_stats
+    k_shape = _sdpa_known_shape(iTList[1], "joint k")
+    v_shape = _sdpa_known_shape(iTList[2], "joint v")
+    joint_seq = int(op.attrs.get("joint_seq") or 0)
+    q, k, v = (list(map(int, s)) for s in (q_shape, k_shape, v_shape))
+    seff = q[-2] + joint_seq
+    qj, kj, vj = q[:-2] + [seff, q[-1]], k[:-2] + [seff, k[-1]], v[:-2] + [seff, v[-1]]
+    attrs = dict(op.attrs); attrs["is_causal"] = False; attrs["is_joint"] = True
+    op.perf_stats = sdpa_perf_stats(sdpa_config_from_shapes(qj, kj, vj, attrs))
+
+
+# Single-chip only. Chunked prefill reuses the compute path; multi-chip ring is out of scope
+# (falls to passthrough). Unhandled variants / errors also fall to passthrough.
+_SDPA_FRONTENDS = {
+    'prefill': _sdpa_prefill_perf,
+    'decode': _sdpa_decode_perf,
+    'chunked': _sdpa_prefill_perf,
+    'mla': _sdpa_prefill_perf,           # FlashMLA prefill (asymmetric v_head_dim via head_dim_v attr)
+    'sparse': _sdpa_prefill_perf,        # sparse-MLA (is_sparse + kv_seq=TOPK attrs)
+    'mla_decode': _sdpa_decode_perf,     # FlashMLA decode (memory-bound, reuses K as V)
+    'joint': _sdpa_joint_perf,           # SD3/Flux joint attention (concatenated streams)
+}
+
+
+def sdpa_sinf(iTList, oTList, op, **kwargs):
+    """Shape inference + per-variant cost routing for SDPA. Output shape = q; cost via _SDPA_FRONTENDS,
+    unhandled variants use the passthrough estimate."""
+    # Op-table arity ARITY_VARIADIC[3-5]: prefill=3, decode/paged up to 5.
     assert 3 <= len(iTList) <= 5 and len(oTList) == 1
     Q = iTList[0]
     q_shape = require_shape_list(
@@ -809,6 +871,21 @@ def sdpa_sinf(iTList, oTList, op, **kwargs):
     oTList[0].dtype = Q.dtype
 
     elem_size = op.attrs.get('element_size', 2)
+    variant = _infer_sdpa_variant(iTList, op.attrs)
+    handler = _SDPA_FRONTENDS.get(variant)
+    if handler is not None:
+        try:
+            handler(iTList, q_shape, op)
+            # Keep a device-agnostic instr count so non-calibrated devices still get an estimate.
+            if not op.perf_stats.get('instrs'):
+                op.perf_stats['instrs'] = {'mov': _nelems(q_shape)}
+            return
+        except ValueError as e:
+            # The roofline fails fast with ValueError on unsupported shapes/attrs -> passthrough.
+            # Anything else is a real bug and propagates; warn once so degradation is observable.
+            from loguru import logger
+            logger.warning(f"SDPA roofline ({variant}) unavailable for {getattr(op, 'name', '?')}, "
+                           f"using passthrough estimate: {e}", once=True)
     op.perf_stats = _passthrough_perf([t.shape for t in iTList], q_shape, elem_size)
     return
 
