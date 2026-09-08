@@ -727,6 +727,13 @@ def nlp_concat_heads_decode_sinf(iTList, oTList, op, **kwargs):
     return
 
 
+def _sdpa_known_shape(t, what):
+    """Roofline handlers fail fast with ValueError (the type sdpa_sinf catches) on unknown shapes."""
+    if t.shape is None:
+        raise ValueError(f"SDPA roofline: {what} shape must be known")
+    return require_shape_list(t.shape)
+
+
 def _infer_sdpa_variant(iTList, attrs):
     """Classify an SDPA op into a variant: explicit sdpa_variant tag, else by arity/attrs (3 inputs
     = prefill; chunk_start_idx>0 = chunked; else 4-5 inputs = decode)."""
@@ -743,8 +750,8 @@ def _infer_sdpa_variant(iTList, attrs):
 def _sdpa_prefill_perf(iTList, q_shape, op):
     """Prefill / MLA / cross / windowed / masked SDPA -> compute roofline."""
     from ttsim.perf.roofline_sdpa import sdpa_config_from_shapes, sdpa_perf_stats
-    k_shape = require_shape_list(iTList[1].shape, "SDPA roofline: k shape must be known")
-    v_shape = require_shape_list(iTList[2].shape, "SDPA roofline: v shape must be known")
+    k_shape = _sdpa_known_shape(iTList[1], "k")
+    v_shape = _sdpa_known_shape(iTList[2], "v")
     cfg = sdpa_config_from_shapes(q_shape, k_shape, v_shape, op.attrs)
     op.perf_stats = sdpa_perf_stats(cfg)
 
@@ -753,8 +760,8 @@ def _sdpa_decode_perf(iTList, q_shape, op):
     """Single-token / paged decode SDPA (incl. MLA decode) -> memory-bound KV-stream roofline
     (paged only scatters the same bytes; MLA reuses K as V so no separate V read)."""
     from ttsim.perf.roofline_sdpa import decode_perf_stats
-    k_shape = require_shape_list(iTList[1].shape, "SDPA decode: k_cache shape must be known")
-    v_shape = require_shape_list(iTList[2].shape, "SDPA decode: v_cache shape must be known")
+    k_shape = _sdpa_known_shape(iTList[1], "k_cache")
+    v_shape = _sdpa_known_shape(iTList[2], "v_cache")
     op.perf_stats = decode_perf_stats(q_shape, k_shape, v_shape=v_shape, attrs=op.attrs)
 
 
@@ -762,8 +769,8 @@ def _sdpa_joint_perf(iTList, q_shape, op):
     """Joint SDPA (SD3/Flux): main + joint token streams attend over their concatenation, non-causal.
     Model as one non-causal prefill over S_eff = main_seq + joint_seq."""
     from ttsim.perf.roofline_sdpa import sdpa_config_from_shapes, sdpa_perf_stats
-    k_shape = require_shape_list(iTList[1].shape, "SDPA joint: k shape must be known")
-    v_shape = require_shape_list(iTList[2].shape, "SDPA joint: v shape must be known")
+    k_shape = _sdpa_known_shape(iTList[1], "joint k")
+    v_shape = _sdpa_known_shape(iTList[2], "joint v")
     joint_seq = int(op.attrs.get("joint_seq") or 0)
     q, k, v = (list(map(int, s)) for s in (q_shape, k_shape, v_shape))
     seff = q[-2] + joint_seq
@@ -807,8 +814,9 @@ def sdpa_sinf(iTList, oTList, op, **kwargs):
             if not op.perf_stats.get('instrs'):
                 op.perf_stats['instrs'] = {'mov': _nelems(q_shape)}
             return
-        except Exception as e:
-            # Unsupported shape/attrs -> passthrough; warn once so a real bug is not silently masked.
+        except ValueError as e:
+            # The roofline fails fast with ValueError on unsupported shapes/attrs -> passthrough.
+            # Anything else is a real bug and propagates; warn once so degradation is observable.
             from loguru import logger
             logger.warning(f"SDPA roofline ({variant}) unavailable for {getattr(op, 'name', '?')}, "
                            f"using passthrough estimate: {e}", once=True)

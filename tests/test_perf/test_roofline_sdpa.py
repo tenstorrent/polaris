@@ -9,7 +9,8 @@ from types import SimpleNamespace
 import pytest
 
 from ttsim.back.device import Device
-from ttsim.perf.roofline_sdpa import SdpaConfig, predict, sdpa_perf_stats, ARCH_BH
+from ttsim.perf.roofline_sdpa import (SdpaConfig, ArchConfig, predict, predict_decode,
+                                       sdpa_perf_stats, sdpa_config_from_shapes, ARCH_BH)
 
 
 # Measured per-core MATH cycles on Blackhole P100 (SDPA/verif_data sweeps).
@@ -741,6 +742,44 @@ def test_predict_rejects_bad_dtype_and_fidelity_but_pads_shapes():
     padded = predict(SdpaConfig(S=5000, num_cores=110, arch=ARCH_BH))
     assert padded.compute_latency_cycles > 0
     assert padded.q_chunks_per_core == (math.ceil(5000 / 128) * 32) / 110
+
+
+@pytest.mark.unit
+def test_predict_rejects_nonpositive_dims():
+    # Negative dims pass the modulo checks (-4096 % 128 == 0) and would hide inside a plausible
+    # positive total; predict() is public, so it fails fast on them.
+    with pytest.raises(ValueError):
+        predict(SdpaConfig(S=-4096, num_cores=110, arch=ARCH_BH))
+    with pytest.raises(ValueError):
+        predict(SdpaConfig(S=4096, head_dim=-128, num_cores=110, arch=ARCH_BH))
+    with pytest.raises(ValueError):
+        predict(SdpaConfig(S=4096, num_heads=0, num_cores=110, arch=ARCH_BH))
+    with pytest.raises(ValueError):
+        predict_decode(cache_len=-1024, num_q_heads=8, num_kv_heads=1, head_dim=128)
+
+
+@pytest.mark.unit
+def test_config_arch_is_per_call_not_singleton():
+    # sdpa_config_from_shapes must not hand every config the module-level ARCH_BH singleton:
+    # a caller mutating what looks like a local arch would rewrite the global.
+    q = [1, 32, 4096, 128]
+    c1 = sdpa_config_from_shapes(q, q, q, {})
+    c2 = sdpa_config_from_shapes(q, q, q, {})
+    assert c1.arch is not c2.arch
+    assert c1.arch is not ARCH_BH
+    custom = ArchConfig(name="custom")
+    c3 = sdpa_config_from_shapes(q, q, q, {}, arch=custom)
+    assert c3.arch is custom
+
+
+@pytest.mark.unit
+def test_decode_without_cur_pos_routes_as_decode():
+    # cur_pos_tensor=None filters to a 3-input op; the explicit entry-point tag must keep it on
+    # the decode path instead of the arity heuristic reading it as prefill.
+    from ttsim.ops.desc.ttsim_layout import _infer_sdpa_variant
+    assert _infer_sdpa_variant([None, None, None], {'sdpa_variant': 'decode'}) == 'decode'
+    # and the arity fallback still reads an untagged 3-input op as prefill
+    assert _infer_sdpa_variant([None, None, None], {}) == 'prefill'
 
 
 @pytest.mark.unit

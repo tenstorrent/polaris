@@ -670,8 +670,9 @@ class transformer:
         # Pass scale through unchanged: when the caller omits it (None), the shim op
         # drops it from the recorded attrs rather than fabricating a 0.0 (which is not
         # a valid SDPA scale and would pollute attrs / LUT keys vs an omitted attribute).
+        variant = 'chunked' if kwargs.get('chunk_start_idx') else 'prefill'
         return _sdpa(q, k, v, memory_config=memory_config, is_causal=bool(is_causal),
-                     scale=scale)
+                     scale=scale, sdpa_variant=variant)
 
     @staticmethod
     def scaled_dot_product_attention_decode(q, k, v, *, cur_pos_tensor=None, scale=None,
@@ -680,8 +681,10 @@ class transformer:
                                             **kwargs):
         """Decode SDPA (non-paged); output = q shape."""
         from .ttnn_shim import scaled_dot_product_attention_op as _sdpa
+        # Explicit tag: with cur_pos_tensor=None the shim drops the input and the op would
+        # otherwise be classified by arity as a 3-input prefill.
         return _sdpa(q, k, v, cur_pos_tensor, memory_config=memory_config,
-                     scale=scale)
+                     scale=scale, sdpa_variant='decode')
 
     @staticmethod
     def paged_scaled_dot_product_attention_decode(q, k, v, *, page_table_tensor=None,
@@ -693,7 +696,7 @@ class transformer:
         from .ttnn_shim import scaled_dot_product_attention_op as _sdpa
         return _sdpa(q, k, v, cur_pos_tensor, page_table_tensor,
                      memory_config=memory_config,
-                     scale=scale)
+                     scale=scale, sdpa_variant='decode')
 
     @staticmethod
     def flash_mla_prefill(q, k, *, head_dim_v, scale=None, is_causal=True,
