@@ -390,6 +390,10 @@ def predict(cfg: SdpaConfig) -> RooflineResult:
         r.regime = ("windowed" if cfg.sliding_window > 0 else
                     "masked" if cfg.has_attn_mask else "prefill")
         r.low_confidence = True
+    # The FPU/SFPU overlap law and the dispatch constants are calibrated at k_chunk 128; measured
+    # overlap rises with k_chunk, so other k_chunks are extrapolation and get flagged.
+    if cfg.k_chunk != 128 and not r.is_mla:
+        r.low_confidence = True
 
     # Per-core L1 unpacker bytes (on-chip BW floor only). GQA/MQA share KV across a query group.
     ibpt = BYTES_PER_TILE[cfg.input_dtype]
