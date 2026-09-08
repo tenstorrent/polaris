@@ -2,9 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 # Order is important; the last matching pattern takes the most precedence.
 
-# These owners will be the default owners for everything in
-# the repo. Unless a later match takes precedence,
-# @ssapreTT, @vmgeorgeTT, @jajuTT and @ykwonTT will be requested for
-# review when someone opens a pull request.
-*       @ssapreTT @vmgeorgeTT @jajuTT @ykwonTT
-workloads @ramamalladiTT
+# These owners are the owners for everything in the repo:
+# @ssapreTT, @jajuTT and @ykwonTT are requested for review when
+# someone opens a pull request.
+*       @ssapreTT @jajuTT @ykwonTT
