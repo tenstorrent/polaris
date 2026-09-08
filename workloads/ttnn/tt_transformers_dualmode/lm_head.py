@@ -11,8 +11,7 @@ Audit vs the shim-only base:
     output weight is one dummy (dim, vocab_size).
   - The capture splits the lm_head matmul into column chunks wrapped by InterleavedToSharded
     / ShardedToInterleaved (ops 48-59) for L1 sizing. This port emits the single-matmul sim
-    path + one sharded_to_interleaved; the chunk-split is a Phase-5 correlation parity item
-    (see project_llama3_prefill_op_sequence).
+    path + one sharded_to_interleaved; the chunk-split is a Phase-5 correlation parity item.
 """
 import os
 import sys
