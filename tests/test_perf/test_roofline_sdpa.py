@@ -184,15 +184,32 @@ def test_dispatch_cross_only_when_kv_seq_differs():
 
 
 @pytest.mark.unit
-def test_wall_clock_is_additive_floor_plus_dispatch():
-    # Wall-clock is the compute floor plus a per-iteration dispatch term (not a multiple of the
-    # floor), so the arch-invariant dispatch cost stays fixed when the compute floor shrinks.
+def test_wall_clock_is_wall_core_chunks_times_math_plus_dispatch():
+    # Device wall = slowest core: init + ceil-quantized chunk count x (per-chunk math floor +
+    # per-iteration dispatch over K_eff), so the arch-invariant dispatch term stays additive.
     from ttsim.perf.roofline_sdpa import _dispatch_cycles_per_iter
     cfg = _baseline_cfg(4096)
     r = predict(cfg)
-    expected = round(r.compute_latency_cycles + _dispatch_cycles_per_iter(cfg, r) * r.inner_iters)
+    assert r.q_chunks_wall_core == math.ceil(r.q_chunks_per_core)
+    floor = max(r.math_active_cycles, max(r.unpack_min_cycles, r.pack_min_cycles))
+    per_chunk = floor / r.q_chunks_per_core + _dispatch_cycles_per_iter(cfg, r) * r.k_eff
+    expected = round(r.init_overhead_cycles + r.q_chunks_wall_core * per_chunk)
     assert r.wall_clock_cycles == expected
     assert r.wall_clock_cycles > r.compute_latency_cycles
+
+
+@pytest.mark.unit
+def test_wall_steps_when_chunks_spill_past_core_count():
+    # Straggler quantization: one q-chunk past a multiple of num_cores adds a whole extra chunk to
+    # the wall core, stepping the wall by ~a full per-chunk cost (nh=13: 104 chunks -> 1/core;
+    # nh=14: 112 chunks -> 2 on the stragglers).
+    def wall(nh):
+        return predict(SdpaConfig(S=1024, num_heads=nh, is_causal=False, num_cores=110, arch=ARCH_BH))
+    r13, r14 = wall(13), wall(14)
+    assert (r13.q_chunks_wall_core, r14.q_chunks_wall_core) == (1, 2)
+    per_chunk_13 = r13.wall_clock_cycles - r13.init_overhead_cycles
+    per_chunk_14 = (r14.wall_clock_cycles - r14.init_overhead_cycles) / 2
+    assert per_chunk_14 == pytest.approx(per_chunk_13, rel=0.01)   # wall ~doubles minus init
 
 
 @pytest.mark.unit
@@ -639,15 +656,15 @@ def _polaris_device_us(perf_stats):
 @pytest.mark.unit
 @pytest.mark.parametrize("perf,meas", [
     (sdpa_perf_stats(SdpaConfig(S=4096, num_heads=32, num_kv_heads=8, head_dim=128, is_causal=True,
-                                input_dtype="bfp8_b", fidelity="HiFi2", num_cores=110, arch=ARCH_BH)), 1740),
+                                input_dtype="bfp8_b", fidelity="HiFi2", num_cores=110, arch=ARCH_BH)), 1899),
     (sdpa_perf_stats(SdpaConfig(S=1024, head_dim=576, v_head_dim=512, q_chunk=32, k_chunk=128,
                                 num_heads=16, num_kv_heads=1, fidelity="HiFi4", input_dtype="bfloat16",
                                 accum_dtype="bfloat16", is_causal=True, exp_approx_mode=False,
-                                num_cores=110, arch=ARCH_BH)), 1619),
+                                num_cores=110, arch=ARCH_BH)), 1958),
 ])
 def test_whole_pipeline_correlation_vs_measured(perf, meas):
-    # End-to-end: the projected device latency through the real Polaris pipeline tracks measured
-    # device wall-clock within ~15% for each single-chip variant.
+    # End-to-end: the projected device latency through the real Polaris pipeline tracks the measured
+    # device wall (slowest core, max zone end - min zone start) within ~15% per single-chip variant.
     us = _polaris_device_us(perf)
     assert abs(us - meas) / meas <= 0.15, f"projected {us:.0f}us vs measured {meas}us"
 
@@ -662,24 +679,25 @@ def test_whole_pipeline_correlation_decode():
 
 @pytest.mark.unit
 def test_wall_clock_per_regime_vs_measured():
-    # The additive dispatch model projects device wall-clock across the harder regimes (measured on BH).
+    # The additive dispatch model projects the device wall across the harder regimes (measured on BH,
+    # slowest-core basis).
     mla = predict(SdpaConfig(S=1024, head_dim=576, v_head_dim=512, q_chunk=32, k_chunk=128,
                              num_heads=16, num_kv_heads=1, fidelity="HiFi4", input_dtype="bfloat16",
                              accum_dtype="bfloat16", is_causal=True, exp_approx_mode=False,
                              num_cores=110, arch=ARCH_BH))
-    assert abs(mla.wall_clock_cycles / 1350.0 - 1619) / 1619 <= 0.15
+    assert abs(mla.wall_clock_cycles / 1350.0 - 1958) / 1958 <= 0.15
     sparse = predict(SdpaConfig(S=2048, kv_seq=1024, head_dim=576, v_head_dim=512, num_heads=32,
                                 num_kv_heads=1, is_sparse=True, is_causal=False, input_dtype="bfloat16",
                                 accum_dtype="bfloat16", fidelity="HiFi4", exp_approx_mode=False,
                                 num_cores=110, arch=ARCH_BH))
-    assert abs(sparse.wall_clock_cycles / 1350.0 - 5586) / 5586 <= 0.15
+    assert abs(sparse.wall_clock_cycles / 1350.0 - 6378) / 6378 <= 0.15
 
 
 @pytest.mark.unit
-@pytest.mark.parametrize("S,dev_us", [(2048, 402), (4096, 1740), (8192, 6380), (16384, 25900)])
+@pytest.mark.parametrize("S,dev_us", [(2048, 559), (4096, 1899), (8192, 7483), (16384, 28610)])
 def test_wall_clock_estimate_tracks_device_latency(S, dev_us):
-    # The wall-clock estimate (compute floor x per-regime latency multiple) tracks measured DEVICE
-    # wall-clock within ~15%; the floor stays a strict lower bound below it.
+    # The wall-clock estimate tracks the measured DEVICE wall (slowest core, max zone end - min
+    # zone start across cores) within ~15%; the floor stays a strict lower bound below it.
     r = predict(SdpaConfig(S=S, num_heads=32, num_kv_heads=8, head_dim=128, is_causal=True,
                            input_dtype="bfp8_b", fidelity="HiFi2", num_cores=110, arch=ARCH_BH))
     assert r.wall_clock_cycles > r.compute_latency_cycles     # wall-clock is above the floor

@@ -39,15 +39,14 @@ def _overlap_frac(qct, causal_like, is_mla):
     k = OVERLAP_K_CAUSAL if causal_like else OVERLAP_K_NONCAUSAL
     return max(0.0, min(OVERLAP_FRAC_MAX, 1.0 - k / qct))
 
-# Device wall-clock = compute floor + front-end/dispatch idle. The idle is a per-iteration cost
-# (measured on BH: gap/inner is flat within a regime), so it is modelled additively rather than as
-# a multiple of the floor. This separates the arch-scaling compute from the ~arch-invariant dispatch,
-# so it transfers to a faster compute engine (shrink the floor, keep the dispatch term). Cycles per
-# inner iteration, per regime.
+# Device wall-clock = the op duration of the SLOWEST core (max zone end - min zone start across
+# cores): q-chunks are ceil-quantized across cores, so the wall core runs ceil(Q) whole chunks of
+# math plus a per-iteration dispatch idle. Constants are fit against measured device walls on that
+# ceil basis. Cycles per inner iteration, per regime.
 DISPATCH_CYCLES_PER_ITER = {
-    "prefill_causal": 8900, "prefill_noncausal": 3300, "cross": 1850,
-    "windowed": 8700, "masked": 6250, "chunked": 7000, "sparse": 160000, "mla": 104600,
-    "joint": 27405,   # SD3/Flux joint kernel (~8x standard non-causal per-iter; card-fit)
+    "prefill_causal": 10560, "prefill_noncausal": 3680, "cross": 3090,
+    "windowed": 11380, "masked": 18140, "chunked": 10900, "sparse": 172700, "mla": 106200,
+    "joint": 25500,   # SD3/Flux joint kernel (~7x standard non-causal per-iter; card-fit)
 }
 
 
@@ -131,6 +130,7 @@ class RooflineResult:
     arch_name: str = ""
     regime: str = "prefill"            # prefill / decode / chunked / windowed / masked / sparse
     q_chunks_per_core: float = 0.0
+    q_chunks_wall_core: int = 0        # ceil-quantized chunks on the wall-setting (slowest) core
     k_chunks_per_q: float = 0.0
     k_eff: float = 0.0
     inner_iters: float = 0.0
@@ -148,7 +148,7 @@ class RooflineResult:
     math_idle_cycles: int = 0
     init_overhead_cycles: int = 0
     compute_latency_cycles: int = 0    # compute FLOOR (FPU/SFPU busy + L1 floor + init)
-    wall_clock_cycles: int = 0         # latency estimate = compute floor + per-regime dispatch idle x inner_iters (decode adds memory latency)
+    wall_clock_cycles: int = 0         # device wall (slowest core) = init + wall-core chunks x (math + dispatch) (decode: memory latency)
     unpack_bytes_total: int = 0        # per-core L1 unpacker bytes (drives the on-chip BW floor only)
     pack_bytes_total: int = 0
     unpack_min_cycles: int = 0
@@ -162,9 +162,9 @@ class RooflineResult:
     def to_polaris_op_perf_stats(self) -> Dict:
         """perf_stats for a fused SDPA op consumed by ttsim Device.execute_op.
 
-        fused_compute_cycles is the full device wall-clock estimate (compute floor x per-regime
-        latency multiple; decode carries its memory latency). instrs is empty (ttsim reads it as
-        instruction counts); the compute floor stays in the breakdown for reference.
+        fused_compute_cycles is the full device wall-clock estimate (slowest-core wall; decode
+        carries its memory latency). instrs is empty (ttsim reads it as instruction counts); the
+        compute floor stays in the breakdown for reference.
         """
         return {
             "inBytes": self.dram_in_bytes,
@@ -409,9 +409,11 @@ def predict(cfg: SdpaConfig) -> RooflineResult:
     l1_floor = max(r.unpack_min_cycles, r.pack_min_cycles)
     r.init_overhead_cycles = round(a.init_overhead_cycles)
     r.compute_latency_cycles = round(max(r.math_active_cycles, l1_floor) + r.init_overhead_cycles)
-    # Wall-clock estimate = compute floor + per-regime front-end/dispatch idle per inner iteration.
-    r.wall_clock_cycles = round(r.compute_latency_cycles
-                                + _dispatch_cycles_per_iter(cfg, r) * r.inner_iters)
+    # Device wall = the slowest core: it gets ceil(Q) whole q-chunks, each costing its share of the
+    # per-core compute floor plus the per-iteration dispatch idle over its K_eff inner iterations.
+    r.q_chunks_wall_core = _ceil_div(q_chunks_total, cfg.num_cores)
+    per_chunk_cycles = max(r.math_active_cycles, l1_floor) / Q + _dispatch_cycles_per_iter(cfg, r) * K_eff
+    r.wall_clock_cycles = round(r.init_overhead_cycles + r.q_chunks_wall_core * per_chunk_cycles)
     r.math_idle_cycles = round(r.inner_iters * a.idle_per_inner_iter)
     return r
 
