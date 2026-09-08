@@ -760,6 +760,13 @@ def test_predict_rejects_bad_dtype_and_fidelity_but_pads_shapes():
 
 
 @pytest.mark.unit
+def test_offcalibration_kchunk_is_low_confidence():
+    # Overlap and dispatch constants are calibrated at k_chunk 128; other k_chunks extrapolate.
+    assert predict(SdpaConfig(S=4096, k_chunk=256, num_cores=110, arch=ARCH_BH)).low_confidence
+    assert not predict(SdpaConfig(S=4096, k_chunk=128, num_cores=110, arch=ARCH_BH)).low_confidence
+
+
+@pytest.mark.unit
 def test_predict_rejects_nonpositive_dims():
     # Negative dims pass the modulo checks (-4096 % 128 == 0) and would hide inside a plausible
     # positive total; predict() is public, so it fails fast on them.
