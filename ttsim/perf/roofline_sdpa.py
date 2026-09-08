@@ -19,8 +19,10 @@ def _ceil_div(a: int, b: int) -> int:
 
 
 # Constants are calibrated for Blackhole p100a only; must match the ttsim device package name so
-# Device.execute_op can refuse the cost on a non-BH device.
+# Device.execute_op can refuse the cost on a non-BH device. ttsim archs do not model SKUs, so the
+# gate is package-level today; the calibrated SKU rides along in perf_stats for a SKU-aware backend.
 POLARIS_CALIBRATED_DEVNAME = "Blackhole"
+POLARIS_CALIBRATED_SKU = "p100a"
 
 # FPU/SFPU overlap saturates toward 1 as the q-chunk grows (more independent tiles to interleave):
 # overlap = 1 - k/qct, k fit to measured q_chunk 128 & 256 per regime (measured range 0.45-0.86).
@@ -178,6 +180,7 @@ class RooflineResult:
             "fused_compute_cycles": self.wall_clock_cycles,
             # Device.execute_op rejects the cost off-BH and flags per-regime-calibrated variants.
             "sdpa_calibrated_arch": POLARIS_CALIBRATED_DEVNAME,
+            "sdpa_calibrated_sku": POLARIS_CALIBRATED_SKU,
             "sdpa_compute_is_floor": False,
             "sdpa_mla_low_confidence": (self.is_mla or self.low_confidence),
             "sdpa_regime": self.regime,
@@ -235,7 +238,9 @@ def sdpa_config_from_shapes(q_shape, k_shape, v_shape, attrs=None, num_cores=110
         dram_scatter_derate=float(attrs.get("dram_scatter_derate")
                                   or (1.15 if attrs.get("chunk_start_idx") else 1.0)),
         exp_approx_mode=bool(attrs.get("exp_approx_mode", True)),
-        arch=arch or ARCH_BH,
+        # Per-call arch instance: the module-level ARCH_BH singleton must never end up shared
+        # (and mutable) across configs. Only honor an arch the caller actually supplied.
+        arch=arch if arch is not None else ArchConfig(),
     )
 
 
@@ -318,6 +323,11 @@ def predict(cfg: SdpaConfig) -> RooflineResult:
         raise ValueError(f"q_chunk/k_chunk must be multiples of {TILE_HW}")
     if cfg.input_dtype not in BYTES_PER_TILE or cfg.accum_dtype not in BYTES_PER_TILE:
         raise ValueError(f"unsupported dtype; supported: {sorted(BYTES_PER_TILE)}")
+    # Negative dims pass the modulo checks (-4096 % 128 == 0) and hide inside a plausible total.
+    if min(cfg.S, cfg.head_dim, cfg.num_heads, cfg.num_cores, cfg.batch, cfg.q_chunk, cfg.k_chunk) <= 0:
+        raise ValueError("S/head_dim/num_heads/num_cores/batch/q_chunk/k_chunk must be positive")
+    if min(cfg.kv_seq, cfg.v_head_dim, cfg.num_kv_heads, cfg.chunk_start_idx, cfg.sliding_window) < 0:
+        raise ValueError("kv_seq/v_head_dim/num_kv_heads/chunk_start_idx/sliding_window must be non-negative")
 
     # The kernel pads the sequence up to a whole chunk, so round chunk counts up (exact-divisible
     # S is bit-identical to ceil); avoids falling to the passthrough mov-cost on non-128 shapes.
@@ -424,12 +434,16 @@ def predict_decode(cache_len, num_q_heads, num_kv_heads, head_dim, v_head_dim=0,
     """Single-token flash/paged decode. Memory-bound: one query token streams the whole KV cache up
     to cur_pos each step, so the binding roof is DRAM KV traffic. cache_len (or cur_pos+1) is the
     attended length; exact per-step latency needs the runtime cur_pos from the trace."""
-    a = arch or ARCH_BH
+    a = arch if arch is not None else ArchConfig()
     v_head_dim = v_head_dim or head_dim
     is_mla = v_head_dim != head_dim
     if input_dtype not in BYTES_PER_TILE or accum_dtype not in BYTES_PER_TILE:
         raise ValueError(f"unsupported dtype; supported: {sorted(BYTES_PER_TILE)}")
+    if min(int(cache_len), num_q_heads, num_kv_heads or num_q_heads, head_dim, num_cores, batch, k_chunk) <= 0:
+        raise ValueError("cache_len/heads/head_dim/num_cores/batch/k_chunk must be positive")
     attended = int(cur_pos + 1) if cur_pos is not None else int(cache_len)
+    if attended <= 0:
+        raise ValueError("attended KV length must be positive (check cur_pos)")
     # Windowed decode (SWA) attends only the last `window` keys, so the KV stream caps at the window.
     if sliding_window and sliding_window > 0:
         attended = min(attended, int(sliding_window))
@@ -497,7 +511,8 @@ def decode_config_from_shapes(q_shape, k_shape, v_shape=None, attrs=None, num_co
                 batch=batch, cur_pos=attrs.get("cur_pos"),
                 sliding_window=int(attrs.get("sliding_window") or attrs.get("sliding_window_size") or 0),
                 fidelity=str(attrs.get("fidelity") or "HiFi4"),
-                input_dtype=dtype, accum_dtype="bfloat16", num_cores=num_cores, arch=arch or ARCH_BH)
+                input_dtype=dtype, accum_dtype="bfloat16", num_cores=num_cores,
+                arch=arch if arch is not None else ArchConfig())
 
 
 def decode_perf_stats(q_shape, k_shape, v_shape=None, attrs=None, num_cores=110, arch=None) -> Dict:
