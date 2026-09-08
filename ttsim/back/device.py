@@ -284,7 +284,7 @@ class Device:
                            f"generic estimate instead.", once=True)
         if fused_cycles is not None and not cross_arch:
             op.compute_cycles = int(math.ceil(fused_cycles))
-            # Mark the cost as a lower bound (compute-bound regimes) so the rollup can surface it.
+            # Flag whether the fused cycles are a floor (lower bound) so the rollup can surface it.
             op.compute_is_lower_bound = bool(op.perf_stats.get('sdpa_compute_is_floor', False))
         else:
             op.compute_cycles = 0
