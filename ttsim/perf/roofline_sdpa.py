@@ -205,7 +205,7 @@ def sdpa_perf_stats(cfg: "SdpaConfig") -> Dict:
     return predict(cfg).to_polaris_op_perf_stats()
 
 
-_ELEM_TO_DTYPE = {1: "bfp8_b", 2: "bfloat16", 4: "float32"}
+_ELEM_TO_DTYPE = {0.5: "bfp4_b", 1.0: "bfp8_b", 2.0: "bfloat16", 4.0: "float32"}
 
 
 def sdpa_config_from_shapes(q_shape, k_shape, v_shape, attrs=None, num_cores=110, arch=None):
@@ -219,7 +219,7 @@ def sdpa_config_from_shapes(q_shape, k_shape, v_shape, attrs=None, num_cores=110
     # not the (larger) K tensor dim. Sparse/joint override kv_seq (TOPK / concat) via the attr too.
     v_head_dim = int(attrs.get("head_dim_v") or v_head_dim)
     kv_seq = int(attrs.get("kv_seq") or kv_seq)
-    dtype = str(attrs.get("input_dtype") or _ELEM_TO_DTYPE.get(int(attrs.get("element_size", 2)), "bfloat16"))
+    dtype = str(attrs.get("input_dtype") or _ELEM_TO_DTYPE.get(float(attrs.get("element_size", 2)), "bfloat16"))
     qc = int(attrs.get("q_chunk_size") or 128)
     kc = int(attrs.get("k_chunk_size") or qc)
     return SdpaConfig(
@@ -503,7 +503,7 @@ def decode_config_from_shapes(q_shape, k_shape, v_shape=None, attrs=None, num_co
     batch = q[-4] if len(q) >= 4 else 1
     num_q_heads, head_dim = q[-3], q[-1]
     num_kv_heads, cache_len = k[-3], k[-2]
-    dtype = _ELEM_TO_DTYPE.get(int(attrs.get("element_size", 2)), "bfloat16")
+    dtype = _ELEM_TO_DTYPE.get(float(attrs.get("element_size", 2)), "bfloat16")
     # V head dim from the v_cache tensor (ground truth for FlashMLA), attr only as a fallback.
     v_head_dim = int(v_shape[-1]) if v_shape else int(attrs.get("head_dim_v") or 0)
     return dict(cache_len=cache_len, num_q_heads=num_q_heads, num_kv_heads=num_kv_heads,

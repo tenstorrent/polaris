@@ -830,7 +830,8 @@ class transformer:
                                            *, joint_strategy=None, scale=None, program_config=None,
                                            compute_kernel_config=None, memory_config=None, **kwargs):
         """Joint SDPA (SD3/Flux): main + joint streams attend over their concatenation, non-causal.
-        Routes to the joint roofline (cost over S_eff = main + joint); returns (out, joint_out)."""
+        Routes to the joint roofline (cost over S_eff = main + joint). The shim op is single-output,
+        so the second element is joint_tensor_q passed through as a placeholder, not a computed joint_out."""
         from .ttnn_shim import scaled_dot_product_attention_op as _sdpa
         joint_seq = int(joint_tensor_q.logical_shape()._shape[-2])
         out = _sdpa(q, k, v, memory_config=memory_config, sdpa_variant='joint',
