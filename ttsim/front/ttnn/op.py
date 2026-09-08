@@ -767,8 +767,17 @@ class transformer:
         # drops it from the recorded attrs rather than fabricating a 0.0 (which is not
         # a valid SDPA scale and would pollute attrs / LUT keys vs an omitted attribute).
         variant = 'chunked' if kwargs.get('chunk_start_idx') else 'prefill'
+        # Forward the attrs the roofline front-end prices from (K_eff, DRAM derate, mask cost);
+        # only when set, so plain prefill attrs stay clean.
+        extra = {}
+        if kwargs.get('chunk_start_idx'):
+            extra['chunk_start_idx'] = int(kwargs['chunk_start_idx'])
+        if sliding_window_size:
+            extra['sliding_window_size'] = int(sliding_window_size)
+        if kwargs.get('attn_mask') is not None:
+            extra['has_attn_mask'] = True
         return _sdpa(q, k, v, memory_config=memory_config, is_causal=bool(is_causal),
-                     scale=scale, sdpa_variant=variant)
+                     scale=scale, sdpa_variant=variant, **extra)
 
     @staticmethod
     def scaled_dot_product_attention_decode(q, k, v, *, cur_pos_tensor=None, scale=None,
@@ -779,8 +788,9 @@ class transformer:
         from .ttnn_shim import scaled_dot_product_attention_op as _sdpa
         # Explicit tag: with cur_pos_tensor=None the shim drops the input and the op would
         # otherwise be classified by arity as a 3-input prefill.
+        extra = {'sliding_window_size': int(sliding_window_size)} if sliding_window_size else {}
         return _sdpa(q, k, v, cur_pos_tensor, memory_config=memory_config,
-                     scale=scale, sdpa_variant='decode')
+                     scale=scale, sdpa_variant='decode', **extra)
 
     @staticmethod
     def paged_scaled_dot_product_attention_decode(q, k, v, *, page_table_tensor=None,
@@ -790,9 +800,10 @@ class transformer:
                                                   **kwargs):
         """Paged decode SDPA; output = q shape."""
         from .ttnn_shim import scaled_dot_product_attention_op as _sdpa
+        extra = {'sliding_window_size': int(sliding_window_size)} if sliding_window_size else {}
         return _sdpa(q, k, v, cur_pos_tensor, page_table_tensor,
                      memory_config=memory_config,
-                     scale=scale, sdpa_variant='decode')
+                     scale=scale, sdpa_variant='decode', **extra)
 
     @staticmethod
     def flash_mla_prefill(q, k, *, head_dim_v, scale=None, is_causal=True,
