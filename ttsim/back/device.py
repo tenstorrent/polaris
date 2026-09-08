@@ -273,10 +273,15 @@ class Device:
         # The SDPA roofline is calibrated for one device only; off that device fall back to the
         # generic instr estimate rather than booking a cross-arch cost (sinf has no device context).
         calib_dev = op.perf_stats.get('sdpa_calibrated_arch')
-        cross_arch = calib_dev is not None and calib_dev != self.devname
+        calib_sku = op.perf_stats.get('sdpa_calibrated_sku')
+        # Envelope gate, fail closed: both the package and the device instance (the SKU, e.g.
+        # p100a vs p150a) must match the calibration, otherwise use the generic estimate.
+        cross_arch = (calib_dev is not None and calib_dev != self.devname) or \
+                     (calib_sku is not None and calib_sku != self.name)
         if cross_arch:
-            logger.warning(f"SDPA roofline for {op.name!r} is calibrated for {calib_dev!r}, not "
-                           f"{self.devname!r}; using the generic estimate instead.", once=True)
+            logger.warning(f"SDPA roofline for {op.name!r} is calibrated for {calib_dev!r} "
+                           f"{calib_sku or ''}, not {self.devname!r} {self.name!r}; using the "
+                           f"generic estimate instead.", once=True)
         if fused_cycles is not None and not cross_arch:
             op.compute_cycles = int(math.ceil(fused_cycles))
             # Mark the cost as a lower bound (compute-bound regimes) so the rollup can surface it.
