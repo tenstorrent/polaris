@@ -518,7 +518,7 @@ def tensor_memory_str(t: Any) -> str:
 
 
 _KNOWN_TTNN_DTYPES = frozenset({
-    "BFLOAT16", "BFLOAT8_B", "BFLOAT4_B", "FLOAT32", "FLOAT16", "INT32",
+    "BFLOAT16", "BFLOAT8_B", "BFLOAT4_B", "FLOAT32", "FLOAT16", "INT32", "UINT32", "UINT16",
 })
 
 
@@ -549,6 +549,11 @@ def tensor_datatype(t: Any, op_precision: Any) -> str:
                     return "FLOAT16"
                 return "BFLOAT16"
             return "FLOAT16"
+        # UINT before INT: "INT32" is a substring of "UINT32", so the unsigned checks must win.
+        if "UINT32" in name:
+            return "UINT32"
+        if "UINT16" in name:
+            return "UINT16"
         if "INT32" in name:
             return "INT32"
     return precision_to_master_datatype(op_precision)

@@ -147,7 +147,23 @@ class CoreRangeSet:
         for range_obj in self.ranges:
             yield from range_obj
 
-CoreGrid = CoreRangeSet
+class CoreGrid(CoreRangeSet):
+    """Mimic real ttnn's ``CoreGrid(x=.., y=..)`` grid descriptor while remaining a
+    ``CoreRangeSet`` (Polaris represents grids as range sets). Dual-mode workloads must use the
+    real-ttnn ``CoreGrid(x=X, y=Y)`` form so they also run on hardware; legacy Polaris-only callers
+    pass a positional iterable of ``CoreRange``. Exposes ``.x`` / ``.y`` like real ttnn.
+    """
+    def __init__(self, ranges=None, *, x=None, y=None):
+        if x is not None or y is not None:
+            assert x is not None and y is not None, "CoreGrid(x=, y=) requires both x and y"
+            self.x = int(x)
+            self.y = int(y)
+            super().__init__([CoreRange(CoreCoord(0, 0), CoreCoord(self.x - 1, self.y - 1))])
+        else:
+            super().__init__(ranges if ranges is not None else [])
+            bb = self.bounding_box()
+            self.x = (bb.end_coord.x - bb.start_coord.x + 1) if bb is not None else 0
+            self.y = (bb.end_coord.y - bb.start_coord.y + 1) if bb is not None else 0
 
 if __name__ == '__main__':
     testcases = [

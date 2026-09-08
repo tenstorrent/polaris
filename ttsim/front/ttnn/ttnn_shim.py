@@ -1095,7 +1095,7 @@ def untilize(input_tensor, memory_config=None, use_multicore=True,
             element_size
         )
     # Use the same tensor type among the different tensor types as the input tensor
-    return type(input_tensor)(
+    out = type(input_tensor)(
         shape=output_shape,
         dtype=input_tensor.dtype,
         layout=Layout.ROW_MAJOR_LAYOUT,
@@ -1104,6 +1104,31 @@ def untilize(input_tensor, memory_config=None, use_multicore=True,
         device=input_tensor.device,
         data=output_data
     )
+    # (Un)tilize is elementwise on data; preserve the ttnn dtype (e.g. UINT32, which is stored as
+    # INT32 numpy) so downstream LUT keys read the true dtype — else a uint32 index tensor is
+    # mis-keyed INT32 (cf. the typecast layout/dtype preservation fix).
+    src_dt = getattr(input_tensor, "_ttnn_dtype", None)
+    if src_dt is not None:
+        out._ttnn_dtype = src_dt
+    # Emit an Untilize SimOp so the op appears in the graph (HW UntilizeDeviceOperation), matching
+    # the silicon capture. Previously untilize was metadata-only (only the perf _tracker ran, no
+    # graph node), so e.g. the decode sampling-tail untilize was profiler-only.
+    if should_track and input_tensor.device is not None:
+        op_name = generate_new_op_name()
+        input_tensor.op_in.append(op_name)
+        out.op_out = [op_name]
+        opinfo = {
+            'name': op_name,
+            'optype': 'Untilize',
+            'inList': [input_tensor.name],
+            'outList': [out.name],
+            'attrs': {'element_size': input_tensor.element_size()},
+        }
+        opobj = SimOp(opinfo)
+        opobj.get_perf_counts([input_tensor], [out])
+        opobj.update_tensor_counts([input_tensor], [out])
+        input_tensor.device.add_op(opobj)
+    return out
 
 
 def tilize_with_val_padding(input_tensor, output_padded_shape, pad_value,
@@ -1331,7 +1356,7 @@ def untilize_with_unpadding(input_tensor, output_tensor_end, memory_config=None,
         )
 
     # Use the same tensor type among the different tensor types as the input tensor
-    return type(input_tensor)(
+    out = type(input_tensor)(
         shape=output_shape,
         dtype=input_tensor.dtype,
         layout=Layout.ROW_MAJOR_LAYOUT,
@@ -1340,6 +1365,13 @@ def untilize_with_unpadding(input_tensor, output_tensor_end, memory_config=None,
         device=input_tensor.device,
         data=output_data
     )
+    # (Un)tilize is elementwise on data; preserve the ttnn dtype (e.g. UINT32, which is stored as
+    # INT32 numpy) so downstream LUT keys read the true dtype — else a uint32 index tensor is
+    # mis-keyed INT32 (cf. the typecast layout/dtype preservation fix).
+    src_dt = getattr(input_tensor, "_ttnn_dtype", None)
+    if src_dt is not None:
+        out._ttnn_dtype = src_dt
+    return out
 
 
 # =============================================================================
@@ -3072,6 +3104,80 @@ def paged_fill_cache_op(cache, input_tensor, page_table=None, batch_idx=0,
     return out_tensor
 
 
+def manual_seed_op(seeds, user_ids=None, sub_core_grids=None, element_size=2):
+    """ManualSeed: seed the on-device RNG for sampling (decode). Passthrough SimOp;
+    output shape = seeds so the graph edge exists."""
+    assert seeds.device is not None, "manual_seed_op requires seeds on device"
+    op_name = generate_new_op_name()
+    in_tensors = [t for t in (seeds, user_ids) if t is not None]
+    out_tensor = Tensor(
+        name=op_name + '.out',
+        shape=seeds.logical_shape()._shape,
+        dtype=seeds.dtype,
+        layout=seeds.get_layout(),
+        op_out=[op_name],
+        device=seeds.device,
+    )
+    for t in in_tensors:
+        t.op_in.append(op_name)
+    opinfo = {
+        'name': op_name,
+        'optype': 'ManualSeed',
+        'inList': [t.name for t in in_tensors],
+        'outList': [out_tensor.name],
+        'attrs': {'element_size': element_size},
+    }
+    opobj = SimOp(opinfo)
+    opobj.get_perf_counts(in_tensors, [out_tensor])
+    opobj.update_tensor_counts(in_tensors, [out_tensor])
+    _propagate_ttnn_dtype([seeds], [out_tensor])
+    seeds.device.add_op(opobj)
+    return out_tensor
+
+
+def sampling_op(topk_values, topk_indices, k=None, p=None, temp=None,
+                output_tensor=None, sub_core_grids=None, memory_config=None, element_size=2):
+    """Sampling (decode): sample one token per user from gathered top-k values/indices.
+
+    Inputs: topk_values, topk_indices (+ optional k/p/temp param tensors). Output =
+    output_tensor's shape when preallocated, else topk_values with last dim -> 1."""
+    assert topk_values.device is not None, "sampling_op requires tensors on device"
+    op_name = generate_new_op_name()
+    # LUT-miss fix (arity): the HW SamplingDeviceOperation is arity-6 — the preallocated
+    # output_tensor is logged by the profiler as input_5 (tt-metal tt_sampling.py passes
+    # output_tensor=tt_out_tok). Record it as the 6th operand so the sim key matches the capture.
+    in_tensors = [t for t in (topk_values, topk_indices, k, p, temp, output_tensor) if t is not None]
+    if output_tensor is not None:
+        out_shape = list(output_tensor.logical_shape()._shape)
+        out_dtype = output_tensor.dtype
+    else:
+        out_shape = list(topk_values.logical_shape()._shape[:-1]) + [1]
+        out_dtype = topk_indices.dtype
+    out_tensor = Tensor(
+        name=op_name + '.out',
+        shape=out_shape,
+        dtype=out_dtype,
+        layout=topk_indices.get_layout(),
+        op_out=[op_name],
+        device=topk_values.device,
+    )
+    for t in in_tensors:
+        t.op_in.append(op_name)
+    opinfo = {
+        'name': op_name,
+        'optype': 'Sampling',
+        'inList': [t.name for t in in_tensors],
+        'outList': [out_tensor.name],
+        'attrs': {'element_size': element_size},
+    }
+    opobj = SimOp(opinfo)
+    opobj.get_perf_counts(in_tensors, [out_tensor])
+    opobj.update_tensor_counts(in_tensors, [out_tensor])
+    _propagate_ttnn_dtype([topk_indices], [out_tensor])
+    topk_values.device.add_op(opobj)
+    return out_tensor
+
+
 def paged_fused_update_cache_op(k_cache, k, v_cache, v, update_idxs_tensor=None,
                                  page_table=None, memory_config=None, element_size=2):
     """PagedFusedUpdateCache (decode): update K and V caches in place.
@@ -3251,6 +3357,11 @@ def scaled_dot_product_attention_op(q, k, v, *extra_inputs, memory_config=None,
     opobj.get_perf_counts(in_tensors, [out_tensor])
     opobj.update_tensor_counts(in_tensors, [out_tensor])
     _propagate_ttnn_dtype([q], [out_tensor])
-    out_tensor._memory_config = memory_config if memory_config is not None else getattr(q, '_memory_config', None)
+    # SDPA materializes a fresh output; on HW it is DRAM-interleaved (it does NOT preserve the
+    # sharded q layout — cf. tt_transformers attention.py decode: sdpa-decode output is DRAM-
+    # interleaved, then interleaved_to_sharded for concat-heads). Inheriting q's (height-sharded)
+    # memory mis-tagged the output, so the downstream InterleavedToSharded got a sharded input and
+    # missed its LUT key. Default to DRAM-interleaved unless the caller overrides.
+    out_tensor._memory_config = memory_config if memory_config is not None else DRAM_MEMORY_CONFIG
     q.device.add_op(opobj)
     return out_tensor

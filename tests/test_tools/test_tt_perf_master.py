@@ -96,11 +96,16 @@ def _series_for_key_slots(*, input1: str, input2: str) -> dict:
         if col == "MATH FIDELITY":
             d[col] = "HiFi4"
             continue
-        slot = (
-            "0"
-            if col.startswith("INPUT_0_")
-            else ("1" if col.startswith("INPUT_1_") else "2")
-        )
+        if col.startswith("INPUT_0_"):
+            slot = "0"
+        elif col.startswith("INPUT_1_"):
+            slot = "1"
+        elif col.startswith("INPUT_2_"):
+            slot = "2"
+        else:
+            # INPUT_3..7 (full-arity schema v5): this 3-slot helper leaves them blank
+            d[col] = ""
+            continue
         mode = input1 if slot != "2" else input2
         if slot == "0":
             mode = "fill"
@@ -352,7 +357,8 @@ def test_build_key_tuple_9_16_and_23():
 def test_build_key_tuple_rejects_input2_without_input1():
     row = _series_for_key_slots(input1="blank", input2="fill")
     kt, err = build_key_tuple(row, KEY_TUPLE_COLUMN_NAMES, _PAD_SUFFIXES)
-    assert kt is None and err is not None and "INPUT_1" in err
+    # INPUT_2 set with INPUT_1 blank = a gap; full-arity build rejects non-contiguous slots.
+    assert kt is None and err is not None and "INPUT_2" in err and "contiguous" in err
 
 
 def test_build_key_tuple_rejects_mixed_input2():

@@ -148,9 +148,13 @@ def einsum_sinf(iTList, oTList, op, **kwargs):
     from .data_compute import compute_einsum
 
     output_t = oTList[0]
-    subscripts = op.attrs.get("subscripts", "")
+    # ONNX's documented attribute name is "equation" (e.g. "bhwc,hkc->bhwk").
+    # Some frontends/older exports may still populate "subscripts" instead,
+    # so fall back to that rather than assuming every model uses "equation" --
+    # this keeps any other model already relying on "subscripts" working too.
+    subscripts = op.attrs.get("equation") or op.attrs.get("subscripts", "")
 
-    assert subscripts, "Einsum requires 'subscripts' attribute"
+    assert subscripts, "Einsum requires an 'equation' (or legacy 'subscripts') attribute"
     assert len(iTList) >= 1, "Einsum requires at least one input"
 
     # Parse subscripts to determine output shape
@@ -173,7 +177,8 @@ def einsum_sinf(iTList, oTList, op, **kwargs):
         assert tensor.check_shape(), f"Input shape not defined: {tensor}"
         assert len(sub) == len(
             tensor.shape
-        ), f"Subscript length ({len(sub)}) must match tensor rank ({len(tensor.shape)})"
+        ), (f"Subscript length ({len(sub)}) must match tensor rank ({len(tensor.shape)}) "
+            f"for tensor {tensor.name} shape={list(tensor.shape)} equation={subscripts!r}")
 
         for label, size in zip(sub, tensor.shape):
             if label != " ":  # Skip spaces
@@ -852,14 +857,7 @@ def data_window_sinf(iTList, oTList, op, **kwargs):
 
 def topk_sinf(iTList, oTList, op, **kwargs):
     X = iTList[0]
-    if iTList[1].data is None:
-        K = iTList[1].clone_by_shape(data_maybe_missing=True)
-        K.data = np.array([1], dtype=np.int64) # default K=1 if input data is missing
-    else:
-        K = iTList[1].clone_by_shape(data_maybe_missing=False)
-
     assert X.check_shape(), f"Input tensor-X shape not defined: {X}"
-    assert K.dtype == np.int64, f"Input tensor-K Data-Type should be np.int64 {K}"
     XShape = list(X.shape)  # plain list copy — avoids mutating X.shape via shared Shape._shape
     XRank  = X.rank()
     _axis   : int = op.attrs.get('axis',   -1)
@@ -877,9 +875,18 @@ def topk_sinf(iTList, oTList, op, **kwargs):
 
     outshape = XShape
     d_axis   = XShape[_axis]
-    k_value  = [x.item() for x in K.data]
-    assert len(k_value) == 1, f"TopK requires K-Tensor should be 1D with a single scalar value"
-    k_scalar_value = k_value[0]
+    # K may come from a second input K-tensor (ONNX-style, a scalar int64) or from the 'k' attr
+    # (real ttnn: ttnn.topk(x, k=32, ...) — topk_pp records k in attrs). Only treat input_1 as the
+    # K-tensor when it is a scalar (nelems==1); the real-ttnn second input is a large uint16
+    # indices_tensor operand, which must NOT be read as K.
+    if len(iTList) >= 2 and iTList[1].data is not None and iTList[1].nelems() == 1:
+        K = iTList[1].clone_by_shape(data_maybe_missing=False)
+        assert K.dtype == np.int64, f"Input tensor-K Data-Type should be np.int64 {K}"
+        k_value = [x.item() for x in K.data]
+        assert len(k_value) == 1, "TopK requires K-Tensor should be 1D with a single scalar value"
+        k_scalar_value = k_value[0]
+    else:
+        k_scalar_value = int(op.attrs.get('k', 1))
     if k_scalar_value < 0:
         raise ValueError(f"TopK requires K value > 0: {k_scalar_value}")
     if k_scalar_value > d_axis:
@@ -890,10 +897,11 @@ def topk_sinf(iTList, oTList, op, **kwargs):
     oTList[1].shape = outshape
     oTList[0].dtype = X.dtype
     oTList[1].dtype = np.dtype(np.int64)
+    in_elems = sum(t.nelems() for t in iTList)
     op.perf_stats = {
-            'inElems' : iTList[0].nelems() + iTList[1].nelems(),
+            'inElems' : in_elems,
             'outElems': oTList[0].nelems() + oTList[1].nelems(),
-            'inBytes' : iTList[0].nbytes(op.precision) + iTList[1].nbytes(op.precision),
+            'inBytes' : sum(t.nbytes(op.precision) for t in iTList),
             'outBytes': oTList[0].nbytes(op.precision) + oTList[1].nbytes(op.precision),
             'instrs'  : {'mov': 0} #TODO: fix this for TopK
             }
@@ -983,13 +991,13 @@ def register_math_ops():
         ],
         [
             "TopK",
-            "ARITY_2->2",
+            "ARITY_VARIADIC[1-2]->2",
             "ai.onnx",
             "COMMON",
             24,
             11,
             2,
-            2,
+            1,
             2,
             2,
             topk_sinf,

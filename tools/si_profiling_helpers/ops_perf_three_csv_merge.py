@@ -37,6 +37,14 @@ COL_MC_NOC_UTIL = "MULTICAST NOC UTIL (%)"
 COL_ETH_BW_UTIL = "ETH BW UTIL (%)"
 COL_NPE_CONG = "NPE CONG IMPACT (%)"
 
+# Tracy signpost markers (tracy.signpost("...")) are emitted as CSV rows by TT-Metal's
+# ops-log post-processor with OP TYPE == "signpost" and no GLOBAL CALL COUNT. It is the
+# only non-op OP TYPE the processor ever writes (the sole literal OP TYPE assignment in
+# tt-metal tools/tracy/process_ops_logs.py). These rows are host-side navigation markers,
+# not device ops, so they are dropped before validation / iteration detection / join-key
+# parsing. Matched case-insensitively for robustness.
+OP_TYPE_SIGNPOST = "signpost"
+
 JOIN_KEYS: Tuple[str, ...] = (COL_GLOBAL_CALL_COUNT, COL_OP_CODE, COL_OP_TYPE)
 
 UTILIZATION_COLUMNS: Tuple[str, ...] = (
@@ -189,6 +197,22 @@ def read_csv(path: Path, encoding: str) -> Tuple[Tuple[str, ...], List[Dict[str,
                 raise MergeError(f"CSV row has more fields than header: {path}")
             rows.append(row)
         return header, rows
+
+
+def drop_signpost_rows(rows: List[Dict[str, str]], path: Path) -> List[Dict[str, str]]:
+    """Drop Tracy signpost marker rows (OP TYPE == "signpost").
+
+    Signposts are host-side timeline markers (e.g. the ``start``/``stop`` pair a perf test
+    wraps around the profiled region); TT-Metal writes them as rows with an empty
+    GLOBAL CALL COUNT, which would otherwise break join-key parsing. They carry no device-op
+    data, so removing them here keeps every downstream step (validation, iteration detection,
+    join) operating on real ops only. See ``OP_TYPE_SIGNPOST``.
+    """
+    kept = [r for r in rows if _strip_cell(r.get(COL_OP_TYPE)).lower() != OP_TYPE_SIGNPOST]
+    dropped = len(rows) - len(kept)
+    if dropped:
+        logger.info("Dropped {} signpost marker row(s) from {}", dropped, path)
+    return kept
 
 
 def require_columns(header: Sequence[str], required: Iterable[str], path: Path) -> None:
@@ -754,6 +778,7 @@ def run_merge(
     path_kind: Dict[Path, str] = {}
     for p in paths:
         header, rows = read_csv(p, encoding)
+        rows = drop_signpost_rows(rows, p)
         loaded.append((p, header, rows))
 
     # Classify

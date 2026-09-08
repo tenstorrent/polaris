@@ -43,6 +43,8 @@ class RMSNorm():
             self.weight = ttnn._rand(shape=(1, 1, 64, 32), device=device, dtype=self.weight_dtype)
         elif dim == 8192:
             self.weight = ttnn._rand(shape=(1, 1, 256, 32), device=device, dtype=self.weight_dtype)
+        elif dim == 2560:
+            self.weight = ttnn._rand(shape=(1, 1, 80, 32), device=device, dtype=self.weight_dtype)
 
     def __call__(self, x, mode="decode"):
         return ttnn.rms_norm(

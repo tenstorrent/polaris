@@ -145,22 +145,17 @@ def test_gather_memory_validation(capsys, request):
 
     # Load device configuration
     config_path = Path(polaris_root) / "config" / "tt_wh.yaml"
-    try:
-        ipgroups, packages = get_arspec_from_yaml(config_path)
-        device_pkg = packages["n150"]
-        device = Device(device_pkg)
+    ipgroups, packages = get_arspec_from_yaml(config_path)
+    device_pkg = packages["n150"]
+    device = Device(device_pkg)
 
-        logger.info(f"\nDevice: {device.devname} ({device.name})")
-        logger.info(f"Device frequency: {device.freq_MHz} MHz")
-        logger.info(f"Memory frequency: {device.memfreq_MHz} MHz")
-        logger.info(
-            "Peak bandwidth: %.2f GB/s",
-            device.simconfig_obj.peak_bandwidth(freq_units="GHz"),
-        )
-    except Exception as e:
-        logger.info(f"\nWarning: Could not load device config: {e}")
-        pytest.skip(f"Could not load device config: {e}")
-        return
+    logger.info(f"\nDevice: {device.devname} ({device.name})")
+    logger.info(f"Device frequency: {device.freq_MHz} MHz")
+    logger.info(f"Memory frequency: {device.memfreq_MHz} MHz")
+    logger.info(
+        "Peak bandwidth: %.2f GB/s",
+        device.simconfig_obj.peak_bandwidth(freq_units="GHz"),
+    )
 
     # Test cases: different gather patterns
     test_cases = [

@@ -677,19 +677,16 @@ def test_conv_transpose2d_memory_validation(capsys, request):
 
     # Load device configuration once
     config_path = Path(polaris_root) / "config" / "tt_wh.yaml"
-    try:
-        ipgroups, packages = get_arspec_from_yaml(config_path)
-        device_pkg = packages["n150"]
-        device = Device(device_pkg)
+    ipgroups, packages = get_arspec_from_yaml(config_path)
+    device_pkg = packages["n150"]
+    device = Device(device_pkg)
 
-        logger.info(f"\nDevice: {device.devname} ({device.name})")
-        logger.info(f"Frequency: {device.freq_MHz} MHz")
-        logger.info(
-            "Peak Bandwidth: %.2f GB/s",
-            device.simconfig_obj.peak_bandwidth(freq_units="GHz"),
-        )
-    except Exception as e:
-        pytest.skip(f"Could not load device config: {e}")
+    logger.info(f"\nDevice: {device.devname} ({device.name})")
+    logger.info(f"Frequency: {device.freq_MHz} MHz")
+    logger.info(
+        "Peak Bandwidth: %.2f GB/s",
+        device.simconfig_obj.peak_bandwidth(freq_units="GHz"),
+    )
 
     # Test cases covering different ConvTranspose2d scenarios
     test_cases = [

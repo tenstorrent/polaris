@@ -412,26 +412,20 @@ class TestLessMemoryValidation:
 
         # Load device configuration once for all tests
         config_path = Path(polaris_root) / "config" / "tt_wh.yaml"
-        try:
-            ipgroups, packages = get_arspec_from_yaml(config_path)
-            device_pkg = packages["n150"]  # Use Wormhole n150 device
-            device = Device(device_pkg)
+        ipgroups, packages = get_arspec_from_yaml(config_path)
+        device_pkg = packages["n150"]  # Use Wormhole n150 device
+        device = Device(device_pkg)
 
-            logger.info(f"\n{'='*60}")
-            logger.info("Less Operation Memory Validation")
-            logger.info(f"{'='*60}\n")
-            logger.info("Device: Wormhole (n150)")
-            logger.info(f"Device frequency: {device.freq_MHz} MHz")
-            logger.info(f"Memory frequency: {device.memfreq_MHz} MHz")
-            logger.info(
-                "Peak bandwidth: "
-                f"{device.simconfig_obj.peak_bandwidth(freq_units='GHz'):.2f} GB/s"
-            )
-        except Exception as e:
-            logger.info(f"\nWarning: Could not load device config: {e}")
-            logger.info("Skipping memory validation test")
-            pytest.skip(f"Could not load device config: {e}")
-            return
+        logger.info(f"\n{'='*60}")
+        logger.info("Less Operation Memory Validation")
+        logger.info(f"{'='*60}\n")
+        logger.info("Device: Wormhole (n150)")
+        logger.info(f"Device frequency: {device.freq_MHz} MHz")
+        logger.info(f"Memory frequency: {device.memfreq_MHz} MHz")
+        logger.info(
+            "Peak bandwidth: "
+            f"{device.simconfig_obj.peak_bandwidth(freq_units='GHz'):.2f} GB/s"
+        )
 
         logger.info(f"\n{'='*60}")
         logger.info("Running Memory Validation Tests")

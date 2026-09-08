@@ -35,10 +35,11 @@ non-trivial rank-4 shape with the same ``X`` (see :func:`build_master_key_tuple_
 from __future__ import annotations
 
 import math
+import re
 import sys
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Callable, Dict, Optional, Tuple, Union
+from typing import Any, Callable, Dict, Optional, Sequence, Tuple, Union
 
 # Repo root so ``from tools.perf_lookup…`` works when this file is run as a script
 # (``python tools/perf_lookup/lookup_operator_perf.py``); pytest uses ``pythonpath = .``.
@@ -58,6 +59,7 @@ from tools.profiling.shape_canonical import (
     precision_to_master_datatype,
 )
 from tools.perf_lookup.tt_perf_master_schema import (
+    STANDARD_KEY_TUPLE_LENGTHS,
     MASTER_CURVE_FAMILY_KEY,
     MASTER_CURVE_FAMILY_LINEAR,
     MASTER_CURVE_FAMILY_POWER,
@@ -102,6 +104,27 @@ _DRAM_INTERLEAVED_STR = "DEV_1_DRAM_INTERLEAVED"
 _LAYOUT_ROWMAJOR_TO_TILE_FALLBACK_OPCODES = frozenset({"halo", "sigmoid"})
 _ROW_MAJOR_STR = "ROW_MAJOR"
 _TILE_STR = "TILE"
+
+# Device-index reconciliation between sim and LUT.
+# The sim's key builder (shape_canonical.tensor_memory_str) hardcodes a "DEV_1_"
+# prefix on every memory tag (a fixed single-chip placeholder — Polaris is a
+# single-chip simulator), whereas a LUT built from a profiler capture carries the
+# real silicon DEVICE ID (e.g. "DEV_0_" for device 0). Keys are compared verbatim,
+# so a capture-built LUT would miss on every memory field purely because of the
+# device prefix. The device-normalized fallback (see lookup) reconciles this WITHOUT
+# mutating stored LUT data: it strips the DEV_<n>_ prefix on both sides and matches
+# only when exactly one LUT entry agrees on every non-device field. Genuine
+# multi-device captures (>1 entry differing only in device) stay distinct and are
+# left to exact matching — the fallback declines rather than guess.
+_DEVICE_PREFIX_RE = re.compile(r"^DEV_\d+_", re.IGNORECASE)
+
+
+def _device_normalized_key(key: tuple) -> tuple:
+    """Return *key* with the ``DEV_<n>_`` prefix stripped from every memory-tag
+    field, so keys that differ only in device index compare equal."""
+    return tuple(
+        _DEVICE_PREFIX_RE.sub("", x) if isinstance(x, str) else x for x in key
+    )
 
 # VGG UNet decoder: Polaris propagates HEIGHT_SHARDED through the post-concat ITS path, but
 # the LUT records those ops as BLOCK_SHARDED (hardware auto-selects BLOCK for smaller tensors).
@@ -421,7 +444,15 @@ def _input0_wzyx_for_master_key(op: Any, tensor_0: Any) -> Tuple[int, int, int, 
     return (w, z, y, x)
 
 
-_MATH_FIDELITY_CALLER_CONTROLLED_OPS = frozenset({"layernorm"})
+# layernorm: caller sets mf (capture HiFi2). The llama3-only ops below are added here too —
+# they are absent from every existing (VGG/ViT) LUT, so this cannot break any current hit
+# (capture shows them at HiFi4, which is exactly this set's default). matmul/conv2d/pool are
+# deliberately NOT added: existing LUTs key them under N/A, so adding them would regress those
+# hits until a coordinated LUT repopulation (see project_math_fidelity_set_too_narrow).
+_MATH_FIDELITY_CALLER_CONTROLLED_OPS = frozenset({
+    "layernorm",
+    "rotaryembeddingllamafusedqk", "pagedfusedupdatecache", "topk", "sampling",
+})
 
 
 def _op_math_fidelity(op: Any) -> str:
@@ -522,6 +553,28 @@ def build_master_key_tuple_22(
         tensor_datatype(tensor_2, prec),
         tensor_memory_str(tensor_2),
     )
+
+
+def build_master_key_tuple_n(op: Any, tensors: Sequence[Any]) -> Tuple[Any, ...]:
+    """Full-arity logical key: op_code + input_0 (7) + math_fidelity + input_i (7) for each i>=1.
+
+    Generalizes build_master_key_tuple_8/15/22 to any arity (matches them exactly for 1/2/3
+    inputs). Used for arity>=4 ops (e.g. PagedFusedUpdateCache, ScaledDotProductAttention) so the
+    lookup keys on every operand — mirroring the mapper (tt_perf_mapper.build_key_tuple), which now
+    keys all populated INPUT slots. Order matches KEY_TUPLE_YAML_KEYS. Requires >=1 tensor.
+    """
+    prec = getattr(op, "precision", None)
+    t0 = tensors[0]
+    w0, z0, y0, x0 = _input0_wzyx_for_master_key(op, t0)
+    key: list = [
+        _op_code(op), w0, z0, y0, x0,
+        tensor_layout_str(t0), tensor_datatype(t0, prec), tensor_memory_str(t0),
+        _op_math_fidelity(op),
+    ]
+    for t in tensors[1:]:
+        w, z, y, x = _shape_wzyx(t)
+        key += [w, z, y, x, tensor_layout_str(t), tensor_datatype(t, prec), tensor_memory_str(t)]
+    return tuple(key)
 
 
 def build_master_key_tuple_halo(op: Any, tensor_0: Any) -> Optional[Tuple[Any, ...]]:
@@ -658,7 +711,7 @@ def _lut_keys_matching_op_and_wzyx(entries: Dict[tuple, dict], key_t: tuple) -> 
     Layout, datatype, and memory may differ — useful diagnostics when the full key misses.
     """
     n = len(key_t)
-    if n not in (9, 10, 15, 16, 23):
+    if n not in (STANDARD_KEY_TUPLE_LENGTHS | {10, 15}):
         return ()
     oc = key_t[0]
     matched: list[tuple] = []
@@ -682,11 +735,13 @@ def _lut_keys_matching_op_and_wzyx(entries: Dict[tuple, dict], key_t: tuple) -> 
             if _wzyx_int_tuple(k[1:5]) == w0 and _wzyx_int_tuple(k[9:13]) == w1:
                 matched.append(k)
     else:
+        # 23-tuple and longer full-arity keys (30/37/44/51/58): match op + first-3 inputs' WZYX
+        # and same arity (tuple length). input_0/1/2 WZYX live at 1:5 / 9:13 / 16:20 for all.
         w0 = _wzyx_int_tuple(key_t[1:5])
         w1 = _wzyx_int_tuple(key_t[9:13])
         w2 = _wzyx_int_tuple(key_t[16:20])
         for k in entries:
-            if len(k) != 23 or k[0] != oc:
+            if len(k) != n or k[0] != oc:
                 continue
             if (
                 _wzyx_int_tuple(k[1:5]) == w0
@@ -705,7 +760,7 @@ def _lut_keys_matching_op_code_only(entries: Dict[tuple, dict], key_t: tuple) ->
     with :func:`_lut_keys_matching_op_and_wzyx` which also requires WZYX match.
     """
     n = len(key_t)
-    if n not in (9, 10, 15, 16, 23):
+    if n not in (STANDARD_KEY_TUPLE_LENGTHS | {10, 15}):
         return ()
     oc = key_t[0]
     matched = [k for k in entries if len(k) == n and k[0] == oc]
@@ -785,9 +840,22 @@ class OperatorPerfMap:
         self._entries: Dict[tuple, dict] = load_existing_yaml(yaml_path)
         self._source_path = yaml_path
         self._use_hybrid_curve = bool(use_hybrid_curve)
+        self._device_norm_index: Optional[Dict[tuple, list]] = None
 
     def __len__(self) -> int:
         return len(self._entries)
+
+    def _device_normalized_index(self) -> Dict[tuple, list]:
+        """Lazily build (and cache) an index of entries keyed by their
+        device-normalized key, mapping to the list of ``(original_key, entry)``
+        that collapse to it. A list longer than one means genuine multi-device
+        ambiguity, which the device-normalized fallback declines to resolve."""
+        if self._device_norm_index is None:
+            idx: Dict[tuple, list] = {}
+            for k, v in self._entries.items():
+                idx.setdefault(_device_normalized_key(k), []).append((k, v))
+            self._device_norm_index = idx
+        return self._device_norm_index
 
     def _stats_from_entry(
         self,
@@ -858,18 +926,22 @@ class OperatorPerfMap:
         """Build the literal LUT key tuple and capture the input tensors used.
 
         Returns ``(key_t, (t0,) | (t0, t1) | (t0, t1, t2))`` on success, ``None`` on
-        any of: unsupported arity, missing tensor, missing shape, key-build failure.
+        any of: zero arity, missing tensor, missing shape, key-build failure.
         Internal helper; ``lookup`` uses this then proceeds with entry matching, while
         ``build_literal_key`` exposes just the key half publicly.
+
+        Ops with more than 3 inputs (e.g. PagedFusedUpdateCache, ScaledDotProductAttention)
+        are keyed on ALL their inputs (full-arity key, up to MAX_KEY_INPUTS) — mirroring the
+        mapper (tt_perf_mapper.build_key_tuple), which keys every populated INPUT slot. The sim's
+        inList order matches the profiler input order, so the operand slots correspond.
         """
         in_list = getattr(op, "inList", [])
         n_in = len(in_list)
         tensors = getattr(wlgraph, "_tensors", {})
 
-        if n_in == 0 or n_in > 3:
+        if n_in == 0:
             logger.debug(
-                "Perf lookup skipped (arity {} not supported for master keys): op={} optype={}",
-                n_in,
+                "Perf lookup skipped (arity 0 has no master key): op={} optype={}",
                 getattr(op, "name", "?"),
                 getattr(op, "optype", "?"),
             )
@@ -921,14 +993,21 @@ class OperatorPerfMap:
             except Exception as e:
                 logger.debug("Perf lookup key build failed for op {}: {}", getattr(op, "name", "?"), e)
                 return None
-        t0_name, t1_name, t2_name = in_list[0], in_list[1], in_list[2]
-        if t0_name not in tensors or t1_name not in tensors or t2_name not in tensors:
-            return None
-        t0, t1, t2 = tensors[t0_name], tensors[t1_name], tensors[t2_name]
-        if t0.shape is None or t1.shape is None or t2.shape is None:
-            return None
+        # n_in >= 3: key on ALL inputs (full arity). Arity 3 uses the dedicated 23-tuple builder
+        # (byte-identical to the historical key); arity>=4 uses the generic full-arity builder,
+        # mirroring the mapper which keys every populated INPUT slot.
+        ten: list = []
+        for nm in in_list:
+            if nm not in tensors:
+                return None
+            t = tensors[nm]
+            if getattr(t, "shape", None) is None:
+                return None
+            ten.append(t)
         try:
-            return build_master_key_tuple_22(op, t0, t1, t2), (t0, t1, t2)
+            if n_in == 3:
+                return build_master_key_tuple_22(op, ten[0], ten[1], ten[2]), (ten[0], ten[1], ten[2])
+            return build_master_key_tuple_n(op, ten), tuple(ten)
         except Exception as e:
             logger.debug("Perf lookup key build failed for op {}: {}", getattr(op, "name", "?"), e)
             return None
@@ -1108,6 +1187,27 @@ class OperatorPerfMap:
                         key8,
                         self._source_path,
                     )
+
+        # Device-index reconciliation (last fallback): the sim hardcodes a "DEV_1_"
+        # memory prefix while a capture-built LUT carries the real DEVICE ID (e.g.
+        # "DEV_0_"). After all exact/substitution attempts miss, retry ignoring the
+        # device prefix — but only when exactly one LUT entry agrees on every
+        # non-device field. >1 candidate = genuine multi-device ambiguity → decline.
+        if entry_val is None:
+            cands = self._device_normalized_index().get(_device_normalized_key(key_t))
+            if cands is not None and len(cands) == 1:
+                orig_key, ev = cands[0]
+                entry_val = ev
+                lookup_key = orig_key
+                hit_source = "device_normalized"
+            elif cands is not None and len(cands) > 1:
+                logger.debug(
+                    "Perf lookup: device-normalized fallback declined for op={!r} — "
+                    "{} multi-device candidates differ only in device index (lut={})",
+                    getattr(op, "name", None),
+                    len(cands),
+                    self._source_path,
+                )
 
         if entry_val is None:
             same_op_shape_keys = _lut_keys_matching_op_and_wzyx(self._entries, key_t)

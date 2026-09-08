@@ -3,9 +3,11 @@
 # SPDX-License-Identifier: Apache-2.0
 
 import numpy as np
+from loguru import logger
 
 from ttsim.ops.desc.helpers import build_tmp_data_tensor, unary_fwd, update_output_tensor, multidirectional_broadcast_shape_inference, gridsample_sinf
 from ttsim.ops.desc.registry import register_ops
+from ttsim.ops.tensor import SimTensor
 from ttsim.utils.common import prod_ints
 
 
@@ -113,9 +115,17 @@ def where_sinf(iTList, oTList, op, **kwargs):
 def cast_sinf(iTList, oTList, op, **kwargs):
     '''Cast operation: converts tensor to specified dtype'''
     assert iTList[0].check_shape()
-    # Propagate shape from input to output (Cast preserves shape)
-    if not oTList[0].check_shape():
-        oTList[0].shape = list(iTList[0].shape)
+    # Propagate shape from input to output (Cast always preserves shape).
+    # Always trust the input's shape here rather than only filling in an
+    # unset output shape: a previously-declared output shape may be a stale
+    # placeholder (e.g. an unresolved ONNX dim coerced to [1] at load time),
+    # which would otherwise silently disagree with the real computed data.
+    if oTList[0].check_shape() and list(oTList[0].shape) != list(iTList[0].shape):
+        logger.warning(
+            "Overriding stale/placeholder SHAPE for SimTensor({}): declared={} -> computed={}",
+            oTList[0].name, oTList[0].shape, iTList[0].shape,
+        )
+    oTList[0].shape = list(iTList[0].shape)
 
     # ONNX dtype code mapping to numpy dtypes
     ONNX_DTYPE_MAP = {
@@ -168,6 +178,11 @@ def cast_sinf(iTList, oTList, op, **kwargs):
         # Fallback: preserve input dtype if 'to' not specified
         oTList[0].dtype = iTList[0].dtype
 
+    # Compute actual data if input has data -- needed by downstream ops
+    # (Concat/Reshape/Slice etc.) that require concrete values, not just shape.
+    if iTList[0].data is not None:
+        oTList[0].data = np.asarray(iTList[0].data).astype(oTList[0].dtype)
+
     op.perf_stats = {
             'inBytes' : iTList[0].nbytes(op.precision),
             'outBytes': oTList[0].nbytes(op.precision),
@@ -200,8 +215,18 @@ def isnan_sinf(iTList, oTList, op, **kwargs):
 def pad_sinf(iTList, oTList, op, **kwargs):
     X = iTList[0]
     pad_tensor = iTList[1]
-    assert pad_tensor.data is not None, "PadOp requires pad_tensor with data"
-    pads = [int(x) for x in pad_tensor.data.flatten().tolist()]
+    if pad_tensor.data is not None:
+        pads = [int(x) for x in pad_tensor.data.flatten().tolist()]
+    else:
+        # Fallback: pad amount tensor has no concrete data (e.g. depends on an
+        # unresolved dynamic dim upstream) -- default to no padding rather
+        # than hard-failing.
+        rank_guess = X.rank()
+        logger.warning(
+            "Pad amount tensor has no concrete data for SimTensor({}) -- defaulting to zero padding (rank={})",
+            pad_tensor.name, rank_guess,
+        )
+        pads = [0] * (2 * rank_guess)
 
     rank = X.rank()
     assert rank >= 2, "Pad expects at least 2D input"
@@ -245,13 +270,19 @@ def tile_sinf(iTList, oTList, op, **kwargs):
     assert iTList[0].check_shape(), f"Illegal Shape for {iTList[0]}"
     dataT    = iTList[0]
     repeatsT = iTList[1].clone_by_shape(data_maybe_missing=False)
-    assert len(repeatsT.data) == dataT.rank(), \
-            f"repeats={repeatsT.data} should have same length as input shape={dataT.shape}"
+    # repeatsT can pick up a spurious extra leading/trailing size-1 dim from the
+    # same scalar-as-[1]/double-wrapping artifact handled elsewhere (see
+    # _squeeze_to_rank1) -- e.g. a correctly-computed Gather now returning
+    # [128] wrapped as [[128]]. Flatten to rank-1 so repeats.data[i] is a plain
+    # scalar rather than a length-1 array.
+    repeats = np.asarray(repeatsT.data).reshape(-1)
+    assert len(repeats) == dataT.rank(), \
+            f"repeats={repeats} should have same length as input shape={dataT.shape}"
 
-    checkshape = [d > 0 for d in repeatsT.data]
-    assert all(checkshape), f"repeats={repeatsT.data} should be > 0"
+    checkshape = [d > 0 for d in repeats]
+    assert all(checkshape), f"repeats={repeats} should be > 0"
 
-    outshape   = [dim * repeatsT.data[i] for i,dim in enumerate(dataT.shape)]
+    outshape   = [dim * repeats[i] for i,dim in enumerate(dataT.shape)]
 
     oTList[0].shape = outshape
     oTList[0].dtype = dataT.dtype
@@ -349,13 +380,70 @@ def unsqueeze_sinf(iTList, oTList, op, **kwargs):
             }
     return
 
+def _detached_copy(t):
+    """Independent copy of `t` for local shape normalization.
+
+    Unlike SimTensor.clone_by_shape(), this ALWAYS copies (that method returns
+    `self` whenever .data is present), and never fabricates data -- `data`
+    stays None when the source has none, so try_compute_data's "all inputs
+    have data" guard keeps working. hw_shape/x_pad_logical/y_pad_logical are
+    instance attrs that the SimTensor constructor does NOT accept via cfg, so
+    they must be assigned explicitly; they participate in LUT key construction.
+    """
+    c = SimTensor({
+        'name'   : t.name + '.norm',
+        'shape'  : list(t.shape),
+        'dtype'  : t.dtype,
+        'data'   : None if t.data is None else np.array(t.data, copy=True),
+        'resolve': t.resolve,
+        'op_in'  : t.op_in,
+        'op_out' : t.op_out,
+    })
+    c.hw_shape      = getattr(t, 'hw_shape', None)
+    c.x_pad_logical = getattr(t, 'x_pad_logical', None)
+    c.y_pad_logical = getattr(t, 'y_pad_logical', None)
+    return c
+
+def _squeeze_to_rank1(t):
+    """Squeeze away spurious leading size-1 dims (e.g. from a scalar Gather
+    index that Polaris represents as [1] instead of a true rank-0 scalar,
+    then gets double-wrapped by a later Unsqueeze into [1,1]) so Slice's
+    starts/ends/axes/steps tensors end up as genuine rank-1 arrays.
+
+    Operates on a detached copy: `t` may be a shared graph node with other
+    consumers, so the squeeze must not be written back into it."""
+    if len(t.shape) <= 1:
+        return t
+    out = _detached_copy(t)
+    while len(out.shape) > 1 and out.shape[0] == 1:
+        out.shape = list(out.shape[1:])
+        if out.data is not None:
+            out.data = np.asarray(out.data).reshape(out.shape)
+    return out
+
 def slice_sinf(iTList, oTList, op, **kwargs):
     dataT = iTList[0]
-    startsT = iTList[1].clone_by_shape(data_maybe_missing=False)
-    endsT = iTList[2].clone_by_shape(data_maybe_missing=False)
+    # ttnn-style slice: arity-1, output bounds carried as an 'output_shape' attr (not starts/ends
+    # tensor inputs like the ONNX form). The HW SliceDeviceOperation is arity-1; keep the key arity-1.
+    if len(iTList) == 1 and "output_shape" in op.attrs:
+        out_shape = [int(i) for i in op.attrs["output_shape"]]
+        Y = oTList[0]
+        Y.shape = out_shape
+        Y.dtype = dataT.dtype
+        assert Y.check_shape(), "SHAPE INFERENCE ERROR!!"
+        op.perf_stats = {
+            "inBytes": int(dataT.nbytes(op.precision)),
+            "inElems": int(dataT.nelems()),
+            "outBytes": int(Y.nbytes(op.precision)),
+            "outElems": int(Y.nelems()),
+            "instrs": {"mov": int(Y.nelems())},
+        }
+        return
+    startsT = _squeeze_to_rank1(iTList[1].clone_by_shape(data_maybe_missing=False))
+    endsT = _squeeze_to_rank1(iTList[2].clone_by_shape(data_maybe_missing=False))
 
     if len(iTList) >= 4:
-        axesT = iTList[3].clone_by_shape(data_maybe_missing=False)
+        axesT = _squeeze_to_rank1(iTList[3].clone_by_shape(data_maybe_missing=False))
     else:
         axesT = build_tmp_data_tensor(
             np.array([i for i in range(dataT.rank())]),
@@ -363,7 +451,7 @@ def slice_sinf(iTList, oTList, op, **kwargs):
         )
 
     if len(iTList) == 5:
-        stepsT = iTList[4].clone_by_shape(data_maybe_missing=False)
+        stepsT = _squeeze_to_rank1(iTList[4].clone_by_shape(data_maybe_missing=False))
     else:
         stepsT = build_tmp_data_tensor(
             np.array([1 for _ in range(len(axesT.data))]),
@@ -397,21 +485,22 @@ def slice_sinf(iTList, oTList, op, **kwargs):
         end = int(endsT.data[s])
         step = int(stepsT.data[s])
 
-        if step <= 0:
-            raise ValueError(f"Slice step <= 0 not supported (got {step})")
+        if step == 0:
+            raise ValueError(f"Slice step == 0 not supported (got {step})")
 
         if start < 0:
             start += dim
         if end < 0:
             end += dim
 
-        start = max(0, min(dim, start))
-        end = max(0, min(dim, end))
-
-        if end <= start:
-            length = 0
+        if step > 0:
+            start = max(0, min(dim, start))
+            end = max(0, min(dim, end))
+            length = 0 if end <= start else (end - start + step - 1) // step
         else:
-            length = (end - start + step - 1) // step
+            start = max(0, min(dim - 1, start))
+            end = max(-1, min(dim - 1, end))
+            length = 0 if start <= end else (start - end + (-step) - 1) // (-step)
 
         out_shape[axis] = length
 
@@ -527,24 +616,60 @@ def upsample_sinf(iTList, oTList, op, **kwargs):
 def concat_sinf(iTList, oTList, op, **kwargs):
     axis = op.attrs['axis']
     assert len(iTList) > 0, "empty input list in Concat!!"
-    base_rank = iTList[0].rank()
-    assert all(x.rank() == base_rank for x in iTList), "input tensors rank mismatch"
+
+    # Some upstream tensors (e.g. a scalar Gather-index result that Polaris's
+    # frontend represents as shape [1] instead of a true rank-0 scalar) can
+    # pick up spurious extra leading size-1 dims through ops like Unsqueeze
+    # (e.g. [1] -> [1,1] instead of the ONNX-true [] -> [1]). Squeeze away
+    # such benign leading size-1 dims so ranks line up, rather than hard
+    # failing on what is really just a rank-tracking artifact.
+    # NOTE: clone into `norm` before squeezing -- iTList elements are shared
+    # SimTensor graph nodes that can fan out to other consumers, so mutating
+    # x.shape/x.data on iTList directly would corrupt those other consumers.
+    norm = [_detached_copy(x) for x in iTList]
+    min_rank = min(x.rank() for x in norm)
+    for x in norm:
+        while x.rank() > min_rank and len(x.shape) > 0 and x.shape[0] == 1:
+            logger.warning(
+                "Squeezing spurious leading size-1 dim for SimTensor({}) before Concat: {} -> {}",
+                x.name, list(x.shape), list(x.shape[1:]),
+            )
+            x.shape = list(x.shape[1:])
+            if x.data is not None:
+                x.data = np.asarray(x.data).reshape(x.shape)
+        # Same artifact can also show up as a spurious *trailing* size-1 dim
+        # (e.g. a Cast/Reshape upstream that kept an extra [..., 1] dim instead
+        # of collapsing to the ONNX-true rank), so squeeze from the tail too.
+        while x.rank() > min_rank and len(x.shape) > 0 and x.shape[-1] == 1:
+            logger.warning(
+                "Squeezing spurious trailing size-1 dim for SimTensor({}) before Concat: {} -> {}",
+                x.name, list(x.shape), list(x.shape[:-1]),
+            )
+            x.shape = list(x.shape[:-1])
+            if x.data is not None:
+                x.data = np.asarray(x.data).reshape(x.shape)
+
+    base_rank = norm[0].rank()
+    assert all(x.rank() == base_rank for x in norm), (
+        f"input tensors rank mismatch: shapes={[list(x.shape) for x in norm]}, "
+        f"names={[x.name for x in norm]}"
+    )
     if axis < 0:
         axis = base_rank + axis
     if axis < 0 or axis >= base_rank:
         raise ValueError(f"Axis {axis} is out of bounds for tensors with rank {base_rank}. "
                     f"Valid range is [-{base_rank}, {base_rank-1}].")
 
-    for i, x in enumerate(iTList[1:], 1):
+    for i, x in enumerate(norm[1:], 1):
         for dim in range(x.rank()):
-            if dim != axis and x.shape[dim] != iTList[0].shape[dim]:
-                    raise ValueError(f"Incompatible shapes at dim {i}: {x.shape} vs {iTList[0].shape}. "
+            if dim != axis and x.shape[dim] != norm[0].shape[dim]:
+                    raise ValueError(f"Incompatible shapes at dim {i}: {x.shape} vs {norm[0].shape}. "
                                      f"All dimensions except the concat axis ({axis}) must match.")
 
-    oshape        = list(iTList[0].shape)
-    oshape[axis]  = sum(x.shape[axis] for x in iTList)
+    oshape        = list(norm[0].shape)
+    oshape[axis]  = sum(x.shape[axis] for x in norm)
     oTList[0].shape = oshape
-    oTList[0].dtype = iTList[0].dtype
+    oTList[0].dtype = norm[0].dtype
 
     # Propagate hw_shape when all inputs carry one and we're concatenating along
     # the NCHW channel axis (axis=1).  For channel-concat: hw_shape is [1, 1, N*H*W, C]
@@ -552,14 +677,14 @@ def concat_sinf(iTList, oTList, op, **kwargs):
     # in the flattened hw_shape format, so hw_shape is left None for those cases.
     # TODO: if spatial-axis concat becomes LUT-relevant, rethink the hw_shape convention.
     if axis == 1 and base_rank == 4:
-        hw_shapes = [getattr(x, 'hw_shape', None) for x in iTList]
+        hw_shapes = [getattr(x, 'hw_shape', None) for x in norm]
         if all(hw is not None for hw in hw_shapes):
             total_c = sum(hw[3] for hw in hw_shapes)  # type: ignore[index]
             oTList[0].hw_shape = [hw_shapes[0][0], hw_shapes[0][1], hw_shapes[0][2], total_c]  # type: ignore[index]
 
     # Compute data if inputs have data
     from ttsim.ops.desc.data_compute import try_compute_data, compute_concat
-    oTList[0].data = try_compute_data(compute_concat, iTList, op)
+    oTList[0].data = try_compute_data(compute_concat, norm, op)
 
     # Placeholder: For Training, it may be required to output per-input tensor shape
     # Assumption: per-input tensor shape is a 1D-Tensor where each element
@@ -568,8 +693,8 @@ def concat_sinf(iTList, oTList, op, **kwargs):
     #out2_shape = [len(iTList)]
     #out2_data  = [x.shape for x in Xs]
 
-    inBytes = sum((x.nbytes(op.precision) for x in iTList))
-    inElems = sum((x.nelems() for x in iTList))
+    inBytes = sum((x.nbytes(op.precision) for x in norm))
+    inElems = sum((x.nelems() for x in norm))
     op.perf_stats = {
             'inBytes' : inBytes,
             'inElems' : inElems,
@@ -666,6 +791,10 @@ def expand_sinf(iTList, oTList, op, **kwargs):
     oTList[0].shape = out_shape
     oTList[0].dtype = A.dtype
 
+    # Compute data if input has data
+    if A.data is not None:
+        oTList[0].data = np.broadcast_to(np.asarray(A.data), out_shape).copy()
+
     inElems  = A.nelems() + shapeT.nelems()
     outElems = oTList[0].nelems()
     op.perf_stats = {
@@ -675,6 +804,41 @@ def expand_sinf(iTList, oTList, op, **kwargs):
         'outBytes': oTList[0].nbytes(op.precision),
         'instrs':   {'mov': outElems},
     }
+    return
+
+def gatherelements_sinf(iTList, oTList, op, **kwargs):
+    axis = op.attrs.get('axis', 0)
+    assert isinstance(axis, int), f"attribute axis ({axis}) is not an int!!"
+
+    dataT    = iTList[0]
+    indicesT = iTList[1]
+    assert dataT.check_shape(), f"Illegal input dataT shape: {dataT}!!"
+    assert indicesT.check_shape(), f"Illegal input indicesT shape: {indicesT}!!"
+
+    data_rank = dataT.rank()
+    assert indicesT.rank() == data_rank, (
+        f"GatherElements: indices rank ({indicesT.rank()}) must equal data rank ({data_rank})"
+    )
+    axis = axis if axis >= 0 else data_rank + axis
+    assert 0 <= axis < data_rank, f"Axis {axis} out of bounds for dataT.shape {dataT.shape}"
+
+    # GatherElements output shape == indices shape (indices has same rank as
+    # data, but can differ in size along `axis`).
+    oTList[0].shape = list(indicesT.shape)
+    oTList[0].dtype = dataT.dtype
+
+    if dataT.data is not None and indicesT.data is not None:
+        idx = indicesT.data.astype(np.int64)
+        idx = np.where(idx < 0, idx + dataT.shape[axis], idx)
+        oTList[0].data = np.take_along_axis(dataT.data, idx, axis=axis)
+
+    op.perf_stats = {
+            'inElems' : int(oTList[0].nelems()),
+            'outElems': int(oTList[0].nelems()),
+            'inBytes' : int(oTList[0].nbytes(op.precision)),
+            'outBytes': int(oTList[0].nbytes(op.precision)),
+            'instrs'  : {'mov': int(oTList[0].nelems())}
+            }
     return
 
 def split_sinf(iTList, oTList, op, **kwargs):
@@ -746,6 +910,16 @@ def gather_sinf(iTList, oTList, op, **kwargs):
     from ttsim.ops.desc.data_compute import try_compute_data, compute_gather
     oTList[0].data = try_compute_data(compute_gather, iTList, op)
 
+    if oTList[0].data is not None and list(oTList[0].data.shape) != list(oTList[0].shape):
+        # dataT/indicesT's declared .shape metadata was stale (e.g. an
+        # unresolved ONNX dim), so the shape computed above from .shape
+        # disagrees with the real computed .data. Trust the real data.
+        logger.warning(
+            "Overriding stale/placeholder SHAPE for SimTensor({}): declared={} -> computed={}",
+            oTList[0].name, oTList[0].shape, list(oTList[0].data.shape),
+        )
+        oTList[0].shape = list(oTList[0].data.shape)
+
     op.perf_stats = {
             'inElems' : int(oTList[0].nelems()), #read just what we need, not the whole embed. tbl
             'outElems': int(oTList[0].nelems()),
@@ -754,6 +928,31 @@ def gather_sinf(iTList, oTList, op, **kwargs):
             'instrs'  : {'mov': int(oTList[0].nelems())}
             }
     return
+
+def embedding_sinf(iTList, oTList, op, **kwargs):
+    """ttnn.embedding row lookup (HW EmbeddingsDeviceOperation).
+
+    Operand order matches the hardware op: iTList[0] = tokens (indices), iTList[1] = weight
+    [vocab, embed_dim] — tokens-first, the OPPOSITE of ONNX Gather (data-first, see
+    gather_sinf). Output = tokens.shape + [embed_dim]. Kept a distinct op-code from Gather so
+    the LUT key canonicalizes to 'embedding' (matching the capture) rather than 'gather'."""
+    tokensT = iTList[0]
+    weightT = iTList[1]
+    assert tokensT.check_shape(), f"Illegal embedding tokens shape: {tokensT}!!"
+    assert weightT.check_shape(), f"Illegal embedding weight shape: {weightT}!!"
+    embed_dim = list(weightT.shape)[1:]  # weight [vocab, embed_dim] -> [embed_dim]
+    oTList[0].shape = list(tokensT.shape) + embed_dim
+    oTList[0].dtype = weightT.dtype
+    n = int(oTList[0].nelems())
+    op.perf_stats = {
+            'inElems' : n,   # read just the rows we look up, not the whole embed table
+            'outElems': n,
+            'inBytes' : int(oTList[0].nbytes(op.precision)),
+            'outBytes': int(oTList[0].nbytes(op.precision)),
+            'instrs'  : {'mov': n}
+            }
+    return
+
 
 def gathernd_sinf(iTList, oTList, op, **kwargs):
     data = iTList[0]
@@ -798,7 +997,13 @@ def shape_op_inf_func(iTList, oTList, op, **kwargs):
     end   = A.rank() + end if end < 0 else end
     tdata = np.array(A.shape[start:end], dtype=np.int64)
     oTList[0].shape = list(tdata.shape)
-    oTList[0].dtype = np.int64
+    # Shape's output is always int64 per the ONNX spec. The previous code
+    # (`oTList[0].dtype = np.int64`) assigned the bare Python/numpy *class*
+    # rather than a numpy dtype *instance*, which downstream code (e.g.
+    # nbytes()) couldn't handle: "TypeError: Unsupported dtype type:
+    # <class 'type'>". np.dtype(np.int64) is the fix -- same int64 type,
+    # just wrapped as a proper dtype instance.
+    oTList[0].dtype = np.dtype(np.int64)
     oTList[0].data = tdata
     op.perf_stats = {
             'inElems' : A.rank(),
@@ -945,6 +1150,8 @@ def register_tensor_ops():
             ['Identity',  'ARITY_1->1', 'ai.onnx',  'COMMON',  24,  21,  1,  1,  1,  1, unary_fwd,  True,  True,  True,  True,  True],
 
             ['Gather',    'ARITY_2->1', 'ai.onnx',  'COMMON',  13,  13,  2,  2,  1,  1, gather_sinf,  True,  True,  True,  True,  True],
+            ['GatherElements', 'ARITY_2->1', 'ai.onnx',  'COMMON',  13,  13,  2,  2,  1,  1, gatherelements_sinf, True, True, True, True, True],
+            ['Embedding', 'ARITY_2->1', 'custom',   'NA',      -1,  -1,  2,  2,  1,  1, embedding_sinf, True, True, True, True, True],
             ['GatherND',  'ARITY_2->1', 'ai.onnx',  'COMMON',  13,  13,  2,  2,  1,  1, gathernd_sinf, True, True, True, True, True],
             ['Cast',      'ARITY_1->1', 'ai.onnx',  'COMMON',  24,  21,  1,  1,  1,  1, cast_sinf,  True,  True,  True,  True,  True],
             ['IsNaN',     'ARITY_1->1', 'ai.onnx',   'COMMON',  20,  20,  1,  1,  1,  1, isnan_sinf,    True, True, True, True, True],
@@ -966,7 +1173,7 @@ def register_tensor_ops():
              trilu_sinf, True, True, True, True, True],
             ['Resize',    'ARITY_VARIADIC[1-4]->1', 'ai.onnx',  'COMMON',  19,  19,  4,  1,  1,  1,
              resize_sinf, True, True, True, True, True],
-            ['Slice',     'ARITY_VARIADIC[3-5]->1', 'ai.onnx',  'COMMON',  13,  13,  5,  3,  1,  1,
+            ['Slice',     'ARITY_VARIADIC[1-5]->1', 'ai.onnx',  'COMMON',  13,  13,  5,  1,  1,  1,
              slice_sinf, True, True, True, True, True],
             ['Pad',       'ARITY_VARIADIC[2-4]->1', 'ai.onnx',  'COMMON',  24,  21,  4,  2,  1,  1,
              pad_sinf, True, True, True, True, True],

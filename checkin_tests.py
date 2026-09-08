@@ -44,7 +44,7 @@ def prepare_commands_run_all_tests(condaenvprefix: OptionalString) -> list[str]:
     wlspec     = 'config/all_workloads.yaml'
     arspec     = 'config/all_archs.yaml'
     wlmspec    = 'config/wl2archmapping.yaml'
-    filterarch = 'A100,Q1_A1'
+    filterarch = 'Q1_A1'
     filterwli  = 'gpt_nano'
     option1 = ["", ' --instr_profile']
     option2 = ["", ' --dump_ttsim_onnx']

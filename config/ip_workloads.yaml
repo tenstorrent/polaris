@@ -32,6 +32,38 @@ workloads:
       rn50_b1_hd : { img_height: 1024, img_width: 1024 }
       rn50_b1_uhd: { img_height: 2828, img_width: 2828 }
 
+  - api: TTSIM
+    name: TitansMAC
+    basedir: workloads/Titans
+    module : TitansMAC@mac_transformer.py
+    params :
+      vocab_sz                  : 256
+      ff_mult                   : 4
+      segment_len               : 32
+      num_persist_mem_tokens    : 4
+      num_longterm_mem_tokens   : 0
+      mem_depth                 : 2
+      mem_expansion_factor      : 2.0
+      mem_heads                 : 4
+      mem_dim_head              : 64
+      max_chunks_unroll         : 16
+      attention_mode            : segmented
+      bs                        : 1
+    instances:
+      # mem_chunk_size chosen so nW / mem_chunk_size <= 16 (unroll limit);
+      titans_mac_nano  : { nL: 2,  nH: 4,  dE: 128, dim_head: 32, nW: 64,   mem_chunk_size: 8,
+                           neural_memory_layers: [2] }
+      titans_mac_micro : { nL: 4,  nH: 4,  dE: 256, dim_head: 64, nW: 128, mem_chunk_size: 8,
+                          neural_memory_layers: [2, 4] }
+      titans_mac_small : { nL: 8,  nH: 8,  dE: 384, dim_head: 48, nW: 512, mem_chunk_size: 32,
+                          neural_memory_layers: [2, 4, 6, 8] }
+      titans_mac_base  : { nL: 12, nH: 12, dE: 768, dim_head: 64, nW: 1024, mem_chunk_size: 64,
+                          neural_memory_layers: [2, 4, 6, 8, 10, 12] }
+      titans_mac_large : { nL: 24, nH: 16, dE: 1024, dim_head: 64, nW: 2048, mem_chunk_size: 128,
+                           neural_memory_layers: [2, 4, 6, 8, 10, 12, 14, 16, 18, 20, 22, 24] }
+      titans_mac_xlarge : { nL: 24, nH: 16, dE: 1536, dim_head: 96, nW: 2048, mem_chunk_size: 128,
+                           neural_memory_layers: [2, 4, 6, 8, 10, 12, 14, 16, 18, 20, 22, 24] }
+
   # generate resnet50.onnx using code in workloads/onnx/examples/:
   - api: ONNX
     name: RESNET50
@@ -331,7 +363,7 @@ workloads:
         stage_res: [56, 28, 14, 7], dims: [80, 224, 384, 1024], blocks: [3, 4, 8, 3],
         stem_out: 48, head_in: 1024, head_widths: [6144, 6400], activation: gelu,
         global_pool: avg, compute_pipe: matrix, model_size: large }
-  
+
   - api: TTSIM
     name: EfficientViT_SEG
     basedir: workloads/EfficientViT
@@ -459,7 +491,7 @@ workloads:
     instances:
       dd_base  : { camera_height: 256, camera_width: 1024, lidar_h: 256, lidar_w: 256 }
       dd_small : { camera_height: 256, camera_width: 256, lidar_h: 256, lidar_w: 256 }
-  
+
   - api: TTSIM
     name: FusionAD
     basedir: workloads/FusionAD/projects/mmdet_plugin/fusionad/detectors
@@ -481,7 +513,7 @@ workloads:
       fusionad_tiny  : { bev_h: 25,  bev_w: 25,  img_height: 256,  img_width: 256  }
       fusionad_small : { bev_h: 50,  bev_w: 50,  img_height: 512,  img_width: 512  }
       # fusionad_base  : { bev_h: 200, bev_w: 200, img_height: 900,  img_width: 1600 }
-  
+
 
   - api: TTSIM
     name: DiffusionDrive_Validation

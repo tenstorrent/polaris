@@ -1,0 +1,155 @@
+# SPDX-FileCopyrightText: (C) 2026 Tenstorrent AI ULC
+# SPDX-License-Identifier: Apache-2.0
+
+"""
+This is the implmentation of MultiModalprojector for Gemma-3-4b-it model.
+There is no Independent MultiModalprojector support in TT-Transformers.
+"""
+
+import numpy as np
+import ttsim.front.ttnn as ttnn
+from workloads.ttnn.gemma3.common.gemma_Lightweightmodule import LightweightModule
+from workloads.ttnn.gemma3.tt.gemma_vision_rmsnorm import RMSNorm
+
+
+class TtGemma3MultiModalProjector(LightweightModule):
+    def __init__(
+        self,
+        mesh_device,
+        state_dict,
+        state_dict_prefix,
+        image_size,
+        patch_size,
+        hidden_size,
+        mm_tokens_per_image,
+        weight_cache_path,
+        layer_norm_eps,
+        dtype,
+        configuration,
+    ):
+        super().__init__()
+
+        self.mesh_device = mesh_device
+        self.dtype = dtype
+        self.patches_per_image = int(image_size // patch_size)
+        self.tokens_per_side = int(mm_tokens_per_image**0.5)
+        self.kernel_size = self.patches_per_image // self.tokens_per_side
+        self.hidden_size = hidden_size
+
+        weight_key = state_dict_prefix + ".mm_input_projection_weight"
+        weight = state_dict[weight_key]
+
+        # Convert to numpy if needed
+        weight = self._to_numpy(weight)
+
+        # Pad dimensions to multiples of 32
+        padded_vision_size = ((hidden_size + 31) // 32) * 32
+        if padded_vision_size != hidden_size:
+            padding = np.zeros((hidden_size, padded_vision_size - hidden_size), dtype=weight.dtype)
+            weight = np.concatenate([weight, padding], axis=-1)
+
+        self.mm_input_projection_weight = ttnn.as_tensor(
+            weight.astype(np.float32),
+            dtype=dtype,
+            layout=ttnn.TILE_LAYOUT,
+            memory_config=ttnn.DRAM_MEMORY_CONFIG,
+        )
+        self.mm_input_projection_weight = ttnn.to_device(
+            self.mm_input_projection_weight, mesh_device, memory_config=ttnn.DRAM_MEMORY_CONFIG
+        )
+
+        # Create RMSNorm layer
+        weight_key = state_dict_prefix + ".mm_soft_emb_norm"
+        self.mm_soft_emb_norm = RMSNorm(
+            device=mesh_device,
+            dim=1152,
+            state_dict=state_dict,
+            state_dict_prefix="",
+            weight_key=weight_key,
+            weight_dtype=dtype,
+            is_distributed=False,
+            # sharded_program_config=tt_model_args.get_model_config()["SHARDED_NORM_ATTN_PRGM_CFG"],
+            # sharded_output_config=tt_model_args.get_model_config()["SHARDED_ATTN_INPUT_MEMCFG"],
+        )
+
+    def _to_numpy(self, tensor):
+        """Convert tensor to numpy array for preprocessing."""
+        if isinstance(tensor, np.ndarray):
+            return tensor
+        # If it's a ttnn tensor, convert to numpy
+        if hasattr(tensor, 'to_torch'):
+            return tensor.to_torch().numpy()
+        elif hasattr(ttnn, 'to_torch'):
+            return ttnn.to_torch(tensor).numpy()
+        else:
+            # Assume it's already numpy-compatible
+            return np.array(tensor)
+
+    def forward(self, vision_outputs):
+        shape = tuple(vision_outputs.shape)
+        if len(shape) == 4 and shape[0] == 1:
+            vision_outputs = ttnn.reshape(vision_outputs, (shape[1], shape[2], shape[3]))
+            shape = tuple(vision_outputs.shape)
+        # shape is (batch, seq_length, hidden_dim). After the transpose below the tensor becomes
+        # (batch, hidden_dim, seq_length), so the reshape that follows needs hidden_dim -- not
+        # seq_length -- as its channel-count argument. (Bug fix: this used to reuse `seq_length`
+        # for both, which happens to work in the reference only because its variable of that name
+        # is actually bound to shape[2]/hidden_dim; here it was bound to shape[1], so the reshape's
+        # element count didn't match its input and raised at trace time.)
+        batch_size, seq_length, hidden_dim = shape
+
+        mode = "decode" if seq_length <= 32 else "prefill"
+
+        # Reshape: [batch, seq, hidden] -> [batch, hidden, seq]
+        reshaped_vision_outputs = ttnn.transpose(vision_outputs, 1, 2)
+        ttnn.deallocate(vision_outputs)
+
+        reshaped_vision_outputs = ttnn.to_layout(reshaped_vision_outputs, ttnn.ROW_MAJOR_LAYOUT)
+        reshaped_vision_outputs = ttnn.reshape(
+            reshaped_vision_outputs, (batch_size, hidden_dim, self.patches_per_image, self.patches_per_image)
+        )
+
+        in_n = reshaped_vision_outputs.shape[0]
+        in_c = reshaped_vision_outputs.shape[1]
+        in_h = reshaped_vision_outputs.shape[2]
+        in_w = reshaped_vision_outputs.shape[3]
+
+        reshaped_vision_outputs = ttnn.permute(reshaped_vision_outputs, (0, 2, 3, 1))
+        reshaped_vision_outputs = ttnn.reshape(reshaped_vision_outputs, (1, 1, in_n * in_h * in_w, in_c))
+
+        pooled_vision_outputs = ttnn.avg_pool2d(
+            input_tensor=reshaped_vision_outputs,
+            batch_size=in_n,
+            input_h=in_h,
+            input_w=in_w,
+            channels=in_c,
+            kernel_size=(self.kernel_size, self.kernel_size),
+            stride=(self.kernel_size, self.kernel_size),
+            padding=(0, 0),
+            ceil_mode=False,
+            memory_config=ttnn.DRAM_MEMORY_CONFIG,
+            applied_shard_scheme=ttnn.TensorMemoryLayout.BLOCK_SHARDED,
+        )
+
+        # transpose
+        HOUT = ((in_h - self.kernel_size) // self.kernel_size) + 1
+        WOUT = ((in_w - self.kernel_size) // self.kernel_size) + 1
+
+        pooled_vision_outputs = ttnn.reshape(pooled_vision_outputs, (in_n, HOUT, WOUT, in_c))
+        pooled_vision_outputs = ttnn.permute(pooled_vision_outputs, (0, 3, 1, 2))
+        pooled_vision_outputs = ttnn.reshape(
+            pooled_vision_outputs, (pooled_vision_outputs.shape[0], pooled_vision_outputs.shape[1], -1)
+        )
+        pooled_vision_outputs = ttnn.to_layout(pooled_vision_outputs, ttnn.TILE_LAYOUT)
+
+        # Flatten(2)
+        pooled_vision_outputs = ttnn.transpose(pooled_vision_outputs, 1, 2)
+
+        normed_vision_outputs = self.mm_soft_emb_norm(pooled_vision_outputs, mode=mode)
+
+        projected_vision_outputs = ttnn.matmul(normed_vision_outputs, self.mm_input_projection_weight)
+
+        ttnn.deallocate(pooled_vision_outputs)
+        ttnn.deallocate(normed_vision_outputs)
+
+        return projected_vision_outputs

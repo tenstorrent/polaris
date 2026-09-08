@@ -58,3 +58,5 @@ If a future capture is trace+replay **and** iterative (a replay session that its
 ## Shared behavior (unchanged from the iterative tool)
 
 Classification (noctrace / fpu / vanilla), header subsequence/omission rules, join keys and sorting, per-row and aggregate duration checks, MemTraffic derivation, and the full output column order are exactly as specified in [`SPEC_ops_perf_three_csv_merge.md`](SPEC_ops_perf_three_csv_merge.md). The reduction runs **after** classification/header validation and **before** the join, so the join always receives one unique-keyed row set per variant.
+
+**Signpost-row filtering** (see the iterative spec's *Input row filtering* section) is likewise inherited: `signpost` marker rows are dropped in the shared `run_merge` immediately after each CSV is read — **before** classification and the replay-session reduction — so a trace+replay capture whose passes are wrapped in Tracy `start`/`stop` signposts is handled identically to an iterative one.

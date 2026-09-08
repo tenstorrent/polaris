@@ -290,3 +290,77 @@ def test_binary_fused_activation_silu():
     muls = [op for op in device.ops.values() if op.optype == "Mul"]
     assert len(muls) == 1
     assert muls[0].attrs.get("input_tensor_a_activations") == [ttnn.UnaryOpType.SILU]
+
+
+# =========================================================================
+# plus_one (decode position-counter increment) — output = input shape
+# =========================================================================
+
+@pytest.mark.unit
+def test_plus_one_op_shape_and_perf():
+    device = _make_device()
+    pos = _t(device, [1, 32], "cur_pos", dtype=DataType.INT32, layout=Layout.ROW_MAJOR_LAYOUT)
+    out = ttnn.plus_one(pos, skip_negative_entries=True)
+    assert out.logical_shape().as_list() == [1, 32]
+    ops = [op for op in device.ops.values() if op.optype == "PlusOne"]
+    assert len(ops) == 1
+    assert pos.name in ops[0].inList and out.name in ops[0].outList
+    assert ops[0].perf_stats is not None
+
+
+# =========================================================================
+# manual_seed + sampling (decode sampling tail)
+# =========================================================================
+
+@pytest.mark.unit
+def test_manual_seed_op_shape_and_perf():
+    device = _make_device()
+    seeds = _t(device, [1, 32], "seeds", dtype=DataType.UINT32, layout=Layout.ROW_MAJOR_LAYOUT)
+    user_ids = _t(device, [1, 32], "user_ids", dtype=DataType.UINT32, layout=Layout.ROW_MAJOR_LAYOUT)
+    out = ttnn.manual_seed(seeds=seeds, user_ids=user_ids)
+    assert out.logical_shape().as_list() == [1, 32]
+    ops = [op for op in device.ops.values() if op.optype == "ManualSeed"]
+    assert len(ops) == 1
+    assert seeds.name in ops[0].inList and user_ids.name in ops[0].inList
+    assert ops[0].perf_stats is not None
+
+
+@pytest.mark.unit
+def test_sampling_op_shape_and_perf():
+    device = _make_device()
+    vals = _t(device, [1, 1, 32, 32], "topk_vals")
+    idxs = _t(device, [1, 1, 32, 32], "topk_idxs", dtype=DataType.INT32)
+    out = ttnn.sampling(vals, idxs)
+    # one sampled index per user: topk_values last dim collapses to 1
+    assert out.logical_shape().as_list() == [1, 1, 32, 1]
+    ops = [op for op in device.ops.values() if op.optype == "Sampling"]
+    assert len(ops) == 1
+    assert vals.name in ops[0].inList and idxs.name in ops[0].inList
+    assert ops[0].perf_stats is not None
+
+
+@pytest.mark.unit
+def test_topk_real_ttnn_k_int():
+    """Real-ttnn ttnn.topk(x, k=32, ...) — k as int kwarg, arity-1 (no K-tensor)."""
+    device = _make_device()
+    x = _t(device, [1, 1, 32, 2048], "topk_logits")
+    vals, idxs = ttnn.topk(x, k=32, dim=-1, sub_core_grids=None, indices_tensor=None)
+    assert vals.logical_shape().as_list() == [1, 1, 32, 32]
+    assert idxs.logical_shape().as_list() == [1, 1, 32, 32]
+    ops = [op for op in device.ops.values() if op.optype == "TopK"]
+    assert len(ops) == 1
+    assert ops[0].attrs.get("k") == 32
+    # arity-1: indices_tensor / sub_core_grids are HW hints, dropped from the graph
+    assert ops[0].inList == [x.name]
+
+
+@pytest.mark.unit
+def test_split_real_ttnn_split_size():
+    """Real-ttnn ttnn.split(x, split_size:int, dim) -> dim_size//split_size chunks."""
+    device = _make_device()
+    x = _t(device, [1, 1, 32, 128256], "split_logits")
+    chunks = ttnn.split(x, 64128, dim=3)
+    assert len(chunks) == 2
+    assert all(c.logical_shape().as_list() == [1, 1, 32, 64128] for c in chunks)
+    ops = [op for op in device.ops.values() if op.optype == "Split"]
+    assert len(ops) == 1 and ops[0].inList == [x.name]

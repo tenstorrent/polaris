@@ -6,7 +6,7 @@ import pytest
 import numpy as np
 from loguru import logger
 from ttsim.ops.op import SimOp
-from ttsim.ops.tensor import make_tensor
+from ttsim.ops.tensor import make_tensor, SimTensor
 import ttsim.front.functional.op as F
 
 
@@ -466,3 +466,84 @@ def test_concat_properties():
     logger.debug("    Same inputs produce same output ✓")
 
     logger.info("\nAll property tests passed!")
+
+
+# ============================================================================
+# Regression tests for concat_sinf's spurious-singleton-dim squeeze
+# ============================================================================
+#
+# ONNX represents a rank-0 scalar internally as shape [1] rather than true
+# rank-0 []. A later Unsqueeze can then double-wrap it (e.g. [1] -> [1,1]
+# instead of the ONNX-true [] -> [1]), so two tensors that should be
+# concatenable end up with mismatched ranks purely from this artifact (e.g.
+# [64] vs [1,64], or [2] vs [2,1]). concat_sinf squeezes away such spurious
+# leading/trailing size-1 dims (down to the smallest rank among the inputs)
+# before concatenating, instead of hard-failing on the rank mismatch.
+
+
+def _tensor_with_shape_and_data(name, shape, data):
+    return SimTensor({"name": name, "shape": shape, "dtype": data.dtype, "data": data})
+
+
+def _run_concat_sinf(i_tensors, axis):
+    op_name = "test_concat_squeeze_op"
+    o_tensors = [make_tensor("Y")]
+    op_info = {
+        "name": op_name,
+        "optype": "Concat",
+        "inList": [x.name for x in i_tensors],
+        "outList": [x.name for x in o_tensors],
+        "attrs": {"axis": axis},
+    }
+    op_obj = SimOp(op_info)
+    for x in i_tensors:
+        x.op_in = [op_name]
+    for x in o_tensors:
+        x.op_out = [op_name]
+    op_obj.get_perf_counts(i_tensors, o_tensors)
+    return o_tensors[0]
+
+
+@pytest.mark.unit
+@pytest.mark.opunit
+def test_concat_squeezes_spurious_leading_dim():
+    """[1, 64] concatenated with [64] should squeeze the leading 1, not raise."""
+    A = _tensor_with_shape_and_data(
+        "A", [1, 64], np.arange(64, dtype=np.float32).reshape(1, 64)
+    )
+    B = _tensor_with_shape_and_data(
+        "B", [64], np.arange(64, 128, dtype=np.float32)
+    )
+    out = _run_concat_sinf([A, B], axis=0)
+
+    assert out.shape == [128], f"expected [128], got {out.shape}"
+    assert out.data is not None
+    np.testing.assert_allclose(out.data, np.arange(128, dtype=np.float32))
+    logger.debug("Leading-dim squeeze: [1,64]+[64] -> [128] PASS")
+
+
+@pytest.mark.unit
+@pytest.mark.opunit
+def test_concat_squeezes_spurious_trailing_dim():
+    """[2] concatenated with [2, 1] should squeeze the trailing 1, not raise."""
+    C = _tensor_with_shape_and_data("C", [2], np.array([1.0, 2.0], dtype=np.float32))
+    D = _tensor_with_shape_and_data(
+        "D", [2, 1], np.array([[3.0], [4.0]], dtype=np.float32)
+    )
+    out = _run_concat_sinf([C, D], axis=0)
+
+    assert out.shape == [4], f"expected [4], got {out.shape}"
+    assert out.data is not None
+    np.testing.assert_allclose(out.data, np.array([1.0, 2.0, 3.0, 4.0], dtype=np.float32))
+    logger.debug("Trailing-dim squeeze: [2]+[2,1] -> [4] PASS")
+
+
+@pytest.mark.unit
+@pytest.mark.opunit
+def test_concat_does_not_squeeze_genuine_rank_mismatch():
+    """A real rank mismatch (not just a spurious size-1 dim) must still raise."""
+    A = F._from_shape("A", [2, 3], np_dtype=np.float32)
+    B = F._from_shape("B", [2, 3, 4], np_dtype=np.float32)
+    with pytest.raises((ValueError, AssertionError)):
+        _run_concat_sinf([A, B], axis=0)
+    logger.debug("Genuine rank mismatch [2,3] vs [2,3,4] still raises PASS")

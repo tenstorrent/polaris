@@ -66,15 +66,17 @@ def test_archname_population():
     assert device.devname == 'Grendel', f"Device.devname should be 'Grendel', got '{device.devname}'"
     assert device.name == 'Q1_A1', f"Device.name should be 'Q1_A1', got '{device.name}'"
 
-    # Test with n150 instance from Wormhole package (if available in config)
-    if 'n150' in packages:
-        n150 = packages['n150']
-        assert n150.devname == 'Wormhole', f"Expected package name 'Wormhole', got '{n150.devname}'"
-        assert n150.name == 'n150', f"Expected instance name 'n150', got '{n150.name}'"
+    # Test with the n150 instance, which lives in the Wormhole spec rather than all_archs.yaml
+    # (this block used to read `if 'n150' in packages:` against the Grendel-only packages
+    # above, so it never ran).
+    _, wh_packages = get_arspec_from_yaml('config/tt_wh.yaml')
+    n150 = wh_packages['n150']
+    assert n150.devname == 'Wormhole', f"Expected package name 'Wormhole', got '{n150.devname}'"
+    assert n150.name == 'n150', f"Expected instance name 'n150', got '{n150.name}'"
 
-        device_wh = Device(n150)
-        assert device_wh.devname == 'Wormhole', f"Device.devname should be 'Wormhole', got '{device_wh.devname}'"
-        assert device_wh.name == 'n150', f"Device.name should be 'n150', got '{device_wh.name}'"
+    device_wh = Device(n150)
+    assert device_wh.devname == 'Wormhole', f"Device.devname should be 'Wormhole', got '{device_wh.devname}'"
+    assert device_wh.name == 'n150', f"Device.name should be 'n150', got '{device_wh.name}'"
 
 @pytest.mark.unit
 def test_archname_in_output():
