@@ -68,10 +68,10 @@ class _MockIPGroup:
 
 
 class _MockSimConfig:
-    def __init__(self, freq_mhz=1350, devname="Blackhole"):
+    def __init__(self, freq_mhz=1350, devname="Blackhole", name=None):
         self._freq_mhz = freq_mhz
         self.devname = devname
-        self.name = "bh_test_device"
+        self.name = name or ("p100a" if devname == "Blackhole" else "test_device")
         self.ipgroups = [_MockIPGroup("compute"), _MockIPGroup("memory")]
 
     def frequency(self, pipe, units="MHz"):
@@ -140,6 +140,21 @@ def test_arch_gate_falls_back_on_non_bh_device():
     op.perf_stats["instrs"] = {"mov": 4096}   # sinf leaves a device-agnostic fallback count
     device.execute_op(op)
     assert op.compute_cycles != int(op.perf_stats["fused_compute_cycles"])
+
+
+@pytest.mark.unit
+def test_arch_gate_falls_back_on_other_bh_sku():
+    # Constants are p100a-calibrated; a p150a instance of the same package must fall back too.
+    device = Device(_MockSimConfig(devname="Blackhole", name="p150a"))
+    op = _sdpa_op("sdpa_p150", _baseline_cfg(4096))
+    op.perf_stats["instrs"] = {"mov": 4096}
+    device.execute_op(op)
+    assert op.compute_cycles != int(op.perf_stats["fused_compute_cycles"])
+    # and the calibrated SKU keeps the roofline
+    device = Device(_MockSimConfig(devname="Blackhole", name="p100a"))
+    op = _sdpa_op("sdpa_p100", _baseline_cfg(4096))
+    device.execute_op(op)
+    assert op.compute_cycles == int(op.perf_stats["fused_compute_cycles"])
 
 
 @pytest.mark.unit
