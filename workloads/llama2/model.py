@@ -75,6 +75,7 @@ class Precompute(SimNN.Module):
         return freqs_cis
 
 def reshape_for_broadcast(freqs_cis: SimNN.SimTensor, x: SimNN.SimTensor) -> SimNN.SimTensor:
+    assert x.shape is not None, 'reshape_for_broadcast: input x tensor shape must be set'
     ndim = len(x.shape)
     assert 0 <= 1 < ndim
     assert freqs_cis.shape == [x.shape[1], x.shape[-2], x.shape[-1]]
@@ -97,6 +98,7 @@ def apply_rotary_emb(
 
 def repeat_kv(x: SimNN.SimTensor, n_rep: int) -> SimNN.SimTensor:
     """repeat_interleave(x, dim=2, repeats=n_rep)"""
+    assert x.shape is not None, 'repeat_kv: input x tensor shape must be set'
     bs, slen, n_kv_heads, head_dim = x.shape
     if n_rep == 1:
         return x
@@ -174,6 +176,7 @@ class Attention(SimNN.Module):
         freqs_cis: SimNN.SimTensor,
         mask: Optional[SimNN.SimTensor],
     ):
+        assert x.shape is not None, f'{self.name}: input x tensor shape must be set'
         bsz, seqlen, _ = x.shape
         xq, xk, xv = self.wq(x), self.wk(x), self.wv(x)
 
@@ -319,6 +322,7 @@ class Transformer(SimNN.Module):
 
     def __call__(self, tokens: SimNN.SimTensor = None, start_pos: int = 0): # type: ignore[assignment]
         tokens = self.input_tensors['x_in'] if tokens is None else tokens
+        assert tokens.shape is not None, f'{self.name}: input tokens tensor shape must be set'
         _bsz, seqlen = tokens.shape
         h = self.tok_embeddings(tokens)
         self.freqs_cis.set_module(self)

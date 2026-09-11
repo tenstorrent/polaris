@@ -214,6 +214,8 @@ class AttnProcessor2_0(SimNN.Module):
 
         residual = hidden_states
 
+        assert hidden_states.shape is not None, \
+            "AttnProcessor.__call__: input hidden_states tensor shape must be set"
         # input_ndim = hidden_states.ndim
         input_ndim = len(hidden_states.shape) if isinstance(hidden_states, SimNN.SimTensor) else hidden_states.ndim
         

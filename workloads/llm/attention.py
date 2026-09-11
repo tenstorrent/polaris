@@ -95,10 +95,12 @@ class ConfigurableAttention(SimNN.Module):
             present_kv: (K, V) for caching
         """
         assert x.rank() == 3, f"{self.name} input {x.name}.shape= {x.shape} not in [bs, nW, dE] shape"
+        assert x.shape is not None, f"{self.name}: input {x.name} tensor shape must be set"
         batch, qlen, hidden_dim = x.shape
         assert hidden_dim == self.dE, f"Input {x.name}.hidden_dim= {hidden_dim} != {self.name}.dE= {self.dE}"
 
         kv         = x if kv is None else kv
+        assert kv.shape is not None, f"{self.name}: input {kv.name} tensor shape must be set"
         _, klen, _ = kv.shape
 
         # Project Q, K, V

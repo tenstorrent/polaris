@@ -59,6 +59,8 @@ class Upsample2D(SimNN.Module):
         super().link_op2module()
 
     def __call__(self, hidden_states: SimNN.SimTensor, output_size: Optional[int] = None, *args, **kwargs) -> SimNN.SimTensor:
+        assert hidden_states.shape is not None, \
+            "Upsample2D.__call__: input hidden_states tensor shape must be set"
         if hidden_states.shape[1] != self.channels:
             raise ValueError(f"Upsample2D: Input channel mismatch. Expected {self.channels}, got {hidden_states.shape[1]}")
 
