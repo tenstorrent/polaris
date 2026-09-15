@@ -2226,6 +2226,38 @@ def test_shim_decode_cur_pos_tensor_flags_unknown_position():
 
 
 @pytest.mark.unit
+def test_shim_prefill_chunk_start_zero_is_the_first_chunk():
+    import ttsim.front.ttnn as ttnn
+    dev = _shim_dev()
+    ttnn.transformer.scaled_dot_product_attention(*_qkv(dev), chunk_start_idx=0)
+    op = _last_sdpa(dev)
+    assert (op.attrs["sdpa_variant"], op.attrs["chunk_start_idx"]) == ("chunked", 0)
+    assert op.perf_stats["sdpa_regime"] == "chunked" and op.perf_stats["sdpa_config"]["chunk_start_idx"] == 0
+
+
+@pytest.mark.unit
+def test_shim_optional_tensors_stay_inputs_of_the_op():
+    # mask, sink and window tensors are recorded as inputs, not only as flags, so their producers keep an
+    # edge to the SDPA op; the paged decode still finds its page table as the last input.
+    import ttsim.front.ttnn as ttnn
+    dev = _shim_dev()
+    q, k, v = _qkv(dev)
+    mask = _tt(dev, [1, 1, 4096, 4096], "pmask")
+    sink = _tt(dev, [1, 32, 1, 1], "psink")
+    ttnn.transformer.scaled_dot_product_attention(q, k, v, attn_mask=mask, attention_sink=sink)
+    op = _last_sdpa(dev)
+    assert op.inList[-2:] == [mask.name, sink.name] and op.attrs["has_attn_mask"] and op.attrs["attention_sink"]
+    dq, kc, vc, pt, cp = _decode_tensors(dev)
+    dmask = _tt(dev, [32, 1, 32, 1024], "dmask")
+    ttnn.transformer.paged_scaled_dot_product_attention_decode(dq, kc, vc, page_table_tensor=pt,
+                                                               cur_pos=[1023] * 32, is_causal=False,
+                                                               attn_mask=dmask)
+    op = _last_sdpa(dev)
+    assert op.inList == [dq.name, kc.name, vc.name, dmask.name, pt.name]
+    assert op.perf_stats["sdpa_config"]["paged"] and op.perf_stats["sdpa_config"]["cache_len"] == 1024
+
+
+@pytest.mark.unit
 def test_shim_paged_decode_unknown_position_streams_at_most_the_physical_cache():
     # Shipped dual-mode decode shape: 32 users, cache [1024, 8, 32, 128], page table [32, 1024]. The table
     # width is a bound, not the 32 blocks the cache holds per user; pricing it streamed 2290 MB from 71 MB.

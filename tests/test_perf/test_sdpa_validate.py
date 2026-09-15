@@ -154,6 +154,29 @@ def test_joint_row_is_priced_over_the_concatenated_streams():
 
 
 @pytest.mark.unit
+def test_sub_core_grids_set_the_grid_core_count():
+    assert sv._core_range_set_size("{[(x=0;y=0) - (x=7;y=3)]}") == 32
+    assert sv._core_range_set_size([[(0, 0), (7, 7)], [(0, 8), (3, 9)]]) == 72
+    assert sv._core_range_set_size("nonsense") == 0
+    r = copy.deepcopy(_row("sdpa_prefill"))
+    r.attrs["program_config"]["sub_core_grids"] = "{[(x=0;y=0) - (x=7;y=3)]}"
+    assert sv._common_attrs(r)["grid_cores"] == 32
+    r.core_count = 0                                   # no CORE COUNT column: the config grid stands in
+    assert sv._common_attrs(r)["num_cores"] == 32
+    r.attrs["program_config"]["sub_core_grids"] = "{}"
+    a = sv._common_attrs(r)
+    assert "grid_cores" not in a and a["sub_core_grids_unparsed"] is True
+
+
+@pytest.mark.unit
+def test_decode_row_accepts_a_scalar_cur_pos():
+    r = copy.deepcopy(_row("sdpa_decode"))
+    r.attrs["cur_pos"] = 1023
+    kw = sv.decode_config(r)
+    assert kw["cur_pos"] == 1023 and not kw["cur_pos_unknown"]
+
+
+@pytest.mark.unit
 def test_decode_row_builds_config_with_sidecar_position():
     kw = sv.decode_config(_row("sdpa_decode"), sidecar={"cur_pos": 1023, "page_block_size": 32})
     assert (kw["batch"], kw["num_q_heads"], kw["num_kv_heads"], kw["head_dim"]) == (32, 32, 8, 128)

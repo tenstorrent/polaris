@@ -864,10 +864,12 @@ class transformer:
         from .ttnn_shim import scaled_dot_product_attention_op as _sdpa
         # Pass scale through unchanged: when the caller omits it (None), the shim op
         # drops it from the recorded attrs rather than fabricating a 0.0.
-        variant = 'chunked' if kwargs.get('chunk_start_idx') else 'prefill'
+        # chunk_start_idx 0 is a valid first chunk, so test for presence, not truth.
+        chunk_start = kwargs.get('chunk_start_idx')
+        variant = 'chunked' if chunk_start is not None else 'prefill'
         extra = _sdpa_config_attrs(program_config, compute_kernel_config)
-        if kwargs.get('chunk_start_idx'):
-            extra['chunk_start_idx'] = int(kwargs['chunk_start_idx'])
+        if chunk_start is not None:
+            extra['chunk_start_idx'] = int(chunk_start)
         if sliding_window_size:
             extra['sliding_window_size'] = int(sliding_window_size)
         if attn_mask is not None:
@@ -877,8 +879,9 @@ class transformer:
         if cu_window_seqlens is not None:
             extra['is_windowed'] = True
         extra['kv_element_size'] = k.element_size()
-        return _sdpa(q, k, v, memory_config=memory_config, is_causal=bool(is_causal),
-                     scale=scale, sdpa_variant=variant, **extra)
+        # The optional tensors are inputs of the op, not only flags, so their producers stay connected.
+        return _sdpa(q, k, v, attn_mask, attention_sink, cu_window_seqlens, memory_config=memory_config,
+                     is_causal=bool(is_causal), scale=scale, sdpa_variant=variant, **extra)
 
     @staticmethod
     def chunked_scaled_dot_product_attention(q, k, v, page_table_tensor, *, chunk_start_idx=None,
@@ -914,7 +917,8 @@ class transformer:
         extra = _sdpa_decode_attrs(program_config, compute_kernel_config, k, q=q, is_causal=is_causal,
                                    attn_mask=attn_mask, cur_pos=cur_pos, cur_pos_tensor=cur_pos_tensor,
                                    attention_sink=attention_sink, sliding_window_size=sliding_window_size)
-        return _sdpa(q, k, v, cur_pos_tensor, memory_config=memory_config,
+        # The mask and sink ride along as inputs so their producers stay connected in the graph.
+        return _sdpa(q, k, v, cur_pos_tensor, attn_mask, attention_sink, memory_config=memory_config,
                      scale=scale, sdpa_variant='decode', **extra)
 
     @staticmethod
@@ -932,7 +936,8 @@ class transformer:
                                    page_table_tensor=page_table_tensor,
                                    paged_cache_geometry=paged_cache_geometry,
                                    cache_position_modulo=cache_position_modulo)
-        return _sdpa(q, k, v, cur_pos_tensor, page_table_tensor,
+        # Mask and sink go before the page table: the decode roofline reads the table as the last input.
+        return _sdpa(q, k, v, cur_pos_tensor, attn_mask, attention_sink, page_table_tensor,
                      memory_config=memory_config,
                      scale=scale, sdpa_variant='decode', **extra)
 

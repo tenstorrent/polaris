@@ -324,6 +324,27 @@ def _as_int(v, default: int = 0) -> int:
         return default
 
 
+def _core_range_set_size(v) -> int:
+    """Core count of a CoreRangeSet as tt-metal renders it, {[(x=0,y=0) - (x=7,y=3)], ...}, whether the
+    attribute parser left it as text or turned the corners into (x, y) tuples. 0 when nothing parses."""
+    corners: list = []
+
+    def walk(o):
+        if isinstance(o, tuple) and len(o) == 2 and all(isinstance(c, (int, float)) for c in o):
+            corners.append((int(o[0]), int(o[1])))
+        elif isinstance(o, (list, tuple)):
+            for c in o:
+                walk(c)
+        elif isinstance(o, str):
+            corners.extend((int(x), int(y)) for x, y in re.findall(r"x=(\d+)[;,]\s*y=(\d+)", o))
+
+    walk(v)
+    if not corners or len(corners) % 2:
+        return 0
+    return sum((abs(x1 - x0) + 1) * (abs(y1 - y0) + 1)
+               for (x0, y0), (x1, y1) in zip(corners[0::2], corners[1::2]))
+
+
 def _common_attrs(r: OpRow) -> Dict[str, object]:
     """Program and compute config attrs under the names the ttnn shim records."""
     a: Dict[str, object] = {}
@@ -332,7 +353,16 @@ def _common_attrs(r: OpRow) -> Dict[str, object]:
         a["q_chunk_size"] = _as_int(pc.get("q_chunk_size"))
         a["k_chunk_size"] = _as_int(pc.get("k_chunk_size"))
         grid = pc.get("compute_with_storage_grid_size")
-        if isinstance(grid, tuple) and len(grid) == 2:
+        sub = pc.get("sub_core_grids")
+        if sub is not None:
+            # sub_core_grids overrides the grid, counted the way the shim counts it; a set that does not
+            # parse leaves the core count to CORE COUNT and says so
+            cores = _core_range_set_size(sub)
+            if cores:
+                a["grid_cores"] = cores
+            else:
+                a["sub_core_grids_unparsed"] = True
+        elif isinstance(grid, tuple) and len(grid) == 2:
             a["grid_cores"] = int(grid[0]) * int(grid[1])
         if pc.get("exp_approx_mode") is not None:
             a["exp_approx_mode"] = bool(pc["exp_approx_mode"])
@@ -475,6 +505,8 @@ def decode_config(r: OpRow, sidecar: Optional[Dict[str, int]] = None) -> Dict[st
     cur = r.attrs.get("cur_pos")
     if isinstance(cur, list) and cur:
         a["cur_pos"] = int(max(cur))
+    elif isinstance(cur, (int, float)) and not isinstance(cur, bool):
+        a["cur_pos"] = int(cur)          # the shim records the slowest user's position as one number
     elif sidecar and "cur_pos" in sidecar:
         a["cur_pos"] = int(sidecar["cur_pos"])
     if sidecar and sidecar.get("page_block_size") and not a.get("page_block_size"):

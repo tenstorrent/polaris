@@ -801,8 +801,8 @@ def _sdpa_known_shape(t, what):
 
 
 def _infer_sdpa_variant(iTList, attrs):
-    """Classify an SDPA op into a variant: explicit sdpa_variant tag, else by arity/attrs (3 inputs
-    = prefill; chunk_start_idx>0 = chunked; else 4-5 inputs = decode)."""
+    """Classify an SDPA op into a variant: explicit sdpa_variant tag (every ttnn entry point sets one),
+    else by arity/attrs for untagged ops (3 inputs = prefill; chunk_start_idx>0 = chunked; else decode)."""
     v = attrs.get('sdpa_variant')
     if v:
         return v
@@ -870,8 +870,9 @@ _SDPA_FRONTENDS = {
 def sdpa_sinf(iTList, oTList, op, **kwargs):
     """Shape inference + per-variant cost routing for SDPA. Output shape = q; cost via _SDPA_FRONTENDS,
     unhandled variants use the passthrough estimate."""
-    # Op-table arity ARITY_VARIADIC[3-5]: prefill=3, decode/paged up to 5.
-    assert 3 <= len(iTList) <= 5 and len(oTList) == 1
+    # Op-table arity ARITY_VARIADIC[3-7]: q, k, v plus the optional mask, sink, window, position and
+    # page table tensors the entry points pass through so their producers stay connected in the graph.
+    assert 3 <= len(iTList) <= 7 and len(oTList) == 1
     Q = iTList[0]
     q_shape = require_shape_list(
         Q.shape, "ScaledDotProductAttention shape inference: q shape must be known",
@@ -920,7 +921,7 @@ def register_layout_ops():
         ['PagedFusedUpdateCache', 'ARITY_VARIADIC[4-6]->2', d, 'COMMON', 24, 21, 6, 4, 2, 2, paged_fused_update_cache_sinf, True, True, True, True, True],
         ['NLPCreateQKVHeadsDecode', 'ARITY_1->3', d, 'COMMON', 24, 21, 1, 1, 3, 3, nlp_create_qkv_heads_decode_sinf, True, True, True, True, True],
         ['NLPConcatHeadsDecode', 'ARITY_1->1', d, 'COMMON', 24, 21, 1, 1, 1, 1, nlp_concat_heads_decode_sinf, True, True, True, True, True],
-        ['ScaledDotProductAttention', 'ARITY_VARIADIC[3-5]->1', d, 'COMMON', 24, 21, 5, 3, 1, 1, sdpa_sinf, True, True, True, True, True],
+        ['ScaledDotProductAttention', 'ARITY_VARIADIC[3-7]->1', d, 'COMMON', 24, 21, 7, 3, 1, 1, sdpa_sinf, True, True, True, True, True],
         ['PlusOne', 'ARITY_1->1', d, 'COMMON', 24, 21, 1, 1, 1, 1, plus_one_sinf, True, True, True, True, True],
         ['ManualSeed', 'ARITY_VARIADIC[1-2]->1', d, 'COMMON', 24, 21, 2, 1, 1, 1, manual_seed_sinf, True, True, True, True, True],
         # arity up to 6: HW SamplingDeviceOperation takes a preallocated output_tensor as input_5.

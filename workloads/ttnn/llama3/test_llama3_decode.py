@@ -121,6 +121,8 @@ def run_llama3(wlname: str, ttnn_device: TTNNDevice, cfg: dict):
         logger.info(f"Finished running TT model {model_name}.")
         
         ttnn.deallocate(tt_out)
+        # next token: every user is one position further, so SDPA attends one more KV row
+        generation_pos = [p + 1 for p in generation_pos]
     # print("Generating Model Graph...")
     # g = mesh_device.get_graph()
     # g.graph2onnx('ttnn_llama32_model.onnx', do_model_check=False,
