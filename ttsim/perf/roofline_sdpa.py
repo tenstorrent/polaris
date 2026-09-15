@@ -1106,7 +1106,7 @@ def _apply_overrides(cfg, num_cores, fidelity, exp_approx_mode, fp32_dest_acc):
     return (replace(cfg, **changes) if changes else cfg), fallback
 
 
-def _sparse_wall(r, cfg, a, terms, *, qct, kct, dct_qk, dct_v, cpt, kvbpt, ibpt, abpt):
+def _sparse_wall(r, cfg, a, terms, *, qct, kct, dct_qk, dct_v, cpt, kvbpt, ibpt):
     """Sparse SDPA (sparse_sdpa_program_factory.cpp): query tokens split over the cores, each gathering its
     TOPK latent key rows for every head; per token a serial front end plus the longer of floor and gather."""
     topk = cfg.kv_seq
@@ -1143,7 +1143,7 @@ def _sparse_wall(r, cfg, a, terms, *, qct, kct, dct_qk, dct_v, cpt, kvbpt, ibpt,
     sq_tiles = _ceil_div(cfg.S, TILE_HW)
     r.dram_in_bytes = round(cfg.num_heads * sq_tiles * dct_qk * ibpt * cfg.batch
                             + tokens_total * topk * (key_row_bytes + 4))
-    r.dram_out_bytes = round(cfg.num_heads * sq_tiles * dct_v * abpt * cfg.batch)
+    r.dram_out_bytes = round(cfg.num_heads * sq_tiles * dct_v * ibpt * cfg.batch)   # written in q's dtype
     fam = SPARSE_CALIBRATED
     if (cfg.num_heads != fam["num_heads"] or (cfg.kv_input_dtype or cfg.input_dtype) != fam["kv_dtype"]
             or cfg.k_chunk != fam["k_chunk"]):
@@ -1168,7 +1168,8 @@ def predict(cfg: SdpaConfig, *, num_cores=None, fidelity=None, exp_approx_mode=N
     Skv = cfg.kv_seq or (cfg.S + cfg.chunk_start_idx)   # chunked: the prefix is attended too
     if not (cfg.q_chunk % TILE_HW == 0 and cfg.k_chunk % TILE_HW == 0):
         raise ValueError(f"q_chunk/k_chunk must be multiples of {TILE_HW}")
-    if cfg.input_dtype not in BYTES_PER_TILE or cfg.accum_dtype not in BYTES_PER_TILE:
+    if (cfg.input_dtype not in BYTES_PER_TILE or cfg.accum_dtype not in BYTES_PER_TILE
+            or (cfg.kv_input_dtype or cfg.input_dtype) not in BYTES_PER_TILE):
         raise ValueError(f"unsupported dtype; supported: {sorted(BYTES_PER_TILE)}")
     # Negative dims pass the modulo checks (-4096 % 128 == 0) and hide inside a plausible total.
     if min(cfg.S, cfg.head_dim, cfg.num_heads, cfg.num_cores, cfg.batch, cfg.q_chunk, cfg.k_chunk) <= 0:
@@ -1275,7 +1276,7 @@ def predict(cfg: SdpaConfig, *, num_cores=None, fidelity=None, exp_approx_mode=N
         if cfg.fidelity != "HiFi4" or (cfg.kv_input_dtype or cfg.input_dtype) != "bfloat16":
             r.flag("sparse_fit_family")
         _sparse_wall(r, cfg, a, terms, qct=qct, kct=kct, dct_qk=dct_qk, dct_v=dct_v, cpt=cpt, kvbpt=kvbpt,
-                     ibpt=ibpt, abpt=abpt)
+                     ibpt=ibpt)
         r.wall_clock_cycles = round(sum(r.components.values()))
         r.straggler_cycles = round(r.components["straggler"])
         return r
@@ -1325,7 +1326,9 @@ def predict(cfg: SdpaConfig, *, num_cores=None, fidelity=None, exp_approx_mode=N
     r.dram_in_bytes = round((cfg.num_heads * sq_tiles * dct_qk * ibpt                   # Q
                              + (nkv * skv_tiles * dct_qk * kvbpt) * derate             # K
                              + (nkv * skv_tiles * dct_v * kvbpt) * derate) * cfg.batch)  # V
-    r.dram_out_bytes = round(cfg.num_heads * sq_tiles * dct_v * abpt * cfg.batch)    # output
+    # The output is written in q's dtype whatever the DEST accumulator (sdpa_device_operation.cpp
+    # compute_output_specs), so fp32 DEST does not double the write traffic.
+    r.dram_out_bytes = round(cfg.num_heads * sq_tiles * dct_v * ibpt * cfg.batch)    # output
     if chains is not None:
         r.config_echo["kv_chains"] = chains
 
@@ -1402,7 +1405,8 @@ def predict_decode(cache_len, num_q_heads, num_kv_heads, head_dim, v_head_dim=0,
     if (input_dtype not in BYTES_PER_TILE or accum_dtype not in BYTES_PER_TILE
             or kv_input_dtype not in BYTES_PER_TILE):
         raise ValueError(f"unsupported dtype; supported: {sorted(BYTES_PER_TILE)}")
-    if min(int(cache_len), num_q_heads, num_kv_heads or num_q_heads, head_dim, num_cores, batch) <= 0 or k_chunk < 0:
+    num_kv_heads = num_kv_heads or num_q_heads   # MHA shorthand, before the core split divides by it
+    if min(int(cache_len), num_q_heads, num_kv_heads, head_dim, num_cores, batch) <= 0 or k_chunk < 0:
         raise ValueError("cache_len/heads/head_dim/num_cores/batch must be positive, k_chunk >= 0")
     attended = int(cur_pos + 1) if cur_pos is not None else int(cache_len)
     if attended <= 0:
@@ -1518,13 +1522,21 @@ def decode_config_from_shapes(q_shape, k_shape, v_shape=None, attrs=None, num_co
     reasons: List[str] = []
     q = list(map(int, q_shape))
     k = list(map(int, k_shape))
-    if len(q) >= 4 and q[-2] == 1:
-        batch, num_q_heads = q[-4], q[-3]
+    paged = bool(attrs.get("paged", False))
+    # The batch the cache (or the page table) carries tells [1, batch, heads, d] from [batch, heads, 1, d]
+    # when one head count is 1: an MQA query [1, 32, 1, 128] over a batch 32 cache is 32 users of one head.
+    if page_table_shape is not None and len(page_table_shape) >= 2:
+        cache_batch = int(page_table_shape[-2])
+    elif not paged and len(k) >= 4:
+        cache_batch = k[-4]
     else:
-        batch, num_q_heads = (q[-3] if len(q) >= 3 else 1), q[-2]
+        cache_batch = 0
+    if len(q) >= 4 and q[-2] == 1 and not (q[-4] == 1 and q[-3] == cache_batch != 1):
+        batch, num_q_heads = q[-4], q[-3]                             # [batch, heads, 1, head_dim]
+    else:
+        batch, num_q_heads = (q[-3] if len(q) >= 3 else 1), q[-2]    # ttnn decode [1, batch, heads, head_dim]
     head_dim = q[-1]
     num_kv_heads = k[-3]
-    paged = bool(attrs.get("paged", False))
     page_block_size = int(attrs.get("page_block_size") or 0)
     if paged:
         # Paged cache: rows are blocks. The page table is sized for the longest sequence, so a user

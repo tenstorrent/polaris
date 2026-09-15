@@ -112,7 +112,8 @@ class ModelArgs:
                                       q_chunk_size=chunk, k_chunk_size=chunk, exp_approx_mode=False)
 
     def sdpa_decode_program_config(self):
-        # SDPA_DECODE_PROGCFG: chunk 0 lets the kernel pick the largest power of two dividing the length
+        # SDPA_DECODE_PROGCFG: chunk 0 lets the kernel size the chunk at run time, cur_pos + 1 in tiles
+        # rounded up to a power of two and capped at the DEST size (rt_args_common.hpp get_dynamic_Sk_chunk_t)
         return ttnn.SDPAProgramConfig(compute_with_storage_grid_size=ttnn.CoreCoord(8, 8),
                                       q_chunk_size=0, k_chunk_size=0, exp_approx_mode=False)
 

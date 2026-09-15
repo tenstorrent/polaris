@@ -161,6 +161,41 @@ def test_decode_v_head_dim_from_v_cache_shape():
 
 
 @pytest.mark.unit
+def test_decode_layout_is_told_apart_by_the_cache_batch():
+    # An MQA query [1, 32, 1, 128] is 32 users of one head when the cache (or the page table) carries
+    # batch 32; over a batch 1 cache the same shape stays [1, heads, 1, d]. [batch, heads, 1, d] is untouched.
+    from ttsim.perf.roofline_sdpa import decode_config_from_shapes
+    mqa = decode_config_from_shapes([1, 32, 1, 128], [32, 1, 4096, 128], attrs={})
+    assert (mqa["batch"], mqa["num_q_heads"], mqa["num_kv_heads"]) == (32, 1, 1)
+    paged = decode_config_from_shapes([1, 32, 1, 128], [1024, 1, 32, 128], attrs={"paged": True},
+                                      page_table_shape=[32, 64])
+    assert (paged["batch"], paged["num_q_heads"], paged["cache_len"]) == (32, 1, 1024)
+    one = decode_config_from_shapes([1, 32, 1, 128], [1, 8, 4096, 128], attrs={})
+    assert (one["batch"], one["num_q_heads"]) == (1, 32)
+    alt = decode_config_from_shapes([32, 8, 1, 128], [32, 8, 4096, 128], attrs={})
+    assert (alt["batch"], alt["num_q_heads"]) == (32, 8)
+
+
+@pytest.mark.unit
+def test_decode_kv_heads_zero_is_the_mha_shorthand():
+    mha = predict_decode(cache_len=4096, num_q_heads=8, num_kv_heads=0, head_dim=128, batch=4)
+    same = predict_decode(cache_len=4096, num_q_heads=8, num_kv_heads=8, head_dim=128, batch=4)
+    assert mha.wall_clock_cycles == same.wall_clock_cycles and mha.dram_in_bytes == same.dram_in_bytes
+
+
+@pytest.mark.unit
+def test_output_bytes_follow_the_query_dtype_not_the_accumulator():
+    # sdpa_device_operation.cpp compute_output_specs writes the output in q's dtype, fp32 DEST or not.
+    from ttsim.perf.roofline_sdpa import BYTES_PER_TILE
+    bf16 = predict(SdpaConfig(S=4096, num_cores=110, arch=ARCH_BH))
+    fp32 = predict(SdpaConfig(S=4096, num_cores=110, arch=ARCH_BH, accum_dtype="float32"))
+    assert fp32.dram_out_bytes == bf16.dram_out_bytes == 32 * 128 * 4 * BYTES_PER_TILE["bfp8_b"]
+    sparse = [predict(SdpaConfig(S=2048, is_sparse=True, kv_seq=2048, num_cores=110, arch=ARCH_BH,
+                                 accum_dtype=d)).dram_out_bytes for d in ("bfloat16", "float32")]
+    assert sparse[0] == sparse[1] == 32 * 64 * 4 * BYTES_PER_TILE["bfp8_b"]
+
+
+@pytest.mark.unit
 def test_wall_regime_cross_only_when_kv_seq_differs():
     # kv_seq == S is plain self-attention, not cross, so it keeps the prefill wall terms.
     from ttsim.perf.roofline_sdpa import _wall_regime
@@ -546,6 +581,8 @@ def test_predict_rejects_bad_dtype_and_fidelity_but_pads_shapes():
         predict(SdpaConfig(S=4096, input_dtype="fp8_e4m3", num_cores=110, arch=ARCH_BH))
     with pytest.raises(ValueError):
         predict(SdpaConfig(S=4096, fidelity="HiFi9", num_cores=110, arch=ARCH_BH))
+    with pytest.raises(ValueError):
+        predict(SdpaConfig(S=4096, kv_input_dtype="int8", num_cores=110, arch=ARCH_BH))
     # S=5000 (not a multiple of q_chunk=128) is padded, not rejected:
     import math
     padded = predict(SdpaConfig(S=5000, num_cores=110, arch=ARCH_BH))
