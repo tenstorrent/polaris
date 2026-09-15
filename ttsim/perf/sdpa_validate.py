@@ -236,13 +236,14 @@ def select_op_rows(rows: Sequence[Dict[str, str]]) -> List[OpRow]:
     """Keep the SDPA and TopK device op rows (OP TYPE tt_dnn_device, signposts dropped)."""
     out = []
     for i, r in enumerate(rows):
-        if str(r.get("OP TYPE", "")).strip() == "signpost":
+        op_type = str(r.get("OP TYPE", "")).strip()
+        if op_type and op_type != "tt_dnn_device":      # signposts and host side rows
             continue
         kind = classify_op_code(r.get("OP CODE", ""))
         if kind is None:
             continue
         meas = _num(r.get(MEAS_COL))
-        if meas is None:
+        if meas is None or meas <= 0:                   # predict_row divides by the duration
             continue
         out.append(OpRow(
             index=i, op_code=str(r.get("OP CODE", "")).strip(), kind=kind,
@@ -413,6 +414,16 @@ def prefill_config(r: OpRow, sidecar: Optional[Dict[str, int]] = None):
         a["chunk_start_idx"] = int(csi)
     elif r.attrs.get("chunk_start_idx_tensor") is not None:
         a["chunk_start_unknown"] = True
+    if "joint" in r.op_code.lower():
+        # JointSDPADeviceOperation: q, k, v, joint_q, joint_k, joint_v. Both streams attend their
+        # concatenation, priced as one non causal prefill over S + joint_seq (ttsim_layout._sdpa_joint_perf).
+        if len(r.inputs) < 6:
+            raise RowError("parse_error:joint row needs the six q/k/v inputs")
+        joint_seq = int(r.inputs[3].shape[-2])
+        a["is_joint"], a["joint_seq"], a["is_causal"] = True, joint_seq, False
+        seff = int(q.shape[-2]) + joint_seq
+        qs, ks, vs = (list(t.shape[:-2]) + [seff, t.shape[-1]] for t in (q, k, v))
+        return sdpa_config_from_shapes(qs, ks, vs, a, num_cores=a.get("num_cores", 110))
     opt = _classify_optional_inputs(r, fixed, k.shape[-2], decode=False)
     if "attn_mask" in opt:
         a["has_attn_mask"] = True
@@ -506,18 +517,29 @@ def make_device(archspec=None, device_name="p100a"):
     return Device(pkg)
 
 
-def device_projection_ns(device, perf_stats: Dict) -> float:
-    """Op latency through Device.execute_op, the ideal a workload report would carry:
-    max(compute, memory) plus the ramp penalty, in device clocks."""
+def projected_op(device, perf_stats: Dict, fallback_elems: int = 0):
+    """The op after Device.execute_op. fallback_elems seeds the generic per element instruction count
+    that a device outside the calibration gate is priced with, as sdpa_sinf does, so the projection
+    never books zero compute there. bf16 is the precision the device tables can price a generic
+    instruction at (block float inputs are bytes to the roofline, not a pipe precision)."""
     op = SimpleNamespace(name="sdpa_validate", optype="ScaledDotProductAttention", uses_compute_pipe="matrix",
-                         precision="bfp8", repeat_count=1, removed_in_optimization=False,
+                         precision="bf16", repeat_count=1, removed_in_optimization=False,
                          fused_in_optimization=False, fused_with_op=None, fused_op_cycles=None, exec_stats={},
                          compute_cycles=0, mem_rd_cycles=0, mem_wr_cycles=0, mem_rd_cycles_fractional=0.0,
                          mem_wr_cycles_fractional=0.0, perf_stats=dict(perf_stats))
+    if not op.perf_stats.get("instrs") and fallback_elems > 0:
+        op.perf_stats["instrs"] = {"mov": int(fallback_elems)}
     op.perf_stats.setdefault("instrs", {})
     op.perf_stats.setdefault("inBytes", 0)
     op.perf_stats.setdefault("outBytes", 0)
     device.execute_op(op)
+    return op
+
+
+def device_projection_ns(device, perf_stats: Dict, fallback_elems: int = 0) -> float:
+    """Op latency through Device.execute_op, the ideal a workload report would carry:
+    max(compute, memory) plus the ramp penalty, in device clocks."""
+    op = projected_op(device, perf_stats, fallback_elems)
     ramp = getattr(device.simconfig_obj, "ramp_penalty", lambda: 0.0)() or 0.0
     ideal = math.ceil(max(op.compute_cycles, op.mem_rd_cycles + op.mem_wr_cycles) + ramp)
     return ideal / device.freq_MHz * 1e3
@@ -625,7 +647,8 @@ def predict_row(r: OpRow, *, device=None, sidecar: Optional[Dict[str, int]] = No
         out.exclude_reason = "config_mismatch"
     out.pred_kernel_ns = ps["fused_compute_cycles"] / clock
     if device is not None:
-        out.pred_device_ns = device_projection_ns(device, ps)
+        elems = int(np.prod(r.inputs[0].shape)) if r.inputs else 0
+        out.pred_device_ns = device_projection_ns(device, ps, fallback_elems=elems)
     out.err = (out.pred_kernel_ns - r.meas_ns) / r.meas_ns
     return out
 

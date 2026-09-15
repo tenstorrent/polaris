@@ -112,6 +112,16 @@ def test_aggregate_replays_takes_median_of_traced_rows():
     assert len(out) == 1 and out[0].meas_ns == 200.0 and out[0].replays == 3
 
 
+@pytest.mark.unit
+def test_select_op_rows_keeps_only_device_rows_with_a_duration():
+    _, raw = sv.read_ops_csv(FIXTURE)
+    base = dict(raw[0])
+    host = dict(base, **{"OP TYPE": "tt_dnn_host"})
+    zero = dict(base, **{"DEVICE KERNEL DURATION [ns]": "0"})
+    blank = dict(base, **{"DEVICE KERNEL DURATION [ns]": ""})
+    assert len(sv.select_op_rows([base, host, zero, blank])) == 1
+
+
 # ---------------------------------------------------------------- row to config
 
 @pytest.mark.unit
@@ -123,6 +133,24 @@ def test_prefill_row_builds_production_config():
     assert cfg.accum_dtype == "float32" and cfg.input_dtype == "bfp8_b" and cfg.kv_input_dtype == ""
     assert cfg.is_causal and not cfg.has_attn_mask and not cfg.paged
     assert not any(x.endswith("_absent") for x in cfg.fallback_reasons)
+
+
+@pytest.mark.unit
+def test_joint_row_is_priced_over_the_concatenated_streams():
+    # JointSDPADeviceOperation rows carry q, k, v and the three joint tensors; the config spans both streams.
+    r = copy.deepcopy(_row("sdpa_prefill"))
+    r.op_code = "JointSDPADeviceOperation"
+    q, k, v = r.inputs[:3]
+    joint = []
+    for t in (q, k, v):
+        j = copy.deepcopy(t)
+        j.shape = list(t.shape[:-2]) + [333, t.shape[-1]]
+        j.padded = list(t.padded[:-2]) + [352, t.padded[-1]]
+        joint.append(j)
+    r.inputs = [q, k, v] + joint
+    cfg = sv.prefill_config(r)
+    assert cfg.is_joint and cfg.joint_seq == 333 and not cfg.is_causal and cfg.S == q.shape[-2] + 333
+    assert sv.predict(cfg).regime == "joint"
 
 
 @pytest.mark.unit
@@ -290,6 +318,19 @@ def test_device_projection_uses_the_real_p100a_device():
     res = sv.predict_row(_row("sdpa_prefill"), device=dev)
     # fused cycles are booked as-is on the calibrated SKU; the projection adds only the ramp penalty
     assert res.pred_device_ns >= res.pred_kernel_ns and res.pred_device_ns < 1.01 * res.pred_kernel_ns
+
+
+@pytest.mark.unit
+def test_device_projection_off_the_calibrated_sku_books_the_generic_estimate():
+    # p150a is outside the calibration gate, so execute_op prices the generic instruction path; the seeded
+    # per element count keeps that from being zero compute (sdpa_sinf seeds the same count).
+    dev = sv.make_device(device_name="p150a")
+    row = _row("sdpa_prefill")
+    ps = sv.predict(sv.prefill_config(row)).to_polaris_op_perf_stats()
+    n = int(np.prod(row.inputs[0].shape))
+    assert sv.projected_op(dev, ps).compute_cycles == 0
+    assert sv.projected_op(dev, ps, fallback_elems=n).compute_cycles > 0
+    assert sv.predict_row(row, device=dev).pred_device_ns == pytest.approx(sv.device_projection_ns(dev, ps, n))
 
 
 @pytest.mark.unit
