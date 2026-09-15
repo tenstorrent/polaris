@@ -1121,6 +1121,52 @@ class experimental:
         from .ttnn_shim import nlp_concat_heads_decode_op as _concat
         return _concat(input_tensor, num_heads=num_heads, memory_config=memory_config)
 
+    @staticmethod
+    def topk_large_indices(input_tensor, k, valid_length=None, valid_length_tensor=None,
+                           valid_length_offset=0, memory_config=None, kernel_rev=None, **kwargs):
+        """Indices-only topk over the last dim (the sparse-attention index selector, DSA and MSA
+        call it directly). Priced by the calibrated topk_large_indices law; returns [..., k] indices.
+        A valid_length_tensor is runtime data, so the scan is priced at the full width and flagged.
+        kernel_rev names the tt-metal revision whose calibration set prices the call."""
+        input_tensor = require_ttnn_tensor(input_tensor, "ttnn.topk_large_indices input")
+        attrs = dict(k=int(k), dim=-1, topk_kernel="large_indices", indices_only=1,
+                     valid_length_offset=int(valid_length_offset or 0))
+        if valid_length is not None:
+            attrs["valid_length"] = int(valid_length)
+        elif valid_length_tensor is not None:
+            attrs["valid_length_unknown"] = 1
+        if kernel_rev is not None:
+            attrs["kernel_rev"] = str(kernel_rev)
+        _, indices = topk(input_tensor, memory_config=memory_config, **attrs)
+        return indices
+
+    @staticmethod
+    def indexer_score_dsa(q, k, weights, *, chunk_start_idx=0, program_config=None,
+                          compute_kernel_config=None, cache_batch_idx=None, kv_len=None,
+                          memory_config=None, kernel_rev=None, **kwargs):
+        """Lightning indexer logits [1, 1, Sq, T] from q [1, Hi, Sq, D], k [1, 1, T, D] and head
+        weights [1, Hi, Sq, 1]; the op before topk_large_indices in the DSA chain."""
+        from .ttnn_shim import indexer_score_dsa_op as _ix
+        extra = {}
+        if kernel_rev is not None:
+            extra['kernel_rev'] = str(kernel_rev)
+        # Duck-typed: the indexer program config carries a grid (or sub_core_grids), the compute
+        # kernel config a math fidelity; both are optional and the model defaults otherwise.
+        scg = getattr(program_config, 'sub_core_grids', None)
+        g = getattr(program_config, 'compute_with_storage_grid_size', None)
+        if scg is not None and hasattr(scg, 'num_cores'):
+            extra['num_cores'] = int(scg.num_cores())
+        elif g is not None:
+            gx, gy = (g.x, g.y) if hasattr(g, 'x') else (g[0], g[1])
+            extra['num_cores'] = int(gx) * int(gy)
+        mf = getattr(compute_kernel_config, 'math_fidelity', None)
+        if mf is None and isinstance(compute_kernel_config, MathFidelity):
+            mf = compute_kernel_config
+        if mf is not None:
+            extra['fidelity'] = mf.name if hasattr(mf, 'name') else str(mf)
+        return _ix(q, k, weights, chunk_start_idx=int(chunk_start_idx or 0),
+                   memory_config=memory_config, **extra)
+
 
 def all_gather(*args, **kwargs):
     raise NotImplementedError("all_gather is not implemented yet!!")
