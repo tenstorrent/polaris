@@ -756,7 +756,8 @@ def repeat(input_tensor, repeats):
 def _sdpa_config_attrs(program_config, compute_kernel_config):
     """Scalar attrs from an SDPA program config and compute kernel config, duck-typed so real ttnn
     objects and the shim dataclasses both work. Fields that are missing go into sdpa_defaulted."""
-    a, defaulted = {}, []
+    a: dict = {}
+    defaulted: list = []
     if program_config is not None:
         a['q_chunk_size'] = int(program_config.q_chunk_size)
         a['k_chunk_size'] = int(program_config.k_chunk_size)

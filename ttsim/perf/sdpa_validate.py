@@ -9,6 +9,7 @@ from __future__ import annotations
 import argparse
 import ast
 import csv
+import importlib
 import json
 import math
 import re
@@ -49,7 +50,8 @@ _INT_DTYPES = {"int32", "uint32", "uint16", "uint8", "int8"}
 
 def read_ops_csv(path) -> Tuple[List[str], List[Dict[str, str]]]:
     """DictReader over an ops CSV. Leading '#' lines (PROVENANCE) are returned separately."""
-    comments, lines = [], []
+    comments: List[str] = []
+    lines: List[str] = []
     with open(path, newline="") as f:
         for line in f:
             if not lines and line.startswith("#"):
@@ -72,7 +74,9 @@ def classify_op_code(code: str) -> Optional[str]:
 
 
 def _split_top_level(s: str) -> List[str]:
-    parts, depth, cur = [], 0, []
+    parts: List[str] = []
+    cur: List[str] = []
+    depth = 0
     for ch in s:
         if ch in "([{":
             depth += 1
@@ -309,19 +313,29 @@ def _struct(attrs, name) -> Dict[str, object]:
     return v if isinstance(v, dict) else {}
 
 
+def _as_int(v, default: int = 0) -> int:
+    """Attr values come off the CSV as object; anything not numeric or numeric-looking is the default."""
+    if isinstance(v, bool) or v is None or v == "":
+        return default
+    try:
+        return int(v)  # type: ignore[call-overload]
+    except (TypeError, ValueError):
+        return default
+
+
 def _common_attrs(r: OpRow) -> Dict[str, object]:
     """Program and compute config attrs under the names the ttnn shim records."""
     a: Dict[str, object] = {}
     pc = _struct(r.attrs, "program_config")
     if pc:
-        a["q_chunk_size"] = int(pc.get("q_chunk_size") or 0)
-        a["k_chunk_size"] = int(pc.get("k_chunk_size") or 0)
+        a["q_chunk_size"] = _as_int(pc.get("q_chunk_size"))
+        a["k_chunk_size"] = _as_int(pc.get("k_chunk_size"))
         grid = pc.get("compute_with_storage_grid_size")
         if isinstance(grid, tuple) and len(grid) == 2:
             a["grid_cores"] = int(grid[0]) * int(grid[1])
         if pc.get("exp_approx_mode") is not None:
             a["exp_approx_mode"] = bool(pc["exp_approx_mode"])
-        a["max_cores_per_head_batch"] = int(pc.get("max_cores_per_head_batch") or 16)
+        a["max_cores_per_head_batch"] = _as_int(pc.get("max_cores_per_head_batch"), 16)
     ck = _struct(r.attrs, "compute_kernel_config")
     if ck:
         if ck.get("math_fidelity") is not None:
@@ -346,7 +360,7 @@ def _common_attrs(r: OpRow) -> Dict[str, object]:
         a["head_dim_v"] = int(hv)
     geo = _struct(r.attrs, "paged_cache_geometry")
     if geo.get("block_size"):
-        a["page_block_size"] = int(geo["block_size"])
+        a["page_block_size"] = _as_int(geo["block_size"])
     return a
 
 
@@ -544,7 +558,7 @@ def _config_mismatch(parsed: Dict[str, object], echo: Dict[str, object]) -> str:
 
 def _topk_predict(cfg: Dict[str, int]):
     try:
-        from ttsim.perf import roofline_topk as rt   # provided by the TopK roofline branch
+        rt = importlib.import_module("ttsim.perf.roofline_topk")   # the TopK roofline, where present
     except ImportError:
         return None, "topk_model_unavailable"
     res = rt.predict_topk(rt.TopkConfig(**cfg))
@@ -590,11 +604,11 @@ def predict_row(r: OpRow, *, device=None, sidecar: Optional[Dict[str, int]] = No
             cfg = topk_config(r)
             out.regime = r.kind
             out.config = dict(cfg)
-            res, why = _topk_predict(cfg)
-            if res is None:
+            tk_res, why = _topk_predict(cfg)
+            if tk_res is None:
                 out.exclude_reason = why
                 return out
-            ps = res.to_polaris_op_perf_stats()
+            ps = tk_res.to_polaris_op_perf_stats()
         else:
             out.regime = r.kind
             out.exclude_reason = "no_model"

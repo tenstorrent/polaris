@@ -11,7 +11,7 @@ import json
 import math
 from dataclasses import dataclass, field, fields as dc_fields, replace
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 TILE_HW = 32
 BYTES_PER_TILE = {"bfp4_b": 576, "bfp8_b": 1088, "bfloat16": 2048, "float32": 4096}
@@ -80,12 +80,12 @@ MASK_BRACKET_PER_STEP = 57.0               # A2 ablation: -9398 cycles over 165 
 # Per-q-k-tile PACK cost: 348 causal / 319.5 non-causal at head_dim 128 (T2.1 and A4 PACK bound walls); the
 # R1c non-causal head_dim 64 wall splits it into a score part plus 26.45 per K or V tile of the head.
 _PACK_PER_QK_DTILE = 26.45
-_PACK_CAUSAL = dict(pack_per_qtile=750.0, pack_per_qktile=348.0 - 8 * _PACK_PER_QK_DTILE, pack_per_qk_dtile=_PACK_PER_QK_DTILE)
-_PACK_NONCAUSAL = dict(pack_per_step=1136.0, pack_per_qtile=663.0, pack_per_qktile=319.5 - 8 * _PACK_PER_QK_DTILE,
+_PACK_CAUSAL: Dict[str, Any] = dict(pack_per_qtile=750.0, pack_per_qktile=348.0 - 8 * _PACK_PER_QK_DTILE, pack_per_qk_dtile=_PACK_PER_QK_DTILE)
+_PACK_NONCAUSAL: Dict[str, Any] = dict(pack_per_step=1136.0, pack_per_qtile=663.0, pack_per_qktile=319.5 - 8 * _PACK_PER_QK_DTILE,
                        pack_per_qk_dtile=_PACK_PER_QK_DTILE)
-_CONTROL_CAUSAL = dict(control_per_kchunk=247.0, control_per_qtile=60.0)      # TRISC1 un-zoned time, 7 T2.1 causal runs
-_CONTROL_NONCAUSAL = dict(control_per_kchunk=117.0, control_per_qtile=24.0)   # same, 7 non-causal runs
-_CAUSAL_LIKE = dict(mask_branch_per_kchunk=MASK_BRACKET_PER_STEP, **_CONTROL_CAUSAL)
+_CONTROL_CAUSAL: Dict[str, Any] = dict(control_per_kchunk=247.0, control_per_qtile=60.0)      # TRISC1 un-zoned time, 7 T2.1 causal runs
+_CONTROL_NONCAUSAL: Dict[str, Any] = dict(control_per_kchunk=117.0, control_per_qtile=24.0)   # same, 7 non-causal runs
+_CAUSAL_LIKE: Dict[str, Any] = dict(mask_branch_per_kchunk=MASK_BRACKET_PER_STEP, **_CONTROL_CAUSAL)
 
 # Regimes whose terms are fit on device walls alone (masked, sparse, joint: R1a) or that carry a fitted
 # factor on the K/V stream lane (windowed, chunked, MLA: R1a and T2.3 walls) are flagged.
