@@ -652,6 +652,7 @@ class RooflineResult:
     low_confidence_reasons: List[str] = field(default_factory=list)
     defaulted: str = ""                # shim echo of config fields absent at the call
     config_echo: Dict = field(default_factory=dict)   # resolved config the prediction used
+    clock_ghz: float = 0.0             # clock the DRAM terms were priced at (the device's, once re-priced)
 
     def flag(self, reason: str):
         if reason not in self.low_confidence_reasons:
@@ -681,6 +682,11 @@ class RooflineResult:
             "sdpa_compute_is_floor": False,
             "sdpa_mla_low_confidence": (self.is_mla or self.low_confidence),
             "sdpa_low_confidence_reasons": ",".join(self.low_confidence_reasons),
+            # Device-dependent inputs of the estimate. Shape inference has no device, so it prices with
+            # the calibration's own grid and clock and Device.execute_op re-prices with the device's.
+            "sdpa_clock_ghz": self.clock_ghz,
+            "sdpa_num_cores_defaulted": ("num_cores" in self.defaulted.split(",")
+                                         or "grid_absent" in self.low_confidence_reasons),
             "sdpa_defaulted_attrs": self.defaulted,
             "sdpa_config": dict(self.config_echo),
             "sdpa_regime": self.regime,
@@ -708,8 +714,36 @@ class RooflineResult:
         }
 
 
+def _reprice_blob(regime: str, args: Dict) -> Dict:
+    """The device-independent inputs of one op, JSON-safe, so the backend can re-price it (`reprice`)."""
+    return {"regime": regime,
+            "args": {k: (list(v) if isinstance(v, tuple) else v) for k, v in args.items() if k != "arch"}}
+
+
+def reprice(blob: Dict, *, num_cores: Optional[int] = None, clock_ghz: Optional[float] = None,
+            arch_name: Optional[str] = None) -> Dict:
+    """Re-run the model for a recorded op with the device's own worker grid and clock. Shape inference
+    is device independent by design, so it prices with the calibration's grid and clock and
+    Device.execute_op calls this once it knows the device. The fitted constants do not move: they are
+    calibration, and the SKU gate keeps them on the device they were measured on."""
+    args = dict(blob["args"])
+    arch = ArchConfig(name=arch_name or ArchConfig().name,
+                      clock_ghz=float(clock_ghz) if clock_ghz else ArchConfig().clock_ghz)
+    args["fallback_reasons"] = tuple(args.get("fallback_reasons") or ())
+    if num_cores:
+        args["num_cores"] = int(num_cores)
+    if blob["regime"] == "decode":
+        ps = predict_decode(arch=arch, **args).to_polaris_op_perf_stats()
+    else:
+        ps = predict(SdpaConfig(arch=arch, **args)).to_polaris_op_perf_stats()
+    ps["sdpa_reprice"] = blob
+    return ps
+
+
 def sdpa_perf_stats(cfg: "SdpaConfig") -> Dict:
-    return predict(cfg).to_polaris_op_perf_stats()
+    ps = predict(cfg).to_polaris_op_perf_stats()
+    ps["sdpa_reprice"] = _reprice_blob("prefill", {f.name: getattr(cfg, f.name) for f in dc_fields(cfg)})
+    return ps
 
 
 _ELEM_TO_DTYPE = {0.5: "bfp4_b", 1.0: "bfp8_b", 2.0: "bfloat16", 4.0: "float32"}
@@ -1159,7 +1193,7 @@ def predict(cfg: SdpaConfig, *, num_cores=None, fidelity=None, exp_approx_mode=N
     cfg, override_fallback = _apply_overrides(cfg, num_cores, fidelity, exp_approx_mode, fp32_dest_acc)
     a = cfg.arch
     split = a.thread_split
-    r = RooflineResult(label=f"S={cfg.S}", arch_name=a.name, regime="prefill")
+    r = RooflineResult(label=f"S={cfg.S}", arch_name=a.name, regime="prefill", clock_ghz=a.clock_ghz)
 
     # head_dim need not be a multiple of 32 (vision uses 72/96/256); it is rounded up to whole tiles.
     v_head_dim = cfg.v_head_dim or cfg.head_dim
@@ -1416,7 +1450,7 @@ def predict_decode(cache_len, num_q_heads, num_kv_heads, head_dim, v_head_dim=0,
         attended = min(attended, int(sliding_window))
     r = RooflineResult(label=f"decode L={attended}", arch_name=a.name, regime="decode",
                        wall_regime=("mla_decode" if is_mla else "decode"),
-                       is_memory_bound=True, is_mla=is_mla, defaulted=defaulted)
+                       is_memory_bound=True, is_mla=is_mla, defaulted=defaulted, clock_ghz=a.clock_ghz)
     r.flag("decode_family")
     for reason in fallback_reasons:
         r.flag(reason)
@@ -1579,8 +1613,10 @@ def decode_config_from_shapes(q_shape, k_shape, v_shape=None, attrs=None, num_co
 
 def decode_perf_stats(q_shape, k_shape, v_shape=None, attrs=None, num_cores=110, arch=None,
                       page_table_shape=None) -> Dict:
-    return predict_decode(**decode_config_from_shapes(q_shape, k_shape, v_shape, attrs, num_cores, arch,
-                                                      page_table_shape)).to_polaris_op_perf_stats()
+    kw = decode_config_from_shapes(q_shape, k_shape, v_shape, attrs, num_cores, arch, page_table_shape)
+    ps = predict_decode(**kw).to_polaris_op_perf_stats()
+    ps["sdpa_reprice"] = _reprice_blob("decode", kw)
+    return ps
 
 
 ARCH_BH = ArchConfig(name="BH")

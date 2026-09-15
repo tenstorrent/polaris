@@ -70,6 +70,8 @@ class _MockSimConfig:
 
 class _RealBHSimConfig(_MockSimConfig):
     # BH p100a device params for the whole-pipeline correlation (real DRAM BW + mem clock).
+    worker_core_count = 110     # as config/tt_bh.yaml declares for p100a
+
     def mem_frequency(self, units="MHz"):
         return 1000.0
 
@@ -548,6 +550,108 @@ def _polaris_device_us(perf_stats):
     device.execute_op(op)
     ideal = math.ceil(max(op.compute_cycles, op.mem_rd_cycles + op.mem_wr_cycles) + 100.0)
     return ideal / 1350.0
+
+
+@pytest.mark.unit
+def test_worker_core_count_comes_from_the_device_instance():
+    from types import SimpleNamespace as NS
+    from ttsim.back.device import resolve_worker_core_count
+    ipg = NS(num_units=120)
+    cfg = NS(worker_core_count=110, compute_grid_size=[12, 10], get_ipgroup=lambda iptype: ipg)
+    assert resolve_worker_core_count(cfg) == 110                     # the explicit field wins
+    cfg.worker_core_count = None
+    assert resolve_worker_core_count(cfg) == 120                     # else the grid product
+    cfg.compute_grid_size = None
+    assert resolve_worker_core_count(cfg) == 120                     # else compute num_units
+    assert resolve_worker_core_count(NS()) == 0                      # nothing to go on
+
+
+@pytest.mark.unit
+def test_device_reprices_sdpa_with_its_own_grid_and_clock():
+    # Shape inference has no device, so it prices with the calibration's grid and clock; the backend
+    # re-prices with the device's. p100a declares 110 worker cores at 1350 MHz, which is what the
+    # constants were measured at, so booking is unchanged there.
+    import ttsim.front.ttnn as ttnn
+    dev = _shim_dev()
+    ttnn.transformer.scaled_dot_product_attention(*_qkv(dev), is_causal=True)
+    op = _last_sdpa(dev)
+    assert op.perf_stats["sdpa_num_cores_defaulted"] is True
+    assert op.perf_stats["sdpa_clock_ghz"] == pytest.approx(1.35)
+    sinf_cycles = op.perf_stats["fused_compute_cycles"]
+
+    device = Device(_RealBHSimConfig())
+    assert device.worker_core_count == 110
+    device.execute_op(op)
+    assert op.compute_cycles == math.ceil(sinf_cycles)               # same grid, same clock: no change
+
+    # Prefill cycles do not move with the clock: the K/V stream rate is fitted in bytes per cycle per
+    # core, so a frequency sweep rescales the wall in ns, not in cycles.
+    slow = Device(_RealBHSimConfig())
+    slow.freq_MHz = 1000.0
+    ttnn.transformer.scaled_dot_product_attention(*_qkv(dev), is_causal=True)
+    op2 = _last_sdpa(dev)
+    slow.execute_op(op2)
+    assert op2.perf_stats["sdpa_clock_ghz"] == pytest.approx(1.0)
+    assert op2.compute_cycles == math.ceil(sinf_cycles)
+
+    # A narrower device grid: the op carried no program config, so the device's count is the one used.
+    narrow = Device(_RealBHSimConfig())
+    narrow.worker_core_count = 64
+    ttnn.transformer.scaled_dot_product_attention(*_qkv(dev), is_causal=True)
+    op3 = _last_sdpa(dev)
+    narrow.execute_op(op3)
+    assert op3.perf_stats["sdpa_config"]["num_cores"] == 64
+    assert op3.compute_cycles > math.ceil(sinf_cycles)               # fewer cores, longer wall
+
+
+@pytest.mark.unit
+def test_decode_wall_follows_the_device_clock():
+    # Decode is a DRAM stream priced in GB/s, so its cycle count does scale with the device clock: at
+    # 1000 MHz the same bytes take 1.35x fewer cycles than at 1350.
+    import ttsim.front.ttnn as ttnn
+    dev = _shim_dev()
+    q, kc, vc, pt, cp = _decode_tensors(dev)
+    ttnn.transformer.paged_scaled_dot_product_attention_decode(q, kc, vc, page_table_tensor=pt,
+                                                               cur_pos=[1023] * 32)
+    op = _last_sdpa(dev)
+    at_1350 = op.perf_stats["fused_compute_cycles"]
+    slow = Device(_RealBHSimConfig())
+    slow.freq_MHz = 1000.0
+    slow.execute_op(op)
+    assert op.perf_stats["sdpa_clock_ghz"] == pytest.approx(1.0)
+    assert op.compute_cycles < math.ceil(at_1350)
+    # same wall in ns either way: the byte stream is what it is
+    assert op.compute_cycles / 1.0 == pytest.approx(at_1350 / 1.35, rel=0.02)
+
+
+@pytest.mark.unit
+def test_device_does_not_override_a_program_config_grid():
+    # tt_transformers pins an (8, 8) grid. That is the op's own configuration, not a device default,
+    # so the backend leaves it alone even though the device offers 110 cores.
+    import ttsim.front.ttnn as ttnn
+    dev = _shim_dev()
+    pc, ck = _llama_prefill_cfgs()
+    ttnn.transformer.scaled_dot_product_attention(*_qkv(dev), is_causal=True, program_config=pc,
+                                                  compute_kernel_config=ck)
+    op = _last_sdpa(dev)
+    assert op.perf_stats["sdpa_num_cores_defaulted"] is False
+    booked = op.perf_stats["fused_compute_cycles"]
+    Device(_RealBHSimConfig()).execute_op(op)
+    assert op.perf_stats["sdpa_config"]["num_cores"] == 64 and op.compute_cycles == math.ceil(booked)
+
+
+@pytest.mark.unit
+def test_reprice_keeps_the_regime_and_the_decode_bytes():
+    # Re-pricing runs the same law, not a different one: the regime and the variant flags survive it,
+    # and a decode's KV bytes follow the re-priced core split.
+    from ttsim.perf.roofline_sdpa import decode_perf_stats, reprice
+    ps = decode_perf_stats([1, 32, 1, 128], [1, 8, 4096, 128], attrs={"element_size": 2})
+    again = reprice(ps["sdpa_reprice"], num_cores=64, clock_ghz=1.35, arch_name="Blackhole")
+    assert again["sdpa_regime"] == ps["sdpa_regime"] == "decode"
+    assert again["sdpa_config"]["num_cores"] == 64
+    assert again["fused_compute_cycles"] != ps["fused_compute_cycles"]
+    same = reprice(ps["sdpa_reprice"], num_cores=110, clock_ghz=1.35, arch_name="Blackhole")
+    assert same["fused_compute_cycles"] == ps["fused_compute_cycles"]
 
 
 @pytest.mark.unit
