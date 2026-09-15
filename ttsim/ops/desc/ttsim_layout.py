@@ -818,7 +818,11 @@ def _sdpa_prefill_perf(iTList, q_shape, op):
     from ttsim.perf.roofline_sdpa import sdpa_config_from_shapes, sdpa_perf_stats
     k_shape = _sdpa_known_shape(iTList[1], "k")
     v_shape = _sdpa_known_shape(iTList[2], "v")
-    cfg = sdpa_config_from_shapes(q_shape, k_shape, v_shape, op.attrs)
+    # Chunked prefill carries the page table as its fourth input; its width bounds the KV length.
+    pt_shape = None
+    if op.attrs.get('paged') and len(iTList) >= 4 and iTList[3].shape is not None:
+        pt_shape = require_shape_list(iTList[3].shape)
+    cfg = sdpa_config_from_shapes(q_shape, k_shape, v_shape, op.attrs, page_table_shape=pt_shape)
     op.perf_stats = sdpa_perf_stats(cfg)
 
 
@@ -828,7 +832,12 @@ def _sdpa_decode_perf(iTList, q_shape, op):
     from ttsim.perf.roofline_sdpa import decode_perf_stats
     k_shape = _sdpa_known_shape(iTList[1], "k_cache")
     v_shape = _sdpa_known_shape(iTList[2], "v_cache")
-    op.perf_stats = decode_perf_stats(q_shape, k_shape, v_shape=v_shape, attrs=op.attrs)
+    # Paged: the page table is the last input and its width is the per-user capacity in blocks.
+    pt_shape = None
+    if op.attrs.get('paged') and len(iTList) >= 4 and iTList[-1].shape is not None:
+        pt_shape = require_shape_list(iTList[-1].shape)
+    op.perf_stats = decode_perf_stats(q_shape, k_shape, v_shape=v_shape, attrs=op.attrs,
+                                      page_table_shape=pt_shape)
 
 
 def _sdpa_joint_perf(iTList, q_shape, op):
@@ -881,8 +890,8 @@ def sdpa_sinf(iTList, oTList, op, **kwargs):
                 op.perf_stats['instrs'] = {'mov': _nelems(q_shape)}
             return
         except ValueError as e:
-            # The roofline fails fast with ValueError on unsupported shapes/attrs -> passthrough.
-            # Anything else is a real bug and propagates; warn once so degradation is observable.
+            # The roofline fails fast with ValueError on unsupported shapes/attrs (a thread_split arch
+            # without constants too) -> passthrough; anything else propagates. Warn once.
             from loguru import logger
             logger.warning(f"SDPA roofline ({variant}) unavailable for {getattr(op, 'name', '?')}, "
                            f"using passthrough estimate: {e}", once=True)
