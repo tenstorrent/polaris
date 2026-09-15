@@ -637,6 +637,25 @@ def as_pp(args_list, kwargs_dict):
     return (input_tensor,), kwargs_dict
 
 
+def _sub_core_grid_attrs(scg):
+    """Core count and (x, y) extents of the first range of a CoreRangeSet (shim or real ttnn), or
+    of a plain (x, y) pair; an object without ranges records the count only."""
+    if isinstance(scg, (tuple, list)) and len(scg) == 2:
+        x, y = int(scg[0]), int(scg[1])
+        return {"sub_core_grid_cores": x * y, "sub_core_grid_x": x, "sub_core_grid_y": y}
+    attrs = {"sub_core_grid_cores": int(scg.num_cores()) if hasattr(scg, "num_cores") else 0}
+    ranges = getattr(scg, "ranges", None)
+    ranges = ranges() if callable(ranges) else ranges
+    if ranges:
+        r0 = ranges[0]
+        start = getattr(r0, "start_coord", None) or getattr(r0, "start", None)
+        end = getattr(r0, "end_coord", None) or getattr(r0, "end", None)
+        if start is not None and end is not None:
+            attrs["sub_core_grid_x"] = int(end.x) - int(start.x) + 1
+            attrs["sub_core_grid_y"] = int(end.y) - int(start.y) + 1
+    return attrs
+
+
 def topk_pp(args_list, kwargs_dict):
     input_tensor = require_ttnn_tensor(args_list[0], "ttnn.topk input")
     axis = kwargs_dict.get("dim", -1)
@@ -660,11 +679,8 @@ def topk_pp(args_list, kwargs_dict):
         assert k_kw is not None, "ttnn.topk requires k (positional tensor/int or k= int)"
         k_val = int(k_kw)
 
-    # Real ttnn passes a pre-allocated index operand via indices_tensor= (uint16), which the HW
-    # TopKDeviceOperation takes as its SECOND input (used to track original positions across a
-    # multi-step reduction). Record it so the sim op is arity-2 like the capture; topk_sinf keys
-    # k off the attr, and skips the ONNX K-tensor path for a non-scalar index operand. (sub_core_grids
-    # remains a HW-only hint and is dropped.)
+    # A pre-allocated indices_tensor is the kernel's second input; keep it so the sim op has the
+    # capture's arity (topk_sinf reads k from the attr, not from a non-scalar second operand).
     indices_tensor = kwargs_dict.get("indices_tensor")
     if indices_tensor is not None and isinstance(indices_tensor, Tensor):
         inputs = inputs + (indices_tensor,)
@@ -674,7 +690,28 @@ def topk_pp(args_list, kwargs_dict):
         "axis": axis,
         "largest": 1 if largest else 0,
         "sorted": 1 if sorted else 0,
+        "stable": 1 if kwargs_dict.get("stable", False) else 0,
     }
+    # The Blackhole router (topk.cpp should_route_to_topk_large_indices) reads these; the stock
+    # factory is then chosen on the first range of sub_core_grids, so its extents are recorded too.
+    new_kwargs["has_indices_tensor"] = 1 if indices_tensor is not None else 0
+    new_kwargs["has_output_tensor"] = 1 if kwargs_dict.get("output_tensor") is not None else 0
+    scg = kwargs_dict.get("sub_core_grids")
+    if scg is not None:
+        new_kwargs.update(_sub_core_grid_attrs(scg))
+    new_kwargs["input_layout"] = "TILE" if input_tensor.layout == Layout.TILE_LAYOUT else "ROW_MAJOR"
+    ttnn_dtype = getattr(input_tensor, "_ttnn_dtype", None)
+    new_kwargs["input_dtype"] = ttnn_dtype.name.lower() if ttnn_dtype is not None else \
+        {"float16": "bfloat16"}.get(input_tensor.dtype.name, input_tensor.dtype.name)
+    in_mc = input_tensor.memory_config()
+    out_mc = kwargs_dict.get("memory_config")
+    new_kwargs["sharded"] = 1 if any(mc is not None and mc.is_sharded() for mc in (in_mc, out_mc)) else 0
+    # topk_large_indices pays a smaller multi-core start-up when the input sits in L1.
+    new_kwargs["input_memory"] = "L1" if getattr(in_mc, "buffer_type", None) == BufferType.L1 else "DRAM"
+    for key in ("valid_length", "valid_length_unknown", "valid_length_offset", "topk_kernel",
+                "indices_only", "kernel_rev"):
+        if kwargs_dict.get(key) is not None:
+            new_kwargs[key] = kwargs_dict[key]
     return inputs, new_kwargs
 
 
