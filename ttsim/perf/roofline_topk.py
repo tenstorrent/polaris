@@ -584,6 +584,7 @@ def predict_generic(cfg: GenericConfig) -> TopkResult:
             factory = FACTORY_SINGLE
 
     if factory == FACTORY_MULTI:
+        assert split is not None      # the branch above falls back to the single core factory when it is
         n_local, split_w = split
         wt_local = split_w // TILE
         wt_final = n_local * kt

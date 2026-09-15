@@ -1147,7 +1147,7 @@ class experimental:
         """Lightning indexer logits [1, 1, Sq, T] from q [1, Hi, Sq, D], k [1, 1, T, D] and head
         weights [1, Hi, Sq, 1]; the op before topk_large_indices in the DSA chain."""
         from .ttnn_shim import indexer_score_dsa_op as _ix
-        extra = {}
+        extra: dict = {}
         if kernel_rev is not None:
             extra['kernel_rev'] = str(kernel_rev)
         # Duck-typed: the indexer program config carries a grid (or sub_core_grids), the compute
