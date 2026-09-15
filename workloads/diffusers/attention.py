@@ -158,6 +158,8 @@ class BasicTransformerBlock(SimNN.Module):
 
         # Notice that normalization is always applied before the real computation in the following blocks.
         # 0. Self-Attention
+        assert hidden_states.shape is not None, \
+            "BasicTransformerBlock.__call__: input hidden_states tensor shape must be set"
         batch_size = hidden_states.shape[0]
 
         if self.norm_type == "ada_norm":
@@ -192,6 +194,8 @@ class BasicTransformerBlock(SimNN.Module):
             attn_output = gate_msa * attn_output
 
         hidden_states = attn_output + hidden_states # type: ignore[operator]
+        assert hidden_states.shape is not None, \
+            "BasicTransformerBlock.__call__: hidden_states tensor shape must be set"
         if len(hidden_states.shape) == 4:
             hidden_states = hidden_states.squeeze(1)    # type: ignore
 
@@ -244,6 +248,8 @@ class BasicTransformerBlock(SimNN.Module):
             ff_output = gate_mlp * ff_output
 
         hidden_states = ff_output + hidden_states   # type: ignore[operator]
+        assert hidden_states.shape is not None, \
+            "BasicTransformerBlock.__call__: hidden_states tensor shape must be set"
         if len(hidden_states.shape) == 4:
             hidden_states = hidden_states.squeeze(1)    # type: ignore[attr-defined]
 
