@@ -133,6 +133,7 @@ class ResNet(SimNN.Module):
         for blk in self.layer4: x = blk(x)
         x = self.avgpool(x)
 
+        assert x.shape is not None, "basicresnet ResNet.__call__: pooled tensor shape must be set"
         x_size   = np.prod(x.shape[1:]) # don't use batchsize in finding reshape dim
         q_factor = x_size // Bottleneck.expansion
         r_factor = x_size % Bottleneck.expansion

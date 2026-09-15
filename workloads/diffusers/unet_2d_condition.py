@@ -501,6 +501,8 @@ class UNet2DConditionModel(SimNN.Module):
         self, sample: SimNN.SimTensor, timestep: Union[SimNN.SimTensor, float, int]
     ) -> Optional[SimNN.SimTensor]:
         timesteps = timestep
+        assert sample.shape is not None, \
+            "UNet2DConditionModel: input sample tensor shape must be set"
         timesteps = ttsimF._from_shape(f'{self.name}_timesteps', shape=sample.shape[0])
         timesteps.set_module(self)
         t_emb = self.time_proj(timesteps)
@@ -542,6 +544,8 @@ class UNet2DConditionModel(SimNN.Module):
         forward_upsample_size = False
         upsample_size = None
 
+        assert sample.shape is not None, \
+            "UNet2DConditionModel: input sample tensor shape must be set"
         for dim in sample.shape[-2:]:
             if dim % default_overall_up_factor != 0:
                 forward_upsample_size = True
@@ -667,7 +671,10 @@ class UNet2DConditionModel(SimNN.Module):
             # if we have not reached the final block and need to forward the
             # upsample size, we do it here
             if not is_final_block and forward_upsample_size:
-                upsample_size = down_block_res_samples[-1].shape[2:]
+                res_sample = down_block_res_samples[-1]
+                assert res_sample.shape is not None, \
+                    "UNet2DConditionModel: down block residual sample tensor shape must be set"
+                upsample_size = res_sample.shape[2:]
 
             if hasattr(upsample_block, "has_cross_attention") and upsample_block.has_cross_attention:
                 sample = upsample_block(

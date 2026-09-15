@@ -123,6 +123,9 @@ def mamba_split_conv1d_scan_combined(
     dt_limit = (0.0, float("inf")),
     module=None
 ):
+    assert zxbcdt.shape is not None, "mamba2: zxbcdt tensor shape must be set"
+    assert A.shape is not None, "mamba2: A tensor shape must be set"
+    assert dt_bias.shape is not None, "mamba2: dt_bias tensor shape must be set"
     Bsz, L, d_proj = zxbcdt.shape
     nheads = A.shape[0]
     assert dt_bias.shape[0] == nheads, "dt_bias mismatch"
@@ -159,6 +162,7 @@ def mamba_split_conv1d_scan_combined(
     xBC = catop(x, B_part, C_part)  # (B, L, d_inner + 2*ngroups*d_state)
     xBC_conv_in = xBC.transpose(1, 2)  # (B, Cin, L)
     weight = conv1d_weight.unsqueeze(1)  # type: ignore[attr-defined]
+    assert conv1d_weight.shape is not None, "mamba2: conv1d_weight tensor shape must be set"
     conv1dOp = F.conv1d('conv1d', pads=[conv1d_weight.shape[-1] - 1, conv1d_weight.shape[-1] - 1],
                         group=xBC_conv_in.shape[1])
     conv1dOp.set_module(module)
@@ -227,6 +231,7 @@ def mamba_split_conv1d_scan_combined(
     y_flat = y_flat * sigmoidop(z)  # gate
 
     # ---- Out projection ----
+    assert outproj_weight.shape is not None, "mamba2: outproj_weight tensor shape must be set"
     nrows, ncols = outproj_weight.shape
     linearop = F.Linear('outproj', ncols, nrows, module=module)
     linearop.set_module(module)

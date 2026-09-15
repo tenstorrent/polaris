@@ -214,8 +214,16 @@ class AttnProcessor2_0(SimNN.Module):
 
         residual = hidden_states
 
-        # input_ndim = hidden_states.ndim
-        input_ndim = len(hidden_states.shape) if isinstance(hidden_states, SimNN.SimTensor) else hidden_states.ndim
+        assert hidden_states.shape is not None, \
+            "AttnProcessor.__call__: input hidden_states tensor shape must be set"
+        # Upstream (HF diffusers) reads hidden_states.ndim on a torch tensor, so
+        # the port guarded this with `isinstance(hidden_states, SimNN.SimTensor)`
+        # and fell back to `hidden_states.ndim`. That fallback is deleted: it was
+        # unreachable. SimTensor defines no `ndim` at all; the sole path into this
+        # processor (Attention.__call__ -> self.processor) is annotated SimTensor
+        # end to end; and a probe raising inside the fallback was never reached by
+        # the diffusers tests. Do not reinstate it — take the rank from the shape.
+        input_ndim = len(hidden_states.shape)
         
         if input_ndim == 4:
             raise NotImplementedError('not implemented! only works for 3 dims!')

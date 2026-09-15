@@ -181,6 +181,8 @@ class Transformer2DModel(SimNN.Module):
 
         # 1. Input
         if self.is_input_continuous:
+            assert hidden_states.shape is not None, \
+                "Transformer2DModel.__call__: input hidden_states tensor shape must be set"
             batch_size, _, height, width = hidden_states.shape
             residual = hidden_states
             hidden_states, inner_dim = self._operate_on_continuous_inputs(hidden_states)
