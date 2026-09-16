@@ -31,6 +31,16 @@ def _wall_core_chunks(total_q_chunks, q_num_chunks, num_cores, causal):
     return _ceil_div(total_q_chunks, num_cores), min(num_cores, total_q_chunks)
 
 
+def _tail_cores(total_q_chunks, q_num_chunks, num_cores, causal):
+    """Cores still reading once the light cores are done, i.e. the ones that took the remainder. The tail
+    phase of the split runs with only these on the DRAM, so their step is cheaper than a contended one."""
+    unit = 2 if (causal and q_num_chunks % 2 == 0) else 1
+    units = total_q_chunks // unit
+    if units <= num_cores:
+        return min(num_cores, units)
+    return (units % num_cores) or num_cores
+
+
 # Constants are calibrated for Blackhole p100a only; must match the ttsim device package name so
 # Device.execute_op can refuse the cost on a non-BH device. ttsim archs do not model SKUs, so the
 # gate is package-level today; the calibrated SKU rides along in perf_stats for a SKU-aware backend.
@@ -66,6 +76,7 @@ class WallTerms:
     fe_per_tile_mac: float = 0.0           # serial front end per tile MAC of the step (joint kernel)
     dram_law: str = "none"                 # "all_cores" (every core streams K/V), "injector" (chain head reads), "none"
     stream_scale: float = 1.0              # fitted factor on the stream lane (R1a regimes), 1 = the causal lane
+    tail_phase: bool = True                # price the wall core's extra steps with only the remainder cores reading
     mask_branch_per_kchunk: float = 0.0    # causal-like only: lightweight mask bracket cost on the wall per step
     mask_per_tile: float = 0.0             # provided dense mask: serial cost per mask tile streamed and applied
     control_per_kchunk: float = 0.0        # un-zoned control flow per step: control_per_kchunk + control_per_qtile * qct
@@ -99,12 +110,14 @@ WALL_TERMS_BH: Dict[str, WallTerms] = {
     # DRAM readers and the R1a walls (1024/8192, 4096/16384) sit on the PACK lane within 5 percent.
     "cross": WallTerms(**_PACK_NONCAUSAL, **_CONTROL_NONCAUSAL),
     # Windowed, chunked and MLA ride the causal K/V stream at their own bytes per step (T2.3 zones); the
-    # factor is the wall core's stream against the 110-core law, fit on the R1a and T2.3 walls.
-    "windowed": WallTerms(dram_law="all_cores", stream_scale=0.9311, **_CAUSAL_LIKE,
+    # factor is the wall core's stream against the 110-core law, refit on the R1a and T2.3 walls with the
+    # tail phase in place. Chunked keeps a single rate: its four walls are held better by one factor that
+    # absorbs the tail (9,244 to 9,764 cycles on the chunked tails) than by the tail law plus a factor.
+    "windowed": WallTerms(dram_law="all_cores", stream_scale=0.9753, **_CAUSAL_LIKE,
                           low_confidence=STREAM_RESIDUAL_FIT),
-    "chunked": WallTerms(dram_law="all_cores", stream_scale=0.8125, **_CAUSAL_LIKE,
+    "chunked": WallTerms(dram_law="all_cores", stream_scale=0.8028, tail_phase=False, **_CAUSAL_LIKE,
                          low_confidence=STREAM_RESIDUAL_FIT),
-    "mla": WallTerms(dram_law="all_cores", stream_scale=1.0407, **_CAUSAL_LIKE,
+    "mla": WallTerms(dram_law="all_cores", stream_scale=1.0200, **_CAUSAL_LIKE,
                      low_confidence=STREAM_RESIDUAL_FIT),
     # Provided dense mask (R1a S4096 d0.25, S8192 d0.5): the non-causal kernel visits every k chunk and
     # streams the mask tiles on top of its PACK lane; the cost per tile is density independent.
@@ -171,7 +184,9 @@ class ArchConfig:
     # cores (T2.3), 64-grid rate measured, others interpolate; the R1c causal head_dim 64 wall splits fixed.
     kv_stream_fixed_per_ktile: float = 405.8
     kv_stream_fixed_per_kv_tile: float = 35.65
-    kv_stream_rate_bpc: Dict[int, float] = field(default_factory=lambda: {110: 2.730, 64: 4.121})
+    # 110-core rate refit with the tail phase, pinned on the anchor (the old 2.730 was a single rate over
+    # both phases of that same wall, so it read faster than the contended phase really is).
+    kv_stream_rate_bpc: Dict[int, float] = field(default_factory=lambda: {110: 2.6767, 64: 4.121})
     # Non-causal chains: only the chain heads read DRAM; their rate falls with the chunk size
     # (5.39 / 5.25 / 4.80 B per cycle at k128 / k256 / k512 over the 691 fixed part, T2.1 q64 k128, q128 k256 / k512).
     kv_injector_rate_bpc: float = 5.615
@@ -1053,7 +1068,7 @@ def _kv_stream_step(a, t, *, kct, dct_sum, kv_bytes_per_step, reading_cores):
 
 
 def _wall_components(r, *, a, t, floor_per_core, Q, K_eff, qct, kct, dct_sum, causal_like, kv_bytes_per_step,
-                     legacy=False):
+                     legacy=False, tail_cores=0):
     """Named wall terms: per step the longer of the compute lane (floor plus serial front end) and the K/V
     stream, reader_wait its exposed part; booked for the average core, straggler is the wall core's extra."""
     steps = Q * K_eff
@@ -1088,7 +1103,14 @@ def _wall_components(r, *, a, t, floor_per_core, Q, K_eff, qct, kct, dct_sum, ca
         "control": steps * control,
     }
     per_core = sum(c.values()) - c["init"]
-    c["straggler"] = per_core * (r.steps_wall_core - steps) / steps
+    # The wall core's steps beyond the light cores' count run in the tail phase, with only the cores that
+    # took the remainder still on the DRAM. Same lane max, fewer readers, so the tail step is the compute
+    # lane wherever the stream stops binding.
+    tail_dram = dram
+    if tail_cores and tail_cores < r.active_cores and t.dram_law == "all_cores" and t.tail_phase:
+        tail_dram = _kv_stream_step(a, t, kct=kct, dct_sum=dct_sum, kv_bytes_per_step=kv_bytes_per_step,
+                                    reading_cores=tail_cores)
+    c["straggler"] = max(0.0, r.steps_wall_core - steps) * max(compute, tail_dram)
     return c
 
 
@@ -1402,7 +1424,8 @@ def predict(cfg: SdpaConfig, *, num_cores=None, fidelity=None, exp_approx_mode=N
         r.flag(terms.low_confidence)
     r.components = _wall_components(r, a=a, t=terms, floor_per_core=floor_per_core, Q=Q, K_eff=K_eff,
                                     qct=qct, kct=kct, dct_sum=dct_qk + dct_v, causal_like=causal_like,
-                                    kv_bytes_per_step=kct * (dct_qk + dct_v) * kvbpt, legacy=legacy)
+                                    kv_bytes_per_step=kct * (dct_qk + dct_v) * kvbpt, legacy=legacy,
+                                    tail_cores=_tail_cores(q_chunks_total, nq, cfg.num_cores, cfg.is_causal))
     if r.components["sfpu_issue"] > 0.0:
         r.flag("sfpu_issue_exposed")
     r.wall_clock_cycles = round(sum(r.components.values()))

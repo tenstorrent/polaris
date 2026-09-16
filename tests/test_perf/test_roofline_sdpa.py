@@ -970,11 +970,8 @@ FIT_POINTS = {"causal bf16 K/V", "causal 64 cores", "windowed S8192 W1024", "chu
 _TAIL = ("the stream lane charges the 110 core rate on every step of the wall core; its steps beyond the light "
          "cores' count run on fewer readers at a faster rate the single-rate lane does not carry")
 _BEYOND_5 = {
-    "causal S1024": "+9.1 percent: 18 heavy cores run the second pair alone; " + _TAIL,
-    "causal S2048": "+5.3 percent: 36 heavy cores run the third pair alone; " + _TAIL,
-    "MLA nh16 S1024": "+15.6 percent: 36 heavy cores run the third pair alone at 279 KB per step; " + _TAIL,
-    "windowed S8192 W1024": "-7.7 percent: the windowed stream factor is fit on four walls whose tail phases differ "
-                            "(W1024 S8192 sits on the plain lane, W4096 S8192 11 percent under it); " + _TAIL,
+    "MLA nh16 S1024": "+6.9 percent: 36 heavy cores run the third pair alone at 279 KB per step; the tail phase covers part of it, the rest is the MLA stream factor fit over four walls of two head counts",
+
 }
 
 
@@ -1030,23 +1027,32 @@ def test_grid1_walls_within_5_percent(kw, wall):
 @pytest.mark.parametrize("wall", [2_562_642, 2_559_756, 2_561_014, 2_563_848])
 def test_anchor_within_1_percent_of_the_t21_wall_and_the_r1d_repeats(wall):
     # The causal S4096 q128 k128 anchor was measured four times over the campaign (T2.1, then R1d at the
-    # start, middle and end of the R1 block, 0.16 percent apart); the model sits within 0.15 percent of each.
+    # start, middle and end of the R1 block, 0.16 percent apart); the model sits within 0.12 percent of each.
+    # The stream rate is pinned on this wall, so the T2.1 reading is reproduced to 9 cycles.
     r = predict(_bh(S=4096, **_GQA))
     assert abs(r.wall_clock_cycles - wall) / wall <= 0.01
-    assert r.wall_clock_cycles == 2_563_224
+    assert r.wall_clock_cycles == 2_562_633
 
 
 @pytest.mark.unit
 def test_wall_clock_is_wall_core_chunks_times_the_step_lanes():
     # Device wall = fixed cost + the most loaded core's steps, each the longer of the K/V stream and compute
-    # lanes; at the anchor the stream binds: kct * 691 + 34816 B / 2.730 = 15517 per step (15514 measured).
+    # lanes. At the anchor the stream binds the contended phase: kct * 691 + 34816 B / 2.6767 = 15,772 per
+    # step. The wall core's steps beyond the light cores' count run in the tail phase, where only the 72
+    # remainder cores still read, so they fall back on the compute lane.
     cfg = _baseline_cfg(4096)
     r = predict(cfg)
     assert r.q_chunks_wall_core == math.ceil(r.q_chunks_per_core) == 10 and r.k_eff == 16.5
     a = cfg.arch
     dram_step = 4 * (a.kv_stream_fixed_per_ktile + 8 * a.kv_stream_fixed_per_kv_tile) + 4 * 8 * 1088 / a.kv_stream_rate_bpc[110]
-    assert dram_step == pytest.approx(15514, abs=5.0)
-    assert r.wall_clock_cycles == pytest.approx(a.wall_fixed_cycles + 10 * 16.5 * dram_step, rel=1e-6)
+    assert dram_step == pytest.approx(15772, abs=5.0)
+    light_steps = r.q_chunks_per_core * r.k_eff
+    tail_steps = r.steps_wall_core - light_steps
+    assert tail_steps > 0                                   # 512 pairs over 110 cores: 72 cores take a 5th
+    tail_step = r.components["straggler"] / tail_steps
+    assert tail_step < dram_step                            # fewer readers, so the tail is the cheaper step
+    assert r.wall_clock_cycles == pytest.approx(
+        a.wall_fixed_cycles + light_steps * dram_step + tail_steps * tail_step, rel=1e-6)
     assert r.components["reader_wait"] > 0 and r.wall_clock_cycles > r.compute_latency_cycles
     # 64 cores stream faster per core (4.121 B per cycle measured) and run 16 chunks each
     r64 = predict(SdpaConfig(S=4096, num_cores=64, arch=ARCH_BH, **_GQA))
@@ -1405,7 +1411,7 @@ def test_wall_only_regimes_are_flagged():
 @pytest.mark.unit
 def test_stream_bound_regimes_ride_the_kv_stream_lane_with_a_fitted_factor():
     # T2.3 zones: MLA, windowed and chunked wait on the K/V stream, so they ride the causal stream lane at
-    # their own bytes per step and a fitted factor (chunked 0.81, windowed 0.93, MLA 1.04 on R1a and T2.3).
+    # their own bytes per step and a fitted factor (chunked 0.80, windowed 0.98, MLA 1.02 on R1a and T2.3).
     for kw in (dict(S=8192, num_heads=16, sliding_window=1024), dict(S=2048, kv_seq=6144, chunk_start_idx=4096, num_heads=16),
                dict(S=2048, q_chunk=32, num_heads=16, **_MLA)):
         r = predict(_bh(**kw))
@@ -1415,9 +1421,12 @@ def test_stream_bound_regimes_ride_the_kv_stream_lane_with_a_fitted_factor():
         assert r.components["reader_wait"] > 0.25 * r.wall_clock_cycles   # chunked 30, windowed 53, MLA 85 percent
     a = ARCH_BH
     lane = 4 * (a.kv_stream_fixed_per_ktile + (18 + 16) * a.kv_stream_fixed_per_kv_tile) + 4 * (18 + 16) * 2048 / a.kv_stream_rate_bpc[110]
-    assert lane == pytest.approx(108_497, abs=5)
-    assert WALL_TERMS_BH["mla"].stream_scale == 1.0407 and WALL_TERMS_BH["chunked"].stream_scale == 0.8125
-    assert WALL_TERMS_BH["windowed"].stream_scale == 0.9311
+    assert lane == pytest.approx(110_533, abs=5)
+    assert WALL_TERMS_BH["mla"].stream_scale == 1.0200 and WALL_TERMS_BH["chunked"].stream_scale == 0.8028
+    assert WALL_TERMS_BH["windowed"].stream_scale == 0.9753
+    # Chunked keeps one rate over both phases: its factor absorbs the tail, the others price it explicitly.
+    assert WALL_TERMS_BH["chunked"].tail_phase is False
+    assert all(WALL_TERMS_BH[k].tail_phase for k in ("prefill_causal", "windowed", "mla"))
     # the 64-core chunked point keeps the factor on the 64-core lane
     r64 = predict(_bh(S=1024, kv_seq=5120, chunk_start_idx=4096, num_heads=16))
     assert r64.active_cores == 64 and "off_calibration_cores" not in r64.low_confidence_reasons
@@ -1996,8 +2005,47 @@ def test_causal_pair_split_sets_wall_core_chunks(cfg, nq, ceil_nq):
     r = predict(cfg)
     assert r.q_chunks_wall_core == nq
     assert math.ceil(r.q_chunks_per_core) == ceil_nq
-    assert r.components["straggler"] == pytest.approx(
-        (sum(r.components.values()) - r.components["init"]) * (nq - r.q_chunks_per_core) / nq)
+    # The extra chunks are the tail phase, priced per step on their own (never above a contended step).
+    light = sum(v for k, v in r.components.items() if k not in ("init", "straggler"))
+    tail_ratio = r.components["straggler"] / light * r.q_chunks_per_core / max(1e-9, nq - r.q_chunks_per_core)
+    assert 0.0 < tail_ratio <= 1.0 + 1e-9
+
+
+@pytest.mark.unit
+def test_tail_cores_are_the_remainder_of_the_split():
+    from ttsim.perf.roofline_sdpa import _tail_cores
+    # Causal hands out pairs, so the remainder is over pairs: S1024 is 128 pairs over 110 cores, 18 of which
+    # take a second one; S2048 36 of 256; S8192 34 of 1024. An exact split leaves no tail.
+    assert _tail_cores(8 * 32, 8, 110, True) == 18
+    assert _tail_cores(16 * 32, 16, 110, True) == 36
+    assert _tail_cores(64 * 32, 64, 110, True) == 34
+    assert _tail_cores(32 * 32, 32, 64, True) == 64            # 512 pairs over 64 cores divides exactly
+    assert _tail_cores(112, 8, 110, False) == 2                # flat split: the remainder is over chunks
+    assert _tail_cores(40, 2, 110, True) == 20                 # fewer units than cores: all of them
+
+
+@pytest.mark.unit
+def test_tail_phase_prices_the_extra_steps_with_fewer_readers():
+    # The wall core's steps beyond the light cores run once the light cores are done, so only the remainder
+    # cores are on the DRAM and the step falls back on the compute lane. Measured on the card: the extra-pair
+    # steps run at 9 to 12 k cycles against the 15.5 k contended lane (bh/zone_decomposition.md).
+    from ttsim.perf.roofline_sdpa import _kv_stream_rate
+    r = predict(_bh(S=1024, **_GQA))
+    light = r.q_chunks_per_core * r.k_eff
+    tail_steps = r.steps_wall_core - light
+    contended = sum(v for k, v in r.components.items() if k not in ("init", "straggler")) / light
+    tail = r.components["straggler"] / tail_steps
+    assert tail_steps == pytest.approx((r.q_chunks_wall_core - r.q_chunks_per_core) * r.k_eff, rel=1e-9)
+    assert tail < contended
+    assert 8_000 < tail < 13_000 and 14_000 < contended < 17_000
+    # 18 readers instead of 110 is a higher per-core rate. The rate table clamps at its measured grids, so
+    # the tail is charged the measured 64-core rate rather than an extrapolation below it: the speed-up the
+    # model takes is never larger than one it was shown on the card.
+    assert _kv_stream_rate(ARCH_BH, 18) == _kv_stream_rate(ARCH_BH, 64) == ARCH_BH.kv_stream_rate_bpc[64]
+    assert _kv_stream_rate(ARCH_BH, 18) > _kv_stream_rate(ARCH_BH, 110)
+    # An exactly divisible split has no tail at all: every core runs the same number of pairs
+    exact = predict(SdpaConfig(S=4096, num_cores=64, arch=ARCH_BH, **_GQA))
+    assert exact.components["straggler"] == 0.0
 
 
 @pytest.mark.unit
