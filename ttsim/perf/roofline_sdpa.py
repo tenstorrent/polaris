@@ -1523,8 +1523,8 @@ def predict_decode(cache_len, num_q_heads, num_kv_heads, head_dim, v_head_dim=0,
     r.dram_in_bytes = kv_bytes + q_bytes
     r.dram_out_bytes = batch * _ceil_div(num_q_heads, TILE_HW) * dct_v * ibpt    # the output core, per user
 
-    # Fixed launch cost plus a cost per KV head group the wall core runs in sequence (per q-head slice for
-    # MLA), then the KV stream at the calibrated rate.
+    # Fixed launch cost plus a cost per KV head group the wall core runs in sequence (one fixed cost per
+    # path for MLA), then the KV stream at the calibrated rate.
     if is_mla:
         bw = a.decode_kv_stream_gbps_mla
         fixed = a.decode_fixed_overhead_cycles_mla_paged if paged else a.decode_fixed_overhead_cycles_mla

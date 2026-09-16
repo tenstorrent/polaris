@@ -1318,7 +1318,7 @@ _MLAD_BEYOND_5 = {
     pytest.param(l, k, m, marks=pytest.mark.xfail(strict=True, reason=_MLAD_BEYOND_5[l])) if l in _MLAD_BEYOND_5 else (l, k, m)
     for l, k, m in MLA_DECODE_R1B])
 def test_mla_decode_r1b_points_within_5_percent(label, kw, meas_us):
-    # Fit points of the MLA decode law: fixed 11181 + 14868 per q-head slice, the latent stream at 342.1 GB/s.
+    # Fit points of the MLA decode law: 26000 cycles non-paged, 83000 paged, the latent stream at 342.1 GB/s.
     r = predict_decode(**kw)
     us = r.wall_clock_cycles / CLK
     assert r.is_mla and r.is_memory_bound and r.config_echo["kv_stream_gbps"] == 342.1
