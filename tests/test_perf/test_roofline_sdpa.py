@@ -954,6 +954,10 @@ CAMPAIGN_WALLS = [
     ("MLA nh16 S1024", "R1a", _bh(S=1024, q_chunk=32, num_heads=16, **_MLA), 2_640_221),
     ("MLA nh16 S4096", "R1a", _bh(S=4096, q_chunk=32, num_heads=16, **_MLA), 37_137_796),
     ("MLA nh32 S2048", "R1a", _bh(S=2048, q_chunk=32, num_heads=32, **_MLA), 19_315_356),
+    # R1J2 (2026-09-16): the head axis with the q chunk pinned at 32, so only the head count moves.
+    # Predictions, never in any fit; the axis is linear on the device (1.00 / 2.02 / 2.99 / 3.98x).
+    ("MLA nh48 S2048", "R1J2", _bh(S=2048, q_chunk=32, num_heads=48, **_MLA), 28_633_519),
+    ("MLA nh64 S2048", "R1J2", _bh(S=2048, q_chunk=32, num_heads=64, **_MLA), 38_149_720),
     ("sparse T8192 TOPK1024", "R1a", _bh(kv_seq=1024, **_SPARSE), 8_603_386),
     ("sparse T8192 TOPK2048", "R1a", _bh(kv_seq=2048, **_SPARSE), 16_081_570),
     ("sparse T16384 TOPK2048", "R1a", _bh(kv_seq=2048, **_SPARSE), 16_172_522),
@@ -970,7 +974,12 @@ FIT_POINTS = {"causal bf16 K/V", "causal 64 cores", "windowed S8192 W1024", "chu
 _TAIL = ("the stream lane charges the 110 core rate on every step of the wall core; its steps beyond the light "
          "cores' count run on fewer readers at a faster rate the single-rate lane does not carry")
 _BEYOND_5 = {
-    "MLA nh16 S1024": "+6.9 percent: 36 heavy cores run the third pair alone at 279 KB per step; the tail phase covers part of it, the rest is the MLA stream factor fit over four walls of two head counts",
+    # R1J2: with the q chunk pinned the head axis is linear on the device, but the model runs low on it and
+    # the drift grows with the head count. Both are predictions, never fitted. A single stream factor cannot
+    # take them and the S1024 wall at once: it is high there and low here, so raising it trades one for two.
+    "MLA nh48 S2048": "-6.3 percent: the model runs low on the MLA head axis above nh 32",
+    "MLA nh64 S2048": "-5.1 percent: the same head-axis drift",
+    "MLA nh16 S1024": "+6.9 percent: 36 heavy cores run the third pair alone at 279 KB per step and the tail phase covers only part of it. Not a head-count fit problem: with the q chunk pinned the head axis is linear on the device (1.00 / 2.02 / 2.99 / 3.98x at nh 16 / 32 / 48 / 64) and the model tracks it within 6.3 percent (R1J2). This is the small-S case, where few steps leave the straggler exposed",
 
 }
 
@@ -995,7 +1004,7 @@ def test_campaign_walls_within_5_percent(label, cfg, meas):
 @pytest.mark.unit
 def test_campaign_wall_table_is_complete():
     labels = [w[0] for w in CAMPAIGN_WALLS]
-    assert len(labels) == len(set(labels)) == 34
+    assert len(labels) == len(set(labels)) == 36
     assert FIT_POINTS <= set(labels) and set(_BEYOND_5) <= set(labels)
     assert sum(1 for w in CAMPAIGN_WALLS if w[1] == "R1a") == 22 and sum(1 for w in CAMPAIGN_WALLS if w[1] == "T2.3") == 12
 
