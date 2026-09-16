@@ -628,6 +628,7 @@ class SdpaConfig:
     defaulted: str = ""            # shim echo: config fields that were absent at the call
     fallback_reasons: Tuple[str, ...] = ()   # model-side fallbacks taken while building the config
     arch: ArchConfig = field(default_factory=ArchConfig)
+    kernel_rev: str = ""      # "" or "72620d5": the calibration tree; "main"/"2dbd14bf632": main tip
 
 
 @dataclass
@@ -1231,6 +1232,25 @@ def _sparse_wall(r, cfg, a, terms, *, qct, kct, dct_qk, dct_v, cpt, kvbpt, ibpt)
         r.flag("sparse_fit_family")
 
 
+# The fp32_dest_acc_en (non-streaming) prefill kernel is the one path that moved between the calibration
+# tree and main: since PR 49948 the QK intermediate and the row sums are fp32, so the mask and reduce passes
+# over cb_qk_im carry twice the bytes. Everything else reproduces within 0.25 percent, so only these two
+# constants are keyed by revision. Fit on four main-tip walls (S 1024 q64, 2048, 4096, 8192 q128, nh 32,
+# nkv 8, HiFi4, packer L1 acc; block FP32M), worst 2.4 percent against 14.6 for the calibration-tree pair.
+KERNEL_REV_MAIN_ALIASES = ("main", "main-tip", "2dbd14bf632", "2dbd14b")
+LEGACY_STEP_CYCLES_MAIN = 4640.0
+DEST_ROUNDTRIP_CYCLES_MAIN = 560.0
+
+
+def _apply_kernel_rev(cfg: SdpaConfig) -> SdpaConfig:
+    """Swap the legacy (fp32 DEST) constants for the main-tip set when the caller names that revision.
+    No other constant differs between the two trees, so nothing else is keyed."""
+    if not cfg.kernel_rev or cfg.kernel_rev.lower() not in KERNEL_REV_MAIN_ALIASES:
+        return cfg
+    return replace(cfg, arch=replace(cfg.arch, legacy_step_cycles=LEGACY_STEP_CYCLES_MAIN,
+                                   dest_roundtrip_cycles=DEST_ROUNDTRIP_CYCLES_MAIN))
+
+
 def predict(cfg: SdpaConfig, *, num_cores=None, fidelity=None, exp_approx_mode=None,
             fp32_dest_acc=None, kernel: Optional[KernelDescriptor] = None) -> RooflineResult:
     """Prefill / MLA / cross / windowed / masked / sparse SDPA (compute-bound). cfg.S is the query
@@ -1238,6 +1258,7 @@ def predict(cfg: SdpaConfig, *, num_cores=None, fidelity=None, exp_approx_mode=N
     production program config (grid, fidelity, exp mode, DEST accumulation) over the cfg fields.
     kernel describes the section graph on a thread_split arch (the standard SDPA step when None)."""
     cfg, override_fallback = _apply_overrides(cfg, num_cores, fidelity, exp_approx_mode, fp32_dest_acc)
+    cfg = _apply_kernel_rev(cfg)
     a = cfg.arch
     split = a.thread_split
     r = RooflineResult(label=f"S={cfg.S}", arch_name=a.name, regime="prefill", clock_ghz=a.clock_ghz)

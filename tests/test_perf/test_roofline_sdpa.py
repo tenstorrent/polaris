@@ -973,6 +973,27 @@ FIT_POINTS = {"causal bf16 K/V", "causal 64 cores", "windowed S8192 W1024", "chu
               "sparse T16384 TOPK2048", "joint N4096 L333 d128", "joint N4096 L333 d64"}
 _TAIL = ("the stream lane charges the 110 core rate on every step of the wall core; its steps beyond the light "
          "cores' count run on fewer readers at a faster rate the single-rate lane does not carry")
+@pytest.mark.unit
+def test_kernel_rev_main_prices_the_fp32_path_on_main_tip():
+    """FP32M: the fp32_dest_acc_en prefill kernel is the one path that moved between the calibration tree
+    and main (PR 49948 made the QK intermediate and the row sums fp32). Four main-tip walls, ns."""
+    measured = {(1024, 64): 341_022, (2048, 128): 723_412, (4096, 128): 2_251_090, (8192, 128): 8_765_334}
+    prod = dict(num_heads=32, num_kv_heads=8, head_dim=128, num_cores=110, is_causal=True,
+                fidelity="HiFi4", fp32_dest_acc=True, accum_dtype="float32", exp_approx_mode=False,
+                input_dtype="bfp8_b")
+    for (S, q), ns in measured.items():
+        main = predict(SdpaConfig(S=S, q_chunk=q, k_chunk=q, kernel_rev="main", **prod))
+        assert main.wall_clock_cycles / 1.35 == pytest.approx(ns, rel=0.05), (S, q)
+        # the calibration-tree default is the slower-kernel fit and reads low against main
+        cal = predict(SdpaConfig(S=S, q_chunk=q, k_chunk=q, **prod))
+        assert cal.wall_clock_cycles < main.wall_clock_cycles
+    # the knob touches only the legacy path: the streaming anchor is bit-identical
+    stream = dict(S=4096, q_chunk=128, k_chunk=128, num_heads=32, num_kv_heads=8, num_cores=110,
+                  is_causal=True)
+    assert predict(SdpaConfig(**stream)).wall_clock_cycles == \
+        predict(SdpaConfig(kernel_rev="main", **stream)).wall_clock_cycles
+
+
 _BEYOND_5 = {
     # R1J2: with the q chunk pinned the head axis is linear on the device, but the model runs low on it and
     # the drift grows with the head count. Both are predictions, never fitted. A single stream factor cannot
