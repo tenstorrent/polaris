@@ -1264,21 +1264,21 @@ MLA_DECODE_R1B = [
 
 # R1h (2026-09-16, p100a): the query-slice sweep. Query heads 32 / 64 / 128 on the same 64-core Q shard give
 # 1 / 2 / 4 slices at a fixed cache and position, at batch 4 and 8, so the slice count moves while everything
-# else holds. The walls step by about 16 us per doubling of slices and per doubling of batch alike, i.e. with
+# else holds. The walls step by 15 to 18 us per doubling of slices and per doubling of batch alike, i.e. with
 # the KV bytes (which carry the per-slice re-read) and not with a per-slice fixed cost: subtracting the bytes
-# at 342 GB/s leaves 41 to 60 us of fixed cost, five of the six rows inside 52 to 60.
+# at 342 GB/s leaves 41 to 59 us of fixed cost, four of the six rows inside 58 to 59.
 MLA_DECODE_R1H = [
-    ("R1h paged b4 nh32 slices1", dict(_MLAD_P, batch=4, num_q_heads=32, cache_len=4096, cur_pos=1024), 59.9),
-    ("R1h paged b4 nh64 slices2", dict(_MLAD_P, batch=4, num_q_heads=64, cache_len=4096, cur_pos=1024), 75.9),
-    ("R1h paged b4 nh128 slices4", dict(_MLAD_P, batch=4, num_q_heads=128, cache_len=4096, cur_pos=1024), 92.3),
-    ("R1h paged b8 nh32 slices1", dict(_MLAD_P, batch=8, num_q_heads=32, cache_len=4096, cur_pos=1024), 76.1),
+    ("R1h paged b4 nh32 slices1", dict(_MLAD_P, batch=4, num_q_heads=32, cache_len=4096, cur_pos=1024), 59.5),
+    ("R1h paged b4 nh64 slices2", dict(_MLAD_P, batch=4, num_q_heads=64, cache_len=4096, cur_pos=1024), 74.4),
+    ("R1h paged b4 nh128 slices4", dict(_MLAD_P, batch=4, num_q_heads=128, cache_len=4096, cur_pos=1024), 92.4),
+    ("R1h paged b8 nh32 slices1", dict(_MLAD_P, batch=8, num_q_heads=32, cache_len=4096, cur_pos=1024), 75.2),
     ("R1h paged b8 nh64 slices2", dict(_MLAD_P, batch=8, num_q_heads=64, cache_len=4096, cur_pos=1024), 92.0),
-    ("R1h paged b8 nh128 slices4", dict(_MLAD_P, batch=8, num_q_heads=128, cache_len=4096, cur_pos=1024), 107.1),
+    ("R1h paged b8 nh128 slices4", dict(_MLAD_P, batch=8, num_q_heads=128, cache_len=4096, cur_pos=1024), 107.2),
 ]
 _MLAD_R1H_BEYOND_5 = {
     "R1h paged b4 nh32 slices1": "+10.6 percent: 4 groups leave 16 cores each, the widest split of the family, and "
-                                 "its fixed cost measures 51.7 us against the 58.0 us median of the paged rows",
-    "R1h paged b8 nh128 slices4": "+15.7 percent: 32 groups leave 3 cores each and the stream beats the 342 GB/s of "
+                                 "its fixed cost measures 51.3 us against the 57.6 us median of the paged rows",
+    "R1h paged b8 nh128 slices4": "+15.2 percent: 32 groups leave 3 cores each and the stream beats the 342 GB/s of "
                                   "the position sweep, the same miss as the paged b8 pos1024 campaign row",
 }
 
@@ -1308,9 +1308,9 @@ def test_mla_decode_bytes_scale_with_slices_and_the_fixed_cost_does_not():
 
 
 _MLAD_BEYOND_5 = {
-    "paged b8 nh128 pos1024": "+16.1 percent: at batch 8 nh128 the 32 groups leave 3 cores each and the stream runs "
+    "paged b8 nh128 pos1024": "+15.6 percent: at batch 8 nh128 the 32 groups leave 3 cores each and the stream runs "
                               "faster than the 342 GB/s the position sweep fit, so the one rate over-charges the "
-                              "shortest wall of the family (R1h b8 nh128 misses the same way, +15.7)",
+                              "shortest wall of the family (R1h b8 nh128 misses the same way, +15.2)",
 }
 
 
@@ -1319,7 +1319,7 @@ _MLAD_BEYOND_5 = {
     pytest.param(l, k, m, marks=pytest.mark.xfail(strict=True, reason=_MLAD_BEYOND_5[l])) if l in _MLAD_BEYOND_5 else (l, k, m)
     for l, k, m in MLA_DECODE_R1B])
 def test_mla_decode_r1b_points_within_5_percent(label, kw, meas_us):
-    # Fit points of the MLA decode law: 25800 cycles non-paged, 78300 paged, the latent stream at 342.1 GB/s.
+    # Fit points of the MLA decode law: 25800 cycles non-paged, 77700 paged, the latent stream at 342.1 GB/s.
     r = predict_decode(**kw)
     us = r.wall_clock_cycles / CLK
     assert r.is_mla and r.is_memory_bound and r.config_echo["kv_stream_gbps"] == 342.1
@@ -2694,6 +2694,6 @@ def test_arch_constants_are_the_campaign_fits():
         t = WALL_TERMS_BH[reg]
         assert t.pack_per_qk_dtile == 26.45 and t.pack_per_qktile + 8 * t.pack_per_qk_dtile == pytest.approx(pk)
     assert (a.decode_kv_stream_gbps_nonpaged, a.decode_kv_stream_gbps_mla) == (342.3, 342.1)
-    assert (a.decode_fixed_overhead_cycles_mla, a.decode_fixed_overhead_cycles_mla_paged) == (25800.0, 78300.0)
+    assert (a.decode_fixed_overhead_cycles_mla, a.decode_fixed_overhead_cycles_mla_paged) == (25800.0, 77700.0)
     assert WALL_TERMS_BH["masked"].mask_per_tile == 200.2 and WALL_TERMS_BH["joint"].fe_per_tile_mac == 161.5
     assert (WALL_TERMS_BH["sparse"].fe_per_token, WALL_TERMS_BH["sparse"].gather_rate_bpc) == (56689.0, 2.979)

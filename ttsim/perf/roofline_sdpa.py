@@ -231,7 +231,7 @@ class ArchConfig:
     # minus stream over its path's walls, rounded to the nearest hundred cycles.
     decode_kv_stream_gbps_mla: float = 342.1
     decode_fixed_overhead_cycles_mla: float = 25800.0         # 19.1 us, non-paged form (R1b cache sweep)
-    decode_fixed_overhead_cycles_mla_paged: float = 78300.0   # 58.0 us, paged form (R1b positions + R1h)
+    decode_fixed_overhead_cycles_mla_paged: float = 77700.0   # 57.6 us, paged form (R1b positions + R1h)
     clock_ghz: float = 1.35
 
     def cpt(self, fidelity: str) -> float:
