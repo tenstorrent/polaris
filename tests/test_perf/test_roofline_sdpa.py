@@ -1319,7 +1319,7 @@ _MLAD_BEYOND_5 = {
     pytest.param(l, k, m, marks=pytest.mark.xfail(strict=True, reason=_MLAD_BEYOND_5[l])) if l in _MLAD_BEYOND_5 else (l, k, m)
     for l, k, m in MLA_DECODE_R1B])
 def test_mla_decode_r1b_points_within_5_percent(label, kw, meas_us):
-    # Fit points of the MLA decode law: 26000 cycles non-paged, 78300 paged, the latent stream at 342.1 GB/s.
+    # Fit points of the MLA decode law: 25800 cycles non-paged, 78300 paged, the latent stream at 342.1 GB/s.
     r = predict_decode(**kw)
     us = r.wall_clock_cycles / CLK
     assert r.is_mla and r.is_memory_bound and r.config_echo["kv_stream_gbps"] == 342.1
@@ -2694,6 +2694,6 @@ def test_arch_constants_are_the_campaign_fits():
         t = WALL_TERMS_BH[reg]
         assert t.pack_per_qk_dtile == 26.45 and t.pack_per_qktile + 8 * t.pack_per_qk_dtile == pytest.approx(pk)
     assert (a.decode_kv_stream_gbps_nonpaged, a.decode_kv_stream_gbps_mla) == (342.3, 342.1)
-    assert (a.decode_fixed_overhead_cycles_mla, a.decode_fixed_overhead_cycles_mla_paged) == (26000.0, 78300.0)
+    assert (a.decode_fixed_overhead_cycles_mla, a.decode_fixed_overhead_cycles_mla_paged) == (25800.0, 78300.0)
     assert WALL_TERMS_BH["masked"].mask_per_tile == 200.2 and WALL_TERMS_BH["joint"].fe_per_tile_mac == 161.5
     assert (WALL_TERMS_BH["sparse"].fe_per_token, WALL_TERMS_BH["sparse"].gather_rate_bpc) == (56689.0, 2.979)
