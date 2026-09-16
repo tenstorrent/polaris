@@ -296,8 +296,8 @@ GENERIC_TERMS_MAIN = GenericTerms(
 
 GATE_TERMS_MAIN = GateTerms(
     # generalized_moe_gate at B=1 without softmax (1356.5 ns), deepseek_moe_gate at B=1 with its
-    # sigmoid front end (1307 ns); sampling keeps the ASSUMED 300 slots x 2 cycles.
-    c_gate_token={"generalized_moe_gate": 1831.3, "deepseek_moe_gate": 1764.5 - 307.8, "sampling": 600.0},
+    # sigmoid front end (1307 ns).
+    c_gate_token={"generalized_moe_gate": 1831.3, "deepseek_moe_gate": 1764.5 - 307.8},
     c_softmax=50.4,
     c_sigmoid=307.8,
     c_512_combine=6586.0,
@@ -655,7 +655,7 @@ def predict_generic(cfg: GenericConfig) -> TopkResult:
 
 
 # ----------------------------------------------------------------------------------------------
-# Regime (c): MoE gate kernels and the sampling tail
+# Regime (c): MoE gate kernels
 # ----------------------------------------------------------------------------------------------
 
 # COUNTED SFPU issue slots per token (router_topk_kernels.md sections 5.1, 5.2), recorded in the
@@ -663,11 +663,12 @@ def predict_generic(cfg: GenericConfig) -> TopkResult:
 GATE_SLOTS_PER_TOKEN = {
     "deepseek_moe_gate": 215.0,
     "generalized_moe_gate": 290.0,
-    "sampling": 300.0,
 }
 GATE_SOFTMAX_SLOTS = 60.0            # COUNTED: softmax branch in finalize_ungrouped (about 40 to 60)
-GATE_KERNELS = ("deepseek_moe_gate", "generalized_moe_gate", "moe_grouped_topk", "sampling")
-GATE_SIGMOID_DEFAULT = {"deepseek_moe_gate": True, "generalized_moe_gate": False, "sampling": False}
+# No "sampling" gate kernel: the sampling call sites take the composite route into topk_large_indices
+# (verified on the device for 5 of 5 sampling cells), so a gate law for them would price nothing real.
+GATE_KERNELS = ("deepseek_moe_gate", "generalized_moe_gate", "moe_grouped_topk")
+GATE_SIGMOID_DEFAULT = {"deepseek_moe_gate": True, "generalized_moe_gate": False}
 
 
 @dataclass
@@ -737,8 +738,6 @@ def predict_gate(cfg: GateConfig) -> TopkResult:
                                   if cfg.wrapper else 0.0),
     }
     r.breakdown.update({"launches": launches, "active_cores": active, "sfpu_slots_per_token": slots})
-    if cfg.kernel == "sampling":
-        r.flag("gate_sampling_assumed")
     if cfg.N > 512:
         r.flag("gate_layout_above_512_experts_unmeasured")
     if cfg.wrapper:

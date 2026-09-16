@@ -515,9 +515,11 @@ def test_gate_softmax_sigmoid_and_512_layout_terms():
     for B, meas in ((1, 1_307), (32, 1_413), (110, 1_435)):
         d = predict_gate(GateConfig("deepseek_moe_gate", tokens=B, kernel_rev=MAIN))
         assert d.components["sigmoid"] > 0 and _within(_ns(d), meas, 1.0), (B, _ns(d), meas)
-    assert predict_gate(GateConfig("sampling", tokens=32, kernel_rev=MAIN)).low_confidence_reasons == ["gate_sampling_assumed"]
+    # there is no "sampling" gate kernel: those call sites take the composite route, so asking for one raises
+    with pytest.raises(ValueError, match="unknown gate kernel"):
+        predict_gate(GateConfig("sampling", tokens=32, kernel_rev=MAIN))
     # an uncalibrated set is flagged through its terms
-    placeholder = GateTerms(c_gate_token={"generalized_moe_gate": 580.0, "deepseek_moe_gate": 430.0, "sampling": 600.0}, calibrated=False)
+    placeholder = GateTerms(c_gate_token={"generalized_moe_gate": 580.0, "deepseek_moe_gate": 430.0}, calibrated=False)
     assert "gate_uncalibrated_on_this_kernel_rev" in predict_gate(GateConfig("generalized_moe_gate", tokens=32, terms=placeholder, kernel_rev=MAIN)).low_confidence_reasons
 
 
