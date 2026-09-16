@@ -41,7 +41,7 @@ op_fusion_spec:
 
 op_rsrc_spec:
   compute:
-    matrix: [Matmul, Conv, ConvTranspose, Einsum, Gemm, MultiheadAttention, ScaledDotProductAttention]
+    matrix: [Matmul, Conv, ConvTranspose, Einsum, Gemm, MultiheadAttention, ScaledDotProductAttention, IndexerScoreDSA]
     vector: [Abs, Add, And, ArgMax, AveragePool,
              BatchNormalization,
              Cast, Clip, Concat, Constant, ConstantOfShape, Cos, CumSum,

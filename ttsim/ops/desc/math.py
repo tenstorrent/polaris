@@ -898,14 +898,69 @@ def topk_sinf(iTList, oTList, op, **kwargs):
     oTList[0].dtype = X.dtype
     oTList[1].dtype = np.dtype(np.int64)
     in_elems = sum(t.nelems() for t in iTList)
+    # topk_large_indices returns uint32 indices only; the values output is a placeholder.
+    indices_only = bool(op.attrs.get('indices_only', 0))
+    out_elems = oTList[1].nelems() if indices_only else oTList[0].nelems() + oTList[1].nelems()
+    out_bytes = oTList[1].nelems() * 4 if indices_only else \
+        oTList[0].nbytes(op.precision) + oTList[1].nbytes(op.precision)
     op.perf_stats = {
             'inElems' : in_elems,
-            'outElems': oTList[0].nelems() + oTList[1].nelems(),
+            'outElems': out_elems,
             'inBytes' : sum(t.nbytes(op.precision) for t in iTList),
-            'outBytes': oTList[0].nbytes(op.precision) + oTList[1].nbytes(op.precision),
-            'instrs'  : {'mov': 0} #TODO: fix this for TopK
+            'outBytes': out_bytes,
+            'instrs'  : {'mov': 0} #generic estimate; last-dim topk is re-priced below
             }
+    if _axis == XRank - 1:
+        _topk_roofline_perf(op, X, d_axis, int(k_scalar_value))
     return
+
+
+def _topk_input_dtype(op, X):
+    name = op.attrs.get('input_dtype')
+    if name:
+        return str(name)
+    # functional path: numpy dtype, where ttnn bfloat16 maps to float16
+    return {'float16': 'bfloat16'}.get(X.dtype.name, X.dtype.name)
+
+
+def _topk_roofline_perf(op, X, d_axis, k):
+    """Price a last-dim topk by the kernel that runs on Blackhole (roofline_topk.route_topk), or by
+    topk_large_indices directly when the shim tagged the call. Off-model shapes keep the generic
+    estimate; Device.execute_op drops the fused cost on other devices (device-agnostic instrs)."""
+    from ttsim.perf.roofline_topk import (TopkCall, TopkConfig, predict_topk, predict_topk_call,
+                                           DEFAULT_NUM_CORES)
+    a = op.attrs
+    rows = X.nelems() // d_axis
+    # The calibration set follows the tt-metal kernel revision the caller names; without it the
+    # model takes main tip and flags the result.
+    kernel_rev = a.get('kernel_rev')
+    input_memory = str(a.get('input_memory', 'DRAM'))
+    try:
+        if a.get('topk_kernel') == 'large_indices':
+            n_valid = min(d_axis, int(a.get('valid_length') or d_axis))
+            r = predict_topk(TopkConfig(N=n_valid, K=k, rows=rows, N_phys=d_axis,
+                                        num_cores=int(a.get('num_cores') or DEFAULT_NUM_CORES),
+                                        input_memory=input_memory, kernel_rev=kernel_rev))
+            if a.get('valid_length_unknown'):
+                r.flag('valid_length_tensor_priced_at_full_width')
+        else:
+            scg = a.get('sub_core_grid_cores')
+            extent = ((int(a['sub_core_grid_x']), int(a['sub_core_grid_y']))
+                      if 'sub_core_grid_x' in a and 'sub_core_grid_y' in a else None)
+            r = predict_topk_call(TopkCall(
+                rows=rows, N=d_axis, k=k,
+                largest=bool(a.get('largest', 1)), sorted=bool(a.get('sorted', 1)),
+                stable=bool(a.get('stable', 0)), dtype=_topk_input_dtype(op, X),
+                layout=str(a.get('input_layout', 'TILE')), sharded=bool(a.get('sharded', 0)),
+                has_indices_tensor=bool(a.get('has_indices_tensor', 0)),
+                has_output_tensor=bool(a.get('has_output_tensor', 0)),
+                sub_core_grids=int(scg) if scg is not None else None, sub_core_grid=extent,
+                input_memory=input_memory,
+                num_cores=int(a.get('num_cores') or DEFAULT_NUM_CORES), kernel_rev=kernel_rev))
+    except ValueError:
+        return
+    op.perf_stats.update(r.to_polaris_op_perf_stats())
+    op.perf_stats['instrs'] = {'mov': X.nelems()}
 
 
 def nonzero_sinf(iTList, oTList, op, **kwargs):

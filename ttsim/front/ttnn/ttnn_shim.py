@@ -3322,6 +3322,42 @@ def nlp_concat_heads_decode_op(input_tensor, num_heads=None, memory_config=None,
     return out_tensor
 
 
+def indexer_score_dsa_op(q, k, weights, *, chunk_start_idx=0, memory_config=None, **attrs):
+    """IndexerScoreDSA: per-head q.k scores, relu, weighted head sum -> logits [q0, 1, Sq, T].
+    Priced by roofline_topk.predict_indexer (matmul FPU floor plus a per-tile constant)."""
+    for t, what in ((q, "q"), (k, "k"), (weights, "weights")):
+        assert t.device is not None, f"indexer_score_dsa_op requires {what} on device"
+    q_shape = q.logical_shape()._shape
+    k_shape = k.logical_shape()._shape
+    assert len(q_shape) == 4 and len(k_shape) == 4, "indexer_score_dsa expects 4D q and k"
+    out_shape = [q_shape[0], 1, q_shape[-2], k_shape[-2]]
+
+    op_name = generate_new_op_name()
+    out_tensor = Tensor(
+        name=op_name + '.out', shape=out_shape, dtype=q.dtype,
+        layout=q.get_layout(), op_out=[op_name], device=q.device,
+    )
+    inputs = [q, k, weights]
+    for t in inputs:
+        t.op_in.append(op_name)
+    opinfo = {
+        'name': op_name,
+        'optype': 'IndexerScoreDSA',
+        'inList': [t.name for t in inputs],
+        'outList': [out_tensor.name],
+        'attrs': {'chunk_start_idx': int(chunk_start_idx), **attrs},
+    }
+    opobj = SimOp(opinfo)
+    opobj.get_perf_counts(inputs, [out_tensor])
+    opobj.update_tensor_counts(inputs, [out_tensor])
+    _propagate_ttnn_dtype([q], [out_tensor])
+    out_tensor._memory_config = memory_config if memory_config is not None else MemoryConfig(
+        TensorMemoryLayout.INTERLEAVED, BufferType.DRAM,
+    )
+    q.device.add_op(opobj)
+    return out_tensor
+
+
 def scaled_dot_product_attention_op(q, k, v, *extra_inputs, memory_config=None,
                                     element_size=None, **attrs):
     """ScaledDotProductAttention: prefill (q,k,v) or decode/paged (q, k_cache, v_cache, ...).

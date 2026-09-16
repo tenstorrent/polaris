@@ -900,6 +900,39 @@ def sdpa_sinf(iTList, oTList, op, **kwargs):
     return
 
 
+def indexer_score_dsa_sinf(iTList, oTList, op, **kwargs):
+    """IndexerScoreDSA shape inference + cost: q [B, Hi, Sq, D], k [B, 1, T, D], weights -> [B, 1, Sq, T].
+    Cost from roofline_topk.predict_indexer (FPU floor plus a fit-pending per-tile term); unknown
+    shapes or attrs fall back to the MAC count."""
+    assert len(iTList) == 3 and len(oTList) == 1
+    q_shape = require_shape_list(iTList[0].shape, "IndexerScoreDSA: q shape must be known")
+    k_shape = require_shape_list(iTList[1].shape, "IndexerScoreDSA: k shape must be known")
+    if len(q_shape) != 4 or len(k_shape) != 4:
+        raise ValueError(f"IndexerScoreDSA expects 4D q and k, got {q_shape} and {k_shape}")
+    Hi, Sq, D = int(q_shape[-3]), int(q_shape[-2]), int(q_shape[-1])
+    T = int(k_shape[-2])
+    out_shape = [q_shape[0], 1, Sq, T]
+    oTList[0].shape = out_shape
+    oTList[0].dtype = iTList[0].dtype
+    op.perf_stats = {
+        'inElems': sum(t.nelems() for t in iTList),
+        'outElems': _nelems(out_shape),
+        'inBytes': sum(t.nbytes(op.precision) for t in iTList),
+        'outBytes': oTList[0].nbytes(op.precision),
+        'instrs': {'mac': Hi * Sq * T * D},
+    }
+    try:
+        from ttsim.perf.roofline_topk import IndexerConfig, indexer_perf_stats, DEFAULT_NUM_CORES
+        cfg = IndexerConfig(Sq=Sq, T=T, Hi=Hi, D=D,
+                            num_cores=int(op.attrs.get('num_cores') or DEFAULT_NUM_CORES),
+                            fidelity=op.attrs.get('fidelity'), kernel_rev=op.attrs.get('kernel_rev'))
+        op.perf_stats.update(indexer_perf_stats(cfg))
+    except ValueError as e:
+        from loguru import logger
+        logger.warning(f"indexer roofline unavailable for {getattr(op, 'name', '?')}: {e}", once=True)
+    return
+
+
 def register_layout_ops():
     d = _TTNN_OP_DOMAIN
     _optbl = [
@@ -922,6 +955,7 @@ def register_layout_ops():
         ['NLPCreateQKVHeadsDecode', 'ARITY_1->3', d, 'COMMON', 24, 21, 1, 1, 3, 3, nlp_create_qkv_heads_decode_sinf, True, True, True, True, True],
         ['NLPConcatHeadsDecode', 'ARITY_1->1', d, 'COMMON', 24, 21, 1, 1, 1, 1, nlp_concat_heads_decode_sinf, True, True, True, True, True],
         ['ScaledDotProductAttention', 'ARITY_VARIADIC[3-7]->1', d, 'COMMON', 24, 21, 7, 3, 1, 1, sdpa_sinf, True, True, True, True, True],
+        ['IndexerScoreDSA', 'ARITY_3->1', d, 'COMMON', 24, 21, 3, 3, 1, 1, indexer_score_dsa_sinf, True, True, True, True, True],
         ['PlusOne', 'ARITY_1->1', d, 'COMMON', 24, 21, 1, 1, 1, 1, plus_one_sinf, True, True, True, True, True],
         ['ManualSeed', 'ARITY_VARIADIC[1-2]->1', d, 'COMMON', 24, 21, 2, 1, 1, 1, manual_seed_sinf, True, True, True, True, True],
         # arity up to 6: HW SamplingDeviceOperation takes a preallocated output_tensor as input_5.
