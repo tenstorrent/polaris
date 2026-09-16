@@ -225,12 +225,19 @@ class GateTerms:
 @dataclass(frozen=True)
 class IndexerTerms:
     """indexer_score_dsa: linear in query-key pairs, c_pair_core cycles per pair per core at the
-    reference head geometry, scaled by Hi * D / (ref_hi * ref_d) (ASSUMED proportional to the
-    per-pair MACs) and divided by the active cores."""
+    reference head geometry, scaled by the head geometry and divided by the active cores.
+
+    The geometry scale is MEASURED (IXHD, six walls at Sq 512, T 8192): proportional to Hi, and almost
+    flat in D. Halving D from 128 to 64 saves only 13 percent of the wall, not half, because the op is
+    not matmul bound (tt-metal issue 56788), so the per-pair MAC count is the wrong basis. The earlier
+    Hi * D form was ASSUMED and reads 42 percent low at D 64.
+        scale = (Hi / ref_hi) * (d_flat + (1 - d_flat) * D / ref_d)
+    """
     c_pair_core: float
     c_launch: float = 0.0
     ref_hi: int = 64
     ref_d: int = 128
+    d_flat: float = 0.7362       # the D-independent share of a pair scan (IXHD; 1 - this scales with D)
     fidelity: str = "HiFi2"      # recorded only; the op runs at about 5 percent of the HiFi2 FPU peak
 
 
@@ -750,6 +757,8 @@ def predict_gate(cfg: GateConfig) -> TopkResult:
 # ----------------------------------------------------------------------------------------------
 
 GATE_WRAPPER_MEASURED_EXPERTS = 128       # the R1W token sweep ran at 128 experts
+INDEXER_HI_MEASURED = (32, 128)           # IXHD swept Hi 32, 64, 128
+INDEXER_D_MEASURED = (64, 128)            # and D 64, 128
 
 SMALL_K_ROUTE_MIN_PADDED_WIDTH = 4096     # topk.cpp:254
 LARGE_K_ROUTE_MAX_WIDTH = 1 << 19         # topk.cpp:264
@@ -904,7 +913,7 @@ def predict_indexer(cfg: IndexerConfig) -> TopkResult:
     cpt = ARCH_BH.cpt(fidelity)
     out_tiles = _ceil_div(cfg.Sq, TILE) * _ceil_div(cfg.T, TILE)
     tile_macs = cfg.Hi * out_tiles * _ceil_div(cfg.D, TILE)
-    head_scale = (cfg.Hi * cfg.D) / (terms.ref_hi * terms.ref_d)
+    head_scale = (cfg.Hi / terms.ref_hi) * (terms.d_flat + (1.0 - terms.d_flat) * cfg.D / terms.ref_d)
     r = TopkResult(label=f"indexer Sq={cfg.Sq} T={cfg.T} Hi={cfg.Hi} D={cfg.D}",
                    regime=REGIME_INDEXER, route=REGIME_INDEXER)
     _apply_rev(r, cal, defaulted)
@@ -914,8 +923,11 @@ def predict_indexer(cfg: IndexerConfig) -> TopkResult:
     }
     r.breakdown.update({"tile_macs": tile_macs, "out_tiles": out_tiles, "fidelity": fidelity,
                         "fpu_floor_cycles": tile_macs * cpt / cfg.num_cores, "head_scale": head_scale})
-    if (cfg.Hi, cfg.D) != (terms.ref_hi, terms.ref_d):
-        r.flag(f"indexer_head_geometry_outside_hi{terms.ref_hi}_d{terms.ref_d}")
+    if not INDEXER_D_MEASURED[0] <= cfg.D <= INDEXER_D_MEASURED[1]:
+        # the D axis has two measured points, 64 and 128; outside that the flat share is an extrapolation
+        r.flag(f"indexer_d_outside_{INDEXER_D_MEASURED[0]}_to_{INDEXER_D_MEASURED[1]}")
+    if not INDEXER_HI_MEASURED[0] <= cfg.Hi <= INDEXER_HI_MEASURED[1]:
+        r.flag(f"indexer_hi_outside_{INDEXER_HI_MEASURED[0]}_to_{INDEXER_HI_MEASURED[1]}")
     return r.finish()
 
 

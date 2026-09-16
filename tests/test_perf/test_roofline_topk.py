@@ -896,6 +896,26 @@ def test_ttnn_topk_shim_captures_routing_attrs():
 # ==============================================================================================
 
 @pytest.mark.unit
+def test_indexer_head_geometry_is_linear_in_hi_and_nearly_flat_in_d():
+    """IXHD: six walls at Sq 512, T 8192. The wall is proportional to Hi and almost independent of D,
+    because the op is not matmul bound; the old Hi x D form reads about 42 percent low at D 64."""
+    measured = {(32, 64): 1_237_311, (32, 128): 1_419_104, (64, 64): 2_441_520,
+                (64, 128): 2_840_402, (128, 64): 4_938_121, (128, 128): 5_657_622}
+    for (hi, d), ns in measured.items():
+        r = predict_indexer(IndexerConfig(Sq=512, T=8192, Hi=hi, D=d, num_cores=88))
+        assert r.device_cycles / 1.35 == pytest.approx(ns, rel=0.02), (hi, d)
+    # doubling Hi doubles the wall; halving D costs far less than half
+    base = measured[(64, 128)]
+    assert measured[(128, 128)] / base == pytest.approx(2.0, rel=0.02)
+    assert measured[(64, 64)] / base == pytest.approx(0.86, rel=0.03)
+    # the naive per-pair MAC scaling would have predicted 0.5 there
+    naive = (64 * 64) / (64 * 128)
+    assert abs(naive - measured[(64, 64)] / base) > 0.3
+    # outside the swept axes the scale is an extrapolation and says so
+    out = predict_indexer(IndexerConfig(Sq=512, T=8192, Hi=64, D=32, num_cores=88))
+    assert any("indexer_d_outside" in x for x in out.low_confidence_reasons)
+
+
 def test_indexer_model_is_linear_in_pairs_and_pins_the_three_points():
     for (sq, t), meas in INDEXER_NS.items():
         r = predict_indexer(IndexerConfig(Sq=sq, T=t, Hi=64, D=128, num_cores=88, kernel_rev=MAIN))
@@ -915,7 +935,9 @@ def test_indexer_model_is_linear_in_pairs_and_pins_the_three_points():
     # Outside Hi 64 D 128 the per-pair cost scales with the MACs per pair and the result is flagged.
     half = predict_indexer(IndexerConfig(Sq=2048, T=8192, Hi=32, D=128, num_cores=88, kernel_rev=MAIN))
     assert half.device_cycles == pytest.approx(r.device_cycles / 2, rel=1e-6)
-    assert half.low_confidence_reasons == ["indexer_head_geometry_outside_hi64_d128"]
+    # Hi 32 is inside the swept axis now (IXHD), so the geometry no longer needs a flag
+    assert not any("indexer_hi_outside" in x or "indexer_d_outside" in x
+                   for x in half.low_confidence_reasons)
     assert predict_indexer(IndexerConfig(Sq=2048, T=8192, Hi=64, D=192, num_cores=88, kernel_rev=MAIN)).low_confidence
     with pytest.raises(ValueError):
         predict_indexer(IndexerConfig(Sq=0, T=8192, Hi=64, D=128))
