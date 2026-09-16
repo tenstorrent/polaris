@@ -209,7 +209,8 @@ class GateTerms:
     c_sigmoid: float = 0.0
     c_512_combine: float = 0.0
     c_skew_by_cores: Dict[int, float] = field(default_factory=dict)
-    c_wrapper_ops: float = 0.0
+    c_wrapper_ops: float = 0.0            # per launch, the TTMoEGate layout ops
+    c_wrapper_ops_per_token: float = 0.0  # and their token slope
     c_launch: float = 0.0
     c_row_g: float = 0.0
     c_wt_g: float = 0.0
@@ -296,12 +297,12 @@ GATE_TERMS_MAIN = GateTerms(
     # Finding F5: the duration spans the first core's start to the last core's end, so it rises
     # with the active cores: +109 ns at 32 and +129 ns at 110 against B=1.
     c_skew_by_cores={1: 0.0, 32: 147.2, 110: 174.5},
-    # TTMoEGate.forward at 32 tokens, k 8, 128 experts (R1GW): the layout ops around the gate op are a
-    # reshape (6,566 ns), two sharded-to-interleaved (1,810 each), three slices (926 each) and one
-    # interleaved-to-sharded (692), so 13,656 ns = 18,435.6 cycles per launch. The router projection matmul
-    # (7,004 ns) is real work priced elsewhere and is not in this term. Charged only when the caller asks
-    # for the wrapper; a bare ttnn gate op pays none of it.
-    c_wrapper_ops=18435.6,
+    # TTMoEGate.forward layout ops around the gate op: a reshape, two sharded-to-interleaved, three slices
+    # and one interleaved-to-sharded. Linear in the tokens of the launch over B 1 to 110 at 128 experts
+    # (R1W, relative least squares on six walls, worst 7.0 percent at B 1): 11,466.9 + 48.528 per token in
+    # ns. The router projection matmul is real work priced elsewhere and is not in this term. Charged only
+    # when the caller asks for the wrapper; a bare ttnn gate op pays none of it.
+    c_wrapper_ops=15480.3, c_wrapper_ops_per_token=65.513,
     c_row_g=3394.2, c_wt_g=7206.4, c_grouped_chain=21750.0, c_wave_gap=1734.8,
 )
 
@@ -725,7 +726,8 @@ def predict_gate(cfg: GateConfig) -> TopkResult:
         "combine_512": launches * combine,
         "start_skew": launches * terms.skew(active),
         "launch": launches * terms.c_launch,
-        "wrapper_ops": launches * (terms.c_wrapper_ops if cfg.wrapper else 0.0),
+        "wrapper_ops": launches * ((terms.c_wrapper_ops + terms.c_wrapper_ops_per_token * active)
+                                  if cfg.wrapper else 0.0),
     }
     r.breakdown.update({"launches": launches, "active_cores": active, "sfpu_slots_per_token": slots})
     if cfg.kernel == "sampling":
@@ -735,8 +737,9 @@ def predict_gate(cfg: GateConfig) -> TopkResult:
     if cfg.wrapper:
         # One measured point: 32 tokens, k 8, 128 experts. The wrapper cannot run above num_cores tokens
         # (one core per token), so there is no larger point to fit a slope against.
-        if cfg.tokens != GATE_WRAPPER_MEASURED_TOKENS or cfg.N != GATE_WRAPPER_MEASURED_EXPERTS:
-            r.flag("gate_wrapper_ops_measured_at_32_tokens_128_experts")
+        if cfg.N > GATE_WRAPPER_MEASURED_EXPERTS:
+            # +4.9 percent of layout at 512 experts against 128, one point, not modelled
+            r.flag("gate_wrapper_layout_above_128_experts_unmeasured")
         if cfg.tokens > cfg.num_cores:
             r.flag("gate_wrapper_above_one_token_per_core_does_not_run")
     return r.finish()
@@ -746,8 +749,7 @@ def predict_gate(cfg: GateConfig) -> TopkResult:
 # Router: which kernel a ttnn.topk call runs on Blackhole
 # ----------------------------------------------------------------------------------------------
 
-GATE_WRAPPER_MEASURED_TOKENS = 32         # the single R1GW point behind c_wrapper_ops
-GATE_WRAPPER_MEASURED_EXPERTS = 128
+GATE_WRAPPER_MEASURED_EXPERTS = 128       # the R1W token sweep ran at 128 experts
 
 SMALL_K_ROUTE_MIN_PADDED_WIDTH = 4096     # topk.cpp:254
 LARGE_K_ROUTE_MAX_WIDTH = 1 << 19         # topk.cpp:264

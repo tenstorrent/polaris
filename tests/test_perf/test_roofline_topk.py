@@ -457,21 +457,24 @@ def test_generic_rejects_kt_beyond_the_l1_bound():
 # ==============================================================================================
 
 @pytest.mark.unit
-def test_gate_wrapper_ops_are_opt_in_and_pin_the_measured_layout_cost():
-    """R1GW: TTMoEGate.forward at 32 tokens costs 13,656 ns of layout ops around the gate op, and a bare
-    ttnn gate call pays none of it."""
+def test_gate_wrapper_ops_are_opt_in_and_track_the_token_sweep():
+    """R1W: TTMoEGate.forward layout is linear in the tokens of the launch, and a bare ttnn gate call pays
+    none of it. Six measured walls at 128 experts, ns of layout per call."""
+    measured = {1: 10_759, 8: 12_181, 16: 12_568, 32: 13_724, 64: 14_588, 110: 16_394}
+    for tokens, ns in measured.items():
+        r = predict_gate(GateConfig(kernel="generalized_moe_gate", tokens=tokens, N=128, k=8, wrapper=True))
+        assert r.components["wrapper_ops"] / 1.35 == pytest.approx(ns, rel=0.075), tokens
+    # the slope is real: 110 tokens cost more layout than 1
+    lo = predict_gate(GateConfig(kernel="generalized_moe_gate", tokens=1, N=128, k=8, wrapper=True))
+    hi = predict_gate(GateConfig(kernel="generalized_moe_gate", tokens=110, N=128, k=8, wrapper=True))
+    assert hi.components["wrapper_ops"] > lo.components["wrapper_ops"] * 1.3
+    # opt-in: the bare ttnn op pays nothing
     bare = predict_gate(GateConfig(kernel="generalized_moe_gate", tokens=32, N=128, k=8))
-    wrap = predict_gate(GateConfig(kernel="generalized_moe_gate", tokens=32, N=128, k=8, wrapper=True))
     assert bare.components["wrapper_ops"] == 0.0
-    # the measured layout ops: reshape 6,566 + 2 x 1,810 + 3 x 926 + 692 = 13,656 ns
-    assert wrap.components["wrapper_ops"] == pytest.approx(13_656 * 1.35, rel=1e-3)
-    # the gate op plus its wrapper against the measured 15,422 ns (1,766 gate + 13,656 layout)
-    assert wrap.device_cycles / 1.35 == pytest.approx(15_422, rel=0.05)
-    assert wrap.device_cycles > bare.device_cycles
-    # one measured point, so anything else is flagged
-    assert "gate_wrapper_ops_measured_at_32_tokens_128_experts" not in wrap.low_confidence_reasons
-    off = predict_gate(GateConfig(kernel="generalized_moe_gate", tokens=64, N=128, k=8, wrapper=True))
-    assert "gate_wrapper_ops_measured_at_32_tokens_128_experts" in off.low_confidence_reasons
+    # the expert axis was measured at 128 only
+    assert "gate_wrapper_layout_above_128_experts_unmeasured" not in lo.low_confidence_reasons
+    wide = predict_gate(GateConfig(kernel="generalized_moe_gate", tokens=32, N=512, k=8, wrapper=True))
+    assert "gate_wrapper_layout_above_128_experts_unmeasured" in wide.low_confidence_reasons
     # the wrapper gives one core per token, so beyond the grid it does not run at all
     over = predict_gate(GateConfig(kernel="generalized_moe_gate", tokens=128, N=128, k=8,
                                    num_cores=110, wrapper=True))
