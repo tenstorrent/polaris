@@ -225,12 +225,13 @@ class ArchConfig:
     # MLA decode (R1b, R1h): the latent KV stream at one rate for the non-paged bf16 (V read) and the paged
     # bfp8 (K reused as V, Q sharded) forms, plus a fixed cost that belongs to the path, not to the query
     # slicing. The R1h sweep varies the slice count 1 / 2 / 4 at batch 4 and 8 (query heads 32 / 64 / 128 on
-    # a 64-core shard) and the fixed cost comes out flat at 61 us per paged wall while the KV bytes scale
-    # with the slice count, so the slice dependence sits in the bytes alone (the reader re-reads the latent
-    # cache once per slice; sdpa_decode_program_factory.cpp:135-153).
+    # a 64-core shard) and the fixed cost comes out flat per paged wall while the KV bytes scale with the
+    # slice count, so the slice dependence sits in the bytes alone (the reader re-reads the latent cache
+    # once per slice; sdpa_decode_program_factory.cpp:135-153). Each constant is the median of measured
+    # minus stream over its path's walls.
     decode_kv_stream_gbps_mla: float = 342.1
     decode_fixed_overhead_cycles_mla: float = 26000.0         # 19.3 us, non-paged form (R1b cache sweep)
-    decode_fixed_overhead_cycles_mla_paged: float = 83000.0   # 61.5 us, paged form (R1b positions + R1h)
+    decode_fixed_overhead_cycles_mla_paged: float = 78300.0   # 58.0 us, paged form (R1b positions + R1h)
     clock_ghz: float = 1.35
 
     def cpt(self, fidelity: str) -> float:
