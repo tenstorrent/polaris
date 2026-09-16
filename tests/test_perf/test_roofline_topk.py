@@ -457,6 +457,27 @@ def test_generic_rejects_kt_beyond_the_l1_bound():
 # ==============================================================================================
 
 @pytest.mark.unit
+def test_gate_wrapper_ops_are_opt_in_and_pin_the_measured_layout_cost():
+    """R1GW: TTMoEGate.forward at 32 tokens costs 13,656 ns of layout ops around the gate op, and a bare
+    ttnn gate call pays none of it."""
+    bare = predict_gate(GateConfig(kernel="generalized_moe_gate", tokens=32, N=128, k=8))
+    wrap = predict_gate(GateConfig(kernel="generalized_moe_gate", tokens=32, N=128, k=8, wrapper=True))
+    assert bare.components["wrapper_ops"] == 0.0
+    # the measured layout ops: reshape 6,566 + 2 x 1,810 + 3 x 926 + 692 = 13,656 ns
+    assert wrap.components["wrapper_ops"] == pytest.approx(13_656 * 1.35, rel=1e-3)
+    # the gate op plus its wrapper against the measured 15,422 ns (1,766 gate + 13,656 layout)
+    assert wrap.device_cycles / 1.35 == pytest.approx(15_422, rel=0.05)
+    assert wrap.device_cycles > bare.device_cycles
+    # one measured point, so anything else is flagged
+    assert "gate_wrapper_ops_measured_at_32_tokens_128_experts" not in wrap.low_confidence_reasons
+    off = predict_gate(GateConfig(kernel="generalized_moe_gate", tokens=64, N=128, k=8, wrapper=True))
+    assert "gate_wrapper_ops_measured_at_32_tokens_128_experts" in off.low_confidence_reasons
+    # the wrapper gives one core per token, so beyond the grid it does not run at all
+    over = predict_gate(GateConfig(kernel="generalized_moe_gate", tokens=128, N=128, k=8,
+                                   num_cores=110, wrapper=True))
+    assert "gate_wrapper_above_one_token_per_core_does_not_run" in over.low_confidence_reasons
+
+
 def test_gate_start_skew_grows_with_active_cores_then_whole_launches():
     # generalized_moe_gate, 256 experts, k=4 no softmax: 1322 / 1452 / 1474 ns at B 1 / 32 / 110
     # (finding F5: the duration spans the first core's start to the last core's end).
