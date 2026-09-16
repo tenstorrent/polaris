@@ -222,11 +222,15 @@ class ArchConfig:
     decode_kv_stream_gbps_paged: Dict[int, float] = field(default_factory=lambda: {64: 298.9, 110: 330.5})
     # Non-paged decode on the 11x10 grid (R1b: b32 bfp8 and b8 bf16 K/V at cache 1024 / 4096, k_chunk 128).
     decode_kv_stream_gbps_nonpaged: float = 342.3
-    # MLA decode (R1b): the latent KV stream at one rate for the non-paged bf16 (V read) and the paged bfp8
-    # (K reused as V, Q sharded) forms, a fixed launch cost and a fixed cost per q-head slice.
+    # MLA decode (R1b, R1h): the latent KV stream at one rate for the non-paged bf16 (V read) and the paged
+    # bfp8 (K reused as V, Q sharded) forms, plus a fixed cost that belongs to the path, not to the query
+    # slicing. The R1h sweep varies the slice count 1 / 2 / 4 at batch 4 and 8 (query heads 32 / 64 / 128 on
+    # a 64-core shard) and the fixed cost comes out flat at 61 us per paged wall while the KV bytes scale
+    # with the slice count, so the slice dependence sits in the bytes alone (the reader re-reads the latent
+    # cache once per slice; sdpa_decode_program_factory.cpp:135-153).
     decode_kv_stream_gbps_mla: float = 342.1
-    decode_fixed_overhead_cycles_mla: float = 11181.0             # 8.3 us
-    decode_fixed_per_qhead_slice_cycles_mla: float = 14868.0     # 11.0 us per slice of the sharded query
+    decode_fixed_overhead_cycles_mla: float = 26000.0         # 19.3 us, non-paged form (R1b cache sweep)
+    decode_fixed_overhead_cycles_mla_paged: float = 83000.0   # 61.5 us, paged form (R1b positions + R1h)
     clock_ghz: float = 1.35
 
     def cpt(self, fidelity: str) -> float:
@@ -1523,7 +1527,7 @@ def predict_decode(cache_len, num_q_heads, num_kv_heads, head_dim, v_head_dim=0,
     # MLA), then the KV stream at the calibrated rate.
     if is_mla:
         bw = a.decode_kv_stream_gbps_mla
-        fixed = a.decode_fixed_overhead_cycles_mla + a.decode_fixed_per_qhead_slice_cycles_mla * q_slices
+        fixed = a.decode_fixed_overhead_cycles_mla_paged if paged else a.decode_fixed_overhead_cycles_mla
         # Fit forms (R1b): non-paged bf16 with V read on the 110 grid; paged bfp8 with K reused, Q sharded.
         if num_cores != DECODE_NONPAGED_CALIBRATED_GRID or not ((not paged and mla_v_read and kv_input_dtype == "bfloat16")
                                                                 or (paged and not mla_v_read and kv_input_dtype == "bfp8_b")):

@@ -1261,11 +1261,55 @@ MLA_DECODE_R1B = [
     ("paged b8 nh128 pos4096", dict(_MLAD_P, batch=8, cur_pos=4096), 287.9),
     ("paged b8 nh128 pos8192", dict(_MLAD_P, batch=8, cur_pos=8192), 531.3),
 ]
+
+# R1h (2026-09-16, p100a): the query-slice sweep. Query heads 32 / 64 / 128 on the same 64-core Q shard give
+# 1 / 2 / 4 slices at a fixed cache and position, at batch 4 and 8, so the slice count moves while everything
+# else holds. The walls step by about 16 us per doubling of slices and per doubling of batch alike, i.e. with
+# the KV bytes (which carry the per-slice re-read) and not with a per-slice fixed cost: subtracting the bytes
+# at 342 GB/s leaves 52 to 63 us of fixed cost on every row.
+MLA_DECODE_R1H = [
+    ("R1h paged b4 nh32 slices1", dict(_MLAD_P, batch=4, num_q_heads=32, cache_len=4096, cur_pos=1024), 59.9),
+    ("R1h paged b4 nh64 slices2", dict(_MLAD_P, batch=4, num_q_heads=64, cache_len=4096, cur_pos=1024), 75.9),
+    ("R1h paged b4 nh128 slices4", dict(_MLAD_P, batch=4, num_q_heads=128, cache_len=4096, cur_pos=1024), 92.3),
+    ("R1h paged b8 nh32 slices1", dict(_MLAD_P, batch=8, num_q_heads=32, cache_len=4096, cur_pos=1024), 76.1),
+    ("R1h paged b8 nh64 slices2", dict(_MLAD_P, batch=8, num_q_heads=64, cache_len=4096, cur_pos=1024), 92.0),
+    ("R1h paged b8 nh128 slices4", dict(_MLAD_P, batch=8, num_q_heads=128, cache_len=4096, cur_pos=1024), 107.1),
+]
+_MLAD_R1H_BEYOND_5 = {
+    "R1h paged b4 nh32 slices1": "+16.4 percent: 4 groups leave 27 cores each, the widest split of the family, and "
+                                 "its fixed cost measures 52.6 us against the 61.5 us the rest of the family shares",
+    "R1h paged b8 nh128 slices4": "+19.0 percent: 32 groups leave 3 cores each and the stream beats the 342 GB/s of "
+                                  "the position sweep, the same miss as the paged b8 pos1024 campaign row",
+}
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("label,kw,meas_us", [
+    pytest.param(l, k, m, marks=pytest.mark.xfail(strict=True, reason=_MLAD_R1H_BEYOND_5[l]))
+    if l in _MLAD_R1H_BEYOND_5 else (l, k, m) for l, k, m in MLA_DECODE_R1H])
+def test_mla_decode_slice_sweep_within_5_percent(label, kw, meas_us):
+    r = predict_decode(**kw)
+    got = r.wall_clock_cycles / 1350.0
+    assert abs(got - meas_us) / meas_us <= 0.05, f"{label}: {got:.1f} us vs {meas_us} us"
+
+
+@pytest.mark.unit
+def test_mla_decode_bytes_scale_with_slices_and_the_fixed_cost_does_not():
+    # The reader re-reads the latent cache once per query-head slice, so the KV bytes scale with the slice
+    # count while the fixed cost is the paged path's and is charged once (R1h).
+    rows = [predict_decode(**dict(_MLAD_P, batch=4, num_q_heads=nh, cache_len=4096, cur_pos=1024))
+            for nh in (32, 64, 128)]
+    slices = [r.config_echo["q_head_slices"] for r in rows]
+    assert slices == [1, 2, 4]
+    kv = [r.config_echo["kv_bytes"] for r in rows]
+    assert kv[1] == 2 * kv[0] and kv[2] == 4 * kv[0]
+    assert len({r.components["init"] for r in rows}) == 1        # one fixed cost, not one per slice
+    assert rows[0].components["init"] == ARCH_BH.decode_fixed_overhead_cycles_mla_paged
 _MLAD_BEYOND_5 = {
-    "paged b4 nh128 pos1024": "-7.1 percent: the two position 1024 points differ by 15 us for twice the bytes; the "
-                              "byte-rate law with one fixed cost per head slice cannot hold both",
-    "paged b8 nh128 pos1024": "+10.8 percent: see the batch 4 row; at 9 chunks per user the 3 cores per virtual user "
-                              "each read 3 chunks, the batch 4 cores 1 or 2",
+    "paged b8 nh128 pos1024": "+19.3 percent: at batch 8 nh128 the 32 groups leave 3 cores each and the stream runs "
+                              "faster than the 342 GB/s the position sweep fit, so the one rate over-charges the "
+                              "shortest wall of the family (R1h b8 nh128 misses the same way, +19.0)",
+    "paged b8 nh128 pos4096": "+5.4 percent: the same batch 8 rate effect, smaller at four times the bytes",
 }
 
 
@@ -1295,7 +1339,8 @@ def test_mla_decode_geometry_follows_the_factory():
     assert (b8.config_echo["q_head_slices"], b8.config_echo["cores_per_head"], b8.active_cores) == (4, 3, 96)
     # K only (reused as V), 65 whole chunks of 128 rows per slice, no Q traffic from the L1 shards
     assert b4.config_echo["kv_bytes"] == 16 * 65 * 4 * 18 * 1088 and b4.config_echo["q_bytes"] == 0
-    assert b8.components["init"] == ARCH_BH.decode_fixed_overhead_cycles_mla + 4 * ARCH_BH.decode_fixed_per_qhead_slice_cycles_mla
+    # The fixed cost belongs to the paged path, not to the slicing: b4 and b8 both carry it once (R1h).
+    assert b8.components["init"] == b4.components["init"] == ARCH_BH.decode_fixed_overhead_cycles_mla_paged
     # the non-paged form streams K and V (34 tiles per row) once per user with the query from DRAM
     np_ = predict_decode(**dict(_MLAD_NP, cache_len=8192, cur_pos=8191))
     assert np_.config_echo["kv_bytes"] == 8 * 64 * 4 * 34 * 2048 and np_.config_echo["q_bytes"] == 104 * 18 * 2048
@@ -2648,6 +2693,6 @@ def test_arch_constants_are_the_campaign_fits():
         t = WALL_TERMS_BH[reg]
         assert t.pack_per_qk_dtile == 26.45 and t.pack_per_qktile + 8 * t.pack_per_qk_dtile == pytest.approx(pk)
     assert (a.decode_kv_stream_gbps_nonpaged, a.decode_kv_stream_gbps_mla) == (342.3, 342.1)
-    assert (a.decode_fixed_overhead_cycles_mla, a.decode_fixed_per_qhead_slice_cycles_mla) == (11181.0, 14868.0)
+    assert (a.decode_fixed_overhead_cycles_mla, a.decode_fixed_overhead_cycles_mla_paged) == (26000.0, 83000.0)
     assert WALL_TERMS_BH["masked"].mask_per_tile == 200.2 and WALL_TERMS_BH["joint"].fe_per_tile_mac == 161.5
     assert (WALL_TERMS_BH["sparse"].fe_per_token, WALL_TERMS_BH["sparse"].gather_rate_bpc) == (56689.0, 2.979)
