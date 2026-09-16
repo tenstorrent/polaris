@@ -13,7 +13,7 @@ from types import SimpleNamespace
 import pytest
 
 from ttsim.back.device import Device
-from ttsim.perf.roofline_sdpa import (SdpaConfig, ArchConfig, predict, predict_decode,
+from ttsim.perf.roofline_sdpa import (SdpaConfig, ArchConfig, predict, predict_decode, TAIL_RATE_MIN_CORES,
                                        sdpa_perf_stats, sdpa_config_from_shapes, ARCH_BH,
                                        WALL_TERMS_BH, WallTerms, WALL_ONLY_FIT, STREAM_RESIDUAL_FIT,
                                        MASK_BRACKET_PER_STEP, Section, StepGraph, KernelDescriptor,
@@ -994,14 +994,26 @@ def test_kernel_rev_main_prices_the_fp32_path_on_main_tip():
         predict(SdpaConfig(kernel_rev="main", **stream)).wall_clock_cycles
 
 
-_BEYOND_5 = {
-    # R1J2: with the q chunk pinned the head axis is linear on the device, but the model runs low on it and
-    # the drift grows with the head count. Both are predictions, never fitted. A single stream factor cannot
-    # take them and the S1024 wall at once: it is high there and low here, so raising it trades one for two.
-    "MLA nh48 S2048": "-6.3 percent: the model runs low on the MLA head axis above nh 32",
-    "MLA nh64 S2048": "-5.1 percent: the same head-axis drift",
-    "MLA nh16 S1024": "+6.9 percent: 36 heavy cores run the third pair alone at 279 KB per step and the tail phase covers only part of it. Not a head-count fit problem: with the q chunk pinned the head axis is linear on the device (1.00 / 2.02 / 2.99 / 3.98x at nh 16 / 32 / 48 / 64) and the model tracks it within 6.3 percent (R1J2). This is the small-S case, where few steps leave the straggler exposed",
+@pytest.mark.unit
+def test_small_grid_stream_rate_saturates_below_the_contended_grids():
+    """GRIDR: the anchor config on smaller grids. The per-core K/V rate saturates once DRAM stops being
+    contended, so the old table's clamp at the 64-core rate was pricing a 16-core grid 39 percent slow."""
+    measured = {16: 9_321_734, 32: 4_665_358, 48: 3_216_878, 64: 2_959_780}
+    for cores, cyc in measured.items():
+        r = predict(SdpaConfig(S=4096, q_chunk=128, k_chunk=128, num_heads=32, num_kv_heads=8,
+                               head_dim=128, num_cores=cores, is_causal=True))
+        assert r.wall_clock_cycles == pytest.approx(cyc, rel=0.05), cores
+    # the rate is flat from 16 to 48 cores and then falls away as the grid contends
+    a = ArchConfig()
+    flat = [a.kv_stream_rate_bpc[c] for c in (16, 32, 48)]
+    assert max(flat) - min(flat) < 0.05
+    assert a.kv_stream_rate_bpc[64] < min(flat) and a.kv_stream_rate_bpc[110] < a.kv_stream_rate_bpc[64]
 
+
+_BEYOND_5: dict[str, str] = {
+    # Empty since 2026-09-16: the MLA tail now recovers to the uncontended rate (per-regime
+    # tail_rate_floor_cores) and the stream factor was refit on six MLA walls instead of four.
+    # Every campaign wall is within 5 percent, worst 4.66.
 }
 
 
@@ -1534,7 +1546,11 @@ def test_stream_bound_regimes_ride_the_kv_stream_lane_with_a_fitted_factor():
     a = ARCH_BH
     lane = 4 * (a.kv_stream_fixed_per_ktile + (18 + 16) * a.kv_stream_fixed_per_kv_tile) + 4 * (18 + 16) * 2048 / a.kv_stream_rate_bpc[110]
     assert lane == pytest.approx(110_533, abs=5)
-    assert WALL_TERMS_BH["mla"].stream_scale == 1.0200 and WALL_TERMS_BH["chunked"].stream_scale == 0.8028
+    # mla refit to 1.0400 on six walls (nh 16/32/48/64) once its tail was allowed to recover; chunked
+    # unchanged. mla is the one regime whose tail reaches the uncontended rate.
+    assert WALL_TERMS_BH["mla"].stream_scale == 1.0400 and WALL_TERMS_BH["chunked"].stream_scale == 0.8028
+    assert WALL_TERMS_BH["mla"].tail_rate_floor_cores == 0
+    assert WALL_TERMS_BH["prefill_causal"].tail_rate_floor_cores == TAIL_RATE_MIN_CORES == 64
     assert WALL_TERMS_BH["windowed"].stream_scale == 0.9753
     # Chunked keeps one rate over both phases: its factor absorbs the tail, the others price it explicitly.
     assert WALL_TERMS_BH["chunked"].tail_phase is False
@@ -1619,7 +1635,10 @@ def test_kv_stream_rate_interpolates_between_measured_grids_and_flags_others():
     a = ArchConfig()
     assert _kv_stream_rate(a, 110) == a.kv_stream_rate_bpc[110] and _kv_stream_rate(a, 64) == a.kv_stream_rate_bpc[64]
     assert a.kv_stream_rate_bpc[64] > _kv_stream_rate(a, 80) > a.kv_stream_rate_bpc[110]
-    assert _kv_stream_rate(a, 32) == a.kv_stream_rate_bpc[64] and _kv_stream_rate(a, 140) == a.kv_stream_rate_bpc[110]
+    # GRIDR measured 48, 32 and 16, so a standalone small grid reads its own rate; only the tail keeps the
+    # 64-core floor, and above the widest grid the table still clamps.
+    assert _kv_stream_rate(a, 32) == a.kv_stream_rate_bpc[32] and _kv_stream_rate(a, 140) == a.kv_stream_rate_bpc[110]
+    assert _kv_stream_rate(a, 32, tail=True) == a.kv_stream_rate_bpc[64]
     for cores in (80, 32, 140):
         r = predict(SdpaConfig(S=4096, num_cores=cores, arch=ARCH_BH, **_GQA))
         assert "off_calibration_cores" in r.low_confidence_reasons
@@ -1644,7 +1663,11 @@ def test_chainless_noncausal_heads_stream_from_every_core():
     # cross S128 over an 8192 KV: 32 chunks on 32 cores, every core reads the whole K/V alone
     alone = predict(_bh(S=128, kv_seq=8192, is_causal=False, **_GQA))
     assert alone.config_echo["kv_chains"] == 0 and "chain_geometry_off_calibration" in alone.low_confidence_reasons
-    assert alone.components["reader_wait"] > 0.0 and alone.wall_clock_cycles > 1.2 * 572_500   # the PACK-only price
+    # With only 32 of the 110 cores reading, DRAM is not contended: at the measured 32-core rate (GRIDR)
+    # the stream fits under the compute lane, so this shape is compute bound and pays no K/V wait. It was
+    # stream bound while the table clamped a 32-core grid to the 64-core rate. No measured wall moves.
+    assert alone.components["reader_wait"] == 0.0
+    assert alone.wall_clock_cycles == 572_500        # the PACK-only price
     assert alone.wall_clock_cycles > 1.2 * predict(_bh(S=128, kv_seq=1024, is_causal=False, **_GQA)).wall_clock_cycles
     # fewer chains than the calibration count keep the injector lane but say so
     nc16 = predict(_bh(S=4096, num_heads=16, is_causal=False))
@@ -2153,7 +2176,7 @@ def test_tail_phase_prices_the_extra_steps_with_fewer_readers():
     # 18 readers instead of 110 is a higher per-core rate. The rate table clamps at its measured grids, so
     # the tail is charged the measured 64-core rate rather than an extrapolation below it: the speed-up the
     # model takes is never larger than one it was shown on the card.
-    assert _kv_stream_rate(ARCH_BH, 18) == _kv_stream_rate(ARCH_BH, 64) == ARCH_BH.kv_stream_rate_bpc[64]
+    assert _kv_stream_rate(ARCH_BH, 18, tail=True) == _kv_stream_rate(ARCH_BH, 64) == ARCH_BH.kv_stream_rate_bpc[64]
     assert _kv_stream_rate(ARCH_BH, 18) > _kv_stream_rate(ARCH_BH, 110)
     # An exactly divisible split has no tail at all: every core runs the same number of pairs
     exact = predict(SdpaConfig(S=4096, num_cores=64, arch=ARCH_BH, **_GQA))

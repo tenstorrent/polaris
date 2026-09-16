@@ -63,6 +63,12 @@ def _overlap_hidden(qct, fpu, sfpu, causal_like, is_mla):
     return min(float(sfpu), max(0.0, r * (1.0 - 4.0 / (qct * qct))) * fpu)
 
 
+# Default floor for the tail rate. The tail runs cores that were contending a moment earlier, so DRAM does
+# not recover to the rate an isolated small grid sustains; charging the measured 16 to 48 core rates for
+# every regime (block GRIDR) took causal S1024 from -2.4 to -9.3 percent. Per-regime override below.
+TAIL_RATE_MIN_CORES = 64
+
+
 @dataclass(frozen=True)
 class WallTerms:
     """Per k-chunk step wall law of one regime on the wall-setting core (bh/zone_decomposition.md).
@@ -77,6 +83,13 @@ class WallTerms:
     dram_law: str = "none"                 # "all_cores" (every core streams K/V), "injector" (chain head reads), "none"
     stream_scale: float = 1.0              # fitted factor on the stream lane (R1a regimes), 1 = the causal lane
     tail_phase: bool = True                # price the wall core's extra steps with only the remainder cores reading
+    # How far DRAM recovers during that tail, as the fewest readers the rate table may be read at. The
+    # causal family keeps the 64-core floor it was fitted with; MLA streams about eight times the bytes
+    # per step (d_qk 576 plus d_v 512 against 128 and 128), and its tail reaches the uncontended rate
+    # (GRIDR: the per-core rate is flat from 16 to 48 cores). Fitted on the wall table: dropping the
+    # floor for MLA takes nh16 S1024 from +6.9 to +2.5 percent and the whole table from 1.77 to 1.71
+    # mean absolute, while any shared floor that helps MLA pushes causal S1024 past -5.
+    tail_rate_floor_cores: int = TAIL_RATE_MIN_CORES
     mask_branch_per_kchunk: float = 0.0    # causal-like only: lightweight mask bracket cost on the wall per step
     mask_per_tile: float = 0.0             # provided dense mask: serial cost per mask tile streamed and applied
     control_per_kchunk: float = 0.0        # un-zoned control flow per step: control_per_kchunk + control_per_qtile * qct
@@ -117,7 +130,7 @@ WALL_TERMS_BH: Dict[str, WallTerms] = {
                           low_confidence=STREAM_RESIDUAL_FIT),
     "chunked": WallTerms(dram_law="all_cores", stream_scale=0.8028, tail_phase=False, **_CAUSAL_LIKE,
                          low_confidence=STREAM_RESIDUAL_FIT),
-    "mla": WallTerms(dram_law="all_cores", stream_scale=1.0200, **_CAUSAL_LIKE,
+    "mla": WallTerms(dram_law="all_cores", stream_scale=1.0400, tail_rate_floor_cores=0, **_CAUSAL_LIKE,
                      low_confidence=STREAM_RESIDUAL_FIT),
     # Provided dense mask (R1a S4096 d0.25, S8192 d0.5): the non-causal kernel visits every k chunk and
     # streams the mask tiles on top of its PACK lane; the cost per tile is density independent.
@@ -186,7 +199,11 @@ class ArchConfig:
     kv_stream_fixed_per_kv_tile: float = 35.65
     # 110-core rate refit with the tail phase, pinned on the anchor (the old 2.730 was a single rate over
     # both phases of that same wall, so it read faster than the contended phase really is).
-    kv_stream_rate_bpc: Dict[int, float] = field(default_factory=lambda: {110: 2.6767, 64: 4.121})
+    # T2.3 fitted 110 and 64; block GRIDR added 48, 32 and 16 (same anchor config, smaller grids), where
+    # the per-core rate saturates because DRAM stops being contended. Standalone grids only: the tail phase
+    # keeps the old floor, see TAIL_RATE_MIN_CORES.
+    kv_stream_rate_bpc: Dict[int, float] = field(default_factory=lambda: {
+        16: 5.7446, 32: 5.7391, 48: 5.7170, 64: 4.121, 110: 2.6767})
     # Non-causal chains: only the chain heads read DRAM; their rate falls with the chunk size
     # (5.39 / 5.25 / 4.80 B per cycle at k128 / k256 / k512 over the 691 fixed part, T2.1 q64 k128, q128 k256 / k512).
     kv_injector_rate_bpc: float = 5.615
@@ -997,9 +1014,10 @@ def _loglog_by_cores(table, cores):
     return math.exp(math.log(table[lo]) * (1 - f) + math.log(table[hi]) * f)
 
 
-def _kv_stream_rate(a, cores):
-    """Prefill K/V stream bytes per cycle per core at this many reading cores (T2.3 grids)."""
-    return _loglog_by_cores(a.kv_stream_rate_bpc, cores)
+def _kv_stream_rate(a, cores, *, tail=False):
+    """Prefill K/V stream bytes per cycle per core at this many reading cores (T2.3 and GRIDR grids).
+    tail=True applies the default tail floor; a regime with its own floor passes the clamped count."""
+    return _loglog_by_cores(a.kv_stream_rate_bpc, max(cores, TAIL_RATE_MIN_CORES) if tail else cores)
 
 
 def _decode_kv_stream_gbps(a, grid, paged):
@@ -1082,14 +1100,14 @@ def _pack_lane(t, qct, kct, dct_sum):
     return t.pack_per_step + qct * (t.pack_per_qtile + (t.pack_per_qktile + t.pack_per_qk_dtile * dct_sum) * kct)
 
 
-def _kv_stream_step(a, t, *, kct, dct_sum, kv_bytes_per_step, reading_cores):
+def _kv_stream_step(a, t, *, kct, dct_sum, kv_bytes_per_step, reading_cores, tail=False):
     """DRAM K/V stream lane per k-chunk step for one core, or 0 when the regime has no measured law."""
     if t.dram_law == "none":
         return 0.0
     if t.dram_law == "injector":
         rate = max(1.0, a.kv_injector_rate_bpc + a.kv_injector_rate_bpc_per_ktile * kct)
     else:
-        rate = _kv_stream_rate(a, reading_cores)
+        rate = _kv_stream_rate(a, max(reading_cores, t.tail_rate_floor_cores) if tail else reading_cores)
     return max(0.0, (_kv_stream_fixed(a, kct, dct_sum) + kv_bytes_per_step / rate) * t.stream_scale)
 
 
@@ -1135,7 +1153,7 @@ def _wall_components(r, *, a, t, floor_per_core, Q, K_eff, qct, kct, dct_sum, ca
     tail_dram = dram
     if tail_cores and tail_cores < r.active_cores and t.dram_law == "all_cores" and t.tail_phase:
         tail_dram = _kv_stream_step(a, t, kct=kct, dct_sum=dct_sum, kv_bytes_per_step=kv_bytes_per_step,
-                                    reading_cores=tail_cores)
+                                    reading_cores=tail_cores, tail=True)
     c["straggler"] = max(0.0, r.steps_wall_core - steps) * max(compute, tail_dram)
     return c
 
