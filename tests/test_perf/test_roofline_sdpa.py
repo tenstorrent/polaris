@@ -1275,12 +1275,48 @@ MLA_DECODE_R1H = [
     ("R1h paged b8 nh64 slices2", dict(_MLAD_P, batch=8, num_q_heads=64, cache_len=4096, cur_pos=1024), 92.0),
     ("R1h paged b8 nh128 slices4", dict(_MLAD_P, batch=8, num_q_heads=128, cache_len=4096, cur_pos=1024), 107.2),
 ]
-_MLAD_R1H_BEYOND_5 = {
-    "R1h paged b4 nh32 slices1": "+10.6 percent: 4 groups leave 16 cores each, the widest split of the family, and "
-                                 "its fixed cost measures 51.3 us against the 57.6 us median of the paged rows",
-    "R1h paged b8 nh128 slices4": "+15.2 percent: 32 groups leave 3 cores each and the stream beats the 342 GB/s of "
-                                  "the position sweep, the same miss as the paged b8 pos1024 campaign row",
-}
+_MLAD_R1H_BEYOND_5: dict[str, str] = {}  # the cores-per-group fixed cost (R1i) took all six
+
+
+# R1i (2026-09-16, p100a): the cores-per-group axis. Same bytes, same slices, only max_cores_per_head_batch
+# moves, so the only thing that changes is how many cores the factory leaves on one head group. The wall is
+# not monotonic in that count: at batch 4 nh128 it reads 112.1 / 79.6 / 71.2 / 80.4 / 91.8 us at 1 / 2 / 3 /
+# 4 / 6 cores per group, so the factory's default (6 here) costs 29 percent over the best split.
+MLA_DECODE_R1I = [
+    ("R1i b4 nh128 cpg1", dict(_MLAD_P, batch=4, cache_len=4096, cur_pos=1024, max_cores_per_head_batch=1), 112.1),
+    ("R1i b4 nh128 cpg2", dict(_MLAD_P, batch=4, cache_len=4096, cur_pos=1024, max_cores_per_head_batch=2), 79.6),
+    ("R1i b4 nh128 cpg3", dict(_MLAD_P, batch=4, cache_len=4096, cur_pos=1024, max_cores_per_head_batch=3), 71.2),
+    ("R1i b4 nh128 cpg4", dict(_MLAD_P, batch=4, cache_len=4096, cur_pos=1024, max_cores_per_head_batch=4), 80.4),
+    ("R1i b4 nh32 cpg4", dict(_MLAD_P, batch=4, num_q_heads=32, cache_len=4096, cur_pos=1024,
+                             max_cores_per_head_batch=4), 58.5),
+    ("R1i b4 nh32 cpg8", dict(_MLAD_P, batch=4, num_q_heads=32, cache_len=4096, cur_pos=1024,
+                             max_cores_per_head_batch=8), 61.9),
+]
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("label,kw,meas_us", MLA_DECODE_R1I)
+def test_mla_decode_cores_per_group_sweep_within_5_percent(label, kw, meas_us):
+    r = predict_decode(**kw)
+    got = r.wall_clock_cycles / 1350.0
+    assert abs(got - meas_us) / meas_us <= 0.05, f"{label}: {got:.1f} us vs {meas_us} us"
+
+
+@pytest.mark.unit
+def test_mla_decode_fixed_cost_is_not_monotonic_in_the_cores_per_group():
+    # The measured shape: one core per group pays the most, three the least, and six costs more than three
+    # again. A model that only knew the bytes would price all five the same (R1i).
+    walls = {}
+    for cap in (1, 2, 3, 4, 6):
+        r = predict_decode(**dict(_MLAD_P, batch=4, cache_len=4096, cur_pos=1024, max_cores_per_head_batch=cap))
+        assert r.config_echo["cores_per_head"] == cap and r.config_echo["kv_bytes"] == 16 * 9 * 4 * 18 * 1088
+        walls[cap] = r.wall_clock_cycles
+    assert walls[1] > walls[2] > walls[3] < walls[4] < walls[6]
+    assert walls[6] / walls[3] > 1.2
+    # a split the sweep did not measure is interpolated and says so
+    r5 = predict_decode(**dict(_MLAD_P, batch=4, cache_len=4096, cur_pos=1024, max_cores_per_head_batch=5))
+    assert "mla_decode_cores_per_group_interpolated" in r5.low_confidence_reasons
+    assert walls[4] < r5.wall_clock_cycles < walls[6]
 
 
 @pytest.mark.unit
@@ -1303,15 +1339,13 @@ def test_mla_decode_bytes_scale_with_slices_and_the_fixed_cost_does_not():
     assert slices == [1, 2, 4]
     kv = [r.config_echo["kv_bytes"] for r in rows]
     assert kv[1] == 2 * kv[0] and kv[2] == 4 * kv[0]
-    assert len({r.components["init"] for r in rows}) == 1        # one fixed cost, not one per slice
-    assert rows[0].components["init"] == ARCH_BH.decode_fixed_overhead_cycles_mla_paged
+    # one fixed cost, not one per slice; nh32 leaves 16 cores on a group, nh64 13 and nh128 6, and the
+    # paged fixed cost follows that split alone (R1i)
+    table = ARCH_BH.decode_fixed_cycles_mla_paged_by_cores_per_group
+    assert [r.components["init"] for r in rows] == [table[r.config_echo["cores_per_head"]] for r in rows]
 
 
-_MLAD_BEYOND_5 = {
-    "paged b8 nh128 pos1024": "+15.6 percent: at batch 8 nh128 the 32 groups leave 3 cores each and the stream runs "
-                              "faster than the 342 GB/s the position sweep fit, so the one rate over-charges the "
-                              "shortest wall of the family (R1h b8 nh128 misses the same way, +15.2)",
-}
+_MLAD_BEYOND_5: dict[str, str] = {}      # the cores-per-group fixed cost (R1i) took the last two
 
 
 @pytest.mark.unit
@@ -1319,7 +1353,7 @@ _MLAD_BEYOND_5 = {
     pytest.param(l, k, m, marks=pytest.mark.xfail(strict=True, reason=_MLAD_BEYOND_5[l])) if l in _MLAD_BEYOND_5 else (l, k, m)
     for l, k, m in MLA_DECODE_R1B])
 def test_mla_decode_r1b_points_within_5_percent(label, kw, meas_us):
-    # Fit points of the MLA decode law: 25800 cycles non-paged, 77700 paged, the latent stream at 342.1 GB/s.
+    # Fit points of the MLA decode law: 25800 cycles non-paged, the paged table by cores per group, 342.1 GB/s.
     r = predict_decode(**kw)
     us = r.wall_clock_cycles / CLK
     assert r.is_mla and r.is_memory_bound and r.config_echo["kv_stream_gbps"] == 342.1
@@ -1340,8 +1374,10 @@ def test_mla_decode_geometry_follows_the_factory():
     assert (b8.config_echo["q_head_slices"], b8.config_echo["cores_per_head"], b8.active_cores) == (4, 3, 96)
     # K only (reused as V), 65 whole chunks of 128 rows per slice, no Q traffic from the L1 shards
     assert b4.config_echo["kv_bytes"] == 16 * 65 * 4 * 18 * 1088 and b4.config_echo["q_bytes"] == 0
-    # The fixed cost belongs to the paged path, not to the slicing: b4 and b8 both carry it once (R1h).
-    assert b8.components["init"] == b4.components["init"] == ARCH_BH.decode_fixed_overhead_cycles_mla_paged
+    # The fixed cost belongs to the paged path and to the cores the factory leaves on one head group, not
+    # to the slicing: b4 keeps 6 cores per group and b8 3, and each carries its own value once (R1h, R1i).
+    table = ARCH_BH.decode_fixed_cycles_mla_paged_by_cores_per_group
+    assert (b4.components["init"], b8.components["init"]) == (table[6], table[3])
     # the non-paged form streams K and V (34 tiles per row) once per user with the query from DRAM
     np_ = predict_decode(**dict(_MLAD_NP, cache_len=8192, cur_pos=8191))
     assert np_.config_echo["kv_bytes"] == 8 * 64 * 4 * 34 * 2048 and np_.config_echo["q_bytes"] == 104 * 18 * 2048
@@ -2694,6 +2730,8 @@ def test_arch_constants_are_the_campaign_fits():
         t = WALL_TERMS_BH[reg]
         assert t.pack_per_qk_dtile == 26.45 and t.pack_per_qktile + 8 * t.pack_per_qk_dtile == pytest.approx(pk)
     assert (a.decode_kv_stream_gbps_nonpaged, a.decode_kv_stream_gbps_mla) == (342.3, 342.1)
-    assert (a.decode_fixed_overhead_cycles_mla, a.decode_fixed_overhead_cycles_mla_paged) == (25800.0, 77700.0)
+    assert a.decode_fixed_overhead_cycles_mla == 25800.0
+    assert a.decode_fixed_cycles_mla_paged_by_cores_per_group == {
+        1: 63600.0, 2: 62900.0, 3: 55700.0, 4: 60500.0, 6: 79700.0, 8: 72400.0, 13: 78700.0, 16: 69200.0}
     assert WALL_TERMS_BH["masked"].mask_per_tile == 200.2 and WALL_TERMS_BH["joint"].fe_per_tile_mac == 161.5
     assert (WALL_TERMS_BH["sparse"].fe_per_token, WALL_TERMS_BH["sparse"].gather_rate_bpc) == (56689.0, 2.979)

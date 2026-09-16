@@ -229,9 +229,16 @@ class ArchConfig:
     # slice count, so the slice dependence sits in the bytes alone (the reader re-reads the latent cache
     # once per slice; sdpa_decode_program_factory.cpp:135-153). Each fixed cost is the median of measured
     # minus stream over its path's walls, rounded to the nearest hundred cycles.
+    # The paged fixed cost also moves with the cores the factory leaves on one head group (R1i holds the
+    # bytes and the slices and sweeps max_cores_per_head_batch): the wall reads 112.1 / 79.6 / 71.2 /
+    # 80.4 / 91.8 us at 1 / 2 / 3 / 4 / 6 cores per group on the same bytes, so more cores per group is not
+    # better and the factory's own cap lands on the wrong side of the minimum. The table is the
+    # median of measured minus stream at each measured cores-per-group value, interpolated between them and
+    # clamped outside.
     decode_kv_stream_gbps_mla: float = 342.1
     decode_fixed_overhead_cycles_mla: float = 25800.0         # 19.1 us, non-paged form (R1b cache sweep)
-    decode_fixed_overhead_cycles_mla_paged: float = 77700.0   # 57.6 us, paged form (R1b positions + R1h)
+    decode_fixed_cycles_mla_paged_by_cores_per_group: Dict[int, float] = field(default_factory=lambda: {
+        1: 63600.0, 2: 62900.0, 3: 55700.0, 4: 60500.0, 6: 79700.0, 8: 72400.0, 13: 78700.0, 16: 69200.0})
     clock_ghz: float = 1.35
 
     def cpt(self, fidelity: str) -> float:
@@ -1004,6 +1011,19 @@ def _decode_kv_stream_gbps(a, grid, paged):
                                                                         DECODE_NONPAGED_CALIBRATED_GRID)
 
 
+def _mla_paged_fixed_cycles(a, cores_per_group):
+    """Paged MLA decode fixed cost at this cores-per-group split (R1i): the measured value where one was
+    measured, a linear interpolation between the two neighbours otherwise, clamped at the ends."""
+    t = a.decode_fixed_cycles_mla_paged_by_cores_per_group
+    keys = sorted(t)
+    c = max(keys[0], min(keys[-1], int(cores_per_group)))
+    if c in t:
+        return t[c], c in t and int(cores_per_group) == c
+    lo = max(k for k in keys if k < c)
+    hi = min(k for k in keys if k > c)
+    return t[lo] + (t[hi] - t[lo]) * (c - lo) / (hi - lo), False
+
+
 def _decode_core_split(num_cores, batch, num_kv_heads, max_cores_per_head_batch):
     """Factory split (sdpa_decode_program_factory.cpp:196-209): cores per KV head, KV head groups one core
     runs in sequence and the active core count (64 for batch 32 x 8 heads on both measured grids)."""
@@ -1528,7 +1548,12 @@ def predict_decode(cache_len, num_q_heads, num_kv_heads, head_dim, v_head_dim=0,
     # path for MLA), then the KV stream at the calibrated rate.
     if is_mla:
         bw = a.decode_kv_stream_gbps_mla
-        fixed = a.decode_fixed_overhead_cycles_mla_paged if paged else a.decode_fixed_overhead_cycles_mla
+        if paged:
+            fixed, measured_split = _mla_paged_fixed_cycles(a, cores_per_head)
+            if not measured_split:
+                r.flag("mla_decode_cores_per_group_interpolated")
+        else:
+            fixed = a.decode_fixed_overhead_cycles_mla
         # Fit forms (R1b): non-paged bf16 with V read on the 110 grid; paged bfp8 with K reused, Q sharded.
         if num_cores != DECODE_NONPAGED_CALIBRATED_GRID or not ((not paged and mla_v_read and kv_input_dtype == "bfloat16")
                                                                 or (paged and not mla_v_read and kv_input_dtype == "bfp8_b")):
