@@ -3,25 +3,68 @@
 # SPDX-License-Identifier: Apache-2.0
 import functools, operator
 import warnings
-from typing import Any, Optional, Union
+from collections.abc import Iterable, Iterator, Sequence
+from typing import Any, Optional, Union, overload
 
 import numpy as np
 from ttsim.utils.types import get_bpe, get_sim_dtype
+
+# One dimension of a shape. Shape normalises every dim to int on construction, so
+# this declaration is exact rather than aspirational. Tile and Repeat inference
+# yield numpy integers for a small fraction of dims; normalising here keeps that
+# from leaking into the dimension type and into everything derived from it.
+#
+# int is also the safer dimension type, independent of the annotation. Python
+# ints are arbitrary precision; np.int64 is fixed width and wraps silently on
+# overflow, reporting only a RuntimeWarning. volume() and nelems() multiply
+# dims, so an element count above 2**63 wraps -- possibly to a negative number
+# -- if the dims are numpy integers, and is exact if they are ints. Converting
+# np.int64 to int is lossless across the whole int64 range, so the normalisation
+# removes that hazard rather than trading one for another.
+#
+# Declaring the numpy type instead is not an option: int and np.int64 are not
+# subtypes of each other, so `Dim = np.int64` rejects every plain-int dim, and a
+# union pushes narrowing into every consumer of a dimension.
+Dim = int
+
+# What a Shape accepts on construction, before normalisation. Shape stores Dim;
+# this is deliberately looser, because normalising the inputs is its job.
+#
+# np.int64 and not np.integer: check_shape accepted `int` and `np.int64` only,
+# so normalising every np.integer would make a np.int32 dim valid where it was
+# rejected before. Widening what counts as a valid shape is not this change's
+# business.
+DimLike = Union[int, np.int64]
+
+
+def _normalise_dim(d: Any) -> Any:
+    """Convert an accepted numpy dim to int, and leave anything else untouched.
+
+    Returning a non-Dim unchanged is deliberate: a float or None dim stays as it
+    is so that :meth:`SimTensor.check_shape` still rejects it, rather than being
+    coerced into a plausible-looking int.
+    """
+    return int(d) if isinstance(d, np.int64) else d
 
 class Shape:
     """
     Shape class
     """
 
-    def __init__(self, shape):
-        if isinstance(shape, (list, tuple)):
-            self._shape = list(shape)
-        elif isinstance(shape, Shape):
+    def __init__(self, shape: Union['Shape', Sequence[DimLike]]) -> None:
+        self._shape: list[Dim]
+        if isinstance(shape, Shape):
             self._shape = list(shape._shape)
+        elif isinstance(shape, Sequence) and not isinstance(shape, (str, bytes)):
+            # Any Sequence, not just list and tuple, because that is what the
+            # signature promises: `Shape(range(3))` type-checked and then raised
+            # before. str and bytes are excluded -- they are Sequences whose
+            # elements are never dims.
+            self._shape = [_normalise_dim(d) for d in shape]
         else:
             raise TypeError(f"Invalid shape type: {type(shape)}")
 
-    def __eq__(self, other):
+    def __eq__(self, other: object) -> bool:
         if other is None:
             return False
         elif isinstance(other, (list, tuple)):
@@ -30,34 +73,50 @@ class Shape:
             return False
         return self._shape == other._shape
 
-    def __getitem__(self, index):
+    @overload
+    def __getitem__(self, index: int) -> Dim: ...
+    @overload
+    def __getitem__(self, index: slice) -> list[Dim]: ...
+
+    def __getitem__(self, index: Union[int, slice]) -> Union[Dim, list[Dim]]:
         return self._shape[index]
 
-    def __setitem__(self, index, value):
-        self._shape[index] = value
+    @overload
+    def __setitem__(self, index: int, value: Dim) -> None: ...
+    @overload
+    def __setitem__(self, index: slice, value: Iterable[Dim]) -> None: ...
 
-    def __len__(self):
+    def __setitem__(self, index: Union[int, slice], value: Union[DimLike, Iterable[DimLike]]) -> None:
+        # Construction normalises, so mutation has to as well; otherwise
+        # `shape[0] = np.int64(2)` puts a numpy value back into _shape and the
+        # int contracts on indexing, iteration, as_list and volume break again.
+        if isinstance(index, slice):
+            self._shape[index] = [_normalise_dim(d) for d in value]  # type: ignore[union-attr]
+        else:
+            self._shape[index] = _normalise_dim(value)
+
+    def __len__(self) -> int:
         return len(self._shape)
 
-    def __iter__(self):
+    def __iter__(self) -> Iterator[Dim]:
         return iter(self._shape)
 
-    def __repr__(self):
+    def __repr__(self) -> str:
         return f"Shape({self._shape})"
 
-    def rank(self):
+    def rank(self) -> int:
         return len(self._shape)
 
-    def copy(self):
+    def copy(self) -> 'Shape':
         return Shape(self._shape)
 
-    def volume(self):
+    def volume(self) -> int:
         result = 1
         for dim in self._shape:
             result *= dim
         return result
 
-    def to_rank(self, rank):
+    def to_rank(self, rank: int) -> 'Shape':
         """Convert shape to specified rank by padding with 1s or truncating."""
         current_rank = len(self._shape)
         if current_rank == rank:
@@ -71,15 +130,11 @@ class Shape:
             new_shape = self._shape[-rank:]
             return Shape(new_shape)
 
-    def as_list(self) -> list[Any]:
-        """Copy of dimension sizes as a plain ``list`` for APIs that need list/tuple.
-
-        Element types are not narrowed to ``int`` (e.g. ``numpy.integer`` may appear);
-        callers that require strict ``int`` should normalize explicitly.
-        """
+    def as_list(self) -> list[Dim]:
+        """Copy of dimension sizes as a plain ``list`` for APIs that need list/tuple."""
         return list(self._shape)
 
-    def view(self) -> list[Any]:
+    def view(self) -> list[Dim]:
         warnings.warn(
             "Shape.view() is deprecated; use Shape.as_list() instead.",
             DeprecationWarning,
@@ -179,7 +234,7 @@ class SimTensor:
     def memory_config(self):
         return getattr(self, '_memory_config', None)
 
-    def __str__(self):
+    def __str__(self) -> str:
         s  = f"SimTensor({self.name}) shape={self.shape}, dtype={self.dtype}, "
         s += f"is_param={self.is_param}, "
         s += f"is_const={self.is_const}, "
@@ -196,10 +251,10 @@ class SimTensor:
             s += f", link_module={self.link_module.name}"
         return s
 
-    def rank(self): return len(self.shape) if self.shape is not None else 0
+    def rank(self) -> int: return len(self.shape) if self.shape is not None else 0
 
     # Note: data count may not be a simple product of shape dims - may need to provide a custom func
-    def nelems(self):
+    def nelems(self) -> int:
         if self.shape is None:
             return 0
         trank = self.rank()
@@ -216,10 +271,10 @@ class SimTensor:
                 assert res1 == res, f"Mismatch SimTensor({self.name}).nelems = {res} and np.size={res1}"
         return res
 
-    def numel(self):
+    def numel(self) -> int:
         return self.nelems()
 
-    def set_shape(self, newshape):
+    def set_shape(self, newshape: Optional[Union['Shape', Sequence[DimLike]]]) -> None:
         if newshape is None:
             self.shape = None
         else:
@@ -231,7 +286,7 @@ class SimTensor:
     #   to represent tiling formats here.
     # Note: Caching nbytes for instance methods can cause memory leaks due to references held by lru_cache.
     # If caching is needed, consider using a static cache or external memoization.
-    def nbytes(self, itemprec=None):
+    def nbytes(self, itemprec: Optional[Union[np.dtype, str]] = None) -> int:
         def typesize(dtype):
             if isinstance(dtype, np.dtype):
                 return dtype.itemsize
@@ -246,15 +301,15 @@ class SimTensor:
             itemsize = typesize(itemprec)
         return self.nelems() * itemsize #assumes np.dtype
 
-    def check_shape(self):
+    def check_shape(self) -> bool:
         if self.shape is None:
             return False
-        elif all([ isinstance(d, int) or isinstance(d, np.int64) for d in self.shape]):
+        elif all(isinstance(d, (int, np.int64)) for d in self.shape):
             return True
         else:
             return False
 
-    def clone(self, clone_num:int):
+    def clone(self, clone_num: int) -> 'SimTensor':
         cloned_tensor = make_tensor(self.name + '.clone_{clone_num}')
         cloned_tensor.shape       = self.shape
         cloned_tensor.dtype       = self.dtype
@@ -268,7 +323,7 @@ class SimTensor:
         cloned_tensor.link_module = self.link_module
         return cloned_tensor
 
-    def clone_by_shape(self, /, data_maybe_missing = True):
+    def clone_by_shape(self, /, data_maybe_missing: bool = True) -> 'SimTensor':
         assert self.shape is not None, f"Illegal Data in Tensor {self}"  # For mypy type checking
         assert self.check_shape(), f"Illegal Shape in Tensor {self}"
         if data_maybe_missing:
