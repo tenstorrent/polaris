@@ -84,6 +84,19 @@ _DEFAULT_CORE_COUNT_FALLBACK = 64
 # ``reshape``: second input is often a small shape/constant tensor, not profiled as input_1.
 _BINARY_LUT_FALLBACK_TO_INPUT0_KEY_OPCODES = frozenset({"mul", "reshape"})
 
+# Binary ops whose hardware row records a THIRD tensor: tt-metal's elementwise
+# binary takes an optional preallocated output, and the profiler logs it as
+# INPUT_2.  For ResNet-50's residual adds the capture's input_2 slot is a verbatim
+# duplicate of input_0/input_1 — same shape, layout, dtype and memory — so the
+# LUT entries are 23-field while Polaris (which models two operands) builds 16.
+# The shapes already agree exactly; only the slot count differs.
+#
+# Not folded into PREALLOC_OUTPUT_AS_INPUT1_OPS: that set tells key PRODUCERS to
+# DROP a preallocated-output INPUT_1.  Here the LUT already exists with the extra
+# slot populated, so the consumer has to grow its key to match rather than the
+# producer shrink.
+_BINARY_OUTPUT_AS_INPUT2_OPCODES = frozenset({"add"})
+
 # Hardware ops that are arity-1 in Polaris but arity-2 in profiler output (src + dst with
 # same shape/layout/memory).  After an arity-1 (9-tuple) miss, try a 16-tuple with t0 used
 # for both input_0 and input_1 positions.
@@ -435,11 +448,30 @@ def _shape_wzyx(tensor: Any) -> Tuple[int, int, int, int]:
     return (w, z, y, x)
 
 
+# Ops whose LUT rows MAY key input_0's Y on the PADDED profiler value rather than the
+# logical one.  Mirrors ``_KEY_INPUT0_Y_ON_PAD`` in tools/perf_lookup/tt_perf_mapper.py:487,
+# which the generator applies so the key matches "the actual device work (32 tile rows)".
+#
+# Applied as a FALLBACK, not a substitution, because bh_p100a_lut_v6 is internally
+# mixed: its ViT reshard rows (y=14, y=197 — both unaligned) were carried over from v5
+# and predate that generator rule, while its ResNet-50 rows (y=800 from the capture's
+# "800[784]", y=32 from "32[16]") follow it.  Substituting unconditionally costs ViT 13
+# reshard hits to gain ResNet-50 four — measured, not assumed.  Trying the logical key
+# first and the tile-padded key only on a miss satisfies both halves and makes no
+# existing entry unreachable.  The durable fix is a v7 that regenerates the ViT reshard
+# rows with the current mapper; see
+# workloads/ttnn/resnet50/resnet50-p100a-lut-match-log.md.
+_RESHARD_Y_TILE_PAD_FALLBACK_OPCODES = frozenset({"nlpcreateqkvheadsdecode", "reshard"})
+
+_TILE_HEIGHT = 32
+
+
 def _input0_wzyx_for_master_key(op: Any, tensor_0: Any) -> Tuple[int, int, int, int]:
     w, z, y, x = _shape_wzyx(tensor_0)
-    if _op_code(op) == "reshape":
+    op_code = _op_code(op)
+    if op_code == "reshape":
         return reshape_input0_wzyx(w, z, y, x)
-    if _op_code(op) == "createqkvheads":
+    if op_code == "createqkvheads":
         return createqkvheads_input0_wzyx(w, z, y, x)
     return (w, z, y, x)
 
@@ -1101,6 +1133,44 @@ class OperatorPerfMap:
                         lookup_key = key16_block
                         hit_source = "move_arity_dup_block"
 
+        # Binary add: arity-2 in Polaris, arity-3 in the capture because tt-metal's
+        # elementwise binary logs its optional preallocated output as INPUT_2.
+        # After the 16-tuple miss, append that output's seven fields and retry
+        # as a 23-tuple.
+        #
+        # Read the op's OWN output tensor rather than duplicating input_1.  For
+        # the in-place residual adds this fallback was written for the two are
+        # byte-identical, so the key is unchanged -- but _BINARY_OUTPUT_AS_INPUT2
+        # _OPCODES is keyed on the opcode alone, so a broadcast or out-of-place
+        # add reaches here too, and for those input_1 describes the wrong tensor.
+        # Falling back to t1 keeps the previous behaviour when the graph cannot
+        # resolve an output, rather than dropping a hit.
+        # Pinned by tests/test_ttnn/test_lut_lookup_fallbacks.py.
+        if (
+            entry_val is None
+            and n_in == 2
+            and _op_code(op) in _BINARY_OUTPUT_AS_INPUT2_OPCODES
+        ):
+            try:
+                _out_list = getattr(op, "outList", None) or []
+                _t_out = None
+                if _out_list:
+                    _t_out = getattr(wlgraph, "_tensors", {}).get(_out_list[0])
+                key23 = build_master_key_tuple_22(op, t0, t1, _t_out if _t_out is not None else t1)
+            except Exception as e:
+                logger.debug(
+                    "Perf lookup add output-as-input2 key build failed for op {}: {}",
+                    getattr(op, "name", "?"),
+                    e,
+                )
+                key23 = None
+            if key23 is not None:
+                ev23 = self._entries.get(key23)
+                if ev23 is not None:
+                    entry_val = ev23
+                    lookup_key = key23
+                    hit_source = "add_output_as_input2"
+
         # InterleavedToSharded: hardware stages through DRAM in most VGG UNet decoder paths,
         # but Polaris models the predecessor STI output as L1_INTERLEAVED.  After L1 miss,
         # substitute DRAM_INTERLEAVED in position 7 of the 9-tuple and retry.
@@ -1133,6 +1203,24 @@ class OperatorPerfMap:
                 entry_val = ev_tile
                 lookup_key = key_tile
                 hit_source = "halo_rowmajor_to_tile"
+
+        # Reshard Y tile-padding fallback: after a miss on the logical Y, retry with Y
+        # rounded up to a tile row.  See _RESHARD_Y_TILE_PAD_FALLBACK_OPCODES above for
+        # why this is a fallback rather than the primary key.
+        if (
+            entry_val is None
+            and _op_code(op) in _RESHARD_Y_TILE_PAD_FALLBACK_OPCODES
+            and len(lookup_key) >= 5
+            and isinstance(lookup_key[3], int)
+            and lookup_key[3] % _TILE_HEIGHT != 0
+        ):
+            y_padded = ((lookup_key[3] + _TILE_HEIGHT - 1) // _TILE_HEIGHT) * _TILE_HEIGHT
+            key_ypad = lookup_key[:3] + (y_padded,) + lookup_key[4:]
+            ev_ypad = self._entries.get(key_ypad)
+            if ev_ypad is not None:
+                entry_val = ev_ypad
+                lookup_key = key_ypad
+                hit_source = "reshard_y_tile_pad"
 
         # VGG UNet decoder HEIGHT→BLOCK fallback: after HEIGHT_SHARDED miss, substitute
         # DEV_1_L1_BLOCK_SHARDED at position 7 (input_0_memory) of the lookup key.
@@ -1187,6 +1275,7 @@ class OperatorPerfMap:
                         key8,
                         self._source_path,
                     )
+
 
         # Device-index reconciliation (last fallback): the sim hardcodes a "DEV_1_"
         # memory prefix while a capture-built LUT carries the real DEVICE ID (e.g.

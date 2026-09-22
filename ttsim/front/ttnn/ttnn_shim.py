@@ -24,6 +24,7 @@ from .tensor import DataType, Layout, Shape
 from .types import TILE_HEIGHT, TILE_WIDTH, TILE_HW
 from .tensor import Tensor
 from .op import _propagate_ttnn_dtype, _propagate_memory_config, generate_new_op_name, reshape as ttnn_reshape_simop
+from ttsim.utils.shim_gates import to_memory_config_reshard_enabled
 
 from .memory import MemoryConfig
 from .buffer import BufferType, TensorMemoryLayout
@@ -667,6 +668,28 @@ def requires_padding_change(tensor, layout):
         )
         return tensor.logical_shape()._shape != tensor.padded_shape()._shape
     else:
+        # For tile layout, check if current padding matches tile requirements.
+        #
+        # Evaluate this on ``hw_shape`` when the tensor has one.  hw_shape is the
+        # NHWC-flat [1, 1, N*H*W, C] buffer hardware actually tilizes, and tile
+        # alignment is a property of that buffer, not of the logical NCHW view
+        # polaris carries alongside it.  ResNet-50's post-maxpool activation is
+        # logical [16, 64, 56, 56] — 56 is not a multiple of 32, so on the NCHW
+        # view this looks like it needs padding — while its hw_shape is
+        # [1, 1, 50176, 64], both dims already tile-aligned.  Hardware agrees
+        # with the latter: the p100a capture's row 12 is a plain
+        # TilizeDeviceOperation, so to_layout must reach tilize_op rather than
+        # tilize_with_val_padding_op.  On the WORMHOLE path, where canonical adds
+        # a to_layout at C:676-677 that Blackhole skips, this was the difference
+        # between emitting TilizeWithValPadding and Tilize.
+        #
+        # Tensors without hw_shape (anything that never passed through conv /
+        # pool / 1x1-matmul shape inference, e.g. every ViT activation) fall back
+        # to the logical shape and are unaffected.
+        hw = getattr(tensor, 'hw_shape', None)
+        if hw is not None:
+            hw_list = [int(d) for d in hw]
+            return pad_to_tile_shape(hw_list)._shape != hw_list
         # For tile layout, check if current padding matches tile requirements
         logger.debug(" type of tensor logical shape is {}", type(tensor.logical_shape()))
         tile_spec_padded = pad_to_tile_shape(tensor.logical_shape()._shape)
@@ -1396,6 +1419,13 @@ def tilize_op(input_tensor, use_multicore=True, element_size=2, memory_config=No
         op_out=[op_name],
         device=input_tensor.device,
     )
+    # Tilize is a layout change; the NHWC-flat view is unchanged by it, and the
+    # capture agrees (rows 12/19: in and out are both (1, 1, 50176, 64), only
+    # LAYOUT differs).  Carry hw_shape across the same way Move / Reshard / ITS /
+    # STI do — without it the downstream matmul falls back to logical NCHW.
+    _hw = getattr(input_tensor, 'hw_shape', None)
+    if _hw is not None:
+        out_tensor.hw_shape = list(_hw)
     input_tensor.op_in.append(op_name)
     opinfo = {
         'name': op_name,
@@ -2513,6 +2543,12 @@ def reshard_op(input_tensor, memory_config=None, element_size=2):
         op_out=[op_name],
         device=input_tensor.device,
     )
+    # Reshard moves data between core grids; the NHWC-flat view is unchanged by
+    # it (capture rows 11/17/38/59 all show identical in/out Y and X), so carry
+    # hw_shape across the way Move / ITS / STI do.
+    _hw = getattr(input_tensor, 'hw_shape', None)
+    if _hw is not None:
+        out_tensor.hw_shape = list(_hw)
     input_tensor.op_in.append(op_name)
     memory_config_attr = None
     if memory_config is not None:
@@ -2542,12 +2578,57 @@ def reshard_op(input_tensor, memory_config=None, element_size=2):
     return out_tensor
 
 
-def to_memory_config(input_tensor, memory_config=None):
-    """Emit STI+ITS SimOps when resharding from one sharded config to another.
+def _needs_reshard_workaround(input_tensor, input_mc, memory_config):
+    """Mirror of tt-metal's `use_reshard_workaround`.
 
-    On hardware, transitioning between two sharded layouts goes through an
-    interleaved staging step: ShardedToInterleaved → InterleavedToSharded.
-    This is emitted when both source and target are sharded but differ.
+    ``ttnn/cpp/ttnn/operations/core/to_memory_config/to_memory_config_op.cpp:286-296``::
+
+        use_reshard_workaround =
+            (input_shard_spec.shape[1] != output_shard_spec.shape[1]) &&
+            (input_memory_config.memory_layout() != memory_config.memory_layout() &&
+             tensor.layout() == Layout::ROW_MAJOR);
+
+    Only then does hardware fall back to sharded_to_interleaved →
+    interleaved_to_sharded; otherwise it reshards directly.
+    """
+    in_spec = getattr(input_mc, 'shard_spec', None)
+    out_spec = getattr(memory_config, 'shard_spec', None)
+    if in_spec is None or out_spec is None:
+        return False
+
+    in_shape = getattr(in_spec, 'shape', None)
+    out_shape = getattr(out_spec, 'shape', None)
+    if not in_shape or not out_shape or len(in_shape) < 2 or len(out_shape) < 2:
+        return False
+
+    is_row_major = input_tensor.get_layout() == Layout.ROW_MAJOR_LAYOUT
+    return (
+        in_shape[1] != out_shape[1]
+        and input_mc.memory_layout != memory_config.memory_layout
+        and is_row_major
+    )
+
+
+def to_memory_config(input_tensor, memory_config=None):
+    """Sharded -> sharded goes through Reshard, matching hardware dispatch.
+
+    tt-metal's ``to_memory_config``
+    (``ttnn/cpp/ttnn/operations/core/to_memory_config/to_memory_config_op.cpp:279-320``)
+    takes ``ttnn::reshard`` as the PRIMARY path when source and target are both
+    sharded.  The sharded_to_interleaved -> interleaved_to_sharded pair is
+    labelled a *"Workaround"* there and is reached only when reshard cannot
+    handle the conversion — row-major tensors whose shard widths differ across
+    differing memory layouts — or when reshard validation fails.
+
+    This previously emitted the STI+ITS workaround unconditionally and never a
+    Reshard, so a refrun showing N ReshardDeviceOperation rows compared against
+    a polaris graph with zero of them (and a surplus of STS/ITS pairs) — an
+    A1+A2 pair that is a shim artefact, not a workload divergence.
+
+    Explicit ``ttnn.sharded_to_interleaved`` / ``ttnn.interleaved_to_sharded``
+    calls in a workload are untouched: those mirror places where tt-metal itself
+    issues the pair (cf. vgg_unet's ``force_sti_its`` /
+    ``do_sharded_to_interleaved`` levers).
     """
     if memory_config is None:
         return input_tensor
@@ -2558,8 +2639,18 @@ def to_memory_config(input_tensor, memory_config=None):
         input_mc = getattr(input_tensor, '_memory_config', None)
         if input_mc is not None and input_mc.is_sharded() and input_mc != memory_config:
             elem_sz = input_tensor.element_size() if hasattr(input_tensor, 'element_size') else 2
+            # Gated: taking the primary Reshard path needs both shard specs to
+            # evaluate use_reshard_workaround, and a workload that does not
+            # propagate memory configs does not have them.  OFF keeps the
+            # historical STI+ITS pair, which is what every workload but
+            # ResNet-50 was verified against.  See set_to_memory_config_reshard.
+            if (to_memory_config_reshard_enabled(input_tensor.device)
+                    and not _needs_reshard_workaround(input_tensor, input_mc, memory_config)):
+                return reshard_op(input_tensor, memory_config=memory_config, element_size=elem_sz)
             input_tensor = sharded_to_interleaved_op(input_tensor, element_size=elem_sz)
-            input_tensor = interleaved_to_sharded_op(input_tensor, memory_config=memory_config, element_size=elem_sz)
+            input_tensor = interleaved_to_sharded_op(
+                input_tensor, memory_config=memory_config, element_size=elem_sz,
+            )
             return input_tensor
     if hasattr(input_tensor, '_memory_config'):
         input_tensor._memory_config = memory_config
