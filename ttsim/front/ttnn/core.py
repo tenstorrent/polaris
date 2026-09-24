@@ -113,6 +113,21 @@ class CoreRange:
     def __str__(self):
         return f"CoreRange({self.start_coord} -> {self.end_coord})"
 
+    # Value equality, like tt-metal's CoreRange.  Without it two structurally
+    # identical ranges compared by identity, which propagated up through
+    # ShardSpec.__eq__ and MemoryConfig.__eq__ and made every
+    # ``a.memory_config() != b.memory_config()`` test true — see CoreRangeSet
+    # below for what that cost.
+    def __eq__(self, other):
+        if not isinstance(other, CoreRange):
+            return NotImplemented
+        return (self.start_coord == other.start_coord
+                and self.end_coord == other.end_coord)
+
+    def __hash__(self):
+        return hash((self.start_coord.x, self.start_coord.y,
+                     self.end_coord.x, self.end_coord.y))
+
 class CoreRangeSet:
     """A collection of non-overlapping core ranges."""
     def __init__(self, ranges: Iterable[CoreRange]):
@@ -146,6 +161,40 @@ class CoreRangeSet:
     def __iter__(self) -> Iterator[CoreCoord]:
         for range_obj in self.ranges:
             yield from range_obj
+
+    # Value equality, like tt-metal's CoreRangeSet.  ShardSpec.__eq__ compares
+    # ``self.grid == other.grid``, and MemoryConfig.__eq__ compares shard_spec,
+    # so without this two byte-identical sharded configs compared UNEQUAL.
+    # ResNet-50's bottleneck does
+    # ``if ds_out.memory_config() != out.memory_config(): to_memory_config(...)``
+    # (C:325-326), which therefore fired unconditionally: polaris emitted a
+    # Reshard at three positions where both configs were identical
+    # (HEIGHT_SHARDED/L1 (448, 256) on 112 cores, and BLOCK_SHARDED/L1 (96, 256)
+    # on 72 cores twice) and the p100a capture has no Reshard at all.
+    #
+    # Compare the range *decomposition*, not the covered coordinate set, because
+    # that is what tt-metal does: ``operator==(const CoreRangeSet&, const
+    # CoreRangeSet&)`` (tt_metal/common/core_coord.cpp:484-496) checks
+    # ``ranges().size()`` and then walks both vectors pairwise, and
+    # ``std::hash<CoreRangeSet>`` (ibid.:699-706) combines the range count and
+    # each range in turn. A coordinate-set comparison would be *looser* than
+    # hardware: ``_num_cores_to_corerangeset(3, (2, 2), row_wise=True)`` and the
+    # column-wise call cover the same three cores but place shard 1 on (1, 0)
+    # versus (0, 1), so silicon reshards between them and the model must too.
+    # Only the vector order is relaxed here (sorted, not pairwise) — every
+    # construction site emits full block first, remainder second, so the order is
+    # already canonical and the sort is defensive rather than a semantic change.
+    def __eq__(self, other):
+        if not isinstance(other, CoreRangeSet):
+            return NotImplemented
+        if len(self.ranges) != len(other.ranges):
+            return False
+        key = lambda r: (r.start_coord.x, r.start_coord.y, r.end_coord.x, r.end_coord.y)
+        return sorted(self.ranges, key=key) == sorted(other.ranges, key=key)
+
+    def __hash__(self):
+        key = lambda r: (r.start_coord.x, r.start_coord.y, r.end_coord.x, r.end_coord.y)
+        return hash(tuple(sorted((key(r) for r in self.ranges))))
 
 class CoreGrid(CoreRangeSet):
     """Mimic real ttnn's ``CoreGrid(x=.., y=..)`` grid descriptor while remaining a

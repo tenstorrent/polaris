@@ -73,6 +73,10 @@ _SHARD_STRATEGY_TO_LAYOUT = {
 }
 
 
+def _div_up(a: int, b: int) -> int:
+    return (a + b - 1) // b
+
+
 def create_sharded_memory_config(shape, core_grid, strategy, orientation=None,
                                  use_height_and_width_as_shard_shape=False):
     """Build an L1-sharded ``MemoryConfig`` from a ``ShardStrategy``.
@@ -84,7 +88,57 @@ def create_sharded_memory_config(shape, core_grid, strategy, orientation=None,
     mem_layout = _SHARD_STRATEGY_TO_LAYOUT.get(
         strategy_name, TensorMemoryLayout.INTERLEAVED,
     )
-    return MemoryConfig(mem_layout, BufferType.L1)
+
+    # Shard spec, ported from ttnn/ttnn/core.py::create_sharded_memory_config.
+    # This used to return a bare MemoryConfig with shard_spec=None, which is
+    # WORSE than the (1, 1) stub the trailing-underscore variant had: every
+    # consumer that reads a shard spec then takes its "unknown" branch.
+    # `needs_shard_or_reshard` returns True unconditionally on a missing spec,
+    # `MemoryConfig.__eq__` cannot tell two configs apart, and
+    # `_needs_reshard_workaround` declines.  This is the constructor the
+    # WORMHOLE path of ResNet-50 uses at both of its arch-specific transitions
+    # (canonical C:763 pre-layer3, C:833 pre-layer4) and that VGG UNet uses, so
+    # on WH the shard modelling was blind exactly where it matters.
+    #
+    #     shard_height = prod(batch dims) * height ; shard_width = width
+    #     BLOCK  -> (shard_height // grid.y, shard_width // grid.x)   ROW_MAJOR
+    #     HEIGHT -> (shard_height // (grid.x*grid.y), shard_width)
+    #     WIDTH  -> (shard_height, shard_width // (grid.x*grid.y))
+    #
+    # Real ttnn raises when a dim does not divide the grid; here it is rounded
+    # up instead.  Polaris builds graphs for shapes silicon may never run, and a
+    # hard failure at graph-build time is worse than an approximate shard shape.
+    shard_spec = None
+    try:
+        dims = [int(d) for d in shape]
+        gx = int(getattr(core_grid, 'x', 0) or 0)
+        gy = int(getattr(core_grid, 'y', 0) or 0)
+        if len(dims) >= 2 and gx > 0 and gy > 0:
+            height, width = dims[-2], dims[-1]
+            batch = 1
+            for d in dims[:-2]:
+                batch *= d
+            if use_height_and_width_as_shard_shape:
+                shard_shape = (height, width)
+            else:
+                sh, sw = batch * height, width
+                total = gx * gy
+                if mem_layout == TensorMemoryLayout.BLOCK_SHARDED:
+                    shard_shape = (_div_up(sh, gy), _div_up(sw, gx))
+                elif mem_layout == TensorMemoryLayout.HEIGHT_SHARDED:
+                    shard_shape = (_div_up(sh, total), sw)
+                elif mem_layout == TensorMemoryLayout.WIDTH_SHARDED:
+                    shard_shape = (sh, _div_up(sw, total))
+                else:
+                    shard_shape = None
+            if shard_shape is not None:
+                _orient = orientation if isinstance(orientation, ShardOrientation) \
+                    else ShardOrientation.ROW_MAJOR
+                shard_spec = ShardSpec(core_grid, shard_shape, _orient)
+    except (TypeError, ValueError, AttributeError):
+        shard_spec = None  # keep the previous behaviour rather than fail a build
+
+    return MemoryConfig(mem_layout, BufferType.L1, shard_spec=shard_spec)
 
 
 def create_sharded_memory_config_(shape, grid, mem_layout, orientation, tile_layout):
@@ -95,7 +149,8 @@ def create_sharded_memory_config_(shape, grid, mem_layout, orientation, tile_lay
     actual shard shape calculations.
 
     Args:
-        shape: Tensor shape (unused in this stub, preserved for API compatibility)
+        shape: Per-core shard extent ``[shard_h, shard_w]`` when given as a
+            2-element sequence; anything else falls back to the (1, 1) placeholder.
         grid: CoreGrid, CoreRangeSet, or grid-like object specifying core layout
         mem_layout: TensorMemoryLayout (HEIGHT_SHARDED, BLOCK_SHARDED, etc.)
         orientation: ShardOrientation (ROW_MAJOR or COL_MAJOR)
@@ -118,12 +173,30 @@ def create_sharded_memory_config_(shape, grid, mem_layout, orientation, tile_lay
         # Default fallback
         shard_orientation = ShardOrientation.ROW_MAJOR
 
-    # Create ShardSpec with placeholder shape (1, 1)
-    # In full implementation, this would calculate actual shard dimensions
-    # based on tensor shape, grid size, and sharding strategy
+    # Every ResNet-50 / VGG UNet call site passes ``shape`` as the per-core shard
+    # extent already (``use_height_and_width_as_shard_shape=True`` in real ttnn),
+    # e.g. the pre-layer4 block config passes
+    # ``[nearest_32(x.shape[2] // grid_y), x.shape[3] // grid_x]`` = [320, 128].
+    # Storing (1, 1) instead threw that away, and three consumers need it:
+    # ``needs_shard_or_reshard`` (every clause in conv2d_utils.cpp:686-745 reads
+    # ``input_shard_spec.shape``), ``get_input_channels_alignment``, and
+    # ``MemoryConfig.__eq__``.  With the stub, ``shard_w % alignment`` was
+    # ``1 % 32`` and the predicate returned True for every such conv.
+    #
+    # Kept permissive: a shape that is not a usable 2-tuple of positive ints
+    # falls back to the old placeholder rather than raising, so call sites that
+    # pass a full tensor shape (or nothing meaningful) behave as before.
+    _shard_shape = (1, 1)
+    try:
+        if shape is not None and len(shape) == 2:
+            _h, _w = int(shape[0]), int(shape[1])
+            if _h > 0 and _w > 0:
+                _shard_shape = (_h, _w)
+    except (TypeError, ValueError):
+        pass
     shard_spec = ShardSpec(
         grid=core_grid,
-        shape=(1, 1),  # Placeholder - not used in simulation
+        shape=_shard_shape,
         orientation=shard_orientation
     )
 
