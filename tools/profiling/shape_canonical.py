@@ -349,7 +349,7 @@ def validate_reshape_compatibility(
     representations between TT-Polaris and the profiler.
     """
     if len(polaris_inputs) != 2:
-        return False, "polaris doesn't have 2 inputs"
+        return False, "TT-Polaris doesn't have 2 inputs"
 
     pol_out_parsed = parse_shape_string(polaris_outputs[0]) if polaris_outputs else []
     prof_out_parsed = parse_shape_string(profiler_outputs[0]) if profiler_outputs else []

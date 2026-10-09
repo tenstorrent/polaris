@@ -211,7 +211,7 @@ def test_validate_reshape_not_2_inputs():
         ["1x224x224"],
     )
     assert match is False
-    assert "polaris doesn't have 2 inputs" in details
+    assert "TT-Polaris doesn't have 2 inputs" in details
 
 
 # ── normalize_memory_tag ────────────────────────────────────────────────

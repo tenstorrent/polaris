@@ -90,6 +90,16 @@ def test_extract_summary_normal(tmp_path):
 
 
 @pytest.mark.unit
+def test_extract_summary_accepts_the_legacy_polaris_label(tmp_path):
+    """Logs written before the TT-Polaris rename use the bare "Polaris" label; they still parse."""
+    legacy = NORMAL_LOG.replace('TT-Polaris:', 'Polaris:').replace('TT-Polaris LUT hits:', 'Polaris LUT hits:')
+    assert 'TT-Polaris:' not in legacy and 'Polaris LUT hits:' in legacy
+    s = extract_summary(_write(tmp_path, legacy))
+    assert s == rpc.ParsedSummary(polaris_ms=3.2675, profiler_ms=3.2911, gap_pct=0.72,
+                                  lut_hits=102, lut_total=102)
+
+
+@pytest.mark.unit
 def test_extract_summary_negative_gap(tmp_path):
     """A negative gap keeps its sign rather than being dropped by the pattern."""
     s = extract_summary(_write(tmp_path, ZERO_HIT_LOG))
