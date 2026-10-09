@@ -1077,4 +1077,4 @@ if __name__ == "__main__":
     logger.info(f"State dict keys (first 10): {list(state_dict.keys())[:10]}")
     logger.info(f"Total keys: {len(state_dict)}")
 
-    logger.info("\nPolaris ModelArgs test completed successfully!")
+    logger.info("\nTT-Polaris ModelArgs test completed successfully!")

@@ -14,7 +14,7 @@ These scripts are part of the **TT-Polaris** repository but are designed to work
 
 ```
 workspace/
-├── si_profiling_helpers/      # These helper scripts (from polaris/tools/si_profiling_helpers/)
+├── si_profiling_helpers/      # These helper scripts (from tt-polaris/tools/si_profiling_helpers/)
 │   ├── setup-step-0-clean.sh
 │   ├── setup-step-1-fresh-build.sh
 │   ├── setup-step-2-new-login.sh
@@ -35,7 +35,7 @@ workspace/
 
 ```bash
 # From your local machine with TT-Polaris repository
-cd /path/to/polaris/tools/si_profiling_helpers
+cd /path/to/tt-polaris/tools/si_profiling_helpers
 
 # Copy to IRD system
 scp -r . username@ird-system:/path/to/workspace/si_profiling_helpers/

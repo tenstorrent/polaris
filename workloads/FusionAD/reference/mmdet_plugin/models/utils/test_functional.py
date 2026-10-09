@@ -19,7 +19,7 @@ import sys
 import math
 
 # Add TT-Polaris root to sys.path for workloads imports
-# Script location: polaris/workloads/FusionAD/Comparison/mmdet_plugin/models/utils/
+# Script location: tt-polaris/workloads/FusionAD/Comparison/mmdet_plugin/models/utils/
 polaris_path = os.path.join(os.path.dirname(__file__), "..", "..", "..", "..", "..", "..")
 sys.path.insert(0, polaris_path)
 os.environ['KMP_DUPLICATE_LIB_OK'] = 'TRUE'

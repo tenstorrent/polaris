@@ -25,7 +25,7 @@ import torch.nn as nn
 import numpy as np
 from datetime import datetime
 
-# Add project root to path (4 levels up: segmentation -> tests -> Deformable_DETR -> workloads -> polaris)
+# Add project root to path (4 levels up: segmentation -> tests -> Deformable_DETR -> workloads -> tt-polaris)
 # Locate TT-Polaris root (contains pyproject.toml) regardless of run directory
 _here = os.path.abspath(os.path.dirname(__file__))
 _root = _here

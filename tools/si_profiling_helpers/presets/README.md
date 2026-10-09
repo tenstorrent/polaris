@@ -58,7 +58,7 @@ producing `raw/`, `perf/`, and `trace/` CSVs under the `RUNID` output directory.
 > the merge runs **on the hardware node** right after capture (the profiler wrapper passes an
 > explicit `--output`; the tool's own default is plain `merged_ops.csv`). Only
 > `merged_ops_<RUNID>.csv` (plus `hw_id.json`, and the run-status sidecar `run_status.json` / `STATUS.txt`) needs to be copied back. Its only third-party dependency is `loguru`, which is already in
-> the tt-metal run environment. (The follow-on compare-vs-refrun step pulls in polaris/ttsim
+> the tt-metal run environment. (The follow-on compare-vs-refrun step pulls in tt-polaris/ttsim
 > and stays on a TT-Polaris checkout.)
 
 ## Output isolation & known cwd residue

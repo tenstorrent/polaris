@@ -691,7 +691,7 @@ def run_merge(output_dir: str, dram_peak_bw_gbps: float, show_output: bool = Fal
     rsynced si_profiling_helpers bundle and its only third-party dep (loguru) is
     already in the tt-metal run env. Merging here means only merged_ops_<RUNID>.csv
     (plus hw_id.json) need be copied off the board, not three raw CSVs. The follow-on
-    compare-vs-refrun step needs polaris/ttsim and stays off-device.
+    compare-vs-refrun step needs tt-polaris/ttsim and stays off-device.
     """
     merge_tool = os.path.join(os.path.dirname(os.path.realpath(__file__)), _MERGE_TOOL_BY_VARIANT[merge_variant])
     if not os.path.exists(merge_tool):
