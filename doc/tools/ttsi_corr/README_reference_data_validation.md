@@ -2,7 +2,7 @@
 
 ## Overview
 
-This document describes the tools and tests for validating, comparing, and managing TT-Metal reference performance data in Polaris.
+This document describes the tools and tests for validating, comparing, and managing TT-Metal reference performance data in TT-Polaris.
 
 ## Components
 
@@ -450,5 +450,5 @@ The reference data validation and management tools provide:
 - ✅ **Automated testing** integration
 - ✅ **Clear documentation** and examples
 
-These tools help maintain high-quality, traceable, and reproducible reference data for Polaris performance correlation.
+These tools help maintain high-quality, traceable, and reproducible reference data for TT-Polaris performance correlation.
 

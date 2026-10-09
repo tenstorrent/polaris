@@ -58,7 +58,7 @@ class LMHead:
         # DRAM-sharded matmul + ShardedToInterleaved, then Concat back to full vocab.
         #
         # DUAL-MODE split of responsibility:
-        #  - POLARIS path: emit ONE canonical GEMM (dim x vocab). The arch-specific
+        #  - TT-Polaris path: emit ONE canonical GEMM (dim x vocab). The arch-specific
         #    column split is realized in the backend (wl2archmap op_split_spec, issue
         #    #477) where the arch is known, keeping this front-end graph device-independent.
         #  - HW path: must do the real column split here — a single dim x vocab GEMM would

@@ -154,7 +154,7 @@ class TestCorrelationBasic:
         ])
         mock_load_wl.return_value = (mock_wl, None)  # Returns tuple (workloads_file, workload_filter)
 
-        # Mock polaris run
+        # Mock TT-Polaris run
         mock_polaris.return_value = 0
 
         output_dir = tmp_path / 'output'

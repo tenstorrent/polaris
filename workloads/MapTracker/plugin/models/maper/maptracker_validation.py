@@ -9,7 +9,7 @@ This is a copy of the top-level MapTracker validation runner but placed inside
 the `plugin/models/maper` package so it can be referenced from workload YAML
 entries that use `basedir: workloads/MapTracker/plugin/models/maper`.
 
-The script locates the Polaris workspace root dynamically (searching for
+The script locates the TT-Polaris workspace root dynamically (searching for
 `polaris.py` or `pyproject.toml`), discovers every `comparison_*` folder in
 `workloads/MapTracker/reference/`, runs each folder's `run_all.py`, and writes
 a consolidated Markdown report to `workloads/MapTracker/validation_output/`.
@@ -49,7 +49,7 @@ def _find_workspace_root(start_dir: str) -> str:
         cur = parent
 
 
-# Polaris workspace root (detected)
+# TT-Polaris workspace root (detected)
 _POLARIS_ROOT: str = os.path.normpath(_find_workspace_root(_THIS_DIR))
 
 # Directory that holds all comparison_* sub-folders (explicitly MapTracker)
@@ -318,7 +318,7 @@ def _run_validation() -> str:
 
 
 # ---------------------------------------------------------------------------
-# Polaris workload class
+# TT-Polaris workload class
 # ---------------------------------------------------------------------------
 
 # Import MapTracker from the same package (same directory)

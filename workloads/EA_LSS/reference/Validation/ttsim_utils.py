@@ -26,7 +26,7 @@ import os
 import sys
 import numpy as np
 
-# Polaris root is 4 levels up from workloads/EA-LSS/Reference/Validation/
+# TT-Polaris root is 4 levels up from workloads/EA-LSS/Reference/Validation/
 _polaris_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../../.."))
 if _polaris_root not in sys.path:
     sys.path.insert(0, _polaris_root)

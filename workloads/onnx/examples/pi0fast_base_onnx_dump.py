@@ -4,7 +4,7 @@
 
 # """
 # Export the full PI0-FAST (pi0fast-base) model to a fixed-shape ONNX graph
-# for Polaris perf projection.
+# for TT-Polaris perf projection.
 
 # """
 

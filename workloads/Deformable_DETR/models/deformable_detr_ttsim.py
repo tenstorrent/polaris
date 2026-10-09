@@ -208,17 +208,17 @@ class DeformableDETR(SimNN.Module):
 
     def __init__(self, name, cfg):
         """
-        Polaris-compatible initializer — builds the full Deformable DETR model
+        TT-Polaris-compatible initializer — builds the full Deformable DETR model
         from a YAML-derived config dict.
 
         Args:
             name : string identifier for this module
-            cfg  : dict loaded from polaris YAML (see config/ip_workloads.yaml)
+            cfg  : dict loaded from TT-Polaris YAML (see config/ip_workloads.yaml)
         """
         super().__init__()
         self.name = name
 
-        # ── Polaris-specific bookkeeping ─────────────────────────────────
+        # ── TT-Polaris-specific bookkeeping ─────────────────────────────────
         self.bs           = cfg.get('bs', 1)
         self.img_channels = cfg.get('img_channels', 3)
         self.img_height   = cfg.get('img_height', 640)
@@ -323,14 +323,14 @@ class DeformableDETR(SimNN.Module):
 
         super().link_op2module()
 
-    # ── Polaris interface ────────────────────────────────────────────────
+    # ── TT-Polaris interface ────────────────────────────────────────────────
 
     def set_batch_size(self, new_bs):
-        """Update batch size (called by polaris batch-sweep)."""
+        """Update batch size (called by TT-Polaris batch-sweep)."""
         self.bs = new_bs
 
     def create_input_tensors(self):
-        """Create the input SimTensor dict used by polaris."""
+        """Create the input SimTensor dict used by TT-Polaris."""
         img_tensor = F._from_shape(
             'img',
             [self.bs, self.img_channels, self.img_height, self.img_width],
@@ -340,7 +340,7 @@ class DeformableDETR(SimNN.Module):
         self.input_tensors = {'img': img_tensor}
 
     def get_forward_graph(self):
-        """Return the polaris WorkloadGraph built from the forward pass."""
+        """Return the TT-Polaris WorkloadGraph built from the forward pass."""
         return super()._get_forward_graph(self.input_tensors)
 
     def analytical_param_count(self):
@@ -349,7 +349,7 @@ class DeformableDETR(SimNN.Module):
 
     def __call__(self):
         """
-        Polaris entry-point: no-argument forward pass.
+        TT-Polaris entry-point: no-argument forward pass.
         Builds a NestedTensor from self.input_tensors and delegates to _forward.
         """
         img  = self.input_tensors['img']
@@ -423,7 +423,7 @@ class DeformableDETR(SimNN.Module):
         hs, _, _, _, _ = self.transformer(srcs, masks, pos, query_embeds)
 
         # hs: [num_dec_layers, bs, num_queries, hidden_dim]  (stacked decoder outputs)
-        # Apply heads on the full stacked output — polaris cares about op presence
+        # Apply heads on the full stacked output — TT-Polaris cares about op presence
         # and shape flow, not strict per-layer numerics.
         outputs_class = self.class_embed(hs)
         outputs_coord = self.output_sigmoid(self.bbox_embed(hs))
@@ -1013,7 +1013,7 @@ def build(args):
     if args.dataset_file == "coco_panoptic":
         num_classes = 250
 
-    # Build via the polaris-compatible (name, cfg) interface
+    # Build via the TT-Polaris-compatible (name, cfg) interface
     _cfg = vars(args) if not isinstance(args, dict) else args
     _cfg = dict(_cfg)   # make a plain copy
     _cfg.update({

@@ -15,7 +15,7 @@ from workloads.ttnn.tt_transformers.decoder import TransformerBlock
 from workloads.ttnn.tt_transformers.rope import RotarySetup
 
 def test_decoder_prefill_inference(wln, mesh_device, gcfg):
-    logger.info("Starting Polaris Decoder PREFILL Smoke Test (Mistral-7B Config)...")
+    logger.info("Starting TT-Polaris Decoder PREFILL Smoke Test (Mistral-7B Config)...")
 
     batch_size = 1
     seq_len = 128  # 128 tokens for Prefill phase

@@ -9,7 +9,7 @@ FIXED VERSION: Bypasses Dropout when prob=0.0 to avoid TTSim Dropout data_comput
 
 This module provides TTSim-compatible implementations of the segmentation components
 from Deformable DETR, maintaining functional equivalence with the PyTorch original
-while adhering to Polaris TTSim simulation framework requirements.
+while adhering to TT-Polaris TTSim simulation framework requirements.
 
 Modules:
     - MHAttentionMap: Multi-head attention map for generating spatial attention weights

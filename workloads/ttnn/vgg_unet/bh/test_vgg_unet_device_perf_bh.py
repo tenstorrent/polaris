@@ -84,7 +84,7 @@ def run_vgg_unet_perf_device(wlname: str, device: ttnn.device.Device, cfg: dict)
 
     Builds the graph on the polproj-provided *device* (so polproj's back-end
     pipeline can run its own stats), and also produces a standalone JSON perf
-    report via the Polaris analytical path.
+    report via the TT-Polaris analytical path.
     """
     batch_size = cfg.get('bs', 1)
     run_vgg_unet_e2e(device, batch_size=batch_size)
@@ -94,7 +94,7 @@ def run_vgg_unet_perf_device(wlname: str, device: ttnn.device.Device, cfg: dict)
 # ---------------------------------------------------------------------------
 # test_vgg_unet_perf_device — dual-mode device profiling
 # HW path: Tracy via subprocess wrapping test_e2e_performant.py.
-# Polaris path: analytical projection via run_device_perf_polaris (BH arch).
+# TT-Polaris path: analytical projection via run_device_perf_polaris (BH arch).
 # ---------------------------------------------------------------------------
 
 def test_vgg_unet_perf_device(batch_size: int = 1, expected_kernel_samples_per_sec: int = 320):

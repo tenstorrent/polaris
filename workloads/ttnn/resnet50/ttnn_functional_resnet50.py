@@ -1370,16 +1370,16 @@ class resnet50:
 
 def run_resnet50(wlname: str, device: TTNNDevice, cfg: dict):
     """
-    ResNet-50 workload entry point for Polaris TTNN framework.
+    ResNet-50 workload entry point for TT-Polaris TTNN framework.
 
     Args:
-        wlname: Workload identifier from Polaris (corresponds to 'wln' in 
+        wlname: Workload identifier from TT-Polaris (corresponds to 'wln' in 
                polaris.py call to ttnn_func in get_wlgraph TTNN scenario).
                Example: "Resnet50"
                Convention: All TTNN run_* functions accept this parameter 
-               for consistency with the Polaris workload dispatch mechanism.
+               for consistency with the TT-Polaris workload dispatch mechanism.
 
-        device: TTNN device instance (lifecycle managed by Polaris)
+        device: TTNN device instance (lifecycle managed by TT-Polaris)
 
         cfg: Configuration dict with model hyperparameters (batch_size, 
             num_channels, img_height, img_width, etc.)

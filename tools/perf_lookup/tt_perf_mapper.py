@@ -4,7 +4,7 @@
 
 """
 Build a master dictionary from Excel or CSV: key tuple -> flat single (``num_cores`` + stats) or curve equations (curve).
-After load, OP CODE cells are normalized to Polaris-style layer *types* (e.g. matmul, add, mul, tilize);
+After load, OP CODE cells are normalized to TT-Polaris-style layer *types* (e.g. matmul, add, mul, tilize);
 ``TilizeWithValPadding*`` → ``tilizewithvalpadding`` (other ``Tilize*`` → ``tilize``); ``UntilizeWithUnpadding*``
 → ``untilizewithunpadding`` (other ``Untilize*`` → ``untilize``). ``BinaryNgDeviceOperation`` and ``UnaryDeviceOperation`` rows use
 ``ATTRIBUTES`` (``binary_op_type`` / ``UnaryOpType::…`` in ``op_chain``) when present; all keys, grouping, and mode checks use these types — not
@@ -198,7 +198,7 @@ CV_THRESHOLD = 0.10
 # Iglewicz–Hoaglin modified Z (MAD-based); drop |M*| > threshold before CV. n < 3 or MAD==0 → no rejection.
 CV_OUTLIER_MODIFIED_Z_THRESHOLD = 3.5
 
-# First key-tuple field for matmul after Polaris layer-type normalization.
+# First key-tuple field for matmul after TT-Polaris layer-type normalization.
 POLARIS_LAYER_MATMUL = "matmul"
 
 
@@ -290,7 +290,7 @@ def _parse_attributes_cell(raw) -> dict | None:
 
 
 def apply_polaris_layer_type_column(table: InputTable) -> None:
-    """In-place: replace ``OP CODE`` with Polaris layer *types* for downstream logic and YAML keys.
+    """In-place: replace ``OP CODE`` with TT-Polaris layer *types* for downstream logic and YAML keys.
 
     Delegates to :func:`tools.profiling.op_canonical.normalize_profiler_opcode`.
     """

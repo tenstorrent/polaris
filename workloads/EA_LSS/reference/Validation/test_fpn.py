@@ -19,7 +19,7 @@ Test Coverage:
   8.  Extra output via maxpool   – num_outs > num_ins adds pooled level
   9.  start_level skips level    – start_level=1 skips first backbone level
 
-Run from polaris root:
+Run from TT-Polaris root:
     python3 workloads/EA-LSS/Reference/Validation/test_fpn.py
 """
 

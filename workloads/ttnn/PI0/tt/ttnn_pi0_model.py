@@ -4,7 +4,7 @@
 Main PI0 model - TTSim Implementation (Inference / perf-model, shape-tracking).
 
 This assembles the REAL PI0 components (SigLIP vision tower + PaliGemma VLM +
-action expert + prefix/suffix embedders) into a Polaris workload, mirroring the
+action expert + prefix/suffix embedders) into a TT-Polaris workload, mirroring the
 tt-metal reference `sample_actions` flow.
 
 Scope note (per review):
@@ -280,9 +280,9 @@ class PI0ModelTTNN:
 
 
 # =============================================================================
-# Polaris entry point
+# TT-Polaris entry point
 # =============================================================================
 def run_pi0_model(wlname: str, device: TTNNDevice, cfg: Dict[str, Any]) -> ttnn.Tensor:
-    """Polaris workload entry point: called as run_pi0_model(wlname, device, cfg)."""
+    """TT-Polaris workload entry point: called as run_pi0_model(wlname, device, cfg)."""
     model = PI0ModelTTNN(device=device, **cfg)
     return model.sample_actions()

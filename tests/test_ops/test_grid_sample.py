@@ -30,7 +30,7 @@ try:
 except ImportError:
     MEMORY_TEST_AVAILABLE = False
 
-# Add polaris root to path for config access
+# Add TT-Polaris root to path for config access
 polaris_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
 from ttsim.ops.desc.data_compute import compute_grid_sample
 

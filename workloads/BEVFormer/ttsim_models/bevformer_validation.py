@@ -3,7 +3,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 """
-BEVFormerValidation – Polaris Workload with Integrated Validation Suite
+BEVFormerValidation – TT-Polaris Workload with Integrated Validation Suite
 
 Extends BEVFormer to additionally execute every test_*.py script found in
 workloads/BEVFormer/reference/Validation/ (excluding layer_ops.py and
@@ -15,7 +15,7 @@ report is printed to the terminal once the run is complete.
 
 After running the validation suite the workload behaves identically to the
 plain BEVFormer workload – it produces the same forward-graph and the same
-Polaris JSON projection output.
+TT-Polaris JSON projection output.
 
 Usage
 -----
@@ -52,7 +52,7 @@ _VALIDATION_DIR: str = os.path.normpath(
     os.path.join(os.path.dirname(__file__), "..", "reference", "Validation")
 )
 
-# Absolute path of the polaris workspace root (three levels above this file)
+# Absolute path of the TT-Polaris workspace root (three levels above this file)
 _POLARIS_ROOT: str = os.path.normpath(
     os.path.join(os.path.dirname(__file__), "../../..")
 )
@@ -248,7 +248,7 @@ def _run_validation_tests() -> str:
 
 
 # ---------------------------------------------------------------------------
-# Polaris workload class
+# TT-Polaris workload class
 # ---------------------------------------------------------------------------
 
 

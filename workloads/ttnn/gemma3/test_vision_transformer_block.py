@@ -3,7 +3,7 @@
 """
 Gemma3 vision transformer block test (attention + MLP + residuals, one layer).
 Mirrors tt-metal's test_vision_transformer_block.py (run_block_inference),
-adapted to Polaris's shape-only simulation mode.
+adapted to TT-Polaris's shape-only simulation mode.
 """
 import os
 import sys

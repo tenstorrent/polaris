@@ -3,9 +3,9 @@
 # SPDX-License-Identifier: Apache-2.0
 
 """
-Sum Polaris opstats durations by operator type.
+Sum TT-Polaris opstats durations by operator type.
 
-Defaults for Polaris STATS opstats CSV:
+Defaults for TT-Polaris STATS opstats CSV:
 - Operator column: "optype"
 - Duration column: "msecs" (already milliseconds)
 - Optional: "uses_perf_lookup" — when the column is present (and not disabled via CLI),
@@ -25,7 +25,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-# CSV / stdout labels for perf-lookup rollups (not Polaris optypes; kept out of grand totals).
+# CSV / stdout labels for perf-lookup rollups (not TT-Polaris optypes; kept out of grand totals).
 LUT_MATCHES_ROW = "LUT-Matches"
 LUT_MISSES_ROW = "LUT-Mismatches"
 
@@ -81,7 +81,7 @@ def _try_resolve_column_name(headers: list[str], desired_name: str) -> str | Non
 
 
 def _cell_truthy(raw: Any) -> bool:
-    """Interpret CSV / bool cell as LUT hit (matches Polaris bool written as True/False strings)."""
+    """Interpret CSV / bool cell as LUT hit (matches TT-Polaris bool written as True/False strings)."""
     if raw is None:
         return False
     if isinstance(raw, bool):
@@ -182,8 +182,8 @@ def _write_csv(output_path: Path, summary: OpstatsDurationSummary) -> None:
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Sum Polaris opstats duration grouped by operator type.")
-    parser.add_argument("input_csv", type=Path, help="Polaris opstats CSV path")
+    parser = argparse.ArgumentParser(description="Sum TT-Polaris opstats duration grouped by operator type.")
+    parser.add_argument("input_csv", type=Path, help="TT-Polaris opstats CSV path")
     parser.add_argument(
         "--operator-column",
         type=str,

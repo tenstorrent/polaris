@@ -1836,7 +1836,7 @@ def permute_op(input_tensor, dims, memory_config=None):
     """
     Create a Permute SimOp and output tensor (tracking-only; no execution).
 
-    Used by :func:`permute` (re-exported as ``ttnn.permute`` from the Polaris package).
+    Used by :func:`permute` (re-exported as ``ttnn.permute`` from the TT-Polaris package).
     ``from ttsim.front.ttnn.op import permute`` still refers to **Transpose** in ``op.py``.
 
     Requires ``input_tensor`` on a device (same contract as ``tilize_op``).
@@ -1882,7 +1882,7 @@ def permute_op(input_tensor, dims, memory_config=None):
 
 def permute(input_tensor, dims, memory_config=None):
     """
-    Polaris ``ttnn.permute`` implementation: records optype **Permute** on the device graph.
+    TT-Polaris ``ttnn.permute`` implementation: records optype **Permute** on the device graph.
 
     Matches ``ttnn.permute(tensor, dims)`` with ``dims`` a list or tuple of axis indices.
     For ``memory_config``, see :func:`permute_op`.
@@ -2616,7 +2616,7 @@ def nlp_concat_heads_op(input_tensor, memory_config=None, element_size=2):
 
     NOTE: HW emits a 4D output [B, 1, S, num_heads*head_dim] with
     seq_groups=1 in the Z position, then implicitly reinterprets it as
-    [1, B, S, H] (W=1, Z=batch) for downstream ops. Polaris currently
+    [1, B, S, H] (W=1, Z=batch) for downstream ops. TT-Polaris currently
     emits 3D [B, S, H]. The comparison tool (compare_layers.py
     --strip-singleton-dims) normalizes this difference. Future work:
     emit 4D shapes and model the implicit view change.
@@ -2729,7 +2729,7 @@ def nlp_create_qkv_heads_op(input_tensor, kv_input_tensor=None, *,
              V=[B, num_kv_heads, S, head_dim]
 
     NOTE: HW uses 4D WZYX shapes with a seq_groups=1 singleton dim:
-    input [B, 1, S, hidden], output [B, heads, S, head_dim]. Polaris currently
+    input [B, 1, S, hidden], output [B, heads, S, head_dim]. TT-Polaris currently
     emits 3D shapes [B, S, hidden] for the input. The comparison tool
     (compare_layers.py --strip-singleton-dims) normalizes this difference.
     Future work: emit 4D shapes here and propagate the implicit view change

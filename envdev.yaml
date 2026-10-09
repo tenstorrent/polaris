@@ -5,7 +5,7 @@ channels:
   - conda-forge
 dependencies:
   # Core dependencies (shared with environment.yaml, same order)
-  # Essential packages required for running polaris
+  # Essential packages required for running TT-Polaris
   - deepdiff=9.1.0
   - einops=0.8.2 # used by MapTracker
   - gitpython=3.1.50

@@ -1,22 +1,22 @@
 # SPDX-FileCopyrightText: (C) 2025 Tenstorrent AI ULC
 # SPDX-License-Identifier: Apache-2.0
 """
-Simulator Module - Orchestrate Polaris simulation execution.
+Simulator Module - Orchestrate TT-Polaris simulation execution.
 
-This module handles the orchestration of Polaris simulations, including
+This module handles the orchestration of TT-Polaris simulations, including
 configuration validation, workload filtering, and simulation execution.
 
 Responsibilities:
 -----------------
 - Validate and filter workload configurations
 - Write simulation configuration files
-- Execute Polaris simulation
+- Execute TT-Polaris simulation
 - Handle dry-run mode
 
 Functions:
 ----------
 - validate_and_filter_configs() - Filter configurations by valid metrics
-- run_polaris_simulation() - Execute Polaris simulation
+- run_polaris_simulation() - Execute TT-Polaris simulation
 - validate_workload_filter() - Validate workload filter has matches
 
 Migration Status:
@@ -187,10 +187,10 @@ def run_polaris_simulation(
     dry_run: bool
 ) -> int:
     """
-    Write configuration files and execute Polaris simulation.
+    Write configuration files and execute TT-Polaris simulation.
 
     Creates YAML configuration files for workloads and run settings, then
-    executes the Polaris simulation via polproj.py.
+    executes the TT-Polaris simulation via polproj.py.
 
     Args:
         ttsim_wlspec: Workload specifications
@@ -205,7 +205,7 @@ def run_polaris_simulation(
     Side Effects:
         - Writes tensix_workloads.yaml to output directory
         - Writes tensix_runcfg.yaml to output directory
-        - Executes subprocess for Polaris simulation
+        - Executes subprocess for TT-Polaris simulation
 
     Example:
         >>> ret = run_polaris_simulation(
@@ -251,7 +251,7 @@ def run_polaris_simulation(
     if dry_run:
         logger.info('[DRY-RUN] Would write run configuration YAML to: {}', runcfg_file_path)
         logger.debug('[DRY-RUN] Configuration: {}', runcfg_dict)
-        logger.info('[DRY-RUN] Would execute Polaris simulation')
+        logger.info('[DRY-RUN] Would execute TT-Polaris simulation')
         logger.info('[DRY-RUN] Skipping actual execution and correlation comparison')
         return 0
 

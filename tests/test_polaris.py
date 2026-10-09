@@ -13,7 +13,7 @@ import polaris
 def test_polaris(reset_typespec):
     assert polaris.main(['--odir', '__dummy', '--study', 'dummy', '--wlspec', 'config/mlperf_inference.yaml',
                          '--archspec', 'config/all_archs.yaml', '--wlmapspec',  'config/wl2archmapping.yaml',
-                         '--dryrun']) == 0, "Polaris main function should return 0 on success"
+                         '--dryrun']) == 0, "TT-Polaris main function should return 0 on success"
 
 
 @pytest.mark.unit
@@ -33,7 +33,7 @@ def test_polaris_disable_fusion_dryrun(reset_typespec):
             '--dryrun',
             '--disable-fusion',
         ]
-    ) == 0, "Polaris accepts --disable-fusion with --dryrun"
+    ) == 0, "TT-Polaris accepts --disable-fusion with --dryrun"
 
 
 BASE_ARGS = [
@@ -77,28 +77,28 @@ def test_apply_filter_validates_against_full_domain():
 def test_polaris_rejects_unknown_device(reset_typespec):
     """An arch name absent from the archspec fails the run instead of running nothing."""
     assert polaris.main(BASE_ARGS + ['--filterarch', 'NoSuchDevice']) != 0, \
-        "Polaris should fail when --filterarch names a device the archspec does not define"
+        "TT-Polaris should fail when --filterarch names a device the archspec does not define"
 
 
 @pytest.mark.unit
 def test_polaris_rejects_unknown_workload_instance(reset_typespec):
     """Same for a workload-instance name absent from the workload spec."""
     assert polaris.main(BASE_ARGS + ['--filterwli', 'no_such_workload_instance']) != 0, \
-        "Polaris should fail when --filterwli names an instance the wlspec does not define"
+        "TT-Polaris should fail when --filterwli names an instance the wlspec does not define"
 
 
 @pytest.mark.unit
 def test_polaris_rejects_valid_but_disjoint_filters(reset_typespec):
     """Individually valid filters that share no workload still select nothing -- also a failure."""
     assert polaris.main(BASE_ARGS + ['--filterwl', 'BERT_SQUAD_v1p1', '--filterwli', 'rn50_b1']) != 0, \
-        "Polaris should fail when valid filters jointly select no workload"
+        "TT-Polaris should fail when valid filters jointly select no workload"
 
 
 @pytest.mark.unit
 def test_polaris_accepts_valid_filters(reset_typespec):
     """The rejections above must not cost us the ordinary filtered run."""
     assert polaris.main(BASE_ARGS + ['--filterarch', 'Q1_A1', '--filterwli', 'rn50_b1']) == 0, \
-        "Polaris should run normally when every filter entry names something real"
+        "TT-Polaris should run normally when every filter entry names something real"
 
 
 @pytest.mark.unit

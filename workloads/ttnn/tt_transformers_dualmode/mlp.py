@@ -39,7 +39,7 @@ from workloads.ttnn.tt_transformers_dualmode.ccl import tt_all_reduce
 from workloads.ttnn.tt_transformers_dualmode.model_config import dram_sharded_weight_memcfg
 
 # DRAM-sharded decode matmuls require a sharded output on HW (tt-metal get_mlp_ff1_3_mem_config /
-# get_mlp_ff2_mem_config decode = L1_WIDTH_SHARDED, no-prefetcher). None on Polaris (shim's
+# get_mlp_ff2_mem_config decode = L1_WIDTH_SHARDED, no-prefetcher). None on TT-Polaris (shim's
 # constant is a 0-stub; the None path already gives 713/713). See attention._DECODE_MM_MEMCFG.
 _DECODE_MM_MEMCFG = None if IS_POLARIS else ttnn.L1_WIDTH_SHARDED_MEMORY_CONFIG
 
@@ -80,7 +80,7 @@ class MLP:
 
     def forward(self, x: 'ttnn.Tensor', mode) -> 'ttnn.Tensor':
         """HF reference: self.down_proj(self.act_fn(self.gate_proj(x)) * self.up_proj(x))."""
-        # DRAM-sharded weights -> DRAM-sharded matmul program configs on HW (None on Polaris, and
+        # DRAM-sharded weights -> DRAM-sharded matmul program configs on HW (None on TT-Polaris, and
         # None in prefill which uses a different, non-dram-sharded matmul config — prefill-on-HW is
         # a separate future path). See model_config.dram_matmul_config.
         ff13_pc = self.args.mlp_ff13_decode_program_config() if mode == 'decode' else None
@@ -115,7 +115,7 @@ class MLP:
         # "w2 may use a different core grid"). This is the capture's 32x14336 L1_WIDTH_SHARDED reshard
         # (one per decode block). NOTE: we call ttnn.reshard, not to_memory_config — on real ttnn a
         # sharded->sharded to_memory_config lowers to a single ReshardDeviceOperation (matching the
-        # capture), but the Polaris shim's to_memory_config emits STI+ITS (two ops) for that transition,
+        # capture), but the TT-Polaris shim's to_memory_config emits STI+ITS (two ops) for that transition,
         # whereas ttnn.reshard emits the single Reshard on both paths. Decode-only (prefill mem cfg is None).
         if mode == 'decode':
             w2_in = ttnn.reshard(w2_in, self.args.mlp_binary_mult_mem_config())

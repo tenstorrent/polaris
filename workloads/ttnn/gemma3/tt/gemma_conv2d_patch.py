@@ -6,7 +6,7 @@ Gemma3 Conv2D Patch Embedding
 Reference: tt-metal models/demos/multimodal/gemma3/tt/gemma_conv2d_patch.py
 
 Design note (why patch extraction never touches real pixel data):
-Polaris/ttsim is a shape- and op-graph-driven performance simulator, not a numerics engine.
+TT-Polaris/ttsim is a shape- and op-graph-driven performance simulator, not a numerics engine.
 `ttsim.front.ttnn.Tensor` extends `SimTensor` (ttsim/ops/tensor.py), which tracks shape, dtype,
 and graph linkage -- nothing downstream ever reads real values. The framework's own
 `Tensor(some_ndarray, ...)` constructor path makes this explicit: it reads `.shape`/`.dtype`
@@ -19,10 +19,10 @@ real numpy array.
 This also matches the reference architecturally: tt-metal runs its "unfold" (im2col) step on
 the *host* with torch.nn.Unfold, strictly before the first `ttnn.as_tensor(...)` call, i.e. it
 never touches the Tensix cores at all. Computing the output shape directly (rather than
-tracking it as a ttnn.reshape/permute op) correctly mirrors that: Polaris attributes no
+tracking it as a ttnn.reshape/permute op) correctly mirrors that: TT-Polaris attributes no
 simulated device cost to it, exactly like the real hardware wouldn't. Everything from
 `ttnn.Tensor(...)` / `ttnn.linear(...)` onward below *is* on-device and must go through ttnn
-so Polaris's cost model can see it.
+so TT-Polaris's cost model can see it.
 """
 import numpy as np
 from typing import Optional
@@ -71,7 +71,7 @@ class TtGemmaConv2dPatch(LightweightModule):
         self.num_patches = self.num_patches_per_side ** 2
 
         # Pad the flattened-patch (matmul K) dimension to a tile multiple, exactly like the
-        # reference's `nearest_32(weight.shape[-1])` padding. This is not cosmetic: Polaris's
+        # reference's `nearest_32(weight.shape[-1])` padding. This is not cosmetic: TT-Polaris's
         # matmul cost model keys off the padded/tile shape, so an unpadded K here would make
         # the simulated linear cheaper than it would actually be on tile-based hardware.
         self.padded_patch_dim = nearest_32(self.patch_dim)
@@ -126,7 +126,7 @@ class TtGemmaConv2dPatch(LightweightModule):
             )
 
         # Match the reference's actual kernel config values (fp32_dest_acc_en / packer_l1_acc).
-        # These select the hardware compute path Polaris looks up cost for -- getting them wrong
+        # These select the hardware compute path TT-Polaris looks up cost for -- getting them wrong
         # silently mis-simulates the matmul's cycle count, even though nothing crashes.
         self.compute_kernel_config = ttnn.WormholeComputeKernelConfig(
             math_fidelity=ttnn.MathFidelity.HiFi2,
@@ -144,7 +144,7 @@ class TtGemmaConv2dPatch(LightweightModule):
         (e.g. built via the framework's own ``ttnn.Tensor(array, ...)`` convenience path, which
         keeps shape/dtype but drops the array) -- both expose ``.shape``, and that's all this
         needs. We never fabricate a shape on mismatch; an invalid input raises immediately
-        instead of silently desyncing Polaris's shape tracking.
+        instead of silently desyncing TT-Polaris's shape tracking.
         """
         x_shape = tuple(int(d) for d in x.shape)
         if len(x_shape) != 4:
@@ -161,7 +161,7 @@ class TtGemmaConv2dPatch(LightweightModule):
         return B, num_patches_h * num_patches_w
 
     def forward(self, x):
-        """Everything below is on-device: real ttnn ops so Polaris's cost model actually sees
+        """Everything below is on-device: real ttnn ops so TT-Polaris's cost model actually sees
         and prices the matmul (and bias add). The patch/im2col reshape itself is intentionally
         *not* expressed as a ttnn op -- see module docstring -- since it never runs on the
         simulated device in the reference either."""
@@ -176,7 +176,7 @@ class TtGemmaConv2dPatch(LightweightModule):
         )
 
         # Bias applied outside ttnn.linear to avoid the FUSE_BIAS matmul kernel path -- same as
-        # the reference, and it matters for Polaris because fused-bias vs separate-add can hit
+        # the reference, and it matters for TT-Polaris because fused-bias vs separate-add can hit
         # different entries in the op-cost lookup.
         out = ttnn.linear(
             patches,

@@ -3,7 +3,7 @@
 """
 Gemma3 vision norm tests: the Gemma-specific RMSNorm (mm_soft_emb_norm) and the shared
 TtLayerNorm used for ln_post. Mirrors tt-metal's test_vision_rmsnorm.py
-(run_rmsnorm_inference + run_llama_rms_norm), adapted to Polaris's shape-only mode.
+(run_rmsnorm_inference + run_llama_rms_norm), adapted to TT-Polaris's shape-only mode.
 """
 import os
 import sys

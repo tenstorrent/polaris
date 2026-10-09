@@ -1,6 +1,6 @@
 # Generic PyTorch → TTSim porting guide
 
-This guide illustrates how to change standard PyTorch modules so that they become TTSIM API compliant, and can therefore be simulated with Polaris
+This guide illustrates how to change standard PyTorch modules so that they become TTSIM API compliant, and can therefore be simulated with TT-Polaris
 
 ## Project setup and imports
 
@@ -185,7 +185,7 @@ If your workload has an operator which is not implemented in TTSIM, you need to 
     ONNX
 
 **2) Implement or reuse a `SimOp` class**
-  - Check if the equivalent ONNX operator(s) are missing in Polaris operators at `ttsim/ops/op.py`
+  - Check if the equivalent ONNX operator(s) are missing in TT-Polaris operators at `ttsim/ops/op.py`
   - If the operator(s) are missing, you need to implement them as derived `SimOp` classes. Minimal
     requirement for a such a class is input/output tensor count checks, attribute checks, shape
     inference and precision checks. The `get_perf_counts` method needs to implement the shape inference
@@ -278,7 +278,7 @@ Tips:
 - **Complex Mappings**: If the PyTorch to ONNX is complex, and involves several operators, use a
   `SimNN.Module` instead of `SimOpHandle`
 - **Custom Operators**: Some workloads implement custom operators for efficiency or propriety
-  reasons. It is best to discuss this with Polaris team before embarking on coding/development to
+  reasons. It is best to discuss this with TT-Polaris team before embarking on coding/development to
   support such workloads
 
 ## ONNX model graph generation:

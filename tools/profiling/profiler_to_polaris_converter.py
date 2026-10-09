@@ -3,9 +3,9 @@
 # SPDX-License-Identifier: Apache-2.0
 
 """
-TTNN Profiler to Polaris CSV Converter
+TTNN Profiler to TT-Polaris CSV Converter
 
-Converts TTNN profiler CSV output to Polaris STATS format; column and tensor
+Converts TTNN profiler CSV output to TT-Polaris STATS format; column and tensor
 mapping rules are implemented in this module (``map_optype_to_polaris``,
 ``format_tensors``, etc.).
 """
@@ -157,7 +157,7 @@ def format_tensor_string(name: str, dims: list, datatype: str) -> str:
 
 
 def map_optype_to_polaris(opcode: str, attrs: dict) -> str:
-    """Map profiler operation types to Polaris STATS format (PascalCase).
+    """Map profiler operation types to TT-Polaris STATS format (PascalCase).
 
     Delegates to :func:`~tools.profiling.op_canonical.normalize_profiler_opcode`
     for canonical resolution, then maps to the PascalCase STATS display name.
@@ -167,7 +167,7 @@ def map_optype_to_polaris(opcode: str, attrs: dict) -> str:
 
 
 def get_polaris_column_order() -> list[str]:
-    """Return the column order for Polaris STATS output."""
+    """Return the column order for TT-Polaris STATS output."""
     return [
         'archname', 'devname', 'freq_MHz', 'pipe', 'precision', 'wlgroup', 'wlname', 'wlinstance',
         'batch', 'opnum', 'opname', 'is_input_node', 'is_output_node', 'optype', 'op_rpt_count',
@@ -182,7 +182,7 @@ def get_polaris_column_order() -> list[str]:
 
 def convert_profiler_row_to_polaris(row: dict, freq_mhz: float, row_idx: int) -> dict:
     """
-    Convert a single profiler row to Polaris STATS format.
+    Convert a single profiler row to TT-Polaris STATS format.
     
     Args:
         row: Dictionary containing profiler CSV row data
@@ -190,9 +190,9 @@ def convert_profiler_row_to_polaris(row: dict, freq_mhz: float, row_idx: int) ->
         row_idx: Row index for opnum calculation
         
     Returns:
-        Dictionary with Polaris STATS column names and values
+        Dictionary with TT-Polaris STATS column names and values
     """
-    # Initialize polaris row with NA for all columns
+    # Initialize TT-Polaris row with NA for all columns
     polaris_row = {col: 'NA' for col in get_polaris_column_order()}
     
     # Parse attributes
@@ -410,13 +410,13 @@ def analyze_graph_topology(polaris_rows: list[dict]) -> None:
 
 def convert_profiler_to_polaris(input_file: str, output_file: str, freq_mhz: float) -> None:
     """
-    Convert TTNN profiler CSV to Polaris STATS CSV format.
+    Convert TTNN profiler CSV to TT-Polaris STATS CSV format.
     
-    Output includes all original profiler columns PLUS Polaris columns with 'polaris_' prefix.
+    Output includes all original profiler columns PLUS TT-Polaris columns with 'polaris_' prefix.
     
     Args:
         input_file: Path to input profiler CSV
-        output_file: Path to output Polaris CSV
+        output_file: Path to output TT-Polaris CSV
         freq_mhz: Frequency in MHz for cycle calculations
     """
     # Read profiler CSV
@@ -433,13 +433,13 @@ def convert_profiler_to_polaris(input_file: str, output_file: str, freq_mhz: flo
     
     for idx, profiler_row in enumerate(profiler_rows):
         try:
-            # Get Polaris mapping
+            # Get TT-Polaris mapping
             polaris_row = convert_profiler_row_to_polaris(profiler_row, freq_mhz, idx)
             
             # Create output row with all original columns
             output_row = profiler_row.copy()
             
-            # Add Polaris columns with 'polaris_' prefix
+            # Add TT-Polaris columns with 'polaris_' prefix
             for col in polaris_columns:
                 output_row[f'polaris_{col}'] = polaris_row.get(col, '')
             
@@ -450,16 +450,16 @@ def convert_profiler_to_polaris(input_file: str, output_file: str, freq_mhz: flo
             logger.error(f"Failed to convert row {idx} (OP CODE: {op_code}, GLOBAL CALL COUNT: {global_call_count}): {e}")
             raise
     
-    # Analyze graph topology on the Polaris rows
+    # Analyze graph topology on the TT-Polaris rows
     polaris_rows_for_topology = [row[1] for row in output_rows]
     analyze_graph_topology(polaris_rows_for_topology)
     
-    # Update the Polaris columns in output rows with topology info
+    # Update the TT-Polaris columns in output rows with topology info
     for i, (output_row, polaris_row) in enumerate(output_rows):
         output_row['polaris_is_input_node'] = polaris_rows_for_topology[i]['is_input_node']
         output_row['polaris_is_output_node'] = polaris_rows_for_topology[i]['is_output_node']
     
-    # Build output fieldnames: all original + prefixed Polaris columns
+    # Build output fieldnames: all original + prefixed TT-Polaris columns
     polaris_prefixed = [f'polaris_{col}' for col in polaris_columns]
     output_fieldnames = list(input_fieldnames) + polaris_prefixed
     
@@ -476,7 +476,7 @@ def convert_profiler_to_polaris(input_file: str, output_file: str, freq_mhz: flo
 def parse_args():
     """Parse command-line arguments."""
     parser = argparse.ArgumentParser(
-        description='Convert TTNN Profiler CSV to Polaris STATS CSV format',
+        description='Convert TTNN Profiler CSV to TT-Polaris STATS CSV format',
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Example usage (from repository root):
@@ -490,7 +490,7 @@ Mapping details: implemented in this module (see ``map_optype_to_polaris``,
     parser.add_argument('--input', type=str, required=True,
                         help='Input profiler CSV file')
     parser.add_argument('--output', type=str, required=True,
-                        help='Output Polaris CSV file')
+                        help='Output TT-Polaris CSV file')
     parser.add_argument('--freq-mhz', type=float, required=True,
                         help='Frequency in MHz for cycle calculations (mandatory)')
     

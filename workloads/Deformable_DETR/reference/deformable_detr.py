@@ -23,7 +23,7 @@ from torch import nn
 import math
 import numpy as np
 
-# TTSim imports for polaris integration
+# TTSim imports for TT-Polaris integration
 import ttsim.front.functional.op as TF
 import ttsim.front.functional.tensor_op as T
 import ttsim.front.functional.sim_nn as SimNN
@@ -40,7 +40,7 @@ from workloads.Deformable_DETR.reference.misc import (
     inverse_sigmoid,
 )
 
-# Use absolute imports for polaris compatibility
+# Use absolute imports for TT-Polaris compatibility
 from workloads.Deformable_DETR.reference.backbone import build_backbone
 from workloads.Deformable_DETR.reference.matcher import build_matcher
 from workloads.Deformable_DETR.reference.segmentation import (
@@ -78,8 +78,8 @@ class DeformableDETR(nn.Module):
     ):
         """Initializes the model.
         Parameters:
-            name: model name (for polaris integration)
-            cfg: dict with configuration for polaris integration (optional)
+            name: model name (for TT-Polaris integration)
+            cfg: dict with configuration for TT-Polaris integration (optional)
             backbone: torch module of the backbone to be used. See backbone.py (optional if cfg provided)
             transformer: torch module of the transformer architecture. See transformer.py (optional if cfg provided)
             num_classes: number of object classes (optional if cfg provided)
@@ -92,7 +92,7 @@ class DeformableDETR(nn.Module):
         """
         super().__init__()
 
-        # Handle cfg-based initialization for polaris
+        # Handle cfg-based initialization for TT-Polaris
         if cfg is not None and isinstance(cfg, dict):
             if name:
                 cfg["name"] = name
@@ -177,8 +177,8 @@ class DeformableDETR(nn.Module):
                 nn.init.constant_(box_embed.layers[-1].bias.data[2:], 0.0)
 
     def _init_from_config(self, cfg):
-        """Initialize model from config dict for polaris integration"""
-        # This is a simplified initialization for polaris
+        """Initialize model from config dict for TT-Polaris integration"""
+        # This is a simplified initialization for TT-Polaris
         # Extract config parameters
         self.name = cfg.get("name", "deformable_detr")
         self.bs = cfg.get("bs", 1)
@@ -198,13 +198,13 @@ class DeformableDETR(nn.Module):
         # Build a simplified backbone using ttsim operations
         self._build_ttsim_backbone()
 
-        # For polaris, we'll use a simplified architecture
+        # For TT-Polaris, we'll use a simplified architecture
         self.aux_loss = False
         self.with_box_refine = False
         self.two_stage = False
 
     def _build_ttsim_backbone(self):
-        """Build simplified backbone using ttsim operations for polaris"""
+        """Build simplified backbone using ttsim operations for TT-Polaris"""
         # Backbone stages
         self.conv1 = TF.Conv2d(
             f"{self.name}.backbone.conv1",
@@ -316,7 +316,7 @@ class DeformableDETR(nn.Module):
            - "aux_outputs": Optional, only returned when auxilary losses are activated. It is a list of
                             dictionnaries containing the two above keys for each decoder layer.
         """
-        # Handle polaris/ttsim mode
+        # Handle TT-Polaris/ttsim mode
         if x_in is not None:
             return self._forward_ttsim(x_in)
 
@@ -393,7 +393,7 @@ class DeformableDETR(nn.Module):
         return out
 
     def _forward_ttsim(self, x):
-        """Forward pass using ttsim operations for polaris integration"""
+        """Forward pass using ttsim operations for TT-Polaris integration"""
         batch = x.shape[0]
 
         # Backbone feature extraction
@@ -489,13 +489,13 @@ class DeformableDETR(nn.Module):
 
         return final_output
 
-    # ===== Polaris Integration Methods =====
+    # ===== TT-Polaris Integration Methods =====
     def set_batch_size(self, new_bs):
-        """Set batch size for polaris"""
+        """Set batch size for TT-Polaris"""
         self.bs = new_bs
 
     def create_input_tensors(self):
-        """Create input tensors for polaris integration"""
+        """Create input tensors for TT-Polaris integration"""
         self.input_tensors = {
             "x_in": TF._from_shape(
                 "x_in",
@@ -507,7 +507,7 @@ class DeformableDETR(nn.Module):
         return
 
     def get_forward_graph(self):
-        """Get forward computation graph for polaris integration"""
+        """Get forward computation graph for TT-Polaris integration"""
         # Import WorkloadGraph here to avoid circular imports
         from ttsim.graph import WorkloadGraph
 
@@ -564,11 +564,11 @@ class DeformableDETR(nn.Module):
                 tbl[k] = v.sim_op
 
     def analytical_param_count(self):
-        """Return parameter count for polaris integration"""
+        """Return parameter count for TT-Polaris integration"""
         return 0
 
     def __call__(self, x=None):
-        """Call method for polaris integration"""
+        """Call method for TT-Polaris integration"""
         if x is None:
             # Use input_tensors if available
             if hasattr(self, "input_tensors") and "x_in" in self.input_tensors:

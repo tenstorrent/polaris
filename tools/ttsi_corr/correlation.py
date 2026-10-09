@@ -63,7 +63,7 @@ type ScoreDict = dict[ScoreTuple, dict[str, float]]
 
 def read_scores(filepath: Path, default_precision: str | None) -> ScoreDict:
     """
-    Read actual scores from Polaris simulation output JSON file.
+    Read actual scores from TT-Polaris simulation output JSON file.
 
     Parses the simulation summary JSON and extracts performance scores,
     creating a dictionary keyed by (workload, device, api, instance).

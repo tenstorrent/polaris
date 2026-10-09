@@ -1,11 +1,11 @@
 # SPDX-FileCopyrightText: (C) 2025 Tenstorrent AI ULC
 # SPDX-License-Identifier: Apache-2.0
 
-"""Polaris-side device performance reporting.
+"""TT-Polaris-side device performance reporting.
 
 Provides the same dict-shaped output as tt-metal's ``run_device_perf`` so
-that HW and Polaris perf results can be compared side-by-side.  Unlike HW,
-Polaris is deterministic — cycle estimates come from the analytical model
+that HW and TT-Polaris perf results can be compared side-by-side.  Unlike HW,
+TT-Polaris is deterministic — cycle estimates come from the analytical model
 rather than Tracy profiling, so MIN/MAX/AVG are identical.
 """
 
@@ -36,21 +36,21 @@ def run_device_perf_polaris(
     wlmapspec: str = _DEFAULT_WLMAPSPEC,
     devname: str = _DEFAULT_DEVNAME,
 ) -> dict[str, Any]:
-    """Run *test_fn* on Polaris and return perf metrics in the same shape as
+    """Run *test_fn* on TT-Polaris and return perf metrics in the same shape as
     tt-metal's ``run_device_perf``.
 
     Parameters
     ----------
     test_fn:
         A callable ``(device, batch_size) -> device`` that builds the op graph
-        on a Polaris front-end device and returns it.
+        on a TT-Polaris front-end device and returns it.
     batch_size:
         Batch size forwarded to *test_fn* and used for samples/s calculation.
     cols:
         Column name prefixes (e.g. ``["DEVICE FW", "DEVICE KERNEL"]``).
         Used to construct the result dict keys, matching the HW format.
     archspec, wlmapspec, devname:
-        Paths to Polaris config files and target device name.
+        Paths to TT-Polaris config files and target device name.
     """
     from ttsim.front.ttnn.device import open_device, close_device
 
@@ -88,7 +88,7 @@ def run_device_perf_polaris(
     results["_polaris_summary"] = summary
 
     logger.info(
-        "\nPolaris analytical device perf"
+        "\nTT-Polaris analytical device perf"
         "\n{}\n",
         json.dumps(
             {k: v for k, v in results.items() if not k.startswith("_")},
@@ -106,7 +106,7 @@ def prep_device_perf_report_polaris(
     output_dir: str | Path = "__polaris_perf_reports",
     comments: str = "",
 ) -> Path:
-    """Write a JSON report of Polaris perf results.
+    """Write a JSON report of TT-Polaris perf results.
 
     Returns the path to the written report file.
     """
@@ -141,5 +141,5 @@ def prep_device_perf_report_polaris(
     with open(report_path, "w") as f:
         json.dump(report, f, indent=4, default=str)
 
-    logger.info("Polaris device perf report written to {}", report_path)
+    logger.info("TT-Polaris device perf report written to {}", report_path)
     return report_path

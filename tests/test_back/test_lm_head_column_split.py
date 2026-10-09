@@ -21,7 +21,7 @@ _DIM = 4096
 
 
 def _build_lm_head_graph():
-    """A one-matmul graph mimicking the POLARIS lm_head: x[1,1,32,dim] @ W[dim,vocab] -> [1,1,32,vocab]."""
+    """A one-matmul graph mimicking the TT-Polaris lm_head: x[1,1,32,dim] @ W[dim,vocab] -> [1,1,32,vocab]."""
     dev = open_device()
     set_default_device(dev)
     x = ttnn.zeros([1, 1, 32, _DIM], dtype=ttnn.bfloat16, layout=ttnn.TILE_LAYOUT, device=dev)

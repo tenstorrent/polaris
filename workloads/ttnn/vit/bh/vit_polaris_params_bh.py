@@ -2,7 +2,7 @@
 # SPDX-FileCopyrightText: (C) 2025 Tenstorrent AI ULC
 # SPDX-License-Identifier: Apache-2.0
 
-"""Synthetic parameter trees and config for Polaris-side BH ViT (optimized sharded).
+"""Synthetic parameter trees and config for TT-Polaris-side BH ViT (optimized sharded).
 
 Mirrors ``vit_polaris_params_wh.py`` (which targets Wormhole) but configures the
 core grid for Blackhole.  Shared by ``run_ttnn_optimized_sharded_vit_bh.py``
@@ -177,7 +177,7 @@ def polaris_parameters_vit_encoder():
 
 
 def polaris_vit_parameters(*, num_labels: int = 1152):
-    """Full ViT parameter tree for POLARIS.
+    """Full ViT parameter tree for TT-Polaris.
     Note: classifier is padded from 1000 to 1152 for tile alignment."""
     hidden = config_dict["hidden_size"]
 

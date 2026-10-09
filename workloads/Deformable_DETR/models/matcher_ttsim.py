@@ -55,7 +55,7 @@ Properly documented as test-validation only step
 ✓ Operations properly decomposed and sequenced
 ✓ Numerical computation only when data available
 ✓ Comprehensive documentation of design choices
-The converted module is now production-ready for Polaris TTSim simulation and validation workflows
+The converted module is now production-ready for TT-Polaris TTSim simulation and validation workflows
 """
 
 import os, sys

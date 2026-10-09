@@ -4,7 +4,7 @@
 """
 Validation script for HardSimpleVFE and HardSimpleVFE_ATT TTSim modules.
 
-Run from polaris root:
+Run from TT-Polaris root:
     python3 workloads/EA-LSS/Reference/Validation/test_voxel_encoder.py
 
 Note: TTSim transpose and reduce-max ops do not propagate data.

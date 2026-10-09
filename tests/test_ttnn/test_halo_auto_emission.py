@@ -6,7 +6,7 @@
 
 On Tenstorrent hardware, halo extraction is dispatched implicitly by the conv and
 pool kernels.  The ttnn shim mirrors this by auto-emitting a Halo SimOp before each
-Conv / MaxPool / ConvTranspose SimOp so that profiler-vs-Polaris sequence matching
+Conv / MaxPool / ConvTranspose SimOp so that profiler-vs-TT-Polaris sequence matching
 finds a corresponding entry for every hardware halo row.
 """
 

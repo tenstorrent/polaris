@@ -8,7 +8,7 @@ Demonstrates every stage of the EA-LSS pipeline in sequence, printing the
 TTSim tensor shape at each step.  The same input flows through every
 converted ttsim_module in the model, matching the real production path.
 
-Run from polaris root:
+Run from TT-Polaris root:
     python3 workloads/EA-LSS/Reference/Validation/test_ealss.py
 """
 

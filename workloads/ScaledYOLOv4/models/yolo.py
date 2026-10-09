@@ -9,7 +9,7 @@
 
 import os, sys
 
-# Add polaris root to path (need to go up 3 levels: Yolo -> ScaledYolov4 -> workloads -> polaris)
+# Add TT-Polaris root to path (need to go up 3 levels: Yolo -> ScaledYolov4 -> workloads -> polaris)
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "../../.."))
 
 import math

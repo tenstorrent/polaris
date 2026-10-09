@@ -24,7 +24,7 @@ Test Coverage:
 import os
 import sys
 
-# Polaris root (contains ttsim/)
+# TT-Polaris root (contains ttsim/)
 _polaris_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../../.."))
 if _polaris_root not in sys.path:
     sys.path.insert(0, _polaris_root)

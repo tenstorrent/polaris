@@ -2,7 +2,7 @@
 # SPDX-FileCopyrightText: (C) 2026 Tenstorrent AI ULC
 # SPDX-License-Identifier: Apache-2.0
 """
-Generator module for Polaris - Pure NumPy + TTNN implementation (no PyTorch)
+Generator module for TT-Polaris - Pure NumPy + TTNN implementation (no PyTorch)
 """
 import os
 import sys
@@ -14,7 +14,7 @@ from typing import Any, Dict, List, Optional, Tuple, Union, Iterator, DefaultDic
 
 import numpy as np
 
-# Use ttsim.front.ttnn for Polaris (simulation environment)
+# Use ttsim.front.ttnn for TT-Polaris (simulation environment)
 import ttsim.front.ttnn as ttnn
 from loguru import logger
 

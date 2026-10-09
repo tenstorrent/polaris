@@ -3,7 +3,7 @@
 """
 Gemma3 Conv2D Patch Embedding test.
 Mirrors tt-metal's models/demos/multimodal/gemma3/tests/test_patch_embedding.py
-(run_conv2d_inference), adapted to Polaris's shape-only simulation mode.
+(run_conv2d_inference), adapted to TT-Polaris's shape-only simulation mode.
 """
 import os
 import sys

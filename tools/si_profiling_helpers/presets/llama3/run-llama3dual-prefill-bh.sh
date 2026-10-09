@@ -2,7 +2,7 @@
 # SPDX-FileCopyrightText: (C) 2026 Tenstorrent AI ULC
 # SPDX-License-Identifier: Apache-2.0
 # Run from the tt-metal checkout root. Prereqs: see ../si_profiling_helpers/presets/README.md
-# Dual-mode-on-HW validation: runs the migrated Polaris llama3 prefill workload through its
+# Dual-mode-on-HW validation: runs the migrated TT-Polaris llama3 prefill workload through its
 # real-ttnn branch (selected because IRD_ARCH_NAME is set). Compare against the matching
 # run-llama3ref-prefill preset to confirm dual-mode perf tracks the HW reference.
 source "$(dirname "$0")/../check_arch.sh"; require_arch blackhole

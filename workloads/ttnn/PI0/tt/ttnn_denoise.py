@@ -46,7 +46,7 @@ class DenoisingModuleTTNN:
         """
         Create initial noise tensor.
 
-        Polaris/TTSim does not support random generation,
+        TT-Polaris/TTSim does not support random generation,
         so use zeros placeholder tensor.
         """
 

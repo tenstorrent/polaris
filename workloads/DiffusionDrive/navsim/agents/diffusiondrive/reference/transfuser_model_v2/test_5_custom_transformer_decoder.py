@@ -11,7 +11,7 @@ import sys
 
 # Add DiffusionDrive to path for navsim imports
 sys.path.append(os.path.join(os.path.dirname(__file__), "../../../../.."))
-# Add polaris to path for ttsim imports
+# Add TT-Polaris to path for ttsim imports
 sys.path.append(os.path.join(os.path.dirname(__file__), "../../../../../../.."))
 import warnings
 

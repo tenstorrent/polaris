@@ -1,7 +1,7 @@
 # SPDX-FileCopyrightText: (C) 2025 Tenstorrent AI ULC
 # SPDX-License-Identifier: Apache-2.0
 
-"""Tests for the polaris-side mimic of tt-metal's conv2d parallel-config picker.
+"""Tests for the TT-Polaris-side mimic of tt-metal's conv2d parallel-config picker.
 
 Ground-truth values come from cross-referencing the VGG UNet BH p100a refrun CSV
 (``__refrun_cache/vgg_unet/bh/p100a/merged_ops_dualref_260519.csv``): each HW

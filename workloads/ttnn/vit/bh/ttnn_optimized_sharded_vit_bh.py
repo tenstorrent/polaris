@@ -2,7 +2,7 @@
 # SPDX-FileCopyrightText: (C) 2025 Tenstorrent AI ULC
 # SPDX-License-Identifier: Apache-2.0
 
-"""Polaris-side BH optimized sharded ViT.
+"""TT-Polaris-side BH optimized sharded ViT.
 
 Mirrors ``ttnn_optimized_sharded_vit_wh.py``: same SimOp graph topology,
 same fused-op choices (linear+bias, linear+gelu, nlp_create_qkv_heads,
@@ -83,7 +83,7 @@ def vit_patch_embeddings(config, pixel_values, *, parameters, unittest_check=Fal
 
     # BH HW emits ``UntilizeWithUnpadding`` (not plain ``Untilize``) here
     # because the matmul output is tile-padded along the row dim and the
-    # post-tilize row-major view is the unpadded shape.  Polaris's matmul
+    # post-tilize row-major view is the unpadded shape.  TT-Polaris's matmul
     # output sets padded_shape == logical_shape, so a plain ``to_layout``
     # would route to ``untilize_op`` and we would lose parity.  Use the
     # SimOp factory directly so the trace shows ``UntilizeWithUnpadding``.
@@ -218,9 +218,9 @@ def vit_attention(
     context_layer.layout = ttnn.TILE_LAYOUT
 
     # NOTE: BH HW does NOT reshard between concat_heads and the output
-    # projection (whereas WH HW does — and the WH polaris model keeps the
+    # projection (whereas WH HW does — and the WH TT-Polaris model keeps the
     # reshard for parity).  Profiler comparison on BH (compare_layers) showed
-    # 12 extra reshard ops in the polaris trace that were absent in the BH
+    # 12 extra reshard ops in the TT-Polaris trace that were absent in the BH
     # profiler trace; they were dropped to land BH at parity.  See
     # workloads/ttnn/vit/MIGRATION.md.
 

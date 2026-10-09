@@ -67,7 +67,7 @@ except ImportError:
         yaml_labeled_key_to_tuple,
     )
 
-# Polaris matmul layer type (first key field); must match tt_perf_mapper.POLARIS_LAYER_MATMUL.
+# TT-Polaris matmul layer type (first key field); must match tt_perf_mapper.POLARIS_LAYER_MATMUL.
 _POLARIS_LAYER_MATMUL = "matmul"
 
 

@@ -2,9 +2,9 @@
 # SPDX-FileCopyrightText: (C) 2025 Tenstorrent AI ULC
 # SPDX-License-Identifier: Apache-2.0
 """
-Polaris workload wrapper for the EA-LSS multi-modal 3-D detector.
+TT-Polaris workload wrapper for the EA-LSS multi-modal 3-D detector.
 
-Polaris interface:
+TT-Polaris interface:
     polaris.py -w config/ip_workloads.yaml -a config/all_archs.yaml \
                -m config/wl2archmapping.yaml --filterwlg ttsim --filterwl EALSS \
                -o ODDIR_ealss -s SIMPLE_RUN --outputformat json
@@ -36,7 +36,7 @@ for _p in [_polaris_root, _ealss_root]:
     if _p not in sys.path:
         sys.path.insert(0, _p)
 
-# ── TTSim / Polaris imports ─────────────────────────────────────────────────
+# ── TTSim / TT-Polaris imports ─────────────────────────────────────────────────
 import ttsim.front.functional.op     as F
 import ttsim.front.functional.sim_nn as SimNN
 from ttsim.front.functional.op import _from_shape
@@ -54,7 +54,7 @@ from workloads.EA_LSS.ttsim_modules.transfusion_head import TransFusionHead
 
 class EA_LSS(SimNN.Module):
     """
-    EA-LSS multi-modal 3-D detector — polaris workload class.
+    EA-LSS multi-modal 3-D detector — TT-Polaris workload class.
 
     cfg keys (all optional, defaults mirror nuScenes EA-LSS):
         bs              (int)   batch size                          [1]
@@ -160,7 +160,7 @@ class EA_LSS(SimNN.Module):
 
         super().link_op2module()
 
-    # ── Polaris interface ───────────────────────────────────────────────────
+    # ── TT-Polaris interface ───────────────────────────────────────────────────
 
     def set_batch_size(self, new_bs: int):
         self.bs = new_bs
@@ -197,11 +197,11 @@ class EA_LSS(SimNN.Module):
 
     def _forward(self, img):
         """
-        EA-LSS polaris forward pass.
+        EA-LSS TT-Polaris forward pass.
 
         NOTE: Camera backbone (CBSwinTransformer), neck (FPNC), and
         LiftSplatShoot are skipped here because they contain inline dynamic
-        ops incompatible with polaris graph construction. The img_bev tensor
+        ops incompatible with TT-Polaris graph construction. The img_bev tensor
         is provided as a pre-registered proxy in input_tensors.
         The LiDAR path (SECOND + SECONDFPN), BEV fusion, and TransFusionHead
         are fully graph-traced.

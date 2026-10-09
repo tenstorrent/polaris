@@ -123,7 +123,7 @@ class SECONDFPN(SimNN.Module):
 
         # Register relu and concat ops so link_op2module tracks them and their
         # output tensors are auto-stored in _tensors when fired — required for
-        # polaris graph construction.
+        # TT-Polaris graph construction.
         for i in range(self.num_deblocks):
             setattr(self, f"relu{i}", F.Relu(f"{name}.relu{i}"))
         if self.num_deblocks > 1:

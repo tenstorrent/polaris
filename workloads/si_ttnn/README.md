@@ -1,9 +1,9 @@
 # SI TTNN Workloads
 
 This directory contains TTNN (Tenstorrent Neural Network) workload implementations for silicon-specific models and operations.
-Note that these are intended to be run on TT Silicon, and not on polaris. 
-These models are hosted in the polaris repository, since these have been written for
-the purpose of performance correlation with polaris.
+Note that these are intended to be run on TT Silicon, and not on TT-Polaris. 
+These models are hosted in the TT-Polaris repository, since these have been written for
+the purpose of performance correlation with TT-Polaris.
 
 ## Overview
 

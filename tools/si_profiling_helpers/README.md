@@ -8,7 +8,7 @@ This repository contains helper scripts that codify common tt-metal development 
 
 ## Installation & Setup
 
-These scripts are part of the **Polaris** repository but are designed to work alongside **tt-metal** and **tt-npe** repositories. For use on IRD systems, the scripts need to be copied to the target machine.
+These scripts are part of the **TT-Polaris** repository but are designed to work alongside **tt-metal** and **tt-npe** repositories. For use on IRD systems, the scripts need to be copied to the target machine.
 
 ### Recommended Directory Structure
 
@@ -34,7 +34,7 @@ workspace/
 ### Copying Scripts to IRD Systems
 
 ```bash
-# From your local machine with polaris repository
+# From your local machine with TT-Polaris repository
 cd /path/to/polaris/tools/si_profiling_helpers
 
 # Copy to IRD system

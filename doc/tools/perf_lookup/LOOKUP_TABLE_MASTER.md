@@ -24,7 +24,7 @@ Given simulator `core_count` (from `resolve_operator_lookup_core_count`):
 | **curve** | Evaluate each requested stat via `curve_family` and that stat’s `a` / `b` at `core_count`. |
 | **hybrid** | If **`hybrid.curve`** is present **and** curve mode is enabled (`OperatorPerfMap(..., use_hybrid_curve=True)`, or package / CLI `operator_lookup_hybrid_curve`), evaluate resolved stats from `hybrid.curve` at `core_count`. Otherwise use **`hybrid.single`** like **single** above. |
 
-### LUT validation (Polaris `OperatorPerfMap`)
+### LUT validation (TT-Polaris `OperatorPerfMap`)
 
 On a **lookup hit** (key match and `msecs` resolves), the simulator **requires** finite **`matrix_pipe_util`** and **`vector_pipe_util`** (after single read or curve/hybrid evaluation). **0 is allowed.**
 
@@ -37,7 +37,7 @@ Violations raise **`OperatorPerfLUTValidationError`** with **`file=`** and **`ke
 
 **Curve / `hybrid.curve`:** Include regression blocks for **both** `matrix_pipe_util` and `vector_pipe_util` so both resolve at runtime `core_count` (omit either → validation error on hit).
 
-## Polaris key bridge
+## TT-Polaris key bridge
 
 ### One-input ops (8-tuple)
 

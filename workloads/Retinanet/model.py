@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # SPDX-FileCopyrightText: (C) 2025 Tenstorrent AI ULC
 # SPDX-License-Identifier: Apache-2.0
-# Updated RetinaNet for Polaris Hardware Tracing
+# Updated RetinaNet for TT-Polaris Hardware Tracing
 
 """ Parts of the Retinanet model """
 import os, sys
@@ -22,7 +22,7 @@ class PyramidFeatures(SimNN.Module):
         self.P5_upsampled = F.Upsample(f"{self.name}_P5_upsample", scale_factor=2, mode="nearest")
         self.P4_upsampled = F.Upsample(f"{self.name}_P4_upsample", scale_factor=2, mode="nearest")
         
-        # Using the standard pattern caused the Polaris backend to lose
+        # Using the standard pattern caused the TT-Polaris backend to lose
         # input-to-output connectivity, triggering 'tuple' attribute errors during get_ordered_nodes() calls.
 
         self.P5_upsampled.ipos = [0, 1]
@@ -44,14 +44,14 @@ class PyramidFeatures(SimNN.Module):
 
         # P5
         p5_x = self.P5_1(C5)
-        # We pass the target tensor (C4) as a second argument to Upsample to satisfy Polaris backend hardware assertions regarding output shape.
+        # We pass the target tensor (C4) as a second argument to Upsample to satisfy TT-Polaris backend hardware assertions regarding output shape.
         p5_upsampled_x = self.P5_upsampled(p5_x, C4)  # type: ignore[call-arg]
         p5_out = self.P5_2(p5_x)
 
         # P4
         p4_x = self.P4_1(C4)
         p4_x = p4_x + p5_upsampled_x
-        # Passing C3 as the second argument is required for Polaris backend assertions.
+        # Passing C3 as the second argument is required for TT-Polaris backend assertions.
         p4_upsampled_x = self.P4_upsampled(p4_x, C3) # type: ignore[call-arg]
         p4_out = self.P4_2(p4_x)
 
@@ -292,7 +292,7 @@ class RetinaNet(SimNN.Module):
 
     def create_input_tensors(self) -> None:
         """
-        Create default input tensors for Polaris/TTSIM:
+        Create default input tensors for TT-Polaris/TTSIM:
         - anchors_in: anchors as a SimTensor
         - x_in: dummy image input   <-- THIS LINE IS THE FIX
         """
@@ -349,7 +349,7 @@ class RetinaNet(SimNN.Module):
         return GG
 
     def analytical_param_count(self, lvl: int = 0) -> int:
-        # Polaris just logs this; stub is fine
+        # TT-Polaris just logs this; stub is fine
         return 0
     
 def resnet18_backbone(objname):

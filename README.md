@@ -1,5 +1,5 @@
 [![Python 3.13](https://img.shields.io/badge/python-3.13-blue.svg)](https://www.python.org/downloads/release/python-3132/)
-&nbsp;&nbsp;&nbsp;![Checkin Tests](https://github.com/tenstorrent/polaris/actions/workflows/checkin_tests.yml/badge.svg?branch=main)
+&nbsp;&nbsp;&nbsp;![Checkin Tests](https://github.com/tenstorrent/tt-polaris/actions/workflows/checkin_tests.yml/badge.svg?branch=main)
 &nbsp;&nbsp;&nbsp;![Coverage](https://img.shields.io/endpoint?url=https://gist.githubusercontent.com/ssapreTT/c230835a5065366c13d3bbfb79f23bf6/raw/polaris_coverage_badge.json)
 &nbsp;&nbsp;&nbsp;![Unit Tests](https://img.shields.io/endpoint?url=https://gist.githubusercontent.com/ssapreTT/c230835a5065366c13d3bbfb79f23bf6/raw/polaris_tests_badge.json)
 &nbsp;&nbsp;&nbsp;![MyPy](https://img.shields.io/endpoint?url=https://gist.githubusercontent.com/ssapreTT/c230835a5065366c13d3bbfb79f23bf6/raw/polaris_mypy_status.json)
@@ -7,12 +7,12 @@
 
 <!-- RTL/NeoSim badges -->
 <!--
-![NeoSim Checkin Tests](https://github.com/tenstorrent/polaris/actions/workflows/neosim_checkin_tests.yml/badge.svg?branch=main)
+![NeoSim Checkin Tests](https://github.com/tenstorrent/tt-polaris/actions/workflows/neosim_checkin_tests.yml/badge.svg?branch=main)
 &nbsp;&nbsp;&nbsp;![RTL Status](https://img.shields.io/endpoint?url=https://gist.githubusercontent.com/ssapreTT/c230835a5065366c13d3bbfb79f23bf6/raw/polaris_rtl_scurve_status.json)
 &nbsp;&nbsp;&nbsp;![RTL Correlation](https://img.shields.io/endpoint?url=https://gist.githubusercontent.com/ssapreTT/c230835a5065366c13d3bbfb79f23bf6/raw/polaris_rtl_scurve_ratio_geomean.json)
 -->
 
-<img alt="Polaris logo" src="doc/polaris_logo.png" height="200">
+<img alt="TT-Polaris logo" src="doc/polaris_logo.png" height="200">
 </picture>
 
 <p>
@@ -27,7 +27,7 @@ Yet Another High Level AI Simulator
 - [Introduction](#introduction)
 - [Installation](#installation)
   - [Prerequisites](#prerequisites)
-  - [Download Polaris](#download-polaris)
+  - [Download TT-Polaris](#download-tt-polaris)
   - [Environment Setup](#environment-setup)
     - [User Environment](#user-environment)
     - [Developer Environment](#developer-environment)
@@ -43,7 +43,7 @@ Yet Another High Level AI Simulator
 - [Support](#support)
 
 ## Introduction
-*polaris* is a high level simulator for performance analysis of AI architectures. It takes as input an *AI Workload* and an *Architecture Configuration*. It represents the input workload into an in-memory directed acyclic graph (DAG) data structure, where each node represents a *computation* or a *communication* operator, and each edge represents a *dataflow*. The graph data structure represents an *intermediate representation* (IR) for the Simulator virtual machine (VM). We can execute various graph transformations, and eventually schedule the DAG on a *backend* for performance analysis.
+*TT-Polaris* is a high level simulator for performance analysis of AI architectures. It takes as input an *AI Workload* and an *Architecture Configuration*. It represents the input workload into an in-memory directed acyclic graph (DAG) data structure, where each node represents a *computation* or a *communication* operator, and each edge represents a *dataflow*. The graph data structure represents an *intermediate representation* (IR) for the Simulator virtual machine (VM). We can execute various graph transformations, and eventually schedule the DAG on a *backend* for performance analysis.
 
 ## Installation
 
@@ -51,8 +51,8 @@ Yet Another High Level AI Simulator
 - Python 3.13 or higher
 - Miniforge package manager
 
-### Download Polaris
-Execute ```git clone https://github.com/tenstorrent/polaris.git```
+### Download TT-Polaris
+Execute ```git clone https://github.com/tenstorrent/tt-polaris.git```
 
 ### Environment Setup
 The recommended setup uses Python with the Miniforge installation manager. It is expected that the reader is familiar with conda environments, creating and switching between environments. One can familiarize oneself with these concepts at [Conda Getting Started](https://docs.conda.io/projects/conda/en/latest/user-guide/getting-started.html).
@@ -76,7 +76,7 @@ The recommended setup uses Python with the Miniforge installation manager. It is
     ```
 
 #### User Environment Setup
-1. Create and activate the Polaris environment. The conda environment will
+1. Create and activate the TT-Polaris environment. The conda environment will
    be created with the name 'polaris'. If you wish to provide a different name to the environment, run the command
    `conda env create --file environment.yaml --name <name-of-your-choice>` instead.
    ```bash
@@ -185,7 +185,7 @@ The workload mapping specification file (`wlmapspec`) defines:
 ### Output and Analysis
 
 #### Output Formats
-Polaris supports multiple output formats:
+TT-Polaris supports multiple output formats:
 - YAML: Human-readable structured format
 - JSON: Web-friendly format
 - Pickle: Binary format for Python objects
@@ -248,11 +248,11 @@ Each operator in the statistics output includes:
 
 ## Performance Correlation Tools
 
-Polaris includes tools for correlating simulated performance with measured hardware performance.
+TT-Polaris includes tools for correlating simulated performance with measured hardware performance.
 
 ### Tensix-Metal Correlation
 
-The correlation tool compares Polaris simulation results with actual hardware measurements from TT-Metal.
+The correlation tool compares TT-Polaris simulation results with actual hardware measurements from TT-Metal.
 
 **Quick Start:**
 ```bash
@@ -271,7 +271,7 @@ python tools/run_ttsi_corr.py \
 
 #### Reference Data Tags
 
-Polaris maintains versioned snapshots of TT-Metal reference performance data using tags:
+TT-Polaris maintains versioned snapshots of TT-Metal reference performance data using tags:
 
 - **What are tags?** Tags identify specific versions of TT-Metal hardware measurements (e.g., `03nov25` = November 3, 2025 measurements)
 - **Current default:** The default tag is automatically updated to use the latest reference data
@@ -283,7 +283,7 @@ Polaris maintains versioned snapshots of TT-Metal reference performance data usi
   3. Run correlation with the same tag: `python tools/run_ttsi_corr.py --tag <YOUR_TAG>`
 
 **Features:**
-- Automated correlation analysis between Polaris and TT-Metal
+- Automated correlation analysis between TT-Polaris and TT-Metal
 - XLSX and CSV export with formulas and formatting
 - Geometric mean calculation for aggregate metrics
 - Support for multiple input formats (markdown, directories, URLs)
@@ -312,6 +312,6 @@ python tools/parse_ttsi_perf_results.py \
 
 ## Support
 For issues and questions:
-- Check the project repository: https://github.com/tenstorrent/polaris
+- Check the project repository: https://github.com/tenstorrent/tt-polaris
 - Review existing issues or create new ones
 - Consult the development team for advanced support

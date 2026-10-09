@@ -2,7 +2,7 @@
 # SPDX-FileCopyrightText: (C) 2026 Tenstorrent AI ULC
 # SPDX-License-Identifier: Apache-2.0
 """
-Gemma3 Model Configuration for Polaris/ttsim.
+Gemma3 Model Configuration for TT-Polaris/ttsim.
 """
 import gc
 import json
@@ -37,7 +37,7 @@ def _dummy_param(shape, dtype=np.float32, fill=0.0):
     """
     Shape/dtype-correct placeholder for a "dummy weights" simulation run.
 
-    Polaris/ttsim never reads real tensor values -- SimTensor (ttsim/ops/tensor.py) and every
+    TT-Polaris/ttsim never reads real tensor values -- SimTensor (ttsim/ops/tensor.py) and every
     downstream cost model key off shape and dtype only (the gemma3 test suite's own
     comp_pcc()/comp_allclose() helpers are literal shape-only stubs; see tests/test_decoder.py).
     So materializing real `np.random.randn(...)` data for a ~4B-parameter model -- tens of GB of
@@ -180,7 +180,7 @@ class HfGemmaDecoderWrapper:
 # ============================================================================
 
 class TTModelArgs:
-    """Minimal Polaris-oriented base class for model arguments."""
+    """Minimal TT-Polaris-oriented base class for model arguments."""
 
     def __init__(
         self,
@@ -1056,7 +1056,7 @@ class ModelArgs(TTModelArgs):
 # ============================================================================
 
 if __name__ == "__main__":
-    logger.info("Testing Polaris ModelArgs...")
+    logger.info("Testing TT-Polaris ModelArgs...")
     mesh_device = None
 
     args = ModelArgs(

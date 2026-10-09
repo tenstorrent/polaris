@@ -60,7 +60,7 @@ def _as_tensor_compat(
     mesh_mapper=None,
 ):
     """
-    Best-effort wrapper around ttnn.as_tensor for Polaris/ttsim.
+    Best-effort wrapper around ttnn.as_tensor for TT-Polaris/ttsim.
     """
     kwargs = {
         "device": device,

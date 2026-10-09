@@ -181,7 +181,7 @@ Each `run_all_tests.py` script generates:
 
 ---
 
-### Run with Polaris
+### Run with TT-Polaris
 
 ```bash
 python polaris.py -w config/ip_workloads.yaml -a config/all_archs.yaml -m config/wl2archmapping.yaml --filterwlg ttsim --filterwl DiffusionDrive -o ODDIR_DiffusionDrive -s SIMPLE_RUN --outputformat json

@@ -1,14 +1,14 @@
 # TTNN Workload Flow Documentation
 
-This document provides a quick reference for the TTNN workload flow in Polaris.
+This document provides a quick reference for the TTNN workload flow in TT-Polaris.
 
 ## Quick Reference
 
 ### Parameter Flow
 
 ```
-YAML Config         Polaris Dispatcher         TTNN Workload
-───────────         ──────────────────         ─────────────
+YAML Config         TT-Polaris Dispatcher      TTNN Workload
+───────────         ─────────────────────      ─────────────
 name: "Resnet50" ──► wln ──────────────────► wlname: str
 path: "..." ───────► wpath (loaded as func)
 cfg: {...} ────────► gcfg ──────────────────► cfg: dict
@@ -27,13 +27,13 @@ cfg: {...} ────────► gcfg ────────────
 ```python
 def run_<model_name>(wlname: str, device: TTNNDevice, cfg: dict):
     """
-    Workload entry point for Polaris TTNN framework.
+    Workload entry point for TT-Polaris TTNN framework.
     
     Args:
-        wlname: Workload identifier from Polaris (corresponds to 'wln' in 
+        wlname: Workload identifier from TT-Polaris (corresponds to 'wln' in 
                polaris.py:120). Example: "Resnet50"
                
-        device: TTNN device instance (lifecycle managed by Polaris)
+        device: TTNN device instance (lifecycle managed by TT-Polaris)
         
         cfg: Configuration dict with model hyperparameters
     
@@ -51,7 +51,7 @@ def run_<model_name>(wlname: str, device: TTNNDevice, cfg: dict):
 
 1. **Function Naming**: `run_<model_name>`
 2. **Parameter Order**: `(wlname, device, cfg)` - always in this order
-3. **Device Management**: Never open/close device - Polaris manages it
+3. **Device Management**: Never open/close device - TT-Polaris manages it
 4. **Configuration Access**: Use `cfg.get('key', default)` with defaults
 5. **Return Type**: TTNN Tensor
 
@@ -81,12 +81,12 @@ def run_<model_name>(wlname: str, device: TTNNDevice, cfg: dict):
            num_channels: 3
    ```
 
-2. **Polaris Dispatch** (`polaris.py:111-126`):
+2. **TT-Polaris Dispatch** (`polaris.py:111-126`):
    ```python
    # Load function from module path
    ttnn_func = get_ttnn_functional_instance(wpath, wln, gcfg)
    
-   # Open device (managed by Polaris)
+   # Open device (managed by TT-Polaris)
    ttnn_device = open_device(device_id=0)
    
    # Call with standard signature
@@ -96,7 +96,7 @@ def run_<model_name>(wlname: str, device: TTNNDevice, cfg: dict):
    #                     │         └──────────► device instance
    #                     └────────────────────► wlname string
    
-   # Close device (managed by Polaris)
+   # Close device (managed by TT-Polaris)
    close_device(ttnn_device)
    ```
 
@@ -183,7 +183,7 @@ def run_<model_name>(wlname: str, device: TTNNDevice, cfg: dict):
            batch_size: 8
    ```
 
-4. **Run with Polaris**:
+4. **Run with TT-Polaris**:
    ```bash
    python polaris.py \
        --wlspec config/my_workloads.yaml \
@@ -195,7 +195,7 @@ def run_<model_name>(wlname: str, device: TTNNDevice, cfg: dict):
 
 - **Main User Guide**: `doc/user_guide.md` - Complete TTNN workload guide
 - **Reference Implementation**: `workloads/ttnn/resnet50/ttnn_functional_resnet50.py`
-- **Polaris Dispatch**: `polaris.py:78-139` - `get_wlgraph()` function
+- **TT-Polaris Dispatch**: `polaris.py:78-139` - `get_wlgraph()` function
 - **TTNN API**: `ttsim/front/ttnn/` - TTNN tensor and operation implementations
 - **Configuration Schema**: `tools/workloads.py` - Pydantic models for workload configs
 
@@ -205,5 +205,5 @@ For questions about TTNN workload development:
 1. Review this documentation and the user guide
 2. Check the reference implementation (ResNet-50)
 3. Enable debug logging: `--log_level debug`
-4. Consult the project repository: https://github.com/tenstorrent/polaris
+4. Consult the project repository: https://github.com/tenstorrent/tt-polaris
 

@@ -7,7 +7,7 @@ Purpose: RetinaNet Workflow Validation Script.
 This script acts as the final check in the development pipeline. It confirms 
 that the modified RetinaNet model remains mathematically functional while 
 incorporating the explicit hardware labels required for Tenstorrent 
-simulation. It bridges the gap between PyTorch modeling and Polaris execution.
+simulation. It bridges the gap between PyTorch modeling and TT-Polaris execution.
 """
 
 import os
@@ -21,7 +21,7 @@ from workloads.Retinanet.model import RetinaNet
 def run_standalone(outdir: str = '.') -> None:
     """
     Renamed from main() per reviewer feedback. 
-    Handles model instantiation and graph dumping for Polaris integration.
+    Handles model instantiation and graph dumping for TT-Polaris integration.
     """
     # Define configurations similar to ip_workloads.yaml structure
     retinanet_cfgs = {
@@ -49,7 +49,7 @@ def run_standalone(outdir: str = '.') -> None:
         # Internal Assertions
         assert len(final_bbox_coords.shape) == 3, "BBox should be 3D [Batch, Anchors, 4]"
         
-        # Dump Graph (Standard practice for run_standalone in Polaris)
+        # Dump Graph (Standard practice for run_standalone in TT-Polaris)
         logger.debug(f"Dumping ONNX to {outdir}...")
         
         gg = model.get_forward_graph()

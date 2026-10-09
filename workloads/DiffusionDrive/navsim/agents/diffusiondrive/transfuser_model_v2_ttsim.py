@@ -16,7 +16,7 @@ import copy
 import os, sys
 import json
 
-# Add polaris root to sys.path so workloads.DiffusionDrive... imports resolve
+# Add TT-Polaris root to sys.path so workloads.DiffusionDrive... imports resolve
 sys.path.append(os.path.join(os.path.dirname(__file__), "..", "..", "..", "..", ".."))
 
 # TTSIM imports
@@ -102,7 +102,7 @@ class V2TransfuserModel(SimNN_Module):
 
     @staticmethod
     def _build_config_from_dict(cfg: dict) -> TransfuserConfig:
-        """Build a TransfuserConfig from a polaris YAML cfg dict."""
+        """Build a TransfuserConfig from a TT-Polaris YAML cfg dict."""
         config = TransfuserConfig()
         # Map YAML keys to TransfuserConfig attributes
         if "image_architecture" in cfg:
@@ -162,14 +162,14 @@ class V2TransfuserModel(SimNN_Module):
 
         Two calling conventions:
           1) Direct:  V2TransfuserModel(config: TransfuserConfig)
-          2) Polaris: V2TransfuserModel(name: str, cfg: dict)
+          2) TT-Polaris: V2TransfuserModel(name: str, cfg: dict)
         """
 
         super().__init__()
 
         # Detect calling convention
         if isinstance(config_or_name, str):
-            # Polaris pattern: (name, cfg_dict)
+            # TT-Polaris pattern: (name, cfg_dict)
             self.name = config_or_name
             self._polaris_cfg = cfg or {}
             config = self._build_config_from_dict(self._polaris_cfg)
@@ -315,13 +315,13 @@ class V2TransfuserModel(SimNN_Module):
 
         super().link_op2module()
 
-    # ── Polaris interface methods ────────────────────────────────────────
+    # ── TT-Polaris interface methods ────────────────────────────────────────
 
     def set_batch_size(self, new_bs):
         self._bs = new_bs
 
     def create_input_tensors(self):
-        """Create placeholder input tensors for polaris graph tracing."""
+        """Create placeholder input tensors for TT-Polaris graph tracing."""
         cfg = self._config
         # camera_feature: [bs, 3, camera_height, camera_width]
         cam_h = cfg.camera_height
@@ -376,7 +376,7 @@ class V2TransfuserModel(SimNN_Module):
         """TTSIM module forward pass."""
         self._debug = {}  # Store intermediates for debugging
 
-        # Polaris calls __call__() with no args; tests pass features dict
+        # TT-Polaris calls __call__() with no args; tests pass features dict
         if features is None:
             features = self.input_tensors
 

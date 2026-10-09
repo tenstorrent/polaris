@@ -4,7 +4,7 @@
 
 # """
 # Export the full Pi0.5 (pi05_base) model to a fixed-shape ONNX graph
-# for Polaris perf projection.
+# for TT-Polaris perf projection.
 
 # """
 

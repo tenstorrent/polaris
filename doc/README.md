@@ -1,17 +1,17 @@
-# Polaris Documentation
+# TT-Polaris Documentation
 
-This folder holds the documentation for **Polaris** (`ttsim`), Tenstorrent's
+This folder holds the documentation for **TT-Polaris** (`ttsim`), Tenstorrent's
 high-level roofline performance simulator for AI workloads.
 
 ## Start here
 
-- **[Introduction to Polaris](INTRODUCTION.md)** — the guided tour: what Polaris
+- **[Introduction to TT-Polaris](INTRODUCTION.md)** — the guided tour: what TT-Polaris
   is, why it exists, how its pieces fit together, and where to go next. **Read
   this first** if you're new.
 - **[Top-level README](../README.md)** — installation, environment setup, and
   quick-start commands.
 
-## Using Polaris
+## Using TT-Polaris
 
 - **[User Guide](user_guide.md)** — full CLI usage, configuration files, output
   formats, and debugging.
@@ -46,7 +46,7 @@ high-level roofline performance simulator for AI workloads.
 
 ## Hardware correlation
 
-- **[Correlation](tools/ttsi_corr/README_correlation.md)** — comparing Polaris
+- **[Correlation](tools/ttsi_corr/README_correlation.md)** — comparing TT-Polaris
   projections against hardware performance.
 - **[Reference Data Validation](tools/ttsi_corr/README_reference_data_validation.md)**
   — validating reference TT-Metal perf data.

@@ -16,7 +16,7 @@ Reference: "Deformable DETR: Deformable Transformers for End-to-End Object Detec
 import sys
 import os
 
-# Add ttsim to path - navigate to polaris root directory
+# Add ttsim to path - navigate to TT-Polaris root directory
 current_dir = os.path.dirname(os.path.abspath(__file__))
 polaris_root = os.path.abspath(os.path.join(current_dir, "..", "..", ".."))
 if polaris_root not in sys.path:

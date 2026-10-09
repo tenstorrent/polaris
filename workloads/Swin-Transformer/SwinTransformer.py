@@ -199,7 +199,7 @@ class SwinTransformerBlock(SimNN.Module):
         return x
 
     def create_input_tensors(self):
-        """Create input tensors for Polaris framework compatibility"""
+        """Create input tensors for TT-Polaris framework compatibility"""
         H, W = self.input_resolution
         num_patches = H * W
         bs = getattr(self, 'bs', 1)  
@@ -211,16 +211,16 @@ class SwinTransformerBlock(SimNN.Module):
         return
 
     def get_forward_graph(self):
-        """Get forward graph for Polaris framework"""
+        """Get forward graph for TT-Polaris framework"""
         GG = super()._get_forward_graph(self.input_tensors)
         return GG
 
     def set_batch_size(self, new_bs):
-        """Set batch size for Polaris framework"""
+        """Set batch size for TT-Polaris framework"""
         self.bs = new_bs
 
     def analytical_param_count(self):
-        """Return analytical parameter count for Polaris framework"""
+        """Return analytical parameter count for TT-Polaris framework"""
         return 0
 
 
@@ -426,7 +426,7 @@ class SwinTransformer(SimNN.Module):
         return x
 
     def create_input_tensors(self):
-        """Create input tensors for Polaris framework compatibility"""
+        """Create input tensors for TT-Polaris framework compatibility"""
         self.input_tensors = {
             'x_in': F._from_shape('x_in', [self.bs, self.in_chans, self.img_size, self.img_size],
                                is_param=False, np_dtype=np.float32),
@@ -434,16 +434,16 @@ class SwinTransformer(SimNN.Module):
         return
 
     def get_forward_graph(self):
-        """Get forward graph for Polaris framework"""
+        """Get forward graph for TT-Polaris framework"""
         GG = super()._get_forward_graph(self.input_tensors)
         return GG
 
     def set_batch_size(self, new_bs):
-        """Set batch size for Polaris framework"""
+        """Set batch size for TT-Polaris framework"""
         self.bs = new_bs
 
     def analytical_param_count(self):
-        """Return analytical parameter count for Polaris framework"""
+        """Return analytical parameter count for TT-Polaris framework"""
         return 0
 
 

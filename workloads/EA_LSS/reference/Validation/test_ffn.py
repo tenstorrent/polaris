@@ -20,7 +20,7 @@ Test Coverage:
   9.  Multi-head param count     – analytical vs expected formula
   10. Deep head (num_conv=3)     – 3-layer head forward comparison
 
-Run from polaris root:
+Run from TT-Polaris root:
     python3 workloads/EA-LSS/Reference/Validation/test_ffn.py
 """
 

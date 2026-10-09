@@ -108,7 +108,7 @@ def test_profiler_op_signature_tilize_prefers_output_padded_columns() -> None:
 
 @pytest.mark.unit
 def test_profiler_untilize_unpadding_opcode_identity_mapping() -> None:
-    """``UntilizeWithUnpadding`` maps to itself (names now aligned between profiler and Polaris)."""
+    """``UntilizeWithUnpadding`` maps to itself (names now aligned between profiler and TT-Polaris)."""
     assert _map_profiler_opcode_to_polaris_optype('UntilizeWithUnpadding', {}) == 'UntilizeWithUnpadding'
     assert (
         _map_profiler_opcode_to_polaris_optype('UntilizeWithUnpaddingDeviceOperation', {})

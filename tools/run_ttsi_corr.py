@@ -423,7 +423,7 @@ def main(argv: list[str]) -> int:
     5. Load metrics from specified data source
     6. Validate and filter configurations
     7. Process workloads and create specs
-    8. Run Polaris simulation
+    8. Run TT-Polaris simulation
     9. Generate correlation outputs (CSV, XLSX, JSON)
 
     Required Arguments:
@@ -507,7 +507,7 @@ def main(argv: list[str]) -> int:
             DEVICE_TABLE
         )
 
-        # Run Polaris simulation
+        # Run TT-Polaris simulation
         ret = run_polaris_simulation(ttsim_wlspec, uniq_devs, opath, args, dry_run)
         if ret != 0:
             return ret

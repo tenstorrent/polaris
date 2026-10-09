@@ -4,7 +4,7 @@
 """
 Validation script for CBSwinTransformer TTSim module.
 
-Run from polaris root:
+Run from TT-Polaris root:
     python3 workloads/EA-LSS/Reference/Validation/test_cbnet.py
 
 Numerical comparisons validate the patch embedding Conv2d and FFN linear

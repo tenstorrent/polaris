@@ -3,7 +3,7 @@
 """Decode sampling head — minimal port of the tt_transformers on-device sampler.
 
 Ports the decode happy-path of ``models/common/sampling/tt_sampling.py``
-(``TTSampling.sample``) so the Polaris graph spans the full HW capture
+(``TTSampling.sample``) so the TT-Polaris graph spans the full HW capture
 (logits -> sampled token), instead of stopping at lm_head.
 
 Uses the multi_step_reduction gather: split the vocab into ``num_splits`` chunks,
@@ -12,7 +12,7 @@ top-k each chunk, then concat — matching the capture's ``TopK x2 / Concat x2``
 
 The vocab chunking is the one place the two modes call different ttnn functions: real
 ttnn uses ``ttnn.split`` (which HW lowers to ``SliceDeviceOperation`` kernels), while on
-Polaris the chunks are emitted as ``ttnn.slice`` ops directly, because the shim's
+TT-Polaris the chunks are emitted as ``ttnn.slice`` ops directly, because the shim's
 ``ttnn.split`` collapses to a single ``Split`` op instead of one kernel per chunk. Both
 sides therefore agree op-for-op with the capture. See the inline note at the gather; the
 fork disappears once the shim emits split's sub-ops itself.
@@ -62,8 +62,8 @@ def sample_decode(logits, device, max_top_k=32, num_splits=2):
     # vocab/2 wide (capture in1 = 32064/chunk = (vocab/2)/num_splits), TILE.
     tt_indices = _dummy([1, 1, batch, vocab // 2], device, ttnn.uint16, layout=ttnn.TILE_LAYOUT)
     # Dual-mode multi_step_reduction gather. Real ttnn uses ttnn.split (tt-metal tt_sampling.py:503-
-    # 504), which HW lowers to SliceDeviceOperation. The Polaris shim's ttnn.split emits ONE Split op,
-    # so on Polaris we emit the Slice chunks directly to match the capture (SliceDeviceOperation x4).
+    # 504), which HW lowers to SliceDeviceOperation. The TT-Polaris shim's ttnn.split emits ONE Split op,
+    # so on TT-Polaris we emit the Slice chunks directly to match the capture (SliceDeviceOperation x4).
     if IS_POLARIS:
         def _slice_chunks(t, dim_size, n):
             step = dim_size // n
@@ -88,7 +88,7 @@ def sample_decode(logits, device, max_top_k=32, num_splits=2):
     # inherits the lm_head L1 logits memory down the typecast->slice->topk->concat chain (concat/add
     # propagate input memory), so the sampling/add keys came out L1_INTERLEAVED and missed. Retag the
     # concat outputs to DRAM (topk/concat write DRAM on HW); the typecast + add below then inherit it,
-    # so Add (both operands DRAM) and Sampling (in0/in1 DRAM) match the capture. Polaris-only: real
+    # so Add (both operands DRAM) and Sampling (in0/in1 DRAM) match the capture. TT-Polaris-only: real
     # ttnn manages memory (topk/concat already produce DRAM there), and Tensor has no _memory_config.
     if IS_POLARIS:
         topk_values._memory_config = ttnn.DRAM_MEMORY_CONFIG
@@ -112,7 +112,7 @@ def sample_decode(logits, device, max_top_k=32, num_splits=2):
     # k/p/temp = torch.ones/zeros(total_param_size) and seeds/user_ids = torch.arange(...), all rank-1.
     # ttnn.manual_seed asserts seeds/user_ids rank == 1 (manual_seed_operation.cpp:82); a [1,batch]
     # (rank-2) tensor fails. Rank-1 [batch] and rank-2 [1,batch] pad to the same 4-D LUT key (leading
-    # 1s), so Polaris is unchanged.
+    # 1s), so TT-Polaris is unchanged.
     seeds = _dummy([batch], device, ttnn.uint32, layout=ttnn.ROW_MAJOR_LAYOUT)
     user_ids = _dummy([batch], device, ttnn.uint32, layout=ttnn.ROW_MAJOR_LAYOUT)
     ttnn.manual_seed(seeds=seeds, user_ids=user_ids)

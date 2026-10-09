@@ -1,10 +1,10 @@
 # Functional API Documentation
 
-The `ttsim.front.functional` module provides a PyTorch-inspired functional interface for building neural networks in Polaris. It consists of two main components:
+The `ttsim.front.functional` module provides a PyTorch-inspired functional interface for building neural networks in TT-Polaris. It consists of two main components:
 
 ## 1. Operator Interface (`op.py`)
 
-The operator interface provides a high-level API for creating and manipulating operators in the Polaris simulation framework.
+The operator interface provides a high-level API for creating and manipulating operators in the TT-Polaris simulation framework.
 
 ### Core Classes
 
@@ -123,7 +123,7 @@ output = net(input_tensor)
 
 ## Integration with Shape Inference
 
-The functional API integrates seamlessly with Polaris's shape inference system:
+The functional API integrates seamlessly with TT-Polaris's shape inference system:
 
 1. **Automatic Shape Inference**
    - Each operator handle manages its shape inference

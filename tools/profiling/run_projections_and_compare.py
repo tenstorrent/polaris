@@ -2,7 +2,7 @@
 # SPDX-FileCopyrightText: (C) 2026 Tenstorrent AI ULC
 # SPDX-License-Identifier: Apache-2.0
 
-"""Drive polaris projections + compare_layers XLSX comparisons over a fixed (workload x device) matrix.
+"""Drive TT-Polaris projections + compare_layers XLSX comparisons over a fixed (workload x device) matrix.
 
 v1 hardcodes the combo list.  Future iterations: auto-discover from
 ``config/all_workloads.yaml`` + ``config/tt_{wh,bh}.yaml``.
@@ -18,13 +18,13 @@ Usage::
     python tools/profiling/run_projections_and_compare.py --run-tag my_run
 
 Outputs (under ``__output/<run-tag>/``):
-  - ``<combo>/STATS/...-opstats.csv``       (polaris)
-  - ``<combo>/STATS/...-opstats.complete``  (written by this tool once polaris has finished)
+  - ``<combo>/STATS/...-opstats.csv``       (TT-Polaris)
+  - ``<combo>/STATS/...-opstats.complete``  (written by this tool once TT-Polaris has finished)
   - ``<combo>/<combo>_comparison.xlsx``     (compare_layers)
-  - ``<combo>/polaris.log``                 (polaris stdout/stderr)
+  - ``<combo>/polaris.log``                 (TT-Polaris stdout/stderr)
   - ``<combo>/compare.log``                 (compare_layers stdout/stderr)
   - ``summary.md``                          (the aggregated gap / LUT-hit table, also printed)
-  - plus whatever else polaris writes under the study directory -- ``clear_stale_outputs`` lists
+  - plus whatever else TT-Polaris writes under the study directory -- ``clear_stale_outputs`` lists
     what a run leaves today, and empties the directory rather than tracking that list
 """
 
@@ -50,7 +50,7 @@ from ttsim.utils.lfc import resolve_lfc_path  # noqa: E402
 REFRUN_LFC_ROOT = 'hlm-refrun'
 
 # Per-subprocess ceiling. A healthy cell finishes in two to three minutes, so this leaves room
-# for a loaded machine or a cold LUT fetch inside polaris while still ending a wedged process
+# for a loaded machine or a cold LUT fetch inside TT-Polaris while still ending a wedged process
 # in minutes rather than never. The code treats a hung matrix as its worst outcome -- nothing
 # fails and nothing finishes -- and a wedged subprocess is the likeliest route to one.
 _DEFAULT_TIMEOUT_S = 900
@@ -162,14 +162,14 @@ COMBOS: list[Combo] = [
 
 
 def opstats_path_for(run_tag: str, combo: Combo) -> Path:
-    """Where polaris will leave this combo's opstats CSV.
+    """Where TT-Polaris will leave this combo's opstats CSV.
 
-    This reconstructs a filename polaris owns: the other half of the contract is
+    This reconstructs a filename TT-Polaris owns: the other half of the contract is
     ``ttsim.stats.hlmstats.HLMStats.dump_stats``, which assembles the same parts and appends
     ``b{batchsize}``. A change to that ordering breaks every combo here at once, so it is named
     rather than left to be rediscovered.
 
-    ``bs_runtime`` must therefore be a batch size polaris actually simulates. The ViT cells force
+    ``bs_runtime`` must therefore be a batch size TT-Polaris actually simulates. The ViT cells force
     that with a ``--batchsize`` override; the ``bs_runtime == 1`` cells rely on the instance
     carrying ``bs: 1`` in config/all_workloads.yaml, which a test pins.
     """
@@ -195,9 +195,9 @@ def summary_path_for(run_tag: str) -> Path:
 
 
 def completion_marker_for(run_tag: str, combo: Combo) -> Path:
-    """Written only once polaris has exited 0 *and* left its opstats CSV in place.
+    """Written only once TT-Polaris has exited 0 *and* left its opstats CSV in place.
 
-    The CSV alone cannot answer "did polaris finish?". ``ttsim.utils.common.print_csv`` opens the
+    The CSV alone cannot answer "did TT-Polaris finish?". ``ttsim.utils.common.print_csv`` opens the
     file and writes rows as it goes, so an interrupted run leaves a truncated file that still
     parses -- and ``--skip-polaris`` would then reuse it and report a network total computed from
     part of the network. Existence of the CSV proves a run started; this marker proves one
@@ -256,14 +256,14 @@ def run_polaris(combo: Combo, run_tag: str, timeout_s: int = _DEFAULT_TIMEOUT_S)
         # start != end, so [8, 8, 8] is rejected outright and [1, 8, 8] yields [1, 8]. The price of
         # the forced leading 1 is that these cells also simulate a bs=1 network nothing reads --
         # roughly double the wall clock for the cells that need an override. A single-value
-        # batch-size form in polaris would remove both the idiom and the waste.
+        # batch-size form in TT-Polaris would remove both the idiom and the waste.
         cmd.extend(['--batchsize', '1', str(combo.bs_runtime), str(combo.bs_runtime)])
     log_path = log_path_for(run_tag, combo, 'polaris.log')
     log_path.parent.mkdir(parents=True, exist_ok=True)
     # The caller has already cleared any CSV left by an earlier run under this tag (see
     # clear_stale_outputs), so the check below tests what *this* run produced -- otherwise a
     # surviving stale file would be compared as though it described the current run.
-    # This used to carry a second job: polaris exited 0 with "completed with 0 experiments" when
+    # This used to carry a second job: TT-Polaris exited 0 with "completed with 0 experiments" when
     # --filterarch/--filterwli selected nothing, so check=True could not catch a bad filter. It
     # now rejects an unmatched filter entry and a zero-experiment selection itself (issue #517),
     # so check=True is sufficient for that case and only the staleness concern remains here.
@@ -276,7 +276,7 @@ def run_polaris(combo: Combo, run_tag: str, timeout_s: int = _DEFAULT_TIMEOUT_S)
     # opstats_artifacts, so the same test.
     if not opstats.is_file():
         raise FileNotFoundError(
-            f'polaris ran but opstats CSV not found: {opstats}\n'
+            f'TT-Polaris ran but opstats CSV not found: {opstats}\n'
             f'see log: {log_path}'
         )
     # Last, so the marker can only exist for a CSV that a completed run produced. UTC, because the
@@ -291,7 +291,7 @@ def clear_stale_outputs(run_tag: str, combo: Combo, *, keep_opstats: bool) -> No
     """Delete this combo's outputs from any earlier run under the same tag, before anything runs.
 
     Called for every *selected* combo before validation, not per producing step and not per runnable
-    combo. A combo can drop out at validation, at polaris, at compare, or at parsing, and in every
+    combo. A combo can drop out at validation, at TT-Polaris, at compare, or at parsing, and in every
     one of those cases it is correctly left out of the summary while a file from a previous run stays
     in the output directory looking current. Clearing next to a producing step only covers failures
     after that step; clearing inside the run loop misses combos that never reach it.
@@ -307,7 +307,7 @@ def clear_stale_outputs(run_tag: str, combo: Combo, *, keep_opstats: bool) -> No
     batch size, ``SUMMARY/study-summary.{json,csv}``, and -- for the ViT cells, which sweep
     ``--batchsize 1 <bs> <bs>`` -- a ``-b1-`` CSV that is never consumed. The directory is wholly
     owned by this tool for a given run tag, so emptying it is both simpler and complete, and it stays
-    correct if polaris grows another output.
+    correct if TT-Polaris grows another output.
 
     ``keep_opstats`` is set when ``--skip-polaris`` is reusing the CSV of an earlier completed run.
     That CSV is this run's input rather than a leftover, so it is exempt -- and so is its
@@ -605,7 +605,7 @@ def emit_report(run_tag: str, summaries: list[SummaryRow], problems: list[tuple[
 # fullmatch, not match: with `$` a trailing newline is still a match, so `match()` would accept
 # "run1\n" despite it being outside the documented character set.
 #
-# The first character is restricted twice over. Not `-`: the tag is interpolated into polaris's
+# The first character is restricted twice over. Not `-`: the tag is interpolated into TT-Polaris's
 # `--study <value>`, and argparse in the child reads a leading-hyphen value as an option, so every
 # subprocess would exit before running. Not `.` either: `--run-tag .hidden` would put a whole run
 # somewhere a directory listing does not show, and `...` is worse -- it is legal, distinct from
@@ -639,7 +639,7 @@ def timeout_arg(value: str) -> int:
 def run_tag_arg(value: str) -> str:
     """Accept only a single relative directory name, of usable length.
 
-    The tag is both a path component under ``__output/`` and polaris's ``--study`` path, so a value
+    The tag is both a path component under ``__output/`` and TT-Polaris's ``--study`` path, so a value
     containing a separator or ``..`` would write outside the output tree, and an absolute one would
     make ``Path.__truediv__`` discard the ``__output`` prefix entirely and then trip the
     ``relative_to(REPO_ROOT)`` calls used for display.
@@ -674,7 +674,7 @@ def main() -> int:
                              'stderr, so an interrupted matrix can be topped up in one re-run.')
     parser.add_argument('--timeout-per-combo', type=timeout_arg, default=_DEFAULT_TIMEOUT_S,
                         metavar='SECONDS',
-                        help=f'Ceiling for each polaris and compare_layers subprocess '
+                        help=f'Ceiling for each TT-Polaris and compare_layers subprocess '
                              f'(default {_DEFAULT_TIMEOUT_S}). A cell that exceeds it is '
                              f'recorded like any other failed combo and the matrix continues.')
     parser.add_argument('--only', metavar='COMBO_LABEL', action='append',
@@ -804,7 +804,7 @@ def main() -> int:
                 if args.skip_polaris:
                     # Falling through deliberately, so an interrupted matrix can be topped up with
                     # one --skip-polaris re-run. Say so: the flag implies no simulation, and a
-                    # silent multi-minute polaris run here would be a surprise. Name which case
+                    # silent multi-minute TT-Polaris run here would be a surprise. Name which case
                     # it is -- "no CSV" and "a CSV an interrupted run left behind" are
                     # indistinguishable in the output directory, and only one is safe to reuse.
                     csv_there, marker_there = artifacts[combo.label]
@@ -816,7 +816,7 @@ def main() -> int:
                         reason = 'none present'
                     print(f'  NOTE: --skip-polaris given but no completed opstats to reuse '
                           f'({reason}); simulating anyway', file=sys.stderr)
-                print(f'  running polaris (study={args.run_tag}/{combo.label})...', flush=True)
+                print(f'  running TT-Polaris (study={args.run_tag}/{combo.label})...', flush=True)
                 opstats = run_polaris(combo, args.run_tag, args.timeout_per_combo)
                 print(f'  opstats: {opstats.relative_to(REPO_ROOT)}')
             print('  running compare_layers...', flush=True)

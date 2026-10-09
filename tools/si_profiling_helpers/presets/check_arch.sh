@@ -11,7 +11,7 @@ require_arch() {
         *) echo "check_arch: unknown expected arch '$want'" >&2; exit 2 ;;
     esac
     if [[ -z "${IRD_ARCH_NAME:-}" ]]; then
-        echo "ERROR: IRD_ARCH_NAME is unset — not on a hardware node (would run the Polaris shim). Aborting." >&2
+        echo "ERROR: IRD_ARCH_NAME is unset — not on a hardware node (would run the TT-Polaris shim). Aborting." >&2
         exit 1
     fi
     shopt -s nocasematch
@@ -25,13 +25,13 @@ require_arch() {
 # Sanity-check that a preset's CMD targets the correct source tree.
 #   require_ref_cmd  "$CMD"  — a reference (refrun) capture must run the HW-native
 #                              model (e.g. models/demos/...); it must NOT touch the
-#                              Polaris 'workloads/' tree.
-#   require_dual_cmd "$CMD"  — a dual-mode capture must run the migrated Polaris
+#                              TT-Polaris 'workloads/' tree.
+#   require_dual_cmd "$CMD"  — a dual-mode capture must run the migrated TT-Polaris
 #                              workload under 'workloads/ttnn/'.
 require_ref_cmd() {
     case "$1" in
         *workloads/*)
-            echo "ERROR: refrun CMD references 'workloads/' — a reference run must use the HW-native model (models/...), not a Polaris workload: $1" >&2
+            echo "ERROR: refrun CMD references 'workloads/' — a reference run must use the HW-native model (models/...), not a TT-Polaris workload: $1" >&2
             exit 1 ;;
     esac
 }
@@ -39,7 +39,7 @@ require_dual_cmd() {
     case "$1" in
         *workloads/ttnn/*) : ;;
         *)
-            echo "ERROR: dual-mode CMD must run a Polaris workload under 'workloads/ttnn/': $1" >&2
+            echo "ERROR: dual-mode CMD must run a TT-Polaris workload under 'workloads/ttnn/': $1" >&2
             exit 1 ;;
     esac
 }

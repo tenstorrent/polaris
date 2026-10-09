@@ -2,12 +2,12 @@
 # SPDX-FileCopyrightText: (C) 2025 Tenstorrent AI ULC
 # SPDX-License-Identifier: Apache-2.0
 
-"""Polaris-side equivalent of ``vit_test_infra.py`` from tt-metal (BH variant).
+"""TT-Polaris-side equivalent of ``vit_test_infra.py`` from tt-metal (BH variant).
 
 Provides ``create_test_infra`` with the same interface so that
 ``test_vit_device_perf_bh.py`` can run in dual-mode.  Mirrors
 ``vit_test_infra_polaris_wh.py`` (Wormhole) but pulls config and parameters
-from ``vit_polaris_params_bh.py`` and binds the BH polaris model.
+from ``vit_polaris_params_bh.py`` and binds the BH TT-Polaris model.
 """
 
 import ttsim.front.ttnn as ttnn
@@ -27,7 +27,7 @@ from workloads.ttnn.vit.bh.vit_polaris_params_bh import (
 
 
 class VitTestInfra:
-    """Polaris BH mirror of the upstream VitTestInfra.
+    """TT-Polaris BH mirror of the upstream VitTestInfra.
 
     Builds synthetic config, parameters, cls_token, position_embeddings, and
     random pixel_values with the same shapes the HW path uses.

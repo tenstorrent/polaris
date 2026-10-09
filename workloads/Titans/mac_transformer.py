@@ -10,7 +10,7 @@ Classes:
                                 memory K/V ("full" mode also available)
 - MACBlock                    : attention + optional NeuralMemory + FeedForward
 - MemoryAsContextTransformer  : embeddings, transformer body, output projection
-- TitansMAC                   : Polaris workload entry point
+- TitansMAC                   : TT-Polaris workload entry point
 
 The body is NOT nL physical layers. It is two proxy blocks - one with a
 neural memory (t_mem) and one without (t_nomem) - whose op stats are scaled
@@ -371,7 +371,7 @@ class MemoryAsContextTransformer(SimNN.Module):
         # The model is built as two proxy blocks (t_mem: memory-bearing, t_nomem:
         # plain) rather than nL physical layers. Here we set each op's repeat_count
         # to the number of layers of that block type (_block_repeat_counts), so
-        # Polaris costs a stack of "rc" identical layers as per_layer_cost * rc,
+        # TT-Polaris costs a stack of "rc" identical layers as per_layer_cost * rc,
         # WITHOUT materializing rc copies in the graph.
         #
         # This multiplies projected CYCLES to reflect nL layers; it does NOT create
@@ -421,7 +421,7 @@ class MemoryAsContextTransformer(SimNN.Module):
 
 
 class TitansMAC(MemoryAsContextTransformer):
-    """Polaris workload class.
+    """TT-Polaris workload class.
        __init__(name, cfg) / set_batch_size / create_input_tensors /
        get_forward_graph / __call__ / analytical_param_count.
     """

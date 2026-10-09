@@ -4,7 +4,7 @@
 """
 Validation script for Base3DDetector TTSim module.
 
-Run from polaris root:
+Run from TT-Polaris root:
     python3 workloads/EA-LSS/Reference/Validation/test_base_3d_detector.py
 """
 

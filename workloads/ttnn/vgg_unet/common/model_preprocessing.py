@@ -2,7 +2,7 @@
 # SPDX-FileCopyrightText: (C) 2025 Tenstorrent AI ULC
 # SPDX-License-Identifier: Apache-2.0
 
-"""Polaris-side VGG UNet parameter tree (device-free synthetic weights).
+"""TT-Polaris-side VGG UNet parameter tree (device-free synthetic weights).
 
 Equivalent to the tt-metal ``create_vgg_unet_model_parameters`` but uses
 ``ttsim.front.ttnn`` so no physical device is required.  All weight/bias
@@ -53,7 +53,7 @@ def create_vgg_unet_model_parameters(device):  # noqa: C901 (complexity)
                             self.enable_act_double_buffer = False
                             self.act_block_h = None
                             self.do_sharded_to_interleaved = False
-                            # emit_move_before_conv: when False, the Polaris shim
+                            # emit_move_before_conv: when False, the TT-Polaris shim
                             # skips the Move SimOp that would otherwise precede this
                             # conv when deallocate_activation=True.  Set False at
                             # positions where the tt-metal profiler shows no Move row
@@ -256,7 +256,7 @@ def create_vgg_unet_model_parameters(device):  # noqa: C901 (complexity)
     parameters.conv_args.s1['0']['activation'] = 'relu'
     parameters.conv_args.s1['0']['dtype'] = ttnn.DataType.BFLOAT16
     # in_channels=16 matches the hardware: C=3 input is padded to C=16 by a Pad
-    # op before s1_0 (see Tt_vgg_unet.__call__).  Keeps Polaris aligned with the LUT.
+    # op before s1_0 (see Tt_vgg_unet.__call__).  Keeps TT-Polaris aligned with the LUT.
     parameters.conv_args.s1['0'].in_channels = 16
     parameters.conv_args.s1['0'].out_channels = 64
     parameters.conv_args.s1['0'].batch_size = 1
@@ -487,7 +487,7 @@ def create_vgg_unet_model_parameters(device):  # noqa: C901 (complexity)
     # tt-metal's conv kernel reuses the input buffer (no reallocation needed)
     # so MoveDeviceOperation is not dispatched for these positions — the HW
     # profiler shows no Move row between consecutive b1 convs.  Set
-    # emit_move_before_conv=False so the Polaris shim doesn't emit a Move
+    # emit_move_before_conv=False so the TT-Polaris shim doesn't emit a Move
     # SimOp at shapes the LUT has no entry for.  b1_28 is already covered by
     # the MaxPool-predecessor heuristic in _with_halo (Phase 1).
     parameters.conv_args.b1['30']['act_block_h'] = None
@@ -640,7 +640,7 @@ def create_vgg_unet_model_parameters(device):  # noqa: C901 (complexity)
     parameters.conv_args.d3.up['shard_layout'] = ttnn.TensorMemoryLayout.HEIGHT_SHARDED
     parameters.conv_args.d3.up['dtype'] = ttnn.DataType.BFLOAT16
     # HW emits no Move upstream of d3.up convtranspose (refrun has no Move row at
-    # y=24768).  Skip Polaris's auto-Move so the shim graph matches HW.
+    # y=24768).  Skip TT-Polaris's auto-Move so the shim graph matches HW.
     parameters.conv_args.d3.up['emit_move_before_conv'] = False
     parameters.conv_args.d3.up.in_channels = 256
     parameters.conv_args.d3.up.out_channels = 128
@@ -655,7 +655,7 @@ def create_vgg_unet_model_parameters(device):  # noqa: C901 (complexity)
     # explicit STS+ITS interleaving (do_sharded_to_interleaved=False), so the
     # input buffer is fresh from Concat.  tt-metal's conv kernel doesn't need
     # to reallocate; HW profiler shows no Move row before d3.conv1.  Set
-    # emit_move_before_conv=False so Polaris matches.
+    # emit_move_before_conv=False so TT-Polaris matches.
     parameters.conv_args.d3.conv_block.conv1['act_block_h'] = None
     parameters.conv_args.d3.conv_block.conv1['enable_act_double_buffer'] = False
     parameters.conv_args.d3.conv_block.conv1['deallocate_activation'] = True
@@ -696,7 +696,7 @@ def create_vgg_unet_model_parameters(device):  # noqa: C901 (complexity)
     parameters.conv_args.d4.up['shard_layout'] = None
     parameters.conv_args.d4.up['dtype'] = ttnn.DataType.BFLOAT16
     # HW emits no Move upstream of d4.up convtranspose (refrun has no Move row at
-    # y=88408).  Skip Polaris's auto-Move so the shim graph matches HW.
+    # y=88408).  Skip TT-Polaris's auto-Move so the shim graph matches HW.
     parameters.conv_args.d4.up['emit_move_before_conv'] = False
     parameters.conv_args.d4.up.in_channels = 128
     parameters.conv_args.d4.up.out_channels = 64

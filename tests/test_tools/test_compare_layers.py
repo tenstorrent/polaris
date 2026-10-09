@@ -137,7 +137,7 @@ def test_compare_layers_type_mismatch():
 
     stats = compare_layers(polaris_layers, profiler_layers)
     assert stats.total_matches == 0
-    # When types don't match and polaris op not found ahead, marked as name_mismatch
+    # When types don't match and TT-Polaris op not found ahead, marked as name_mismatch
     assert stats.name_mismatches == 1
     # Remaining profiler entry becomes unmatched
     assert stats.unmatched_profiler == 1
@@ -175,18 +175,18 @@ def test_compare_layers_out_of_order():
         },
     ]
 
-    # Algorithm searches forward in profiler for polaris ops
-    # Polaris MatMul finds profiler MatMul at index 1, skipping profiler Add
-    # Polaris Add is then not found in remaining profiler entries (exhausted)
+    # Algorithm searches forward in profiler for TT-Polaris ops
+    # TT-Polaris MatMul finds profiler MatMul at index 1, skipping profiler Add
+    # TT-Polaris Add is then not found in remaining profiler entries (exhausted)
     stats = compare_layers(polaris_layers, profiler_layers)
     assert stats.total_matches == 1  # Only MatMul matches
-    assert stats.unmatched_polaris == 1  # Polaris Add not matched
+    assert stats.unmatched_polaris == 1  # TT-Polaris Add not matched
     assert stats.unmatched_profiler == 1  # Profiler Add skipped
 
 
 @pytest.mark.unit
 def test_compare_layers_unmatched_polaris():
-    """Test when Polaris has extra operations."""
+    """Test when TT-Polaris has extra operations."""
     polaris_layers = [
         {
             'seqno': 0,
@@ -341,8 +341,8 @@ def test_compare_layers_empty_lists():
 
 @pytest.mark.unit
 def test_aggregate_by_lut_key_prefers_resolved_over_literal():
-    """Polaris-side rows present both ``lut_key`` (literal) and ``lut_key_resolved``;
-    aggregation must group by the resolved tuple so polaris/profiler rows that
+    """TT-Polaris-side rows present both ``lut_key`` (literal) and ``lut_key_resolved``;
+    aggregation must group by the resolved tuple so TT-Polaris/profiler rows that
     semantically share a LUT entry land in the same bucket.
     """
     from tools.profiling.compare_layers import _aggregate_by_lut_key
@@ -532,7 +532,7 @@ def _make_layer(optype: str, duration_ms: float, uses_perf_lookup: bool = False)
 
 @pytest.mark.unit
 def test_perf_comparison_mixed_mode_shows_only_lut1(capsys):
-    """In mixed mode (polaris-vs-profiler) only side-1 has LUT hits.
+    """In mixed mode (TT-Polaris-vs-profiler) only side-1 has LUT hits.
     Output must show LUT1 column but NOT LUT2, so the hit rate is not
     diluted by the profiler-side zero count."""
     from tools.profiling.compare_layers import _print_perf_comparison
@@ -552,7 +552,7 @@ def test_perf_comparison_mixed_mode_shows_only_lut1(capsys):
 
 @pytest.mark.unit
 def test_perf_comparison_same_type_shows_both_lut_columns(capsys):
-    """In same-type mode (e.g. polaris-vs-polaris) both sides carry LUT hits.
+    """In same-type mode (e.g. TT-Polaris-vs-TT-Polaris) both sides carry LUT hits.
     Output must show both LUT1 and LUT2 columns."""
     from tools.profiling.compare_layers import _print_perf_comparison
 

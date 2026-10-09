@@ -38,7 +38,7 @@ from util import (
     denormalize_bbox as denormalize_bbox_torch,
 )
 
-# Get polaris root for device config
+# Get TT-Polaris root for device config
 polaris_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../.."))
 
 

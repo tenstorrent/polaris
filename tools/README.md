@@ -1,6 +1,6 @@
 # Tools
 
-This directory contains various utility scripts and tools for the Polaris project.
+This directory contains various utility scripts and tools for the TT-Polaris project.
 
 ## Scripts
 
@@ -117,11 +117,11 @@ See [doc/tools/ci/README_gist_cleanup.md](../doc/tools/ci/README_gist_cleanup.md
 ### run_ttsi_corr.py
 Metal-Tensix correlation analysis tool with modular architecture.
 
-**Purpose**: Automated correlation between Polaris HLM projections and silicon performance measurements.
+**Purpose**: Automated correlation between TT-Polaris HLM projections and silicon performance measurements.
 
 **Key Features**:
 - Modular architecture via `ttsi_corr` package
-- Automated Polaris simulation execution
+- Automated TT-Polaris simulation execution
 - Multiple output formats (CSV, XLSX with S-curve charts, JSON)
 - Includes architecture package name (`archname`) to distinguish architecture families
 - Geometric mean calculation for aggregate accuracy
@@ -143,7 +143,7 @@ python tools/run_ttsi_corr.py \
 - `correlation` - Calculate correlation metrics
 - `excel_writer` - Generate Excel reports with formatting
 - `chart_builder` - Create S-curve visualization charts
-- `simulator` - Orchestrate Polaris simulation
+- `simulator` - Orchestrate TT-Polaris simulation
 
 See [doc/tools/ttsi_corr/README_correlation.md](../doc/tools/ttsi_corr/README_correlation.md) for complete documentation.
 

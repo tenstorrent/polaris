@@ -3,7 +3,7 @@
 """
 Gemma3 vision transformer (full encoder stack, all layers) test.
 Mirrors tt-metal's test_vision_transformer.py (run_image_transformer_inference),
-adapted to Polaris's shape-only simulation mode.
+adapted to TT-Polaris's shape-only simulation mode.
 """
 import os
 import sys

@@ -339,7 +339,7 @@ def test_lookup_resolved_key_differs_from_literal_on_fallback(tmp_path: Path):
     p.write_text(yaml.dump(doc, sort_keys=False), encoding="utf-8")
     m = OperatorPerfMap(p)
 
-    # Build a polaris-side tensor whose literal key uses HEIGHT_SHARDED (so the
+    # Build a TT-Polaris-side tensor whose literal key uses HEIGHT_SHARDED (so the
     # literal lookup misses and the HEIGHT→BLOCK fallback runs).
     from ttsim.front.ttnn.buffer import BufferType, TensorMemoryLayout
     from ttsim.front.ttnn.memory import MemoryConfig

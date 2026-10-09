@@ -5,7 +5,7 @@
 Validation script for SE_Block TTSim module.
 
 Compares TTSim output against PyTorch reference.
-Run from polaris root:
+Run from TT-Polaris root:
     python3 workloads/EA-LSS/Reference/Validation/test_se_block.py
 """
 

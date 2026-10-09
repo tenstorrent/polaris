@@ -22,7 +22,7 @@ import ttsim.config.runcfgmodel as runcfgmodel
 from ttsim.back.device import Device
 from ttsim.stats import HLMStats, OutputFormat, save_data
 
-""" Polaris top-level executable. """
+""" TT-Polaris top-level executable. """
 
 LOG     = logger
 INFO    = LOG.info
@@ -496,7 +496,7 @@ def execute_wl_on_dev(_wl, _dl, _wspec, _dspec, wlmapspec, _WLG,
     return num_failures, _summary_stats
 
 def polaris(args: argparse.Namespace | runcfgmodel.PolarisRunConfig) -> int:
-    """Main entry point for the Polaris simulation."""
+    """Main entry point for the TT-Polaris simulation."""
     setup_logger(level=args.log_level.upper())
 
     freqsweep = RangeArgument('frequency', args.frequency)
@@ -578,7 +578,7 @@ def polaris(args: argparse.Namespace | runcfgmodel.PolarisRunConfig) -> int:
     if args.enable_cprofile:
         profiler.disable()
         profiler.dump_stats("polaris_cprofile_stats.prof")
-    INFO("Polaris run completed with {} experiments.", tot_exp_run)
+    INFO("TT-Polaris run completed with {} experiments.", tot_exp_run)
     return 0 if num_failures == 0 else 1
 
 def main(argv: list[str] | None = None) -> int:
@@ -595,5 +595,5 @@ if __name__ == '__main__':
     # main() returns a status (0 ok / non-zero failed), not a job count -- the run's own
     # 'completed with N experiments' line reports the count. Propagate the status, or a
     # failed run leaves this script exiting 0 and CI cannot see it.
-    logger.info(f"Polaris finished in {del_time:0.2f} seconds")
+    logger.info(f"TT-Polaris finished in {del_time:0.2f} seconds")
     exit(status)

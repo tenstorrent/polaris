@@ -44,7 +44,7 @@ class ShardSpec:
     """Minimal ShardSpec for simulation - preserves sharding metadata.
 
     Mirrors tt-metal's ShardSpec structure with grid, shape, and orientation.
-    For Polaris simulation, this is primarily metadata tracking - actual shard
+    For TT-Polaris simulation, this is primarily metadata tracking - actual shard
     calculations are not performed.
 
     The grid can be any grid-like object (CoreGrid, CoreRangeSet, tuple, etc.)

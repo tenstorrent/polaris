@@ -2,7 +2,7 @@
 # SPDX-FileCopyrightText: (C) 2025 Tenstorrent AI ULC
 # SPDX-License-Identifier: Apache-2.0
 
-"""Polaris-side equivalent of ``vit_test_infra.py`` from tt-metal.
+"""TT-Polaris-side equivalent of ``vit_test_infra.py`` from tt-metal.
 
 Provides ``create_test_infra`` with the same interface so that
 ``test_vit_device_perf_wh.py`` can run in dual-mode.
@@ -25,7 +25,7 @@ from workloads.ttnn.vit.wh.vit_polaris_params_wh import (
 
 
 class VitTestInfra:
-    """Polaris mirror of the upstream VitTestInfra.
+    """TT-Polaris mirror of the upstream VitTestInfra.
 
     Builds synthetic config, parameters, cls_token, position_embeddings, and
     random pixel_values with the same shapes the HW path uses.

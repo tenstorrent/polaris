@@ -2,7 +2,7 @@
 # SPDX-FileCopyrightText: (C) 2025 Tenstorrent AI ULC
 # SPDX-License-Identifier: Apache-2.0
 
-"""Print operator type and input tensor shapes for each row of a Polaris *opstats* CSV."""
+"""Print operator type and input tensor shapes for each row of a TT-Polaris *opstats* CSV."""
 
 from __future__ import annotations
 
@@ -33,7 +33,7 @@ def _shapes_from_input_tensors_field(field: str) -> list[str]:
 
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__)
-    ap.add_argument('csv_path', type=Path, help='Polaris opstats CSV (e.g. *opstats*.csv)')
+    ap.add_argument('csv_path', type=Path, help='TT-Polaris opstats CSV (e.g. *opstats*.csv)')
     args = ap.parse_args()
     path = args.csv_path
     if not path.is_file():

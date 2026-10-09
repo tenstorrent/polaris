@@ -4,7 +4,7 @@
 """
 Validation script for LiftSplatShoot TTSim module.
 
-Run from polaris root:
+Run from TT-Polaris root:
     python3 workloads/EA-LSS/Reference/Validation/test_cam_stream_lss.py
 
 Numerical comparisons validate the depthwise and pointwise Conv2d steps

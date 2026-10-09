@@ -388,7 +388,7 @@ def resolve_tensor(_tname, _info, dim_overrides: Optional[dict] = None):
     if dims is None:
         logger.warning(
         "ONNX tensor '{}' has no shape information (dims=None); "
-        "treating it as scalar shape [1] in shape-only Polaris mode.",
+        "treating it as scalar shape [1] in shape-only TT-Polaris mode.",
         _tname,
         )
         dims = [1]

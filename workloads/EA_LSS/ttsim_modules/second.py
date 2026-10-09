@@ -120,7 +120,7 @@ class SECONDStage(SimNN.Module):
             )
 
         # Register relu ops so link_op2module tracks them and their output
-        # tensors are auto-stored in _tensors when fired — required for polaris
+        # tensors are auto-stored in _tensors when fired — required for TT-Polaris
         # graph construction.
         setattr(self, "relu0", F.Relu(f"{name}.relu0"))
         for j in range(layer_num):

@@ -5,7 +5,7 @@
 Lightweight PyTorch API shim for TT-NN compatibility.
 
 This module provides a minimal subset of PyTorch APIs used in workloads
-to enable code compatibility when running in POLARIS mode (IS_POLARIS=True).
+to enable code compatibility when running in TT-Polaris mode (IS_POLARIS=True).
 
 The shim is intended to be imported as:
     import ttsim.front.ttnn.minitorch_shim as torch

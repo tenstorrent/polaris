@@ -2,19 +2,19 @@
 # SPDX-FileCopyrightText: (C) 2025 Tenstorrent AI ULC
 # SPDX-License-Identifier: Apache-2.0
 
-"""Polaris-side VGG UNet model — structurally aligned with the tt-metal canonical
+"""TT-Polaris-side VGG UNet model — structurally aligned with the tt-metal canonical
 ``models/demos/vision/segmentation/vgg_unet/common/ttnn/ttnn_vgg_unet.py``.
 
-Differences from the canonical (all deliberate for polaris analytical modeling):
-- No ``ttnn.permute`` / ``ttnn.reshape`` before the first conv: the polaris
+Differences from the canonical (all deliberate for TT-Polaris analytical modeling):
+- No ``ttnn.permute`` / ``ttnn.reshape`` before the first conv: the TT-Polaris
   ``conv_sinf`` shape-inference engine expects NCHW tensors; hardware-specific
   channel-padding and memory reformatting are not modeled here.
 - ``sharded_concat`` uses ``dim=1`` (NCHW channel axis) rather than the canonical
-  ``dim=3`` (NHWC channel axis).  Polaris tensors are NCHW throughout because
+  ``dim=3`` (NHWC channel axis).  TT-Polaris tensors are NCHW throughout because
   the permute+reshape that converts to NHWC is skipped (see above).
 - ``ttnn.conv2d`` / ``ttnn.conv_transpose2d`` return a single ``Tensor`` in the
-  polaris shim (no list unpacking of output_dim / weight cache).
-- ``ttnn.sigmoid`` at the end uses no shard-spec introspection (the polaris Tensor
+  TT-Polaris shim (no list unpacking of output_dim / weight cache).
+- ``ttnn.sigmoid`` at the end uses no shard-spec introspection (the TT-Polaris Tensor
   does not carry a live memory config).
 """
 
@@ -119,7 +119,7 @@ class Conv:
             'groups': conv_param.groups,
             'device': device,
             'conv_config': self.conv_config,
-            # emit_move_before_conv is a Polaris-side hint (no effect on HW); the
+            # emit_move_before_conv is a TT-Polaris-side hint (no effect on HW); the
             # shim's _with_halo wrapper consults this kwarg and skips its Move
             # SimOp emission when False.  Default True preserves the
             # deallocate_activation → Move behavior for positions where HW does
@@ -132,7 +132,7 @@ class Conv:
         return f'Conv: {self.weight.shape} {self.bias.shape} {self.conv_kwargs["kernel_size"]}'
 
     def __call__(self, x):
-        # Polaris shim returns a single Tensor; canonical HW form unpacks 3-element list.
+        # TT-Polaris shim returns a single Tensor; canonical HW form unpacks 3-element list.
         x = ttnn.conv2d(
             input_tensor=x,
             weight_tensor=self.weight,
@@ -200,7 +200,7 @@ class Conv_transpose:
             'device': device,
             'conv_config': self.conv_config,
             'output_padding': conv_param.output_padding,
-            # Polaris-side hint (no effect on real ttnn) — when False, the shim
+            # TT-Polaris-side hint (no effect on real ttnn) — when False, the shim
             # skips the auto-Move after Halo.  HW emits no Move at d3.up / d4.up
             # convtranspose halo outputs (ttnn::move is no-op'd when the tensor
             # is already in optimal layout), so the workload sets this False
@@ -212,7 +212,7 @@ class Conv_transpose:
         return f'Conv_transpose: {self.weight.shape} {self.bias.shape} {self.conv_kwargs["kernel_size"]}'
 
     def __call__(self, x):
-        # Polaris shim returns a single Tensor; canonical HW form unpacks [x, [w, b]].
+        # TT-Polaris shim returns a single Tensor; canonical HW form unpacks [x, [w, b]].
         x = ttnn.conv_transpose2d(
             input_tensor=x,
             weight_tensor=self.weight,
@@ -242,7 +242,7 @@ class Tt_decoder_block:
         # For decoder blocks whose conv1 follows with do_sharded_to_interleaved=True
         # (d1, d2 on VGG UNet WH), tt-metal's sharded_concat reshuffles every input
         # through STI+ITS — even when source and target memory configs are equal by
-        # value.  Pass force_sti_its so Polaris emits the same STI+ITS pairs that
+        # value.  Pass force_sti_its so TT-Polaris emits the same STI+ITS pairs that
         # the HW profiler records for these decoder blocks.  d3/d4 don't follow
         # that pattern (the explicit STS happens before the decoder block itself).
         force_sti_its = bool(self.conv_args.conv_block.conv1.do_sharded_to_interleaved)

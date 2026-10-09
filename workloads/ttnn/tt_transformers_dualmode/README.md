@@ -1,8 +1,8 @@
 # tt_transformers_dualmode — provenance & port decisions
 
-Polaris dual-mode port of the generic `tt_transformers` model, used by the
+TT-Polaris dual-mode port of the generic `tt_transformers` model, used by the
 `llama3_dualmode` workload (PR2 of GH #466). Runs both on real silicon (HW path,
-real `ttnn`) and analytically through the Polaris shim (`ttsim.front.ttnn`).
+real `ttnn`) and analytically through the TT-Polaris shim (`ttsim.front.ttnn`).
 
 ## Why a NEW directory — copy-and-modify, NOT modify-in-place, NOT shared
 
@@ -52,10 +52,10 @@ else:
 
 ## Model / weight consumption — config-only, no HF checkpoint
 
-The Polaris path never reads an HF checkpoint. Config comes from a Polaris-side
+The TT-Polaris path never reads an HF checkpoint. Config comes from a TT-Polaris-side
 `ModelArgs` (llama3-8B params, audited vs tt-metal); weights are fabricated as
 shape-correct dummies (`dummy_weights=True`, `ttnn._rand`/`ttnn.zeros`). No
-`safetensors`/`transformers`/`huggingface_hub` on the Polaris path. (Design doc §5.)
+`safetensors`/`transformers`/`huggingface_hub` on the TT-Polaris path. (Design doc §5.)
 
 ## Config pins (so only the captured path runs)
 
