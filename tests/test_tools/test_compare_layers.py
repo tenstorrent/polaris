@@ -540,7 +540,7 @@ def test_perf_comparison_mixed_mode_shows_only_lut1(capsys):
     layers1 = [_make_layer('conv2d', 1.0, uses_perf_lookup=True)]
     layers2 = [_make_layer('conv2d', 1.1, uses_perf_lookup=False)]
 
-    _print_perf_comparison(layers1, layers2, label1='Polaris', label2='Profiler')
+    _print_perf_comparison(layers1, layers2, label1='TT-Polaris', label2='Profiler')
     out = capsys.readouterr().out
 
     assert 'LUT1' in out

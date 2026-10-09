@@ -408,16 +408,16 @@ def parse_args() -> argparse.Namespace:
         type=str,
         default=None,
         metavar='LABEL',
-        help='Display label for the first file (default: auto-detected type, e.g. "Polaris" '
-             'or "Profiler"; for same-type comparisons defaults to "Polaris 1" / "Profiler 1")',
+        help='Display label for the first file (default: auto-detected type, e.g. "TT-Polaris" '
+             'or "Profiler"; for same-type comparisons defaults to "TT-Polaris 1" / "Profiler 1")',
     )
     parser.add_argument(
         '--label2',
         type=str,
         default=None,
         metavar='LABEL',
-        help='Display label for the second file (default: auto-detected type, e.g. "Polaris" '
-             'or "Profiler"; for same-type comparisons defaults to "Polaris 2" / "Profiler 2")',
+        help='Display label for the second file (default: auto-detected type, e.g. "TT-Polaris" '
+             'or "Profiler"; for same-type comparisons defaults to "TT-Polaris 2" / "Profiler 2")',
     )
     return parser.parse_args()
 
@@ -430,6 +430,10 @@ def normalize_optype(optype: str) -> str:
     group mapping.
     """
     return to_comparison_group(normalize_polaris_optype(optype))
+
+
+# Display label for each detect_file_type() result.
+_TYPE_LABELS = {'polaris': 'TT-Polaris', 'profiler': 'Profiler'}
 
 
 def detect_file_type(filepath: str) -> Optional[str]:
@@ -2037,10 +2041,10 @@ def main() -> int:
         try:
             if ftype == 'polaris':
                 layers = layers_polaris(str(file1_path))
-                label = "Polaris"
+                label = _TYPE_LABELS['polaris']
             else:
                 layers = layers_profiler(str(file1_path))
-                label = "Profiler"
+                label = _TYPE_LABELS['profiler']
         except Exception as e:
             print(f"Error extracting layers: {e}", file=sys.stderr)
             return 1
@@ -2084,8 +2088,8 @@ def main() -> int:
                     layers1=layers if ftype == 'polaris' else None,
                     layers2=layers if ftype == 'profiler' else None,
                     stats=None,
-                    label1="Polaris",
-                    label2="Profiler",
+                    label1=_TYPE_LABELS['polaris'],
+                    label2=_TYPE_LABELS['profiler'],
                     source1=args.file1 if ftype == 'polaris' else None,
                     source2=args.file1 if ftype == 'profiler' else None,
                     strip_leading_ones=args.strip_leading_ones,
@@ -2114,11 +2118,11 @@ def main() -> int:
     if args.label1:
         label1 = args.label1
     else:
-        label1 = f"{type1.capitalize()} 1" if type1 == type2 else type1.capitalize()
+        label1 = f"{_TYPE_LABELS[type1]} 1" if type1 == type2 else _TYPE_LABELS[type1]
     if args.label2:
         label2 = args.label2
     else:
-        label2 = f"{type2.capitalize()} 2" if type1 == type2 else type2.capitalize()
+        label2 = f"{_TYPE_LABELS[type2]} 2" if type1 == type2 else _TYPE_LABELS[type2]
 
     print(f"File 1 ({label1}): {file1_path}")
     print(f"File 2 ({label2}): {file2_path}")

@@ -428,10 +428,10 @@ def run_compare(combo: Combo, run_tag: str, opstats: Path, refrun: Path,
 # "Gap:  N/A" when the reference total is 0. Neither should cost us the row.
 _SUMMARY_RE = re.compile(
     r'Network total:\s*\n'
-    r'\s*Polaris:\s*([\d.]+)\s*ms\s*\n'
+    r'\s*(?:TT-)?Polaris:\s*([\d.]+)\s*ms\s*\n'
     r'\s*Profiler:\s*([\d.]+)\s*ms\s*\n'
     r'\s*Gap:\s*(N/A|[+-]?[\d.]+)%?[^\n]*\n'
-    r'(?:\s*Polaris LUT hits:\s*(\d+)/(\d+))?'
+    r'(?:\s*(?:TT-)?Polaris LUT hits:\s*(\d+)/(\d+))?'
 )
 
 
@@ -519,15 +519,15 @@ def emit_report(run_tag: str, summaries: list[SummaryRow], problems: list[tuple[
     """
     labels = [f'{s.label} (bs={s.bs})' for s in summaries]
     col_label = max([len('Combo')] + [len(x) for x in labels])
-    header = (f'| {"Combo":<{col_label}} | {"Polaris (ms)":>13} | {"Profiler (ms)":>14} '
+    header = (f'| {"Combo":<{col_label}} | {"TT-Polaris (ms)":>16} | {"Profiler (ms)":>14} '
               f'| {"Gap":>8} | {"LUT hits":>11} |')
-    sep = f'|{"-"*(col_label+2)}|{"-"*15}|{"-"*16}|{"-"*10}|{"-"*13}|'
+    sep = f'|{"-"*(col_label+2)}|{"-"*18}|{"-"*16}|{"-"*10}|{"-"*13}|'
     rows = []
     for s, label in zip(summaries, labels):
         gap = 'N/A' if s.parsed.gap_pct is None else f'{s.parsed.gap_pct:+.2f}%'
         hits = ('n/a' if s.parsed.lut_hits is None
                 else f'{s.parsed.lut_hits}/{s.parsed.lut_total}')
-        rows.append(f'| {label:<{col_label}} | {s.parsed.polaris_ms:>13.4f} '
+        rows.append(f'| {label:<{col_label}} | {s.parsed.polaris_ms:>16.4f} '
                     f'| {s.parsed.profiler_ms:>14.4f} | {gap:>8} | {hits:>11} |')
     problem_lines = [f'- `{label}`: {reason}' for label, reason in problems]
     no_rows_note = 'No combo produced a summary row.'

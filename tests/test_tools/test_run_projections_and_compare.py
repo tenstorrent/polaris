@@ -5,7 +5,7 @@
 """Unit tests for tools.profiling.run_projections_and_compare.
 
 The summary parser reads compare_layers.py's ``Network total`` block, so these tests pin the shape
-of that contract: field ordering (the labels are printed Polaris-then-Profiler), and the two cases
+of that contract: field ordering (the labels are printed TT-Polaris-then-Profiler), and the two cases
 where compare_layers legitimately omits information — no LUT-hits line when neither side has a hit,
 and ``Gap: N/A`` when the reference total is zero.
 """
@@ -30,15 +30,15 @@ from tools.profiling.run_projections_and_compare import (
 )
 
 # Exactly as compare_layers.py --perf --by-lut-key prints it (two-space indents, label order,
-# the "(w.r.t. Polaris)" suffix on the gap line).
+# the "(w.r.t. TT-Polaris)" suffix on the gap line).
 NORMAL_LOG = """
-  LUT key comparison: Polaris vs Profiler
+  LUT key comparison: TT-Polaris vs Profiler
 
   Network total:
-    Polaris:  3.2675 ms
+    TT-Polaris:  3.2675 ms
     Profiler:  3.2911 ms
-    Gap:  +0.72% (w.r.t. Polaris)
-    Polaris LUT hits: 102/102
+    Gap:  +0.72% (w.r.t. TT-Polaris)
+    TT-Polaris LUT hits: 102/102
     Profiler LUT hits: 102/102
 
   op                 #1
@@ -47,9 +47,9 @@ NORMAL_LOG = """
 # has_lut is false in compare_layers when neither side has a hit, so both LUT lines are absent.
 ZERO_HIT_LOG = """
   Network total:
-    Polaris:  3.2675 ms
+    TT-Polaris:  3.2675 ms
     Profiler:  3.2911 ms
-    Gap:  -9.05% (w.r.t. Polaris)
+    Gap:  -9.05% (w.r.t. TT-Polaris)
 
   op                 #1
 """
@@ -57,9 +57,9 @@ ZERO_HIT_LOG = """
 # _pct_gap returns "N/A" when the reference total is 0.0.
 NA_GAP_LOG = """
   Network total:
-    Polaris:  0.0000 ms
+    TT-Polaris:  0.0000 ms
     Profiler:  3.2911 ms
-    Gap:  N/A (w.r.t. Polaris)
+    Gap:  N/A (w.r.t. TT-Polaris)
 """
 
 
@@ -134,8 +134,8 @@ def test_extract_summary_requires_polaris_before_profiler(tmp_path):
     compare_layers prints file1 first, and the tool always passes the TT-Polaris CSV as file1; an
     inverted block means an assumption broke, so failing to parse is the honest outcome.
     """
-    swapped = NORMAL_LOG.replace('Polaris:  3.2675', 'XXX').replace(
-        'Profiler:  3.2911 ms', 'Polaris:  3.2911 ms').replace('XXX', 'Profiler:  3.2675')
+    swapped = NORMAL_LOG.replace('TT-Polaris:  3.2675', 'XXX').replace(
+        'Profiler:  3.2911 ms', 'TT-Polaris:  3.2911 ms').replace('XXX', 'Profiler:  3.2675')
     assert extract_summary(_write(tmp_path, swapped)) is None
 
 
@@ -144,14 +144,14 @@ def test_extract_summary_requires_polaris_before_profiler(tmp_path):
 # describes the whole network. Numbers are deliberately distinct so a first-match parser fails.
 TWO_BLOCK_LOG = """
 ==================================================
-  LUT key comparison: Polaris vs Profiler
+  LUT key comparison: TT-Polaris vs Profiler
 ==================================================
 
   Network total:
-    Polaris:  2.0000 ms
+    TT-Polaris:  2.0000 ms
     Profiler:  2.1000 ms
-    Gap:  +5.00% (w.r.t. Polaris)
-    Polaris LUT hits: 90/90
+    Gap:  +5.00% (w.r.t. TT-Polaris)
+    TT-Polaris LUT hits: 90/90
     Profiler LUT hits: 0/90
 
   op                 #1
@@ -161,10 +161,10 @@ TWO_BLOCK_LOG = """
 ==================================================
 
   Network total:
-    Polaris:  3.2675 ms
+    TT-Polaris:  3.2675 ms
     Profiler:  3.2911 ms
-    Gap:  +0.72% (w.r.t. Polaris)
-    Polaris LUT hits: 102/102
+    Gap:  +0.72% (w.r.t. TT-Polaris)
+    TT-Polaris LUT hits: 102/102
 
   Layer Type   #1
 """
@@ -1566,7 +1566,7 @@ def test_polaris_argv_carries_the_flags_the_tool_depends_on(tmp_path, monkeypatc
 
 @pytest.mark.unit
 def test_compare_argv_passes_polaris_first_then_the_reference(tmp_path, monkeypatch):
-    """The parser's Polaris-before-Profiler contract rests on this argument order.
+    """The parser's TT-Polaris-before-Profiler contract rests on this argument order.
 
     `test_extract_summary_requires_polaris_before_profiler` pins that a reversed label block must
     fail to parse, and its rationale is that this tool always passes the TT-Polaris CSV as file1 --
