@@ -3,7 +3,7 @@
 """
 Gemma3 vision (SigLIP) attention test.
 Mirrors tt-metal's test_vision_attention.py (run_attention_inference),
-adapted to Polaris's shape-only simulation mode.
+adapted to TT-Polaris's shape-only simulation mode.
 """
 import os
 import sys

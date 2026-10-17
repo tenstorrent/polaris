@@ -19,14 +19,14 @@ import os
 import numpy as np
 from types import SimpleNamespace
 
-# Add polaris root to path
+# Add TT-Polaris root to path
 _file = os.path.abspath(__file__)
 _funcs = os.path.dirname(_file)  # functions
 _ops = os.path.dirname(_funcs)  # ops
 _models = os.path.dirname(_ops)  # models
 _detr = os.path.dirname(_models)  # Deformable_DETR
 _wl = os.path.dirname(_detr)  # workloads
-_polaris = os.path.dirname(_wl)  # polaris
+_polaris = os.path.dirname(_wl)  # TT-Polaris
 if _polaris not in sys.path:
     sys.path.insert(0, _polaris)
 

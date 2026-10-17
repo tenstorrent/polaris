@@ -6,7 +6,7 @@
 Based on the shim-only workloads/ttnn/tt_transformers/model_config.py, made
 dual-mode (IS_POLARIS gate) and audited against tt-metal
 models/tt_transformers/tt/model_config.py. Config-only + dummy weights — the
-Polaris path never reads an HF checkpoint (see design doc §5).
+TT-Polaris path never reads an HF checkpoint (see design doc §5).
 
 Audit fixes vs the shim-only base:
   - qkv_size now COMPUTED as head_dim*(2*n_kv_heads + n_heads) per tt-metal
@@ -34,7 +34,7 @@ def core_grid_from(device):
     """A create_sharded_memory_config-valid core_grid from device.compute_with_storage_grid_size().
 
     Real ttnn returns a CoreCoord there, which create_sharded_memory_config REJECTS ("Invalid
-    core_grid type" — it accepts CoreGrid/tuple/list/CoreRangeSet); the Polaris shim returns a
+    core_grid type" — it accepts CoreGrid/tuple/list/CoreRangeSet); the TT-Polaris shim returns a
     (x, y) tuple. Normalize both to ttnn.CoreGrid(x, y). (The shim's create_sharded_memory_config
     ignores core_grid, so this only matters on hardware.)
     """
@@ -119,10 +119,10 @@ def dram_sharded_weight_memcfg(mesh_device, k, n):
     this the shim emits ``DRAM_INTERLEAVED`` and every matmul misses the LUT on the
     weight-memory field.
 
-    Polaris only needs the canonical (WIDTH_SHARDED, DRAM) tag for LUT-key parity — the
+    TT-Polaris only needs the canonical (WIDTH_SHARDED, DRAM) tag for LUT-key parity — the
     ShardSpec details are not part of the key. The HW branch builds the full ShardSpec
     across the DRAM grid to match tt-metal. NOTE: the HW branch is not exercised in the
-    Polaris CI here (no silicon at authoring time); it reproduces tt-metal verbatim.
+    TT-Polaris CI here (no silicon at authoring time); it reproduces tt-metal verbatim.
     """
     if IS_POLARIS:
         return ttnn.MemoryConfig(ttnn.TensorMemoryLayout.WIDTH_SHARDED, ttnn.BufferType.DRAM)
@@ -179,7 +179,7 @@ class ModelArgs:
         self.tile_padded_batch_rows = 32 * math.ceil(max_batch_size / 32)
         self.num_reduce_scatter_links = 1
         self.arch_name = ttnn.get_arch_name()
-        # compute_kernel_config: on Polaris a bare MathFidelity (the shim ops read it for the LUT
+        # compute_kernel_config: on TT-Polaris a bare MathFidelity (the shim ops read it for the LUT
         # math_fidelity key); on real ttnn a WormholeComputeKernelConfig (ttnn.linear/rms_norm reject
         # a bare MathFidelity). Mirrors tt-metal ModelArgs (WormholeComputeKernelConfig, hifi2
         # math_approx_mode=True / hifi4 False, fp32_dest_acc_en + packer_l1_acc True). "Wormhole" is
@@ -199,7 +199,7 @@ class ModelArgs:
             self.compute_kernel_config_hifi2_fp16 = _ckc(ttnn.MathFidelity.HiFi2, True)
             self.compute_kernel_config_hifi4 = _ckc(ttnn.MathFidelity.HiFi4, False)
             self.compute_kernel_config_lofi = _ckc(ttnn.MathFidelity.LoFi, True)
-        # Real ttnn CoreGrid takes (x, y) — use that form so this runs on HW too (the Polaris shim's
+        # Real ttnn CoreGrid takes (x, y) — use that form so this runs on HW too (the TT-Polaris shim's
         # CoreGrid now accepts x=/y= as well). 8x8 grid == CoreCoord(0,0)..(7,7).
         self.max_grid_size = ttnn.CoreGrid(x=8, y=8)
         self.MAX_QKV_MM_SEQ_LEN = 2048
@@ -257,7 +257,7 @@ class ModelArgs:
         weight (input_tensor_b) is INTERLEAVED and TT_FATALs on a WIDTH_SHARDED one. Our decode
         weights are DRAM width-sharded (dram_sharded_weight_memcfg) to match the silicon capture's
         input_1 memory tag, so each such matmul MUST carry this dedicated program config. The
-        Polaris shim ignores program_config, so return None there (keeps the shim graph identical).
+        TT-Polaris shim ignores program_config, so return None there (keeps the shim graph identical).
         """
         if IS_POLARIS:
             return None

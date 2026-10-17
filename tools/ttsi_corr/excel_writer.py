@@ -70,7 +70,7 @@ class ExcelFormatter:
     Utilities for Excel formatting and layout.
     
     This class provides reusable Excel formatting utilities that can be
-    used across multiple tools in the Polaris ecosystem. All methods are
+    used across multiple tools in the TT-Polaris ecosystem. All methods are
     designed to be composable and testable.
     
     Static Methods:

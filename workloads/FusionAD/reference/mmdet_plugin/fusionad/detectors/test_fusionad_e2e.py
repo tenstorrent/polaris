@@ -18,9 +18,9 @@ from PyTorch to TTSim with numerical + shape comparison:
   8. can_bus delta - numerical match PyTorch vs TTSim (2-frame sequence)
   9. Post-processing pipeline - dict assembly numerical match
  10. Embedding + Linear - forward pass numerical match (PT vs TT)
- 11. Polaris-mode construction (use_lidar=True) - backbone + BEV encoder + LiDAR
+ 11. TT-Polaris-mode construction (use_lidar=True) - backbone + BEV encoder + LiDAR
  12. create_input_tensors - img + voxels shapes (use_lidar=True)
- 13. Polaris-mode construction (use_lidar=False) - no voxels, no pts_backbone
+ 13. TT-Polaris-mode construction (use_lidar=False) - no voxels, no pts_backbone
 """
 
 import os
@@ -856,11 +856,11 @@ except Exception as e:
 
 
 # ====================================================================
-# TEST 11: Polaris-mode construction (use_lidar=True)
+# TEST 11: TT-Polaris-mode construction (use_lidar=True)
 # ====================================================================
 
 print("\n" + "=" * 80)
-print("TEST 11: Polaris-mode construction (use_lidar=True) - backbone + BEV encoder + LiDAR")
+print("TEST 11: TT-Polaris-mode construction (use_lidar=True) - backbone + BEV encoder + LiDAR")
 print("=" * 80)
 
 try:
@@ -948,15 +948,15 @@ try:
     if model._lidar_sparse_shape != [41, 64, 64]:
         issues.append(f"_lidar_sparse_shape: {model._lidar_sparse_shape}, expected [41, 64, 64]")
 
-    # Check task heads are created (polaris mode builds all heads)
+    # Check task heads are created (TT-Polaris mode builds all heads)
     if not model.with_seg_head:
-        issues.append("seg_head not created in polaris mode")
+        issues.append("seg_head not created in TT-Polaris mode")
     if not model.with_motion_head:
-        issues.append("motion_head not created in polaris mode")
+        issues.append("motion_head not created in TT-Polaris mode")
     if not model.with_occ_head:
-        issues.append("occ_head not created in polaris mode")
+        issues.append("occ_head not created in TT-Polaris mode")
     if not model.with_planning_head:
-        issues.append("planning_head not created in polaris mode")
+        issues.append("planning_head not created in TT-Polaris mode")
 
     # Check DCN in ResNet backbone (stage_with_dcn=(False,False,True,True))
     if hasattr(model, 'img_backbone') and model.img_backbone is not None:
@@ -1094,11 +1094,11 @@ except Exception as e:
 
 
 # ====================================================================
-# TEST 13: Polaris-mode construction (use_lidar=False) - no voxels
+# TEST 13: TT-Polaris-mode construction (use_lidar=False) - no voxels
 # ====================================================================
 
 print("\n" + "=" * 80)
-print("TEST 13: Polaris-mode construction (use_lidar=False) — no voxels, no pts_backbone")
+print("TEST 13: TT-Polaris-mode construction (use_lidar=False) — no voxels, no pts_backbone")
 print("=" * 80)
 
 try:

@@ -56,7 +56,7 @@ def test_fold_dram_preserves_4d_shape() -> None:
         device=device,
     )
     # Tensor._memory_config defaults to None; set it directly here because
-    # there is no public to_device/memory_config setter in the Polaris Tensor.
+    # there is no public to_device/memory_config setter in the TT-Polaris Tensor.
     pixel_values._memory_config = MemoryConfig.DRAM
     y = ttnn.fold(pixel_values, stride_h=8, stride_w=2, use_transpose_as_fold=False)
 

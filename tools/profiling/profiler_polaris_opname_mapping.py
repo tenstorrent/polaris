@@ -3,32 +3,32 @@
 # SPDX-License-Identifier: Apache-2.0
 
 """
-Map TTNN hardware profiler table rows (CSV or Excel) to Polaris *opstats* ``opname`` values.
+Map TTNN hardware profiler table rows (CSV or Excel) to TT-Polaris *opstats* ``opname`` values.
 
-Polaris simulator stats (``HLMStats``) use graph node names such as ``ttsim.ttnn.Op_17``, not
+TT-Polaris simulator stats (``HLMStats``) use graph node names such as ``ttsim.ttnn.Op_17``, not
 ``MatMul_0``-style names from :mod:`tools.profiling.profiler_to_polaris_converter`.
 
 Typical workflow:
 
 1. Export profiler ops to ``.csv`` or ``.xlsx`` (same column names as TTNN ops perf CSV).
-2. Run Polaris on the same workload with stats CSV enabled.
+2. Run TT-Polaris on the same workload with stats CSV enabled.
 3. Call :func:`map_profiler_rows_to_polaris_opnames` with both row lists (or use
    :func:`load_profiler_ops_table` / :func:`load_polaris_opstats_csv`).
 
 Use :func:`profiler_polaris_layer_diff` or CLI ``--diff-only`` to list ops present only on the
-hardware-profiler side or only in Polaris stats (with types and fingerprints).
+hardware-profiler side or only in TT-Polaris stats (with types and fingerprints).
 
 Matching strategies:
 
 * ``fingerprint`` (default): (``optype``, input shapes, output shapes) using the same optype and
   WZYX parsing rules as ``tools.profiling.profiler_to_polaris_converter``. Stable for duplicate op signatures by
-  consuming Polaris ops in ``opnum`` order for each signature. By default
-  ``use_layout_attr_shapes`` is True: Polaris layout ops use ``attrs`` (``TilizeWithValPadding``
+  consuming TT-Polaris ops in ``opnum`` order for each signature. By default
+  ``use_layout_attr_shapes`` is True: TT-Polaris layout ops use ``attrs`` (``TilizeWithValPadding``
   ``output_padded_shape``; ``UntilizeWithUnpadding`` ``output_shape`` / ``output_tensor_end``), and
   the profiler side uses ``*_PAD[PADDED]`` columns when present (else ``LOGICAL``) for
   ``TilizeWithValPadding`` **output** and ``UntilizeWithUnpadding`` **input_0**. Pass False or CLI
-  ``--no-layout-attr-shapes`` for ``LOGICAL``-only profiler columns and Polaris tensor strings only.
-* ``ordered``: align profiler rows sorted by ``GLOBAL CALL COUNT`` with Polaris rows sorted by
+  ``--no-layout-attr-shapes`` for ``LOGICAL``-only profiler columns and TT-Polaris tensor strings only.
+* ``ordered``: align profiler rows sorted by ``GLOBAL CALL COUNT`` with TT-Polaris rows sorted by
   ``opnum``; requires equal lengths.
 
 Optional ``layer_key_column`` names an extra column in the profiler sheet (e.g. ``LAYER NAME``)
@@ -70,7 +70,7 @@ def _parse_profiler_attributes(raw: str | None) -> dict[str, Any]:
 
 
 def _parse_polaris_row_attrs(cell: str | None) -> dict[str, Any]:
-    """Parse Polaris ``opstats`` ``attrs`` cell (often Python ``repr`` of a dict)."""
+    """Parse TT-Polaris ``opstats`` ``attrs`` cell (often Python ``repr`` of a dict)."""
     s = (cell or '').strip()
     if not s or s == '{}':
         return {}
@@ -88,7 +88,7 @@ def _parse_polaris_row_attrs(cell: str | None) -> dict[str, Any]:
 
 def _coerce_output_padded_shape(raw: Any) -> tuple[int, ...] | None:
     """
-    Normalize ``attrs['output_padded_shape']`` from Polaris CSV.
+    Normalize ``attrs['output_padded_shape']`` from TT-Polaris CSV.
 
     Simulator exports may use a Python list ``[8, 14, 32, 1024]`` or a string such as
     ``Shape([8, 224, 32, 64])``.
@@ -123,7 +123,7 @@ def _coerce_output_padded_shape(raw: Any) -> tuple[int, ...] | None:
 
 def _untilize_unpadding_logical_output_from_attrs(pattrs: Mapping[str, Any]) -> tuple[int, ...] | None:
     """
-    True logical output shape for UntilizeWithUnpadding from Polaris ``attrs``.
+    True logical output shape for UntilizeWithUnpadding from TT-Polaris ``attrs``.
 
     Simulator ops store ``output_shape`` (dims). CSV exports may use ``output_tensor_end`` with
     last valid indices per dimension; output size is ``end + 1`` (see ``untilize_with_unpadding``).
@@ -166,7 +166,7 @@ def _normalize_profiler_row_keys(row: Mapping[str, Any]) -> dict[str, str]:
 
 
 def _map_profiler_opcode_to_polaris_optype(opcode: str, attrs: dict[str, Any]) -> str:
-    """Map profiler opcode to a Polaris STATS-style optype.
+    """Map profiler opcode to a TT-Polaris STATS-style optype.
 
     Uses :func:`map_optype_to_polaris` which handles canonical resolution
     internally and provides backwards-compatible PascalCase display names.
@@ -186,7 +186,7 @@ def profiler_op_index(row: Mapping[str, str]) -> int:
 
 
 def _squeeze_leading_ones(shape: tuple[int, ...]) -> tuple[int, ...]:
-    """Match profiler WZYX (1,1,y,x) to Polaris tensor strings that omit leading 1 dims."""
+    """Match profiler WZYX (1,1,y,x) to TT-Polaris tensor strings that omit leading 1 dims."""
     t = list(shape)
     while len(t) > 1 and t[0] == 1:
         t.pop(0)
@@ -199,7 +199,7 @@ def _normalize_shape_tuple(shape: tuple[int, ...]) -> tuple[int, ...]:
 
 def _shapes_from_polaris_tensor_field(field: str) -> tuple[tuple[int, ...], ...]:
     """
-    Parse Polaris ``input_tensors`` / ``output_tensors`` cell:
+    Parse TT-Polaris ``input_tensors`` / ``output_tensors`` cell:
     ``name[8x224x768]:float16;name2[768x768]:float16`` → ``((8,224,768), (768,768))``.
     """
     chunks = [c.strip() for c in field.split(';') if c.strip()]
@@ -214,7 +214,7 @@ def _shapes_from_polaris_tensor_field(field: str) -> tuple[tuple[int, ...], ...]
 
 
 def _optype_match_key(optype: str) -> str:
-    """Polaris uses CamelCase (Add); profiler attrs often yield UPPER (ADD)."""
+    """TT-Polaris uses CamelCase (Add); profiler attrs often yield UPPER (ADD)."""
     return str(optype).strip().lower()
 
 
@@ -224,7 +224,7 @@ def polaris_op_signature(
     use_layout_attr_shapes: bool = True,
 ) -> tuple[str, tuple[tuple[int, ...], ...], tuple[tuple[int, ...], ...]]:
     """
-    Build fingerprint tuple for a Polaris opstats row.
+    Build fingerprint tuple for a TT-Polaris opstats row.
 
     Parameters
     ----------
@@ -308,7 +308,7 @@ def profiler_layer_key(
 
 @dataclass(frozen=True)
 class ProfilerPolarisOpnameMapping:
-    """One profiler row aligned with one Polaris stats row."""
+    """One profiler row aligned with one TT-Polaris stats row."""
 
     profiler_layer_key: str
     polaris_opname: str
@@ -320,7 +320,7 @@ class ProfilerPolarisOpnameMapping:
 
 @dataclass(frozen=True)
 class ProfilerOnlyLayer:
-    """Hardware-profiler row with no matching Polaris op (same fingerprint strategy)."""
+    """Hardware-profiler row with no matching TT-Polaris op (same fingerprint strategy)."""
 
     layer_key: str
     profiler_op_code: str
@@ -331,7 +331,7 @@ class ProfilerOnlyLayer:
 
 @dataclass(frozen=True)
 class PolarisOnlyLayer:
-    """Polaris stats op with no matching hardware-profiler row."""
+    """TT-Polaris stats op with no matching hardware-profiler row."""
 
     polaris_opname: str
     polaris_opnum: int
@@ -361,11 +361,11 @@ def profiler_polaris_layer_diff(
     use_layout_attr_shapes: bool = True,
 ) -> ProfilerPolarisLayerDiff:
     """
-    After fingerprint matching, list ops that appear only on the profiler side or only in Polaris.
+    After fingerprint matching, list ops that appear only on the profiler side or only in TT-Polaris.
 
     Uses the same pairing rules as :func:`map_profiler_rows_to_polaris_opnames` with
     ``strategy='fingerprint'`` and ``allow_unmatched=True``. Unmatched profiler rows and any
-    Polaris queue entries left over are classified as unpaired.
+    TT-Polaris queue entries left over are classified as unpaired.
 
     Parameters
     ----------
@@ -488,23 +488,23 @@ def map_profiler_rows_to_polaris_opnames(
     use_layout_attr_shapes: bool = True,
 ) -> list[ProfilerPolarisOpnameMapping]:
     """
-    Pair each hardware-profiler op row with the corresponding Polaris ``opname``.
+    Pair each hardware-profiler op row with the corresponding TT-Polaris ``opname``.
 
     Parameters
     ----------
     profiler_rows
         Rows from TTNN ops perf CSV / Excel (see repo ``csvs/ops_perf_results_*.csv``).
     polaris_opstats_rows
-        Rows from Polaris ``*opstats.csv`` (must include ``opnum``, ``opname``, ``optype``,
+        Rows from TT-Polaris ``*opstats.csv`` (must include ``opnum``, ``opname``, ``optype``,
         ``input_tensors``, ``output_tensors``).
     strategy
         ``fingerprint`` (default) or ``ordered`` (strict position after sort).
     layer_key_column
         Optional profiler column for human-readable keys (e.g. ``LAYER NAME``).
     skip_polaris_fused
-        If True, drop Polaris rows where ``fused`` is truthy (``True`` / ``1``) before matching.
+        If True, drop TT-Polaris rows where ``fused`` is truthy (``True`` / ``1``) before matching.
     allow_unmatched
-        If True, profiler rows with no matching Polaris op (e.g. different workload scope) get
+        If True, profiler rows with no matching TT-Polaris op (e.g. different workload scope) get
         empty ``polaris_opname`` and ``polaris_opnum=-1`` instead of raising.
     use_layout_attr_shapes
         Default True. See :func:`polaris_op_signature` and :func:`profiler_op_signature`.
@@ -537,7 +537,7 @@ def map_profiler_rows_to_polaris_opnames(
             )
         return out
 
-    # fingerprint: queue polaris (opname, display optype, opnum) per signature
+    # fingerprint: queue TT-Polaris (opname, display optype, opnum) per signature
     queues: dict[tuple[Any, ...], deque[tuple[str, str, int]]] = defaultdict(deque)
     for pl in pol:
         sig = polaris_op_signature(pl, use_layout_attr_shapes=use_layout_attr_shapes)
@@ -572,7 +572,7 @@ def map_profiler_rows_to_polaris_opnames(
                 )
                 continue
             raise ValueError(
-                f'No Polaris op left for profiler row {j} key={profiler_layer_key(pr, j, layer_key_column=layer_key_column)!r} '
+                f'No TT-Polaris op left for profiler row {j} key={profiler_layer_key(pr, j, layer_key_column=layer_key_column)!r} '
                 f'signature={sig!r}'
             )
         opname, display_optype, opn = q.popleft()
@@ -686,7 +686,7 @@ def main() -> int:
         default='vitfull.xlsx',
         help='Profiler CSV or XLSX (default: vitfull.xlsx in cwd)',
     )
-    ap.add_argument('polaris_opstats', help='Polaris *opstats.csv')
+    ap.add_argument('polaris_opstats', help='TT-Polaris *opstats.csv')
     ap.add_argument(
         '--strategy',
         choices=('fingerprint', 'ordered'),
@@ -706,19 +706,19 @@ def main() -> int:
     ap.add_argument(
         '--skip-fused',
         action='store_true',
-        help='Ignore Polaris rows with fused=True',
+        help='Ignore TT-Polaris rows with fused=True',
     )
     ap.add_argument(
         '--allow-unmatched',
         action='store_true',
-        help='Leave polaris_opname empty when profiler op has no Polaris counterpart',
+        help='Leave polaris_opname empty when profiler op has no TT-Polaris counterpart',
     )
     ap.add_argument(
         '--no-layout-attr-shapes',
         dest='use_layout_attr_shapes',
         action='store_false',
         help=(
-            'Layout ops: Polaris tensor strings only; profiler *_PAD[LOGICAL] only (ignore attrs '
+            'Layout ops: TT-Polaris tensor strings only; profiler *_PAD[LOGICAL] only (ignore attrs '
             'and *_PAD[PADDED])'
         ),
     )
@@ -727,7 +727,7 @@ def main() -> int:
     ap.add_argument(
         '--diff-only',
         action='store_true',
-        help='Print layers only in profiler vs only in Polaris (with types), then exit',
+        help='Print layers only in profiler vs only in TT-Polaris (with types), then exit',
     )
     args = ap.parse_args()
 
@@ -758,11 +758,11 @@ def main() -> int:
         for k in sorted(pc.keys(), key=lambda s: (-pc[s], s)):
             print(f'  {k}: {pc[k]}')
         print()
-        print(f'=== Only in Polaris (simulator), {len(diff.only_in_polaris)} ops ===')
+        print(f'=== Only in TT-Polaris (simulator), {len(diff.only_in_polaris)} ops ===')
         for pol_only in diff.only_in_polaris:
             print(f'{pol_only.polaris_opname}\topnum={pol_only.polaris_opnum}\t{pol_only.optype}\t{pol_only.signature}')
         print()
-        print('--- Count by optype (Polaris-only) ---')
+        print('--- Count by optype (TT-Polaris-only) ---')
         for k in sorted(pl.keys(), key=lambda s: (-pl[s], s)):
             print(f'  {k}: {pl[k]}')
         return 0

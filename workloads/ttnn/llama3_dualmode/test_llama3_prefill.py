@@ -4,9 +4,9 @@
 """Dual-mode llama3 PREFILL runner.
 
 Uses the dual-mode workloads.ttnn.tt_transformers_dualmode components (which run on real HW
-via real ttnn when IRD_ARCH_NAME is set, and analytically via the Polaris shim otherwise).
+via real ttnn when IRD_ARCH_NAME is set, and analytically via the TT-Polaris shim otherwise).
 The existing shim-only workloads/ttnn/llama3 + workloads/ttnn/tt_transformers are left
-untouched. Builds the prefill graph on-device; Polaris extracts the WorkloadGraph from the
+untouched. Builds the prefill graph on-device; TT-Polaris extracts the WorkloadGraph from the
 device after this returns.
 
 Config (paged_attention=1, num_devices=1, dummy weights) is pinned per the migration plan;

@@ -4,7 +4,7 @@
 """
 Validation script for FPNC and gapcontext TTSim modules.
 
-Run from polaris root:
+Run from TT-Polaris root:
     python3 workloads/EA-LSS/Reference/Validation/test_fpnc.py
 
 Numerical comparisons validate the core ops inside gapcontext

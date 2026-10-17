@@ -151,7 +151,7 @@ def run_decoder_inference(wln, device, cfg, **kwargs):
         logger.info(f"[Decoder] Generating token {i}")
 
         pt_decode_input = (np.random.rand(batch_size, max_seq_len, model_args.dim).astype(np.float32) * 2) - 1
-        logger.info(f"=== POLARIS PREFILL TOKEN {i} INPUT ===")
+        logger.info(f"=== TT-POLARIS PREFILL TOKEN {i} INPUT ===")
         logger.info(f"numpy shape: {pt_decode_input.shape}")
         logger.info(f"min={pt_decode_input.min():.6f}, max={pt_decode_input.max():.6f}, mean={pt_decode_input.mean():.6f}")
         logger.info(f"first 8 values: {pt_decode_input.flatten()[:8].tolist()}")
@@ -186,7 +186,7 @@ def run_decoder_inference(wln, device, cfg, **kwargs):
             if hasattr(tt_out, 'shape'):
                 out_shape = tt_out.shape
                 logger.info(f"TT output tensor shape: {out_shape}")
-                logger.info(f"=== POLARIS PREFILL TOKEN {i} OUTPUT ===")
+                logger.info(f"=== TT-POLARIS PREFILL TOKEN {i} OUTPUT ===")
                 logger.info(f"logical_shape: {tt_out.shape}")
                 if callable(getattr(tt_out, 'padded_shape', None)):
                     logger.info(f"padded_shape: {tt_out.padded_shape()}")

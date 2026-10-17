@@ -15,10 +15,10 @@ type TYPE_frequency = Tuple[int, int, int]
 type TYPE_batchsize = Tuple[int, int, int]
 
 class PolarisRunConfig(BaseModel, extra='forbid'):
-    # Title is used only in the run config, it is not a command line attribute of polaris
+    # Title is used only in the run config, it is not a command line attribute of TT-Polaris
     title: str = Field(description='Human readable title for the run')
 
-    # Attributes corresponding to polaris command line options
+    # Attributes corresponding to TT-Polaris command line options
     odir: str = Field(
         description='This value is considered to be a Jinja2 template, and expanded as one, with the variables that '
         'polproj automatically defines prior to each run. Hence, the value can use the complete expressive power of '
@@ -107,10 +107,10 @@ class PolarisRunConfig(BaseModel, extra='forbid'):
         default='warning', description='Logging level (error,warning,info,debug) for the run'
     )
 
-    # githash attribute does not correspond to a polaris command line option
+    # githash attribute does not correspond to a TT-Polaris command line option
     githash: str | None = Field(default=None, description='Particular git commit')
 
-    # Attributes corresponding to polaris command line options
+    # Attributes corresponding to TT-Polaris command line options
     enable_memalloc: Optional[bool] = Field(default=False, description='Enable memory allocation stats')
 
     enable_cprofile: Optional[bool] = Field(default=False, description='Enable cProfiler stats')
@@ -133,11 +133,11 @@ class PolarisRunConfig(BaseModel, extra='forbid'):
         default=False, description='If true, run will not execute any commands, but will only print them'
     )
 
-    # Attributes for use by Polaris system only
+    # Attributes for use by TT-Polaris system only
 
     saved_copy: Optional[bool] = Field(
         default=False,
-        description='Only for internal use. This attribute should be true for yaml copies saved by polaris system only',
+        description='Only for internal use. This attribute should be true for yaml copies saved by TT-Polaris system only',
     )
 
 

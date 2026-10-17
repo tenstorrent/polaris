@@ -1,6 +1,6 @@
 # TTSI Correlation Package
 
-Modular components for Metal-Tensix correlation analysis between Polaris HLM projections and silicon performance measurements.
+Modular components for Metal-Tensix correlation analysis between TT-Polaris HLM projections and silicon performance measurements.
 
 ## Overview
 
@@ -16,7 +16,7 @@ ttsi_corr/
 ├── correlation.py                  # Calculate correlation metrics
 ├── excel_writer.py                 # Generate Excel reports
 ├── chart_builder.py                # Create visualization charts
-├── simulator.py                    # Orchestrate Polaris simulation
+├── simulator.py                    # Orchestrate TT-Polaris simulation
 ├── ttsi_corr_utils.py              # Shared utilities and validation
 ├── compare_reference_data.py       # Tool: Compare reference data tags
 ├── update_metadata_provenance.py   # Tool: Update metadata with git commits
@@ -159,11 +159,11 @@ wb.save('output/correlation_result.xlsx')
 ```
 
 ### `simulator`
-Orchestrate Polaris simulation execution.
+Orchestrate TT-Polaris simulation execution.
 
 **Key Functions:**
 - `validate_and_filter_configs()` - Validate and filter configurations
-- `run_polaris_simulation()` - Execute Polaris simulation
+- `run_polaris_simulation()` - Execute TT-Polaris simulation
 - `validate_workload_filter()` - Validate workload filter
 
 **Example:**

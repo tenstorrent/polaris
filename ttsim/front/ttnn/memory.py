@@ -90,7 +90,7 @@ def create_sharded_memory_config(shape, core_grid, strategy, orientation=None,
 def create_sharded_memory_config_(shape, grid, mem_layout, orientation, tile_layout):
     """Create a sharded MemoryConfig with ShardSpec metadata.
 
-    This is a minimal implementation for Polaris simulation that preserves
+    This is a minimal implementation for TT-Polaris simulation that preserves
     sharding metadata (mem_layout, grid, orientation) without performing
     actual shard shape calculations.
 

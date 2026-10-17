@@ -4,7 +4,7 @@
 
 """Single source of truth for operation-type normalization.
 
-Every tool that maps a profiler OP CODE or a Polaris ``optype`` to a
+Every tool that maps a profiler OP CODE or a TT-Polaris ``optype`` to a
 canonical name should import from here rather than maintaining its own
 mapping tables.
 
@@ -26,7 +26,7 @@ from typing import Any, Dict, Optional
 from loguru import logger
 
 # ---------------------------------------------------------------------------
-# Profiler OP CODE → canonical Polaris layer type
+# Profiler OP CODE → canonical TT-Polaris layer type
 # ---------------------------------------------------------------------------
 
 # Prefix rules: first match wins (longer/specific prefixes before shorter).
@@ -68,7 +68,7 @@ PROFILER_PREFIX_RULES: tuple[tuple[str, str], ...] = (
     ("ManualSeed", "manualseed"),
     ("Sampling", "sampling"),
     ("PlusOne", "plusone"),
-    ("UntilizeWithValUnpadding", "untilizewithunpadding"),  # Polaris variant with "Val"
+    ("UntilizeWithValUnpadding", "untilizewithunpadding"),  # TT-Polaris variant with "Val"
     ("UntilizeWithUnpadding", "untilizewithunpadding"),
     ("Untilize", "untilize"),
     ("TilizeWithValPadding", "tilizewithvalpadding"),
@@ -152,7 +152,7 @@ _RE_CONV_IS_TRANSPOSE = re.compile(r'is_transpose\s*=\s*true', re.IGNORECASE)
 _UNKNOWN_PROFILER_BASES: set[str] = set()
 
 # ---------------------------------------------------------------------------
-# Polaris-side synonyms  (optype field from Polaris CSV → canonical)
+# TT-Polaris-side synonyms  (optype field from TT-Polaris CSV → canonical)
 # ---------------------------------------------------------------------------
 
 POLARIS_SYNONYMS: Dict[str, str] = {
@@ -160,9 +160,9 @@ POLARIS_SYNONYMS: Dict[str, str] = {
     "reshapeview": "reshape",
     "nlpcreateqkvheads": "createqkvheads",  # backward-compat: old CSVs used NLP prefix
     "nlpconcatheads": "concatheads",
-    "untilizewithvalunpadding": "untilizewithunpadding",  # Polaris uses "Val", profiler uses plain form
-    "conv": "conv2d",  # Polaris emits op.type='Conv'; LUT op_code='conv2d'
-    "maxpool": "pool2d",  # Polaris emits op.type='MaxPool'; profiler/LUT uses 'Pool2D' → 'pool2d'
+    "untilizewithvalunpadding": "untilizewithunpadding",  # TT-Polaris uses "Val", profiler uses plain form
+    "conv": "conv2d",  # TT-Polaris emits op.type='Conv'; LUT op_code='conv2d'
+    "maxpool": "pool2d",  # TT-Polaris emits op.type='MaxPool'; profiler/LUT uses 'Pool2D' → 'pool2d'
 }
 
 # ---------------------------------------------------------------------------
@@ -200,7 +200,7 @@ COMPARISON_GROUPS: Dict[str, str] = {
     "sub": "binary",
     "eltwise": "binary",
     "tilizewithvalpadding": "tilize",
-    # Polaris abstract names → profiler hardware names
+    # TT-Polaris abstract names → profiler hardware names
     # conv_transpose2d has no separate OP CODE on hardware; implemented as Conv2dDeviceOperation
     "conv": "conv2d",
     "maxpool": "pool2d",
@@ -340,7 +340,7 @@ def _resolve_conv_subtype(attrs: Any) -> str:
 
 def normalize_profiler_opcode(opcode: Any, attrs: Any = None) -> str:
     """Map a profiler OP CODE cell (+ optional ATTRIBUTES) to a canonical
-    lowercase Polaris layer type.
+    lowercase TT-Polaris layer type.
 
     Handles:
     - ``DeviceOperation`` suffix stripping
@@ -355,7 +355,7 @@ def normalize_profiler_opcode(opcode: Any, attrs: Any = None) -> str:
         attrs: Parsed attributes dict, raw attributes string, or None.
 
     Returns:
-        Canonical lowercase Polaris layer type string.
+        Canonical lowercase TT-Polaris layer type string.
     """
     if opcode is None:
         return ""
@@ -410,7 +410,7 @@ def normalize_profiler_opcode(opcode: Any, attrs: Any = None) -> str:
 
 
 def normalize_polaris_optype(optype: str) -> str:
-    """Normalize a Polaris CSV ``optype`` field to the canonical form.
+    """Normalize a TT-Polaris CSV ``optype`` field to the canonical form.
 
     Applies lowercasing and resolves known synonyms (e.g.
     ``layernormalization`` → ``layernorm``).

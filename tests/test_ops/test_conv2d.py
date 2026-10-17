@@ -82,7 +82,7 @@ def test_conv(tmp_path_factory):
         gr = btest.forward_graph()
         fname = outdir / f"{testname}_{cfgname}.onnx"
         gr.graph2onnx(fname, do_model_check=True)
-        # TODO: Run this generated onnx through polaris
+        # TODO: Run this generated onnx through TT-Polaris
 
 
 # ============================================================================

@@ -3,7 +3,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 """
-DiffusionDriveValidation – Polaris Workload with Integrated Validation Suite
+DiffusionDriveValidation – TT-Polaris Workload with Integrated Validation Suite
 
 Extends V2TransfuserModel to additionally execute every test_*.py script found
 under workloads/DiffusionDrive/navsim/agents/diffusiondrive/reference/ (all
@@ -15,7 +15,7 @@ in workloads/DiffusionDrive/validation_output/. The absolute path to that report
 is printed to the terminal once the run is complete.
 
 After running the validation suite the workload behaves identically to the plain
-DiffusionDrive workload – it produces the same forward-graph and the same Polaris
+DiffusionDrive workload – it produces the same forward-graph and the same TT-Polaris
 JSON projection output.
 
 Usage
@@ -54,7 +54,7 @@ _REFERENCE_DIR: str = os.path.normpath(
     os.path.join(os.path.dirname(__file__), "reference")
 )
 
-# Absolute path of the polaris workspace root (five levels above this file)
+# Absolute path of the TT-Polaris workspace root (five levels above this file)
 _POLARIS_ROOT: str = os.path.normpath(
     os.path.join(os.path.dirname(__file__), "../../../../..")
 )
@@ -307,7 +307,7 @@ def _run_validation_tests() -> str:
 
 
 # ---------------------------------------------------------------------------
-# Polaris workload class
+# TT-Polaris workload class
 # ---------------------------------------------------------------------------
 
 

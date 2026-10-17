@@ -8,7 +8,7 @@ Tests basic mapper functionality including properties, forward passes, and train
 
 import os, sys
 
-# Add polaris directory to path
+# Add TT-Polaris directory to path
 polaris_path = os.path.abspath(
     os.path.join(os.path.dirname(__file__), "..", "..", "..", "..")
 )

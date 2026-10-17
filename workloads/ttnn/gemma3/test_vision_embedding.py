@@ -3,7 +3,7 @@
 """
 Gemma3 Siglip Vision Embedding test.
 Mirrors tt-metal's test_vision_embedding.py (run_vision_embedding_integration),
-adapted to Polaris's shape-only simulation mode.
+adapted to TT-Polaris's shape-only simulation mode.
 """
 import os
 import sys

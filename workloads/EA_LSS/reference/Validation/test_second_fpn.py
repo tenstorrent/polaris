@@ -3,7 +3,7 @@
 # SPDX-License-Identifier: Apache-2.0
 """
 Validation script for SECONDFPN neck TTSim module.
-Run from polaris root:
+Run from TT-Polaris root:
     python3 workloads/EA-LSS/Reference/Validation/test_second_fpn.py
 
 Note: TTSim ConvTranspose2d tracks shapes only (no data compute).

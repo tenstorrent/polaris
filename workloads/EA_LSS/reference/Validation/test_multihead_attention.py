@@ -3,7 +3,7 @@
 # SPDX-License-Identifier: Apache-2.0
 """
 Validation script for MultiheadAttention TTSim module.
-Run from polaris root:
+Run from TT-Polaris root:
     python3 workloads/EA-LSS/Reference/Validation/test_multihead_attention.py
 
 Weight injection notes:

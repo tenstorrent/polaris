@@ -365,7 +365,7 @@ Each `run_all.py` script generates:
 
 ---
 
-### Run with Polaris
+### Run with TT-Polaris
 
 ```bash
 python polaris.py -w config/ip_workloads.yaml -a config/all_archs.yaml -m config/wl2archmapping.yaml --filterwlg ttsim --filterwl FusionAD -o ODDIR_fusionad -s SIMPLE_RUN --outputformat json

@@ -40,7 +40,7 @@ from workloads.ttnn.tt_transformers_dualmode.model_config import dram_sharded_we
 # DRAM-sharded decode matmuls REQUIRE a sharded output on HW ("Output memory config must be
 # sharded for DRAM sharded program config", matmul_device_operation.cpp) — tt-metal sets these
 # to L1_WIDTH_SHARDED (get_attn_qkv_mm_mem_config / get_attn_wo_output_mem_config, no-prefetcher).
-# Polaris keeps None: the shim's L1_WIDTH_SHARDED_MEMORY_CONFIG is a 0-stub (no sharded modeling)
+# TT-Polaris keeps None: the shim's L1_WIDTH_SHARDED_MEMORY_CONFIG is a 0-stub (no sharded modeling)
 # and the None path already emits the capture-matching output key (verified 713/713).
 _DECODE_MM_MEMCFG = None if IS_POLARIS else ttnn.L1_WIDTH_SHARDED_MEMORY_CONFIG
 
@@ -226,7 +226,7 @@ class Attention:
     def forward_decode(self, x, current_pos, rot_mats=None, page_table=None, kv_cache=None):
         """Paged decode: create-heads-decode -> fused rope -> fused cache update -> paged SDPA -> concat."""
         # DRAM-sharded weight -> needs the DRAM-sharded matmul program config on HW (see
-        # model_config.dram_matmul_config); None on Polaris (shim ignores program_config).
+        # model_config.dram_matmul_config); None on TT-Polaris (shim ignores program_config).
         xqkv_fused = ttnn.linear(x, self.wqkv, memory_config=_DECODE_MM_MEMCFG,
                                  compute_kernel_config=self.compute_kernel_config_hifi2,
                                  program_config=self.args.attn_qkv_decode_program_config())
@@ -241,7 +241,7 @@ class Attention:
         # HW-only guard: on the shim this reshape is NOT a free logical/padded re-label — it mutates
         # the tracked graph (op count 713->777, +96 LUT misses). The shim's create_qkv already derives
         # a batch-agnostic q=[1,1,32,128] straight from hidden+num_heads, matching the batch-1 capture,
-        # so Polaris needs no reshape. Real ttnn does (its create_qkv honors the logical batch).
+        # so TT-Polaris needs no reshape. Real ttnn does (its create_qkv honors the logical batch).
         if not IS_POLARIS:
             _fq = xqkv_fused.shape[3]
             xqkv_fused = ttnn.reshape(xqkv_fused, (1, 1, self.max_batch_size, _fq), (1, 1, 32, _fq))
@@ -262,7 +262,7 @@ class Attention:
         # The batch-1 p100a capture confirms this: the q Reshard runs on 1 core and the fused-QK
         # rope on 2 cores. core_grid_from (the full 120-core grid) tripped the <=64 assert on HW.
         # Sizing to max_batch_size carves batch-many cores from the device pool (1 for batch-1).
-        # (Core-grid count is not part of the LUT key, so Polaris stays 713/713.)
+        # (Core-grid count is not part of the LUT key, so TT-Polaris stays 713/713.)
         q_heads = ttnn.reshard(q_heads, ttnn.create_sharded_memory_config(
             shape=(32, self.head_dim),
             core_grid=ttnn.num_cores_to_corerangeset(
@@ -279,9 +279,9 @@ class Attention:
             # q_batch cores (k_start_core = CoreCoord(q_batch % 8, q_batch // 8)) and gives it a
             # k_batch-wide range via num_to_corerange(k_batch, start_core). q_batch == k_batch ==
             # max_batch_size here; the fused-QK op asserts q_num_cores + k_num_cores <= 64, so
-            # batch <= 32. Polaris keys on shape, not core placement, so this HW-only op keeps
-            # Polaris at 749/749.
-            # tt-metal helper — only importable on HW (the models pkg isn't in the Polaris env).
+            # batch <= 32. TT-Polaris keys on shape, not core placement, so this HW-only op keeps
+            # TT-Polaris at 749/749.
+            # tt-metal helper — only importable on HW (the models pkg isn't in the TT-Polaris env).
             # Imported rather than vendored on purpose: a local copy would drift from
             # model_config.py. Guarded so a misconfigured HW run fails with a usable message
             # instead of a bare ModuleNotFoundError from inside attention forward.
@@ -292,7 +292,7 @@ class Attention:
                     "llama3 decode on hardware needs tt-metal's models.tt_transformers package "
                     "(num_to_corerange, used for the fused-QK k-shard core range). Run from the "
                     "tt-metal checkout root so `models/` is importable, or unset IRD_ARCH_NAME to "
-                    "run the Polaris shim path instead."
+                    "run the TT-Polaris shim path instead."
                 ) from exc
             if self.max_batch_size > 1:
                 logger.warning(
@@ -324,7 +324,7 @@ class Attention:
         # (nlp_concat_heads_decode_device_operation.cpp:68), so the shard grid must be BATCH-sized, not
         # the full device grid. tt-metal get_attn_sdpa_output_mem_config (model_config.py:1765, no
         # prefetcher, commit d9d52dfe7b6) uses num_to_corerange(batch_size_per_device_group). Match it
-        # (batch-1 -> 1 core). Core-grid count is not in the LUT key, so Polaris stays 749/749.
+        # (batch-1 -> 1 core). Core-grid count is not in the LUT key, so TT-Polaris stays 749/749.
         attn_output = ttnn.interleaved_to_sharded(attn_output, ttnn.create_sharded_memory_config(
             shape=(32, self.head_dim),
             core_grid=ttnn.num_cores_to_corerangeset(
@@ -334,7 +334,7 @@ class Attention:
             use_height_and_width_as_shard_shape=True,
         ))
         attn_output = ttnn.experimental.nlp_concat_heads_decode(attn_output, num_heads=self.n_local_heads)
-        # wo weight is DRAM-sharded -> DRAM-sharded matmul program config on HW (None on Polaris).
+        # wo weight is DRAM-sharded -> DRAM-sharded matmul program config on HW (None on TT-Polaris).
         output = ttnn.linear(attn_output, self.wo, compute_kernel_config=self.compute_kernel_config_hifi2,
                              dtype=self.activation_dtype,
                              program_config=self.args.attn_wo_decode_program_config(),

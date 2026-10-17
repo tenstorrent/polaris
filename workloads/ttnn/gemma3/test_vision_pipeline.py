@@ -127,7 +127,7 @@ def run_gemma_vision(wln, device, cfg, **kwargs):
         # Create input tensor
         input_tensor_np = np.random.rand(bsz, in_channels, image_size, image_size).astype(np.float32)
 
-        logger.info("=== POLARIS VISION FULL INPUT ===")
+        logger.info("=== TT-POLARIS VISION FULL INPUT ===")
         logger.info(f" image numpy shape: {input_tensor_np.shape}")
 
         # Convert to ttnn tensor
@@ -149,7 +149,7 @@ def run_gemma_vision(wln, device, cfg, **kwargs):
         test_output = tt_model(input_tensor_tt)
 
         output_shape = get_shape_tuple(test_output)
-        logger.info("=== POLARIS VISION FULL OUTPUT ===")
+        logger.info("=== TT-POLARIS VISION FULL OUTPUT ===")
         logger.info(f" output shape: {output_shape}")
 
         expected_shape = (bsz, num_patches, vision_dim)
@@ -226,7 +226,7 @@ def run_gemma_vision_piecewise(wln, device, cfg, **kwargs):
         # Create input tensor
         input_tensor_np = np.random.rand(bsz, in_channels, image_size, image_size).astype(np.float32)
 
-        logger.info("=== POLARIS VISION PIECEWISE INPUT ===")
+        logger.info("=== TT-POLARIS VISION PIECEWISE INPUT ===")
         logger.info(f" image numpy shape: {input_tensor_np.shape}")
 
         # Expected shapes
@@ -254,7 +254,7 @@ def run_gemma_vision_piecewise(wln, device, cfg, **kwargs):
         test_output_full = tt_full_model(input_tensor_tt_full)
 
         output_shape = get_shape_tuple(test_output_full)
-        logger.info("=== POLARIS VISION FULL OUTPUT ===")
+        logger.info("=== TT-POLARIS VISION FULL OUTPUT ===")
         logger.info(f" output shape: {output_shape}")
 
         passed_full = check_shape(test_output_full, expected_full_shape, "full_vision_model")
@@ -289,7 +289,7 @@ def run_gemma_vision_piecewise(wln, device, cfg, **kwargs):
         embed_output = test_embeddings(input_tensor_tt_embed)
 
         embed_shape = get_shape_tuple(embed_output)
-        logger.info("=== POLARIS VISION EMBEDDINGS OUTPUT ===")
+        logger.info("=== TT-POLARIS VISION EMBEDDINGS OUTPUT ===")
         logger.info(f" output shape: {embed_shape}")
 
         passed_embed = check_shape(embed_output, expected_embed_shape, "embeddings")
@@ -329,7 +329,7 @@ def run_gemma_vision_piecewise(wln, device, cfg, **kwargs):
         encoder_output = test_encoder(embed_output, mask=tt_mask)
 
         encoder_shape = get_shape_tuple(encoder_output)
-        logger.info("=== POLARIS VISION ENCODER OUTPUT ===")
+        logger.info("=== TT-POLARIS VISION ENCODER OUTPUT ===")
         logger.info(f" output shape: {encoder_shape}")
 
         passed_encoder = check_shape(encoder_output, expected_encoder_shape, "encoder")
@@ -353,7 +353,7 @@ def run_gemma_vision_piecewise(wln, device, cfg, **kwargs):
         ln_post_output = test_ln_post(encoder_output)
 
         ln_shape = get_shape_tuple(ln_post_output)
-        logger.info("=== POLARIS VISION LN_POST OUTPUT ===")
+        logger.info("=== TT-POLARIS VISION LN_POST OUTPUT ===")
         logger.info(f" output shape: {ln_shape}")
 
         passed_lnpost = check_shape(ln_post_output, expected_lnpost_shape, "ln_post")

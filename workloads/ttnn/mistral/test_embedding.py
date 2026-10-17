@@ -11,7 +11,7 @@ from workloads.ttnn.tt_transformers.model_config import ModelArgs
 from workloads.ttnn.tt_transformers.embedding import Embedding
 
 def test_embedding():
-    logger.info("Initializing Polaris Embedding Test (Standardized for Simulator)...")
+    logger.info("Initializing TT-Polaris Embedding Test (Standardized for Simulator)...")
     batch_size = 32
     mesh_device = ttnn.open_device(device_id=0)
 

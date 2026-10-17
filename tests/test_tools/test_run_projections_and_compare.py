@@ -5,7 +5,7 @@
 """Unit tests for tools.profiling.run_projections_and_compare.
 
 The summary parser reads compare_layers.py's ``Network total`` block, so these tests pin the shape
-of that contract: field ordering (the labels are printed Polaris-then-Profiler), and the two cases
+of that contract: field ordering (the labels are printed TT-Polaris-then-Profiler), and the two cases
 where compare_layers legitimately omits information — no LUT-hits line when neither side has a hit,
 and ``Gap: N/A`` when the reference total is zero.
 """
@@ -30,15 +30,15 @@ from tools.profiling.run_projections_and_compare import (
 )
 
 # Exactly as compare_layers.py --perf --by-lut-key prints it (two-space indents, label order,
-# the "(w.r.t. Polaris)" suffix on the gap line).
+# the "(w.r.t. TT-Polaris)" suffix on the gap line).
 NORMAL_LOG = """
-  LUT key comparison: Polaris vs Profiler
+  LUT key comparison: TT-Polaris vs Profiler
 
   Network total:
-    Polaris:  3.2675 ms
+    TT-Polaris:  3.2675 ms
     Profiler:  3.2911 ms
-    Gap:  +0.72% (w.r.t. Polaris)
-    Polaris LUT hits: 102/102
+    Gap:  +0.72% (w.r.t. TT-Polaris)
+    TT-Polaris LUT hits: 102/102
     Profiler LUT hits: 102/102
 
   op                 #1
@@ -47,9 +47,9 @@ NORMAL_LOG = """
 # has_lut is false in compare_layers when neither side has a hit, so both LUT lines are absent.
 ZERO_HIT_LOG = """
   Network total:
-    Polaris:  3.2675 ms
+    TT-Polaris:  3.2675 ms
     Profiler:  3.2911 ms
-    Gap:  -9.05% (w.r.t. Polaris)
+    Gap:  -9.05% (w.r.t. TT-Polaris)
 
   op                 #1
 """
@@ -57,9 +57,9 @@ ZERO_HIT_LOG = """
 # _pct_gap returns "N/A" when the reference total is 0.0.
 NA_GAP_LOG = """
   Network total:
-    Polaris:  0.0000 ms
+    TT-Polaris:  0.0000 ms
     Profiler:  3.2911 ms
-    Gap:  N/A (w.r.t. Polaris)
+    Gap:  N/A (w.r.t. TT-Polaris)
 """
 
 
@@ -85,6 +85,16 @@ def _write(tmp_path, text):
 def test_extract_summary_normal(tmp_path):
     """A complete block yields every field, with the gap signed."""
     s = extract_summary(_write(tmp_path, NORMAL_LOG))
+    assert s == rpc.ParsedSummary(polaris_ms=3.2675, profiler_ms=3.2911, gap_pct=0.72,
+                                  lut_hits=102, lut_total=102)
+
+
+@pytest.mark.unit
+def test_extract_summary_accepts_the_legacy_polaris_label(tmp_path):
+    """Logs written before the TT-Polaris rename use the bare "Polaris" label; they still parse."""
+    legacy = NORMAL_LOG.replace('TT-Polaris:', 'Polaris:').replace('TT-Polaris LUT hits:', 'Polaris LUT hits:')
+    assert 'TT-Polaris:' not in legacy and 'Polaris LUT hits:' in legacy
+    s = extract_summary(_write(tmp_path, legacy))
     assert s == rpc.ParsedSummary(polaris_ms=3.2675, profiler_ms=3.2911, gap_pct=0.72,
                                   lut_hits=102, lut_total=102)
 
@@ -131,11 +141,11 @@ def test_extract_summary_returns_none_when_absent(tmp_path):
 def test_extract_summary_requires_polaris_before_profiler(tmp_path):
     """Reversed labels must not silently swap the two timings.
 
-    compare_layers prints file1 first, and the tool always passes the polaris CSV as file1; an
+    compare_layers prints file1 first, and the tool always passes the TT-Polaris CSV as file1; an
     inverted block means an assumption broke, so failing to parse is the honest outcome.
     """
-    swapped = NORMAL_LOG.replace('Polaris:  3.2675', 'XXX').replace(
-        'Profiler:  3.2911 ms', 'Polaris:  3.2911 ms').replace('XXX', 'Profiler:  3.2675')
+    swapped = NORMAL_LOG.replace('TT-Polaris:  3.2675', 'XXX').replace(
+        'Profiler:  3.2911 ms', 'TT-Polaris:  3.2911 ms').replace('XXX', 'Profiler:  3.2675')
     assert extract_summary(_write(tmp_path, swapped)) is None
 
 
@@ -144,14 +154,14 @@ def test_extract_summary_requires_polaris_before_profiler(tmp_path):
 # describes the whole network. Numbers are deliberately distinct so a first-match parser fails.
 TWO_BLOCK_LOG = """
 ==================================================
-  LUT key comparison: Polaris vs Profiler
+  LUT key comparison: TT-Polaris vs Profiler
 ==================================================
 
   Network total:
-    Polaris:  2.0000 ms
+    TT-Polaris:  2.0000 ms
     Profiler:  2.1000 ms
-    Gap:  +5.00% (w.r.t. Polaris)
-    Polaris LUT hits: 90/90
+    Gap:  +5.00% (w.r.t. TT-Polaris)
+    TT-Polaris LUT hits: 90/90
     Profiler LUT hits: 0/90
 
   op                 #1
@@ -161,10 +171,10 @@ TWO_BLOCK_LOG = """
 ==================================================
 
   Network total:
-    Polaris:  3.2675 ms
+    TT-Polaris:  3.2675 ms
     Profiler:  3.2911 ms
-    Gap:  +0.72% (w.r.t. Polaris)
-    Polaris LUT hits: 102/102
+    Gap:  +0.72% (w.r.t. TT-Polaris)
+    TT-Polaris LUT hits: 102/102
 
   Layer Type   #1
 """
@@ -223,7 +233,7 @@ def test_run_tag_arg_accepts_plain_names(tag):
 @pytest.mark.unit
 @pytest.mark.parametrize('tag', ['-trial', '-', '--x', '-1'])
 def test_run_tag_arg_rejects_a_leading_hyphen(tag):
-    """A leading hyphen would break every polaris subprocess.
+    """A leading hyphen would break every TT-Polaris subprocess.
 
     The tag is interpolated into `--study <value>`, and argparse in the child reads a value starting
     with `-` as an option: verified against the real CLI, which fails with
@@ -256,7 +266,7 @@ def test_run_tag_arg_rejects_trailing_whitespace(tag):
 @pytest.mark.parametrize('tag', ['..', '.', '', 'a/b', '../escaped', '/tmp/absolute', 'a b', 'x;y',
                                  '.hidden', '...'])
 def test_run_tag_arg_rejects_paths_and_traversal(tag):
-    """The tag is a path component under __output/ and polaris's --study value.
+    """The tag is a path component under __output/ and TT-Polaris's --study value.
 
     A separator or ``..`` would write outside the output tree, and an absolute value would make
     Path joining discard the __output prefix entirely. A *leading dot* is rejected for a
@@ -433,7 +443,7 @@ def test_main_rejects_a_stale_opstats_csv_under_a_reused_run_tag(tmp_path, monke
     says. Otherwise a plausible-looking row describing stale data survives, which is worse than a
     reported failure.
 
-    This originally also compensated for polaris exiting 0 with "completed with 0 experiments" when
+    This originally also compensated for TT-Polaris exiting 0 with "completed with 0 experiments" when
     the filters selected nothing. It now rejects that itself (issue #517), so only the staleness
     concern is load-bearing here -- but a run can still produce no CSV for other reasons, so the
     clear-then-check order still matters.
@@ -451,7 +461,7 @@ def test_main_rejects_a_stale_opstats_csv_under_a_reused_run_tag(tmp_path, monke
     stale.write_text('archname\nstale-row-from-a-previous-run\n')
 
     def fake_run(cmd, **kwargs):
-        # polaris "succeeds" but produces no opstats -- an empty selection is rejected outright
+        # TT-Polaris "succeeds" but produces no opstats -- an empty selection is rejected outright
         # since #517, so this stands in for the other ways a clean exit can leave no CSV.
         if Path(cmd[1]).name == 'compare_layers.py':
             kwargs['stdout'].write(NORMAL_LOG)
@@ -474,7 +484,7 @@ def test_main_clears_a_stale_workbook_when_compare_fails(tmp_path, monkeypatch):
     The summary correctly omits the combo, so no wrong number is reported — but the workbook is an
     advertised output, and a leftover one can be opened as though it described this run. It is the
     only advertised output that can survive a failure: both logs are truncated by open('w') and
-    opstats is unlinked before polaris runs.
+    opstats is unlinked before TT-Polaris runs.
     """
     monkeypatch.setattr(rpc, 'REPO_ROOT', tmp_path)
     for c in COMBOS:
@@ -510,7 +520,7 @@ def test_main_clears_a_stale_workbook_when_compare_fails(tmp_path, monkeypatch):
 def test_main_clears_a_stale_workbook_when_polaris_fails(tmp_path, monkeypatch):
     """The stale-output guard must cover a failure at *any* step, not just at compare.
 
-    Clearing the workbook inside run_compare only covered the compare-fails path: if polaris fails
+    Clearing the workbook inside run_compare only covered the compare-fails path: if TT-Polaris fails
     first, run_compare is never reached, and an earlier run's workbook survives — the same defect
     the cleanup exists to prevent, arrived at from a different direction.
     """
@@ -527,13 +537,13 @@ def test_main_clears_a_stale_workbook_when_polaris_fails(tmp_path, monkeypatch):
     stale_xlsx.write_bytes(b'stale workbook from a previous run')
 
     def fake_run(cmd, **kwargs):
-        raise subprocess.CalledProcessError(1, cmd)   # polaris fails; compare is never reached
+        raise subprocess.CalledProcessError(1, cmd)   # TT-Polaris fails; compare is never reached
 
     monkeypatch.setattr(rpc.subprocess, 'run', fake_run)
     monkeypatch.setattr('sys.argv', ['x', '--run-tag', 'tag', '--only', 'vgg_wh_n150'])
 
     assert rpc.main() == 1
-    assert not stale_xlsx.exists(), "a previous run's workbook survived a failed polaris run"
+    assert not stale_xlsx.exists(), "a previous run's workbook survived a failed TT-Polaris run"
     written = (tmp_path / '__output' / 'tag' / 'summary.md').read_text()
     assert 'polaris.py exited 1' in written
 
@@ -660,10 +670,10 @@ def test_clear_stale_outputs_is_a_noop_when_the_directory_is_absent(tmp_path, mo
 def test_clear_stale_outputs_removes_every_opstats_csv_not_just_the_consumed_one(tmp_path, monkeypatch):
     """A combo can leave more than one CSV behind, and all of them are stale.
 
-    The ViT cells run `--batchsize 1 <bs> <bs>`, so polaris writes `-b1-` as well as `-b<bs>-` and
+    The ViT cells run `--batchsize 1 <bs> <bs>`, so TT-Polaris writes `-b1-` as well as `-b<bs>-` and
     only the latter is consumed. Naming the consumed path left the other sitting in the output
     directory. Clearing the whole directory also covers names this tool never constructs, e.g.
-    polaris's `f<freq>` segment under `--frequency`.
+    TT-Polaris's `f<freq>` segment under `--frequency`.
     """
     monkeypatch.setattr(rpc, 'REPO_ROOT', tmp_path)
     combo = next(c for c in COMBOS if c.label == 'vit_wh_n150')
@@ -890,7 +900,7 @@ def test_clear_stale_outputs_removes_a_nested_directory_symlink(tmp_path, monkey
 
     Both tests in the clearing loop follow a symlink: for a link to a directory `is_file()` is
     false and `is_dir()` is true, and `rmdir()` on the link raises into the suppression — so the
-    link survived, and polaris then wrote into the target instead of the combo directory.
+    link survived, and TT-Polaris then wrote into the target instead of the combo directory.
     """
     monkeypatch.setattr(rpc, 'REPO_ROOT', tmp_path)
     combo = next(c for c in COMBOS if c.label == 'vgg_wh_n150')
@@ -1091,7 +1101,7 @@ def test_validate_combos_drops_a_reference_compare_layers_would_refuse(tmp_path,
 def test_skip_polaris_does_not_reuse_a_csv_from_an_unfinished_run(tmp_path, monkeypatch):
     """An interrupted run leaves a CSV that parses but describes part of the network.
 
-    `print_csv` writes rows into the open file, so a killed polaris leaves a truncated but valid
+    `print_csv` writes rows into the open file, so a killed TT-Polaris leaves a truncated but valid
     CSV. Reusing it would report a plausible network total for an incomplete network — the
     failure this tool exists to prevent. Existence proves a run started, not that one finished,
     so reuse tests the completion marker instead.
@@ -1205,7 +1215,7 @@ def test_skip_polaris_note_names_which_case_it_hit(tmp_path, monkeypatch, capsys
 def test_run_polaris_writes_the_marker_only_after_the_csv_is_there(tmp_path, monkeypatch):
     """A marker must never vouch for a CSV that was not produced.
 
-    `run_polaris` raises when polaris exits 0 without leaving a CSV; the marker is written after
+    `run_polaris` raises when TT-Polaris exits 0 without leaving a CSV; the marker is written after
     that check, so the next `--skip-polaris` run cannot trust a run that produced nothing.
     """
     monkeypatch.setattr(rpc, 'REPO_ROOT', tmp_path)
@@ -1496,7 +1506,7 @@ def test_main_refuses_an_unusable_run_tag_without_a_traceback(tmp_path, monkeypa
 def test_bs_runtime_1_combos_match_all_workloads_yaml():
     """A `bs_runtime == 1` combo passes no `--batchsize`, so the CSV name depends on the YAML.
 
-    `opstats_path_for` builds `-b{bs_runtime}-opstats.csv`, and polaris names that file from the
+    `opstats_path_for` builds `-b{bs_runtime}-opstats.csv`, and TT-Polaris names that file from the
     batch size it actually simulated. The ViT cells force agreement with an override; these cells
     are correct only while the instance carries `bs: 1` in `config/all_workloads.yaml`. Bump it
     there and `run_polaris` reports "opstats CSV not found" with nothing pointing at the reason,
@@ -1514,13 +1524,13 @@ def test_bs_runtime_1_combos_match_all_workloads_yaml():
         assert combo.instance_name in declared, f'{combo.label}: instance is not in all_workloads'
         assert declared[combo.instance_name] == 1, (
             f'{combo.label}: instance declares bs={declared[combo.instance_name]}, but the combo '
-            f'passes no --batchsize override, so polaris will not write -b1-opstats.csv'
+            f'passes no --batchsize override, so TT-Polaris will not write -b1-opstats.csv'
         )
 
 
 @pytest.mark.unit
 def test_polaris_argv_carries_the_flags_the_tool_depends_on(tmp_path, monkeypatch):
-    """Pin the polaris argv, including the batch-size override only the ViT cells get.
+    """Pin the TT-Polaris argv, including the batch-size override only the ViT cells get.
 
     Nothing else asserts these: the output path is reconstructed from `bs_runtime`, and the
     comparison is only meaningful because of `--dump_stats_csv` and the two filters.
@@ -1566,10 +1576,10 @@ def test_polaris_argv_carries_the_flags_the_tool_depends_on(tmp_path, monkeypatc
 
 @pytest.mark.unit
 def test_compare_argv_passes_polaris_first_then_the_reference(tmp_path, monkeypatch):
-    """The parser's Polaris-before-Profiler contract rests on this argument order.
+    """The parser's TT-Polaris-before-Profiler contract rests on this argument order.
 
     `test_extract_summary_requires_polaris_before_profiler` pins that a reversed label block must
-    fail to parse, and its rationale is that this tool always passes the polaris CSV as file1 --
+    fail to parse, and its rationale is that this tool always passes the TT-Polaris CSV as file1 --
     which was the one property nothing checked. Swap these two and every combo would be reported
     as unparseable with the suite still green.
     """
@@ -1597,7 +1607,7 @@ def test_compare_argv_passes_polaris_first_then_the_reference(tmp_path, monkeypa
     for flag in ['--perf', '--by-lut-key']:
         assert flag in cmd, f'{flag} shapes the output the parser reads'
     assert cmd[cmd.index('--xlsx') + 1] == str(rpc.xlsx_path_for('tag', combo))
-    assert cmd[-2:] == [str(opstats), str(refrun)], 'polaris CSV must be file1, reference file2'
+    assert cmd[-2:] == [str(opstats), str(refrun)], 'TT-Polaris CSV must be file1, reference file2'
 
 
 # ── combo table sanity ─────────────────────────────────────────────────

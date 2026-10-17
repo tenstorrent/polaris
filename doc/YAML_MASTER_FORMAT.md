@@ -127,7 +127,7 @@ Only the **versioned** mapping (**`schema_name`**, **`schema_version`**, **`entr
 
 The logical key is a **full-arity tuple** of length **9 + 7·(n_inputs−1)** — i.e. **9, 16, 23, 30, 37, 44, 51, or 58** for 1–8 inputs (built from Excel columns in **`tt_perf_mapper.build_key_tuple`**). Standard ops key on **all** populated input slots (input_0..input_7), so >3-input ops (e.g. `pagedfusedupdatecache`, `scaleddotproductattention`) key on every operand; arity ≤3 keys are byte-identical to the historical 9/16/23-tuples (schema **v5**). Input slots must be **contiguous** (no gaps). Under **`key`**, the wire form is a **YAML mapping** whose field names are **`KEY_TUPLE_YAML_KEYS`** in `tt_perf_master_schema.py` (fixed order; values are the same scalars as the Excel-driven tuple). (Note: the version references above still say `2`/range `1–2` from earlier drift; the authoritative changelog is `MASTER_YAML_SCHEMA_VERSION` in `tt_perf_master_schema.py`, currently **5**.)
 
-- **`op_code`:** Polaris **layer type** (e.g. `matmul`, `eltwise`, `tilize`, `tilizewithvalpadding`, `untilize`, `untilizewithunpadding`).
+- **`op_code`:** TT-Polaris **layer type** (e.g. `matmul`, `eltwise`, `tilize`, `tilizewithvalpadding`, `untilize`, `untilizewithunpadding`).
 - **`input_0_w_pad_logical`**, **`input_0_z_pad_logical`**, **`input_0_y_pad_logical`**, **`input_0_x_pad_logical`:** logical pad integers (aligned with **`INPUT_0_*_PAD[LOGICAL]`**).
 - **`input_0_layout`**, **`input_0_datatype`**, **`input_0_memory`**
 - **`math_fidelity`:** math fidelity string (e.g. `HiFi4`, `LoFi`); **`N/A`** for ops where it does not apply. Added in **v2**; v1 files missing this field are back-filled with **`N/A`** on load.
@@ -211,7 +211,7 @@ Special cases: all-NaN/zero stats use **`_curve_zero_law_entry`**-style payloads
 ## What is not in the YAML
 
 - In-process **`curve_meta`** extras (duration **R²** linear vs power, core count list for dry-run reporting) — **not serialized**. **`curve_family`** on the entry replaces the need to infer family from **`equation`** alone.
-- Raw Excel rows, CV diagnostics, or profiler class names before Polaris **`OP CODE`** normalization.
+- Raw Excel rows, CV diagnostics, or profiler class names before TT-Polaris **`OP CODE`** normalization.
 
 ---
 
@@ -222,7 +222,7 @@ Special cases: all-NaN/zero stats use **`_curve_zero_law_entry`**-style payloads
 3. Let `records = raw["entries"]` (a list).
 4. For each `item` in `records`: require `item` is a **dict** with exactly **`key`** and **`value`** (and no other keys). Let `key_wire = item["key"]`, `entry = item["value"]`. Require **`entry`** is a **mapping**. Require **`key_wire`** is a **dict**; map fields in **`KEY_TUPLE_YAML_KEYS`** order (8, 15, or 22 keys per rules above) to `key_tuple` (same rules as **`labeled_key_map_to_tuple`**).
 5. Require `entry["entry_type"]` is **`single`**, **`curve`**, or **`hybrid`** (do not guess from keys).
-6. If **`key_tuple[0]`** (Polaris **`op_code`**) is **`matmul`**, require **`entry_type: hybrid`** (same rule as **`tt_perf_master_loader`**).
+6. If **`key_tuple[0]`** (TT-Polaris **`op_code`**) is **`matmul`**, require **`entry_type: hybrid`** (same rule as **`tt_perf_master_loader`**).
 7. If **`single`**: read **`num_cores`** and the stat keys (see **`MASTER_SINGLE_STAT_KEYS`**); require all of them; unknown keys → warn (see **`load_existing_yaml`** / **`_validate_flat_single_payload`**). Stat values must be finite real scalars (including NumPy scalar types if your loader passes them through).
 8. If **`curve`**: read **`curve_family`** (`linear` \| `power`). For each `k, v` in `entry.items()` with `k` not in `entry_type` / `curve_family` and `v` a dict, require **`MASTER_CURVE_STAT_ENTRY_KEYS`**: `a`, `b`, `r2`, `equation` (extras → warn).
 9. If **`hybrid`**: parse optional **`single`** (flat **`num_cores`** + stats) and optional **`curve`** (`curve_family` + stat fits); require at least one branch.

@@ -117,7 +117,7 @@ class TtSiglipGemmaVisionModel(LightweightModule):
 
         # SigLIP's vision encoder is fully bidirectional (no causal masking), so this is an
         # all-zero additive mask. Built via ttnn.zeros(...) rather than a host np.zeros(...)
-        # wrapped in ttnn.Tensor(...): Polaris only tracks shape/dtype (see ttsim/ops/tensor.py),
+        # wrapped in ttnn.Tensor(...): TT-Polaris only tracks shape/dtype (see ttsim/ops/tensor.py),
         # so there's no need to materialize a real array on host for a value that's never read.
         tt_mask = ttnn.zeros(
             [bsz, 1, seq_len, seq_len],

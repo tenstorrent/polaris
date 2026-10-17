@@ -2,7 +2,7 @@
 # SPDX-FileCopyrightText: (C) 2025 Tenstorrent AI ULC
 # SPDX-License-Identifier: Apache-2.0
 #
-# correlate_perf.sh — compare Polaris simulation output against HW profiler CSV
+# correlate_perf.sh — compare TT-Polaris simulation output against HW profiler CSV
 # for the optimized sharded ViT (Wormhole n150 or Blackhole p100a).
 #
 # Usage:
@@ -11,7 +11,7 @@
 #   arch               wh (Wormhole n150) or bh (Blackhole p100a)
 #   hw_csv             path to merged_ops.csv from the HW profiler run (lfc:// paths auto-fetched)
 #   --regen            re-run polproj before comparing
-#   --polaris-csv PATH override the derived Polaris opstats CSV path
+#   --polaris-csv PATH override the derived TT-Polaris opstats CSV path
 #
 # Outputs (workspace root, gitignored):
 #   correlate_{arch}.out    text report
@@ -70,7 +70,7 @@ source "${CONDA_BASE}/etc/profile.d/conda.sh"
 conda activate polarisdev
 
 # ---------------------------------------------------------------------------
-# Optionally regenerate Polaris CSV
+# Optionally regenerate TT-Polaris CSV
 # ---------------------------------------------------------------------------
 if [[ "$REGEN" -eq 1 || ! -f "$POLARIS_CSV" ]]; then
     echo "$TAG Running polproj with $RUNCFG ..."
@@ -89,13 +89,13 @@ fi
 # Validate inputs
 # ---------------------------------------------------------------------------
 if [[ ! -f "$POLARIS_CSV" ]]; then
-    echo "ERROR: Polaris CSV not found: $POLARIS_CSV" >&2; exit 1
+    echo "ERROR: TT-Polaris CSV not found: $POLARIS_CSV" >&2; exit 1
 fi
 if [[ ! -f "$HW_CSV" ]]; then
     echo "ERROR: HW profiler CSV not found: $HW_CSV" >&2; exit 1
 fi
 
-echo "$TAG Polaris CSV : $POLARIS_CSV"
+echo "$TAG TT-Polaris CSV : $POLARIS_CSV"
 echo "$TAG HW    CSV   : $HW_CSV"
 echo "$TAG Writing     : $OUT_TXT, $OUT_ERR, $OUT_XLSX"
 

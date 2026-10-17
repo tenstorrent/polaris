@@ -426,7 +426,7 @@ fusionad_dir = os.path.abspath(os.path.join(current_dir, '..', '..'))
 if fusionad_dir not in sys.path:
     sys.path.insert(0, fusionad_dir)
 
-# Add polaris root for ttsim
+# Add TT-Polaris root for ttsim
 polaris_root = os.path.abspath(
     os.path.join(current_dir, '..', '..', '..', '..', '..', '..', '..'))
 if polaris_root not in sys.path:

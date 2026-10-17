@@ -1,13 +1,13 @@
 # SPDX-FileCopyrightText: (C) 2026 Tenstorrent AI ULC
 # SPDX-License-Identifier: Apache-2.0
 """
-Shared helpers for the Gemma3 Polaris unit tests in this directory.
+Shared helpers for the Gemma3 TT-Polaris unit tests in this directory.
 
-Polaris/ttsim is a shape- and op-graph-driven performance simulator (see
+TT-Polaris/ttsim is a shape- and op-graph-driven performance simulator (see
 GEMMA3_POLARIS_AUDIT.md and ttsim/ops/tensor.py:SimTensor) -- it never computes or checks
 real numeric values. So unlike the tt-metal reference tests this directory mirrors (which
 compare PCC/allclose against an HF/torch reference model), every test here validates output
-*shape* only. That's not a weaker test than PCC by accident: it's the only thing Polaris's
+*shape* only. That's not a weaker test than PCC by accident: it's the only thing TT-Polaris's
 own execution model makes meaningful. `ModelArgs.reference_*()` stubs (model_config.py) all
 return `None` or no-op passthrough wrappers in simulation mode for exactly this reason.
 """
@@ -39,7 +39,7 @@ def check_shape(actual_tensor, expected_shape, test_name):
     Shape-only validation for ttsim simulation mode.
 
     Compares the trailing len(expected_shape) dimensions, ignoring any extra leading
-    dimensions -- Polaris tensors frequently carry a leading (1, ...) multi-device/replication
+    dimensions -- TT-Polaris tensors frequently carry a leading (1, ...) multi-device/replication
     dim that the reference torch shape doesn't have.
     """
     actual = get_shape_tuple(actual_tensor)

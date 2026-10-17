@@ -4,7 +4,7 @@
 """
 Validation script for SwinTransformer backbone TTSim module.
 
-Run from polaris root:
+Run from TT-Polaris root:
     python3 workloads/EA-LSS/Reference/Validation/test_swin_transformer.py
 
 Numerical comparisons validate the key Swin-T ops (QKV linear projection,

@@ -2,7 +2,7 @@
 # # SPDX-FileCopyrightText: (C) 2025 Tenstorrent AI ULC
 # # SPDX-License-Identifier: Apache-2.0
 # """
-# This script exports a set of YOLOv8 ONNX models for ADI workloads. The models are exported with fixed input shapes and opset 18, suitable for Polaris.
+# This script exports a set of YOLOv8 ONNX models for ADI workloads. The models are exported with fixed input shapes and opset 18, suitable for TT-Polaris.
 
 # Each is exported as:
 #   workloads/onnx/<workload_name>.onnx

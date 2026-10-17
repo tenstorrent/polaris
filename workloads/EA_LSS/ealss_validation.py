@@ -3,7 +3,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 """
-EALSSValidation – Polaris Workload with Integrated Validation Suite
+EALSSValidation – TT-Polaris Workload with Integrated Validation Suite
 
 Extends EALSS to additionally execute every test_*.py script found in
 workloads/EA-LSS/Reference/Validation/ (excluding ttsim_utils.py) the first
@@ -15,7 +15,7 @@ report is printed to the terminal once the run is complete.
 
 After running the validation suite the workload behaves identically to the
 plain EALSS workload – it produces the same forward-graph and the same
-Polaris JSON projection output.
+TT-Polaris JSON projection output.
 
 Usage
 -----
@@ -57,7 +57,7 @@ _VALIDATION_DIR: str = os.path.normpath(
     os.path.join(_this_dir, "reference", "Validation")
 )
 
-# Absolute path of the polaris workspace root (two levels above this file)
+# Absolute path of the TT-Polaris workspace root (two levels above this file)
 _POLARIS_ROOT: str = _polaris_root
 
 # Directory into which the Markdown report is written
@@ -299,7 +299,7 @@ def _run_validation_tests() -> str:
 
 
 # ---------------------------------------------------------------------------
-# Polaris workload class
+# TT-Polaris workload class
 # ---------------------------------------------------------------------------
 
 

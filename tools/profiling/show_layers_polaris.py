@@ -15,7 +15,7 @@ except ImportError:
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description='Show layers from Polaris CSV')
+    parser = argparse.ArgumentParser(description='Show layers from TT-Polaris CSV')
     parser.add_argument('input', type=str, help='Input CSV file')
     return parser.parse_args()
 
@@ -120,14 +120,14 @@ def layers_polaris(input_file: str) -> List[Dict[str, Any]]:
             lut_raw = row.get('uses_perf_lookup', '').strip().lower()
             filtered_row['uses_perf_lookup'] = lut_raw in ('true', '1', 'yes')
 
-            # LUT key trail (polaris CSV columns added by the Tier-1 plumbing):
+            # LUT key trail (TT-Polaris CSV columns added by the Tier-1 plumbing):
             #   ``lut_key``           — literal tuple built from this op + tensor state,
             #                            before any fallback substitution
             #   ``lut_key_resolved``  — tuple the lookup chain actually matched (after
             #                            HEIGHT→BLOCK / L1→DRAM / arity-dup / layout
             #                            fallbacks).  Equals ``lut_key`` when the
             #                            literal hit directly.
-            # Both columns are absent on older polaris CSVs predating the Tier-1
+            # Both columns are absent on older TT-Polaris CSVs predating the Tier-1
             # plumbing — leave the row fields unset (= None) in that case so
             # downstream consumers (compare_layers ``--by-lut-key``) treat the row
             # as not-yet-canonicalized.
@@ -139,12 +139,12 @@ def layers_polaris(input_file: str) -> List[Dict[str, Any]]:
 
 
 def _parse_lut_key_cell(raw: Optional[str]) -> Optional[Tuple[Any, ...]]:
-    """Parse a polaris CSV ``lut_key`` / ``lut_key_resolved`` cell into a tuple.
+    """Parse a TT-Polaris CSV ``lut_key`` / ``lut_key_resolved`` cell into a tuple.
 
     The cell holds ``str(tuple)`` (e.g. ``"('halo', 1, 1, 65536, 16, 'ROW_MAJOR', …)"``)
     when ``uses_perf_lookup`` is True, ``''`` / ``None`` otherwise.  We round-trip via
     :func:`ast.literal_eval`; on any parse error return ``None`` rather than crash so
-    older polaris CSVs (which lack these columns) and malformed cells degrade gracefully.
+    older TT-Polaris CSVs (which lack these columns) and malformed cells degrade gracefully.
     """
     import ast
     if raw is None:

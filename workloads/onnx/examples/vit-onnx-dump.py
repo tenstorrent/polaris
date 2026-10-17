@@ -22,7 +22,7 @@
 #         input_names=["input"],
 #         output_names=["logits"],
 #         opset_version=18,          
-#         dynamic_axes=None,         # all dims fixed for Polaris
+#         dynamic_axes=None,         # all dims fixed for TT-Polaris
 #         do_constant_folding=True,
 #     )
 

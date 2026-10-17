@@ -19,7 +19,7 @@ import numpy as np
 import math
 import warnings
 
-# Add polaris to path for ttsim imports
+# Add TT-Polaris to path for ttsim imports
 _file = os.path.abspath(__file__)
 _modules = os.path.dirname(_file)
 _ops = os.path.dirname(_modules)

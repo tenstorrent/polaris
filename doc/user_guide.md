@@ -1,7 +1,7 @@
-# Polaris User Guide
+# TT-Polaris User Guide
 
 ## Overview
-Polaris is a high-level simulator for performance analysis of AI architectures. It enables users to analyze and evaluate the performance characteristics of AI workloads on different hardware architectures through simulation.
+TT-Polaris is a high-level simulator for performance analysis of AI architectures. It enables users to analyze and evaluate the performance characteristics of AI workloads on different hardware architectures through simulation.
 
 ## Key Features
 - **Workload Analysis**: Input AI workloads are converted into DAG (Directed Acyclic Graph) representations
@@ -15,8 +15,8 @@ Polaris is a high-level simulator for performance analysis of AI architectures. 
 - Python 3.13 or higher
 - Miniforge package manager
 
-### Download Polaris
-Execute ```git clone https://github.com/tenstorrent/polaris.git```
+### Download TT-Polaris
+Execute ```git clone https://github.com/tenstorrent/tt-polaris.git```
 
 ### Setup Steps
 1. Install Miniforge:
@@ -27,7 +27,7 @@ Execute ```git clone https://github.com/tenstorrent/polaris.git```
    source <your-conda-install-path>/etc/profile.d/conda.sh
    ```
 
-2. Create and activate the Polaris environment:
+2. Create and activate the TT-Polaris environment:
    ```bash
    conda env create --file environment.yaml
    conda activate polaris
@@ -64,12 +64,12 @@ python polaris.py [options] --archspec <arch_config> --wlspec <workload_spec> --
 - `--enable_cprofile`: Enable Python cProfile for performance analysis
 - `--disable-fusion`: Skip graph op fusion (`op_fusion_spec` in the workload mapping is ignored).
   Note: when a LUT file is loaded, disabling fusion is **not** needed to preserve LUT accuracy.
-  Polaris automatically clears the `fused_in_optimization` flag on any fused op that receives a
+  TT-Polaris automatically clears the `fused_in_optimization` flag on any fused op that receives a
   LUT hit, so it keeps its real hardware timing. Ops without LUT entries continue to benefit from
   analytical fusion. Use `--disable-fusion` only to debug fusion behaviour itself.
 
 **LUT timing and the analytical guardband:** LUT-sourced timing is **not** subject to the 25%
-analytical guardband (`G_GUARDBAND`) that Polaris applies to estimated op durations. When a LUT
+analytical guardband (`G_GUARDBAND`) that TT-Polaris applies to estimated op durations. When a LUT
 hit occurs, the hardware-measured `msecs` value is used directly; the guardband is applied only
 to ops that miss the LUT. In a mixed run both effects coexist with no double-counting. See
 [LOOKUP_TABLE_MASTER.md](../doc/tools/perf_lookup/LOOKUP_TABLE_MASTER.md) for details.
@@ -114,7 +114,7 @@ The workload mapping specification file (`wlmapspec`) defines:
 ## Performance Correlation Workflow
 
 ### Overview
-Polaris includes tools to correlate simulation results with actual hardware measurements from TT-Metal, enabling validation and calibration of simulation accuracy.
+TT-Polaris includes tools to correlate simulation results with actual hardware measurements from TT-Metal, enabling validation and calibration of simulation accuracy.
 
 ### Understanding Reference Data Tags
 
@@ -179,7 +179,7 @@ workloads:
 ```
 
 #### 3. Run Correlation Analysis
-Execute the correlation tool to compare Polaris simulation with hardware measurements:
+Execute the correlation tool to compare TT-Polaris simulation with hardware measurements:
 
 ```bash
 python tools/run_ttsi_corr.py \
@@ -192,7 +192,7 @@ python tools/run_ttsi_corr.py \
 **Key Options:**
 - `--tag`: Tag identifying the parsed metrics dataset (e.g., `03nov25`, `15oct25`). See `TTSI_REF_VALID_TAGS` in `tools/ttsi_corr/ttsi_corr_utils.py`
 - `--input-dir`: Base directory containing tagged metrics (default: `data/metal/inf`)
-- `--workloads-config`: Workload configuration for Polaris simulation
+- `--workloads-config`: Workload configuration for TT-Polaris simulation
 - `--arch-config`: Architecture specification (e.g., Wormhole)
 - `--workload-filter`: Filter specific workloads by name
 - `--precision`: Override precision for all workloads (e.g., bf8, bf16, fp32)
@@ -230,7 +230,7 @@ __CORRELATION_OUTPUT/
 │   ├── runinfo.json
 │   ├── tensix_workloads.yaml
 │   └── tensix_runcfg.yaml
-├── SIMPLE/                        # Polaris simulation results
+├── SIMPLE/                        # TT-Polaris simulation results
 │   ├── CONFIG/
 │   ├── STATS/
 │   └── SUMMARY/
@@ -240,7 +240,7 @@ __CORRELATION_OUTPUT/
 
 **Key Metrics in Results:**
 - **Reference Performance**: Measured hardware performance (from TT-Metal)
-- **Actual Performance**: Polaris simulation performance
+- **Actual Performance**: TT-Polaris simulation performance
 - **Ratio**: Simulation / Hardware (ideally close to 1.0)
 - **Score-to-Ref**: Ratio expressed as percentage
 - **Geometric Mean**: Aggregate accuracy across all workloads
@@ -325,10 +325,10 @@ result = main([
 - Check data types and precision settings
 - Consider hardware-specific optimizations not modeled
 
-### ViT Device-Perf Correlation (Polaris vs HW Profiler)
+### ViT Device-Perf Correlation (TT-Polaris vs HW Profiler)
 
 For the optimized sharded ViT workload, `tools/profiling/correlate_perf.sh` compares a
-Polaris opstats CSV against a Tracy HW profiler CSV (`merged_ops.csv`) and produces a
+TT-Polaris opstats CSV against a Tracy HW profiler CSV (`merged_ops.csv`) and produces a
 3-sheet XLSX workbook (Summary / By Layer Type / By Layer Signature).
 
 Reference profiler CSVs are stored on LFC under `hlm-refrun/` and are fetched automatically.
@@ -365,7 +365,7 @@ tools/profiling/correlate_perf.sh <arch> <hw_csv> [--regen] [--polaris-csv <path
 ## Output and Analysis
 
 ### Output Formats
-Polaris supports multiple output formats:
+TT-Polaris supports multiple output formats:
 - YAML: Human-readable structured format
 - JSON: Web-friendly format
 - Pickle: Binary format for Python objects
@@ -417,13 +417,13 @@ Each operator in the statistics output includes:
 ## TTNN Workload Development Guide
 
 ### Overview
-TTNN (TT-NN - Tenstorrent Neural Network) workloads represent models implemented using TT-NN operations that execute directly on Tenstorrent hardware. Polaris supports TTNN workloads for performance simulation and analysis.
+TTNN (TT-NN - Tenstorrent Neural Network) workloads represent models implemented using TT-NN operations that execute directly on Tenstorrent hardware. TT-Polaris supports TTNN workloads for performance simulation and analysis.
 
 ### TTNN Workload Architecture
 
 #### Workload Dispatch Flow
 ```
-YAML Config → Polaris → TTNN Workload Function → Device Execution → Performance Graph
+YAML Config → TT-Polaris → TTNN Workload Function → Device Execution → Performance Graph
 ```
 
 1. **Configuration** (`config/all_workloads.yaml`):
@@ -449,13 +449,13 @@ All TTNN workload functions must follow this signature:
 ```python
 def run_<model_name>(wlname: str, device: TTNNDevice, cfg: dict):
     """
-    Workload entry point for Polaris TTNN framework.
+    Workload entry point for TT-Polaris TTNN framework.
     
     Args:
-        wlname: Workload identifier from Polaris (e.g., "Resnet50")
+        wlname: Workload identifier from TT-Polaris (e.g., "Resnet50")
                 This corresponds to the 'name' field in YAML config.
                 
-        device: TTNN device instance (lifecycle managed by Polaris)
+        device: TTNN device instance (lifecycle managed by TT-Polaris)
         
         cfg: Configuration dict with model hyperparameters
     
@@ -473,7 +473,7 @@ def run_<model_name>(wlname: str, device: TTNNDevice, cfg: dict):
 
 2. **Parameter Contract**:
    - `wlname` (str): Workload identifier from YAML config (used for logging/identification)
-   - `device` (TTNNDevice): Device instance provided by Polaris
+   - `device` (TTNNDevice): Device instance provided by TT-Polaris
    - `cfg` (dict): Configuration merged from YAML + runtime overrides
 
 3. **Configuration Extraction**:
@@ -483,9 +483,9 @@ def run_<model_name>(wlname: str, device: TTNNDevice, cfg: dict):
    # ... extract other hyperparameters
    ```
 
-4. **Device Lifecycle**: DO NOT open/close device - Polaris manages it
-   - Device opened by Polaris before function call
-   - Device closed by Polaris after function returns
+4. **Device Lifecycle**: DO NOT open/close device - TT-Polaris manages it
+   - Device opened by TT-Polaris before function call
+   - Device closed by TT-Polaris after function returns
    - Operations automatically tracked on provided device
 
 #### Example TTNN Workload
@@ -497,11 +497,11 @@ import ttsim.front.ttnn as ttnn
 
 def run_my_model(wlname: str, device: TTNNDevice, cfg: dict):
     """
-    My Model workload entry point for Polaris TTNN framework.
+    My Model workload entry point for TT-Polaris TTNN framework.
     
     Args:
-        wlname: Workload identifier from Polaris
-        device: TTNN device instance (lifecycle managed by Polaris)
+        wlname: Workload identifier from TT-Polaris
+        device: TTNN device instance (lifecycle managed by TT-Polaris)
         cfg: Configuration dict with model hyperparameters
     
     Returns:
@@ -587,7 +587,7 @@ python polaris.py --wlspec config/my_workloads.yaml --batchsize 1 32 1
 └─────────────────────────────────────────────────────────────────┘
                               ↓
 ┌─────────────────────────────────────────────────────────────────┐
-│ Polaris Dispatcher (polaris.py:111-122)                         │
+│ TT-Polaris Dispatcher (polaris.py:111-122)                      │
 │                                                                  │
 │ ttnn_func = get_ttnn_functional_instance(wpath, wln, gcfg)      │
 │ ttnn_device = open_device(device_id=0)                          │
@@ -604,7 +604,7 @@ python polaris.py --wlspec config/my_workloads.yaml --batchsize 1 32 1
 │                                                                  │
 │ def run_resnet50(wlname: str, device: TTNNDevice, cfg: dict):   │
 │     # wlname = "Resnet50" (for logging/identification)          │
-│     # device = TTNN device instance (managed by Polaris)        │
+│     # device = TTNN device instance (managed by TT-Polaris)     │
 │     # cfg = {batch_size: 8, ...} (merged configuration)         │
 │                                                                  │
 │     batch_size = cfg.get('batch_size', 8)                       │
@@ -621,7 +621,7 @@ python polaris.py --wlspec config/my_workloads.yaml --batchsize 1 32 1
    batch_size = cfg['batch_size']          # ✗ Bad - may fail
    ```
 
-2. **Don't Manage Device Lifecycle**: Polaris handles it
+2. **Don't Manage Device Lifecycle**: TT-Polaris handles it
    ```python
    # ✗ Bad - Don't do this
    device = ttnn.open_device(device_id=0)
@@ -648,7 +648,7 @@ python polaris.py --wlspec config/my_workloads.yaml --batchsize 1 32 1
    bs = cfg.get('bs', 8)
    ```
 
-5. **Return TTNN Tensors**: Polaris expects tensor outputs
+5. **Return TTNN Tensors**: TT-Polaris expects tensor outputs
    ```python
    return output_tensor  # ✓ Good
    return None          # ✗ Bad
@@ -662,7 +662,7 @@ python polaris.py --log_level debug --wlspec config/my_workloads.yaml ...
 ```
 
 #### Check Operation Graph
-After execution, Polaris captures the operation graph:
+After execution, TT-Polaris captures the operation graph:
 - All TTNN operations are recorded
 - Performance statistics computed per operation
 - Graph available for analysis
@@ -698,6 +698,6 @@ After execution, Polaris captures the operation graph:
 
 ## Support
 For issues and questions:
-- Check the project repository: https://github.com/tenstorrent/polaris
+- Check the project repository: https://github.com/tenstorrent/tt-polaris
 - Review existing issues or create new ones
 - Consult the development team for advanced support

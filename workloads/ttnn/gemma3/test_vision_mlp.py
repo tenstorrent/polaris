@@ -3,7 +3,7 @@
 """
 Gemma3 vision (SigLIP) feed-forward/MLP test.
 Mirrors tt-metal's test_vision_mlp.py (run_mlp_inference),
-adapted to Polaris's shape-only simulation mode.
+adapted to TT-Polaris's shape-only simulation mode.
 """
 import os
 import sys

@@ -57,7 +57,7 @@ try:
 except Exception:
     pass
 
-# Get polaris root for device config
+# Get TT-Polaris root for device config
 polaris_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../.."))
 
 

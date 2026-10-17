@@ -2,7 +2,7 @@
 
 ## Overview
 
-The Polaris performance correlation tools enable validation and calibration of simulation accuracy by comparing Polaris simulation results with actual hardware measurements from TT-Metal.
+The TT-Polaris performance correlation tools enable validation and calibration of simulation accuracy by comparing TT-Polaris simulation results with actual hardware measurements from TT-Metal.
 
 ## Architecture
 
@@ -14,7 +14,7 @@ The correlation tools have been refactored into a **modular architecture** with 
 - **correlation** - Calculate correlation metrics and comparisons
 - **excel_writer** - Generate Excel reports with formatted tables
 - **chart_builder** - Create visualization charts (S-curve analysis)
-- **simulator** - Orchestrate Polaris simulation execution
+- **simulator** - Orchestrate TT-Polaris simulation execution
 
 **Benefits**:
 - ✅ **Reusable Components**: Each module can be used independently
@@ -155,7 +155,7 @@ Main correlation tool that orchestrates the entire correlation workflow.
 
 **Location**: `tools/run_ttsi_corr.py`
 
-**Purpose**: Automates the process of running Polaris simulations and comparing results with hardware measurements.
+**Purpose**: Automates the process of running TT-Polaris simulations and comparing results with hardware measurements.
 
 **Usage**:
 ```bash
@@ -169,7 +169,7 @@ python tools/run_ttsi_corr.py \
 **Note**: Requires that metrics have been parsed first with `parse_ttsi_perf_results.py` to create the metadata file. `<TAG>` should match the tag used during parsing (see `TTSI_REF_VALID_TAGS` in `tools/ttsi_corr/ttsi_corr_utils.py`).
 
 **Key Features**:
-- Automated Polaris simulation execution
+- Automated TT-Polaris simulation execution
 - Side-by-side comparison with hardware metrics
 - Multiple output formats (CSV, XLSX, JSON)
 - Geometric mean calculation for aggregate accuracy
@@ -179,7 +179,7 @@ python tools/run_ttsi_corr.py \
 - `correlation_result.csv` - Tabular comparison data
 - `correlation_result.xlsx` - Formatted Excel workbook with formulas
 - `correlation_geomean.json` - Aggregate metrics
-- `SIMPLE/` - Polaris simulation results
+- `SIMPLE/` - TT-Polaris simulation results
 - `inputs/` - Saved configuration for reproducibility
 
 ### 2. parse_ttsi_perf_results.py
@@ -254,7 +254,7 @@ graph TD
     C --> D[run_ttsi_corr.py]
     E[Workload Config] --> D
     F[Arch Config] --> D
-    D --> G[Run Polaris Simulation]
+    D --> G[Run TT-Polaris Simulation]
     G --> H[Compare with Hardware]
     H --> I[Generate Reports]
     I --> J[CSV/XLSX/JSON Output]
@@ -301,7 +301,7 @@ graph TD
    - Reads metadata from `data/metal/inf/<TAG>/_metadata.yaml`
    - Determines data source format (html or md)
    - Loads appropriate metric files
-   - Runs Polaris simulation
+   - Runs TT-Polaris simulation
    - Compares results with hardware metrics
 
 4. **Analyze Results**
@@ -353,7 +353,7 @@ Columns:
 - `system` - Hardware platform
 - `reference_perf` - Hardware measured performance
 - `reference_metric` - Metric name from hardware
-- `actual_perf` - Polaris simulated performance
+- `actual_perf` - TT-Polaris simulated performance
 - `actual_metric` - Metric name from simulation
 - `ratio` - actual/reference ratio
 - `score_to_ref` - Ratio as percentage
@@ -428,7 +428,7 @@ workloads:
 
 ### Architecture Configuration
 
-Standard Polaris architecture YAML file.
+Standard TT-Polaris architecture YAML file.
 
 **Example**: `config/tt_wh.yaml`
 
@@ -593,8 +593,8 @@ for workload in workloads_file.workloads:
 - `loguru` - Logging
 - `yaml` - Configuration parsing
 
-**Polaris Dependencies**:
-- All standard Polaris requirements
+**TT-Polaris Dependencies**:
+- All standard TT-Polaris requirements
 - See `environment.yaml` and `envdev.yaml`
 
 ## Further Documentation

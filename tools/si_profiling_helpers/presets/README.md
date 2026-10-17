@@ -11,11 +11,11 @@ These scripts are **run from the tt-metal checkout root**, with `si_profiling_he
 
 ```
 workspace/
-├── si_profiling_helpers/        # rsynced from polaris tools/si_profiling_helpers/
+├── si_profiling_helpers/        # rsynced from TT-Polaris tools/si_profiling_helpers/
 │   ├── run-ttnn-profiler.py
 │   └── presets/                 # these scripts
 ├── tt-metal/                    # runs are launched from here (CWD)
-│   └── workloads/               # polaris workloads/ rsynced in (NOT committed to tt-metal)
+│   └── workloads/               # TT-Polaris workloads/ rsynced in (NOT committed to tt-metal)
 └── tt-npe/
 ```
 
@@ -25,12 +25,12 @@ The relative paths inside each script (`../si_profiling_helpers/...`, `workloads
 ## Prerequisites (per shell session)
 
 1. **rsync the inputs** onto the machine: `si_profiling_helpers/` (sibling of `tt-metal/`)
-   and the relevant polaris `workloads/` content into `tt-metal/workloads/`.
+   and the relevant TT-Polaris `workloads/` content into `tt-metal/workloads/`.
 2. **Environment:** from `tt-metal/`, `source ../si_profiling_helpers/setup-step-2-new-login.sh`
    (activates the venv, sets `TT_METAL_HOME`/`PYTHONPATH`, sources tt-npe — required for NoC traces).
 3. **`IRD_ARCH_NAME`** is set automatically by the IRD environment to the board's arch
    (`wormhole_b0` on WH, `blackhole` on BH). You don't set it manually, but it is **essential**:
-   it must be present and non-empty, since an empty value would select the Polaris-shim path
+   it must be present and non-empty, since an empty value would select the TT-Polaris-shim path
    instead of hardware. Verify with `echo $IRD_ARCH_NAME` if a run behaves unexpectedly.
 4. **Board reset is automatic:** `run-ttnn-profiler.py` runs `tt-smi -r` at the start of each
    capture and aborts if it fails — no manual reset needed. Reset by hand (`tt-smi -r`) only to
@@ -58,8 +58,8 @@ producing `raw/`, `perf/`, and `trace/` CSVs under the `RUNID` output directory.
 > the merge runs **on the hardware node** right after capture (the profiler wrapper passes an
 > explicit `--output`; the tool's own default is plain `merged_ops.csv`). Only
 > `merged_ops_<RUNID>.csv` (plus `hw_id.json`, and the run-status sidecar `run_status.json` / `STATUS.txt`) needs to be copied back. Its only third-party dependency is `loguru`, which is already in
-> the tt-metal run environment. (The follow-on compare-vs-refrun step pulls in polaris/ttsim
-> and stays on a polaris checkout.)
+> the tt-metal run environment. (The follow-on compare-vs-refrun step pulls in tt-polaris/ttsim
+> and stays on a TT-Polaris checkout.)
 
 ## Output isolation & known cwd residue
 
@@ -89,7 +89,7 @@ its own tt-metal checkout.
 
 | Suffix | Command target | Purpose |
 |--------|----------------|---------|
-| `dual` | polaris dual-mode test under `workloads/ttnn/<model>/<arch>/` | runs the **single-pass** model entry (the dual-mode files run their real-`ttnn` branch when `IRD_ARCH_NAME` is set) — the per-op capture used for LUT building |
+| `dual` | TT-Polaris dual-mode test under `workloads/ttnn/<model>/<arch>/` | runs the **single-pass** model entry (the dual-mode files run their real-`ttnn` branch when `IRD_ARCH_NAME` is set) — the per-op capture used for LUT building |
 | `ref`  | upstream tt-metal test under `models/demos/...` (run with `--pytest`) | the canonical tt-metal reference run |
 
 The `dual` scripts deliberately use the model's single-pass entry (not its averaged
@@ -110,12 +110,12 @@ and minor spelling variants still pass.
 
 | Script | Board | Target |
 |--------|-------|--------|
-| `vggunet/run-vggunetdual-wh.sh` | WH | polaris dual-mode VGG-UNet |
-| `vggunet/run-vggunetdual-bh.sh` | BH | polaris dual-mode VGG-UNet |
+| `vggunet/run-vggunetdual-wh.sh` | WH | TT-Polaris dual-mode VGG-UNet |
+| `vggunet/run-vggunetdual-bh.sh` | BH | TT-Polaris dual-mode VGG-UNet |
 | `vggunet/run-vggunetref-wh.sh`  | WH | upstream tt-metal VGG-UNet e2e |
 | `vggunet/run-vggunetref-bh.sh`  | BH | upstream tt-metal VGG-UNet e2e |
-| `vit/run-vitdual-wh.sh`         | WH | polaris dual-mode ViT |
-| `vit/run-vitdual-bh.sh`         | BH | polaris dual-mode ViT |
+| `vit/run-vitdual-wh.sh`         | WH | TT-Polaris dual-mode ViT |
+| `vit/run-vitdual-bh.sh`         | BH | TT-Polaris dual-mode ViT |
 | `vit/run-vitref-wh.sh`          | WH | upstream tt-metal ViT device-ops |
 | `vit/run-vitref-bh.sh`          | BH | upstream tt-metal ViT device-ops |
 | `llama3/run-llama3ref-decode-b32-wh.sh`  | WH | upstream tt-metal llama3, batch-32 (decode phase) |
@@ -126,10 +126,10 @@ and minor spelling variants still pass.
 | `llama3/run-llama3ref-decode-b1-bh.sh`   | BH | upstream tt-metal llama3, batch-1 (decode phase) — batch-matched to the b1 dual |
 | `llama3/run-llama3ref-prefill-b1-wh.sh`  | WH | upstream tt-metal llama3, batch-1 (prefill phase) — ⛔ blocked, see below |
 | `llama3/run-llama3ref-prefill-b1-bh.sh`  | BH | upstream tt-metal llama3, batch-1 (prefill phase) |
-| `llama3/run-llama3dual-decode-wh.sh`  | WH | polaris dual-mode llama3, batch-1 (decode phase) |
-| `llama3/run-llama3dual-decode-bh.sh`  | BH | polaris dual-mode llama3, batch-1 (decode phase) |
-| `llama3/run-llama3dual-prefill-wh.sh` | WH | polaris dual-mode llama3, batch-1 (prefill phase) — ⛔ blocked, see below |
-| `llama3/run-llama3dual-prefill-bh.sh` | BH | polaris dual-mode llama3, batch-1 (prefill phase) |
+| `llama3/run-llama3dual-decode-wh.sh`  | WH | TT-Polaris dual-mode llama3, batch-1 (decode phase) |
+| `llama3/run-llama3dual-decode-bh.sh`  | BH | TT-Polaris dual-mode llama3, batch-1 (decode phase) |
+| `llama3/run-llama3dual-prefill-wh.sh` | WH | TT-Polaris dual-mode llama3, batch-1 (prefill phase) — ⛔ blocked, see below |
+| `llama3/run-llama3dual-prefill-bh.sh` | BH | TT-Polaris dual-mode llama3, batch-1 (prefill phase) |
 
 `check_arch.sh` is a sourced helper, not a run-script (see "Arch matching").
 
@@ -155,7 +155,7 @@ limits have been dropped and must not be re-added.
 > token through both `shlex.split` (in `run-ttnn-profiler.py`) and tracy's shell re-parse. Don't
 > "simplify" them away.
 
-The `dual` presets run the migrated Polaris llama3 workload
+The `dual` presets run the migrated TT-Polaris llama3 workload
 (`workloads/ttnn/llama3/test_llama3_{decode,prefill}.py`) through its real-`ttnn` branch on hardware,
 to validate that dual-mode perf tracks the HW reference. The dual workload runs at **batch-1**
 (decode default `bs=1`; prefill only supports `bs=1`), so the `…-b1-…` ref presets

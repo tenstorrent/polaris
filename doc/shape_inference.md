@@ -1,7 +1,7 @@
 # Shape Inference Rules Documentation
 
 ## Overview
-This document describes the shape inference rules for operators in the Polaris simulator. Shape inference is performed without allocating memory for tensors (except where explicitly required, e.g., Reshape operator).
+This document describes the shape inference rules for operators in the TT-Polaris simulator. Shape inference is performed without allocating memory for tensors (except where explicitly required, e.g., Reshape operator).
 
 ## General Principles
 

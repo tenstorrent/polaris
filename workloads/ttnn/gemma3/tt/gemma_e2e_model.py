@@ -177,7 +177,7 @@ class TtGemmaModel(Transformer):
         """
         Configure on-device sampling support.
 
-        For Polaris simulation, we disable on-device sampling and use
+        For TT-Polaris simulation, we disable on-device sampling and use
         host-based sampling instead.
         """
         self._supports_on_device_sampling = False

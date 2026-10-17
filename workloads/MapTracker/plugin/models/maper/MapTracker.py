@@ -1425,7 +1425,7 @@ class MapTracker(SimNN.Module):
         super().link_op2module()
 
     def create_input_tensors(self):
-        """Create input tensors for polaris graph simulation."""
+        """Create input tensors for TT-Polaris graph simulation."""
         if self.use_backbone:
             # Image input: [bs, num_cams, 3, img_h, img_w]
             self.input_tensors = {
@@ -1444,7 +1444,7 @@ class MapTracker(SimNN.Module):
             t.set_module(self)
 
     def get_forward_graph(self):
-        """Return the forward computation graph for polaris analysis."""
+        """Return the forward computation graph for TT-Polaris analysis."""
         GG = super()._get_forward_graph(self.input_tensors)
         return GG
 
@@ -1500,7 +1500,7 @@ class MapTracker(SimNN.Module):
         """
         Forward pass for inference.
 
-        When called with no args (polaris mode), uses self.input_tensors.
+        When called with no args (TT-Polaris mode), uses self.input_tensors.
         When use_backbone=True: img -> simplified convs -> BEVFormer encoder -> BEV features.
         When use_backbone=False: expects pre-computed bev_features.
         """

@@ -84,20 +84,20 @@ _DEFAULT_CORE_COUNT_FALLBACK = 64
 # ``reshape``: second input is often a small shape/constant tensor, not profiled as input_1.
 _BINARY_LUT_FALLBACK_TO_INPUT0_KEY_OPCODES = frozenset({"mul", "reshape"})
 
-# Hardware ops that are arity-1 in Polaris but arity-2 in profiler output (src + dst with
+# Hardware ops that are arity-1 in TT-Polaris but arity-2 in profiler output (src + dst with
 # same shape/layout/memory).  After an arity-1 (9-tuple) miss, try a 16-tuple with t0 used
 # for both input_0 and input_1 positions.
 _UNARY_POLARIS_BINARY_HW_OPCODES = frozenset({"move"})
 
 # InterleavedToSharded: hardware records ITS from DRAM in most VGG UNet decoder stages
-# (ShardedToInterleaved output lands in DRAM on device), but Polaris models the STI output
+# (ShardedToInterleaved output lands in DRAM on device), but TT-Polaris models the STI output
 # as L1_INTERLEAVED (per model code using ttnn.L1_MEMORY_CONFIG).  After an L1_INTERLEAVED
 # arity-1 miss, try DRAM_INTERLEAVED — same shape/layout, just different input staging.
 _ITS_MEM_FALLBACK_OPCODES = frozenset({"interleavedtosharded"})
 _L1_INTERLEAVED_STR = "DEV_1_L1_INTERLEAVED"
 _DRAM_INTERLEAVED_STR = "DEV_1_DRAM_INTERLEAVED"
 
-# Halo and element-wise ops (Sigmoid): the LUT was built with TILE layout while Polaris models
+# Halo and element-wise ops (Sigmoid): the LUT was built with TILE layout while TT-Polaris models
 # VGG UNet tensors as ROW_MAJOR throughout.  After a ROW_MAJOR arity-1 miss, retry with TILE
 # — position 5 of the 9-tuple.  Timing should be layout-insensitive for these data-movement /
 # element-wise ops.
@@ -107,7 +107,7 @@ _TILE_STR = "TILE"
 
 # Device-index reconciliation between sim and LUT.
 # The sim's key builder (shape_canonical.tensor_memory_str) hardcodes a "DEV_1_"
-# prefix on every memory tag (a fixed single-chip placeholder — Polaris is a
+# prefix on every memory tag (a fixed single-chip placeholder — TT-Polaris is a
 # single-chip simulator), whereas a LUT built from a profiler capture carries the
 # real silicon DEVICE ID (e.g. "DEV_0_" for device 0). Keys are compared verbatim,
 # so a capture-built LUT would miss on every memory field purely because of the
@@ -126,7 +126,7 @@ def _device_normalized_key(key: tuple) -> tuple:
         _DEVICE_PREFIX_RE.sub("", x) if isinstance(x, str) else x for x in key
     )
 
-# VGG UNet decoder: Polaris propagates HEIGHT_SHARDED through the post-concat ITS path, but
+# VGG UNet decoder: TT-Polaris propagates HEIGHT_SHARDED through the post-concat ITS path, but
 # the LUT records those ops as BLOCK_SHARDED (hardware auto-selects BLOCK for smaller tensors).
 # Applies to arity-1 (halo, move) and arity-3 (conv2d, convtranspose) ops — position 7 of the
 # lookup key is input_0_memory in both 9-tuple and 23-tuple formats.
@@ -260,7 +260,7 @@ class MasterPerfStats:
     tuple the lookup actually matched in the LUT — i.e. the literal key after any
     HEIGHT→BLOCK, L1→DRAM, ROW_MAJOR→TILE, or arity-1→arity-2 fallback chain in
     ``OperatorPerfMap.lookup``.  Downstream tooling (compare_layers ``--by-lut-key``)
-    uses ``key_resolved`` so polaris and profiler ops that semantically share a LUT
+    uses ``key_resolved`` so TT-Polaris and profiler ops that semantically share a LUT
     entry group together regardless of the literal-shape divergence the runtime
     fallback chain papers over.
     """
@@ -1069,7 +1069,7 @@ class OperatorPerfMap:
                         self._source_path,
                     )
 
-        # Move: arity-1 in Polaris, arity-2 in hardware profiler (src + dst same tensor).
+        # Move: arity-1 in TT-Polaris, arity-2 in hardware profiler (src + dst same tensor).
         # After 9-tuple miss, try 16-tuple with t0 duplicated for both positions.
         if entry_val is None and n_in == 1 and _op_code(op) in _UNARY_POLARIS_BINARY_HW_OPCODES:
             try:
@@ -1102,7 +1102,7 @@ class OperatorPerfMap:
                         hit_source = "move_arity_dup_block"
 
         # InterleavedToSharded: hardware stages through DRAM in most VGG UNet decoder paths,
-        # but Polaris models the predecessor STI output as L1_INTERLEAVED.  After L1 miss,
+        # but TT-Polaris models the predecessor STI output as L1_INTERLEAVED.  After L1 miss,
         # substitute DRAM_INTERLEAVED in position 7 of the 9-tuple and retry.
         if (
             entry_val is None
@@ -1118,7 +1118,7 @@ class OperatorPerfMap:
                 lookup_key = key_dram
                 hit_source = "its_l1_to_dram"
 
-        # Halo / Sigmoid: LUT was built with TILE layout; Polaris models VGG UNet as ROW_MAJOR.
+        # Halo / Sigmoid: LUT was built with TILE layout; TT-Polaris models VGG UNet as ROW_MAJOR.
         # After ROW_MAJOR arity-1 miss, substitute TILE in position 5 of the 9-tuple.
         if (
             entry_val is None

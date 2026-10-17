@@ -2,11 +2,11 @@
 # SPDX-License-Identifier: Apache-2.0
 
 """
-Common configurations for PI0 model components on Polaris.
+Common configurations for PI0 model components on TT-Polaris.
 
-This module contains dataclass configs shared across the Polaris PI0 workload.
+This module contains dataclass configs shared across the TT-Polaris PI0 workload.
 These configs are framework-agnostic and can be used by reference code,
-weight-loading code, and Polaris runtime/model wrappers.
+weight-loading code, and TT-Polaris runtime/model wrappers.
 """
 
 from dataclasses import dataclass, field
@@ -116,7 +116,7 @@ class DenoiseConfig:
 
 @dataclass
 class PI0ModelConfig:
-    """Top-level PI0 model configuration for Polaris."""
+    """Top-level PI0 model configuration for TT-Polaris."""
 
     # Core dimensions
     action_dim: int = 32

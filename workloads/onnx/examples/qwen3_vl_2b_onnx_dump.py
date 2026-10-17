@@ -4,7 +4,7 @@
 
 # """
 # Export Qwen3-VL-2B-Instruct *text decoder* to a fixed-shape ONNX graph
-# (bs=1, seq_len=128) for Polaris perf projections.
+# (bs=1, seq_len=128) for TT-Polaris perf projections.
 
 # Key points:
 # - Wrap the HF model so forward() returns ONLY logits (no DynamicCache).

@@ -3,7 +3,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 """
-BEVFormer TTSim Model – Self-Contained Polaris Workload
+BEVFormer TTSim Model – Self-Contained TT-Polaris Workload
 
 Architecture:
   ResNet backbone → FPN neck → BEVFormer encoder (MHA self + cross attn)
@@ -12,7 +12,7 @@ Architecture:
 All building blocks are defined inline following the basicresnet.py / BasicLLM.py
 pattern.  No external submodule imports; no numpy/SimTensor mixing in the forward pass.
 
-Polaris interface:
+TT-Polaris interface:
   __init__(name, cfg), set_batch_size(), create_input_tensors(),
   __call__(), get_forward_graph(), analytical_param_count()
 """
@@ -415,7 +415,7 @@ class BEVDecoderLayer(SimNN.Module):
 
 class BEVFormer(SimNN.Module):
     """
-    BEVFormer detector – Polaris workload interface.
+    BEVFormer detector – TT-Polaris workload interface.
 
     Architecture pipeline:
       1. ResNet backbone  → [C2, C3, C4, C5]
@@ -496,7 +496,7 @@ class BEVFormer(SimNN.Module):
         super().link_op2module()
 
     # ==================================================================
-    # Polaris interface
+    # TT-Polaris interface
     # ==================================================================
 
     def set_batch_size(self, new_bs):

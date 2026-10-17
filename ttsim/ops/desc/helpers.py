@@ -57,10 +57,10 @@ def update_output_tensor(op, in_tensor, out_tensor):
         # out_tensor already has a "declared" shape, but it disagrees with the
         # freshly (re-)computed in_tensor shape. This happens when the source
         # ONNX graph had an unresolved/unknown dim (e.g. symbolic dim_param, or
-        # a fully unknown-rank tensor) that Polaris's frontend coerced to a
+        # a fully unknown-rank tensor) that TT-Polaris's frontend coerced to a
         # placeholder shape (commonly [1]) at load time. That placeholder is
         # not a real constraint -- it's a stand-in for "unknown". Once
-        # Polaris's own data/shape propagation computes the real shape here,
+        # TT-Polaris's own data/shape propagation computes the real shape here,
         # it should take precedence (override the placeholder) instead of
         # hard-failing.
         LOG.warning(

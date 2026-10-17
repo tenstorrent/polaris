@@ -3,7 +3,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 """
-UniAD_E2E_Validation – Polaris Workload with Integrated Validation Suite
+UniAD_E2E_Validation – TT-Polaris Workload with Integrated Validation Suite
 
 Extends UniAD_E2E to additionally execute every test_*.py script found in
 workloads/UniAD/reference/tests/ the first time the workload is instantiated.
@@ -14,7 +14,7 @@ report is printed to the terminal once the run is complete.
 
 After running the validation suite the workload behaves identically to the
 plain UniAD_E2E workload – it produces the same forward-graph and the same
-Polaris JSON projection output.
+TT-Polaris JSON projection output.
 
 Usage
 -----
@@ -47,7 +47,7 @@ _VALIDATION_DIR: str = os.path.normpath(
     os.path.join(os.path.dirname(__file__), "reference", "tests")
 )
 
-# Absolute path of the polaris workspace root (two levels above this file)
+# Absolute path of the TT-Polaris workspace root (two levels above this file)
 _POLARIS_ROOT: str = os.path.normpath(
     os.path.join(os.path.dirname(__file__), "../..")
 )
@@ -310,7 +310,7 @@ def _run_validation_tests() -> str:
 
 
 # ---------------------------------------------------------------------------
-# Polaris workload class
+# TT-Polaris workload class
 # ---------------------------------------------------------------------------
 
 

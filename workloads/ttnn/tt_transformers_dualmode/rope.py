@@ -126,7 +126,7 @@ class RotarySetup:
             strategy=ttnn.ShardStrategy.HEIGHT, orientation=ttnn.ShardOrientation.ROW_MAJOR,
             use_height_and_width_as_shard_shape=True,
         )
-        # Dual-mode: the Polaris shim carries memory as the `_memory_config` attr; real ttnn tensors
+        # Dual-mode: the TT-Polaris shim carries memory as the `_memory_config` attr; real ttnn tensors
         # have no such attr — apply via to_memory_config (cf. lm_head._dummy_weight).
         if IS_POLARIS:
             self.transformation_mat._memory_config = _trans_mem
@@ -182,7 +182,7 @@ class RotarySetup:
         # interleaved_to_sharded / RotaryEmbeddingLlamaFusedQK the z=2 cos/sin the capture records.
         db = getattr(self, 'doubled_batch', 2 * self.batch_size)
         # Dual-mode: real ttnn slices via Python indexing (tt-metal rope.py:1003
-        # `cos[:, :batch_size_per_device_group, :, :]`); the Polaris shim Tensor has no __getitem__,
+        # `cos[:, :batch_size_per_device_group, :, :]`); the TT-Polaris shim Tensor has no __getitem__,
         # so use ttnn.slice (emits the Slice op that matches the capture).
         if IS_POLARIS:
             _sl = (slice(None), slice(0, db), slice(None), slice(None))

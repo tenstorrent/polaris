@@ -37,7 +37,7 @@ def parse_tensor_string(s):
 def test_tensor_shapes_in_json_output(reset_typespec, tmp_path):  # noqa: F811
     """Test that tensor shape information appears correctly in JSON output."""
 
-    # Run polaris with a simple workload
+    # Run TT-Polaris with a simple workload
     output_dir = tmp_path / "output"
     output_dir.mkdir()
 
@@ -53,7 +53,7 @@ def test_tensor_shapes_in_json_output(reset_typespec, tmp_path):  # noqa: F811
         '--outputformat', 'json'
     ])
 
-    assert result == 0, "Polaris should run successfully"
+    assert result == 0, "TT-Polaris should run successfully"
 
     # Find the generated JSON stats file
     stats_dir = output_dir / "test_shapes" / "STATS"
@@ -107,7 +107,7 @@ def test_tensor_shapes_in_json_output(reset_typespec, tmp_path):  # noqa: F811
 def test_tensor_shapes_in_csv_output(reset_typespec, tmp_path):  # noqa: F811
     """Test that tensor shape information appears correctly in CSV output."""
 
-    # Run polaris with CSV output enabled
+    # Run TT-Polaris with CSV output enabled
     output_dir = tmp_path / "output"
     output_dir.mkdir()
 
@@ -123,7 +123,7 @@ def test_tensor_shapes_in_csv_output(reset_typespec, tmp_path):  # noqa: F811
         '--dump_stats_csv'
     ])
 
-    assert result == 0, "Polaris should run successfully"
+    assert result == 0, "TT-Polaris should run successfully"
 
     # Find the generated CSV stats file
     stats_dir = output_dir / "test_shapes_csv" / "STATS"
@@ -162,7 +162,7 @@ def test_tensor_shapes_in_csv_output(reset_typespec, tmp_path):  # noqa: F811
 def test_tensor_shapes_in_yaml_output(reset_typespec, tmp_path):  # noqa: F811
     """Test that tensor shape information appears correctly in YAML output."""
 
-    # Run polaris with YAML output
+    # Run TT-Polaris with YAML output
     output_dir = tmp_path / "output"
     output_dir.mkdir()
 
@@ -178,7 +178,7 @@ def test_tensor_shapes_in_yaml_output(reset_typespec, tmp_path):  # noqa: F811
         '--outputformat', 'yaml'
     ])
 
-    assert result == 0, "Polaris should run successfully"
+    assert result == 0, "TT-Polaris should run successfully"
 
     # Find the generated YAML stats file
     stats_dir = output_dir / "test_shapes_yaml" / "STATS"
@@ -215,7 +215,7 @@ def test_model_dump_called_correctly(reset_typespec, tmp_path):  # noqa: F811
     This verifies the fix for the issue where yaml.dump(model.model_dump) without
     parentheses would dump the method object itself instead of the model data.
     """
-    # Run polaris with YAML output
+    # Run TT-Polaris with YAML output
     output_dir = tmp_path / "output"
     output_dir.mkdir()
 
@@ -231,7 +231,7 @@ def test_model_dump_called_correctly(reset_typespec, tmp_path):  # noqa: F811
         '--outputformat', 'yaml'
     ])
 
-    assert result == 0, "Polaris should run successfully"
+    assert result == 0, "TT-Polaris should run successfully"
 
     # Find the generated YAML stats file
     stats_dir = output_dir / "test_model_dump" / "STATS"
@@ -278,7 +278,7 @@ def test_input_weight_tensor_overlap(reset_typespec, tmp_path):  # noqa: F811
     By design, weight/parameter tensors appear in both input_tensors and weight_tensors
     since they are inputs to operations. This test verifies this expected behavior.
     """
-    # Run polaris with JSON output for easy parsing
+    # Run TT-Polaris with JSON output for easy parsing
     output_dir = tmp_path / "output"
     output_dir.mkdir()
 
@@ -294,7 +294,7 @@ def test_input_weight_tensor_overlap(reset_typespec, tmp_path):  # noqa: F811
         '--outputformat', 'json'
     ])
 
-    assert result == 0, "Polaris should run successfully"
+    assert result == 0, "TT-Polaris should run successfully"
 
     # Read the JSON stats file
     stats_dir = output_dir / "test_overlap" / "STATS"

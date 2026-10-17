@@ -2,7 +2,7 @@
 # SPDX-FileCopyrightText: (C) 2025 Tenstorrent AI ULC
 # SPDX-License-Identifier: Apache-2.0
 
-"""Polaris-side equivalent of vgg_unet_test_infra.py from tt-metal (BH variant).
+"""TT-Polaris-side equivalent of vgg_unet_test_infra.py from tt-metal (BH variant).
 
 Provides ``create_test_infra`` with the same interface so that
 ``test_vgg_unet_device_perf_bh.py`` can run in dual-mode.
@@ -21,10 +21,10 @@ from workloads.ttnn.vgg_unet.common.ttnn_vgg_unet import Tt_vgg_unet
 
 
 class VggUnetTestInfra:
-    """Polaris mirror of the upstream VggUnetTestInfra (BH variant).
+    """TT-Polaris mirror of the upstream VggUnetTestInfra (BH variant).
 
     Builds synthetic parameters and a random [B, 3, 256, 256] input tensor.
-    The model is the polaris-native ``Tt_vgg_unet`` which expects NCHW input
+    The model is the TT-Polaris-native ``Tt_vgg_unet`` which expects NCHW input
     and returns a segmentation mask of shape [B, 1, 256, 256].
     """
 
@@ -96,10 +96,10 @@ def create_test_infra(
 
 
 class VggUnetTrace2CQ:
-    """Polaris stub matching the interface of ``VggUnetTrace2CQ`` from
+    """TT-Polaris stub matching the interface of ``VggUnetTrace2CQ`` from
     ``common/runner/performant_runner.py``.
 
-    On polaris there is no 2CQ / trace — initialize just builds the model and
+    On TT-Polaris there is no 2CQ / trace — initialize just builds the model and
     prepares the input; run executes one forward pass.
     """
 
@@ -117,16 +117,16 @@ class VggUnetTrace2CQ:
 
         ``torch_input_tensor`` is accepted to match the upstream tt-metal
         ``VggUnetTrace2CQ.run()`` interface but is currently IGNORED in
-        polaris mode — the input tensor initialised in
+        TT-Polaris mode — the input tensor initialised in
         ``initialize_vgg_unet_trace_2cqs_inference`` is used instead.
-        Polaris doesn't execute kernels, so tensor *values* don't drive
+        TT-Polaris doesn't execute kernels, so tensor *values* don't drive
         the SimOp graph; only the input *shape* matters.
 
-        TODO(honor-input): to honor ``torch_input_tensor`` in polaris mode,
+        TODO(honor-input): to honor ``torch_input_tensor`` in TT-Polaris mode,
         extract its shape, rebuild ``self._infra.input_tensor`` via
         ``ttnn._rand(shape=..., dtype=..., device=...)``, then re-run the
         to_memory_config path from ``initialize_*``. Leaving as no-op until
-        a real caller exercises this — current polaris test entries pass
+        a real caller exercises this — current TT-Polaris test entries pass
         no ``torch_input_tensor`` (they reuse the pre-init random input).
         """
         self._infra.run()

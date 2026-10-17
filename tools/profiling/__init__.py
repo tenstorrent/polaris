@@ -1,7 +1,7 @@
 # SPDX-FileCopyrightText: (C) 2025 Tenstorrent AI ULC
 # SPDX-License-Identifier: Apache-2.0
 
-"""Helpers for aligning TTNN hardware profiler exports with Polaris opstats."""
+"""Helpers for aligning TTNN hardware profiler exports with TT-Polaris opstats."""
 
 from .profiler_polaris_opname_mapping import (
     PolarisOnlyLayer,

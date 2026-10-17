@@ -3,7 +3,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 """
-validation_helpers.py – Shared utilities for Polaris validation workloads.
+validation_helpers.py – Shared utilities for TT-Polaris validation workloads.
 
 This module centralises all code that is common across the per-model validation
 runners (ScaledYOLOv4, DeformableDETR, DiffusionDrive, MapTracker, BEVFormer).
@@ -83,7 +83,7 @@ def run_subprocess(
     fpath:
         Absolute path to the script to run.
     polaris_root:
-        Working directory passed to the subprocess (the Polaris repo root).
+        Working directory passed to the subprocess (the TT-Polaris repo root).
     timeout:
         Maximum wall-clock seconds to wait before killing the process.
 

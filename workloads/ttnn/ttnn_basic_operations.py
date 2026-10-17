@@ -81,7 +81,7 @@ def main():
         #broadcast_vector = ttnn.Tensor(np.array([[1.0] * 32], dtype=np.float32).repeat(32, 1),
         #                               dtype=ttnn.float32)
         #broadcast_tt = to_tt_tile(broadcast_vector)
-        #broadcast_add_result = ttnn.add(tt_t4, broadcast_tt) #Polaris ERROR:Shapes [32, 32] and [1, 1024] not broadcast-compatible 
+        #broadcast_add_result = ttnn.add(tt_t4, broadcast_tt) #TT-Polaris ERROR:Shapes [32, 32] and [1, 1024] not broadcast-compatible 
         #logger.info(f"Broadcast Add Result (TT-NN):\n{ttnn.to_torch(broadcast_add_result)}")
 
         #check graph via onnx dump

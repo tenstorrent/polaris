@@ -406,7 +406,7 @@ def _detached_copy(t):
 
 def _squeeze_to_rank1(t):
     """Squeeze away spurious leading size-1 dims (e.g. from a scalar Gather
-    index that Polaris represents as [1] instead of a true rank-0 scalar,
+    index that TT-Polaris represents as [1] instead of a true rank-0 scalar,
     then gets double-wrapped by a later Unsqueeze into [1,1]) so Slice's
     starts/ends/axes/steps tensors end up as genuine rank-1 arrays.
 
@@ -617,7 +617,7 @@ def concat_sinf(iTList, oTList, op, **kwargs):
     axis = op.attrs['axis']
     assert len(iTList) > 0, "empty input list in Concat!!"
 
-    # Some upstream tensors (e.g. a scalar Gather-index result that Polaris's
+    # Some upstream tensors (e.g. a scalar Gather-index result that TT-Polaris's
     # frontend represents as shape [1] instead of a true rank-0 scalar) can
     # pick up spurious extra leading size-1 dims through ops like Unsqueeze
     # (e.g. [1] -> [1,1] instead of the ONNX-true [] -> [1]). Squeeze away

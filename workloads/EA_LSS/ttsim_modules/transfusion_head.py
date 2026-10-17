@@ -135,7 +135,7 @@ class TransformerDecoderLayer(SimNN.Module):
         self.cross_posembed = PositionEmbeddingLearned(name + ".cpel", input_channel=2, num_pos_feats=d_model)
 
         # ── Register all dynamic ops so link_op2module tracks them and their
-        # output tensors are auto-stored in _tensors when fired (polaris graph). ──
+        # output tensors are auto-stored in _tensors when fired (TT-Polaris graph). ──
         self.op_tr_q      = SimOpHandle(name + ".tr_q",      "Transpose", params=[], ipos=[0], perm=[2,0,1])
         self.op_tr_k      = SimOpHandle(name + ".tr_k",      "Transpose", params=[], ipos=[0], perm=[2,0,1])
         self.op_tr_qp     = SimOpHandle(name + ".tr_qp",     "Transpose", params=[], ipos=[0], perm=[2,0,1])
@@ -294,7 +294,7 @@ class TransFusionHead(SimNN.Module):
                 kernel_size=3, padding=1, bias=False,    # BN follows → no bias
             )
             self.hm_bn0 = F.BatchNorm2d(name + ".hm_bn0", hidden_channel)
-            # Register hm_relu so its output tensor is tracked for polaris graph.
+            # Register hm_relu so its output tensor is tracked for TT-Polaris graph.
             self.hm_relu = F.Relu(name + ".hm_relu")
             self.hm_conv1 = F.Conv2d(
                 name + ".hm_conv1",

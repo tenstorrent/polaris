@@ -3,7 +3,7 @@
 # SPDX-License-Identifier: Apache-2.0
 """
 Validation script for PositionEmbeddingLearned TTSim module.
-Run from polaris root:
+Run from TT-Polaris root:
     python3 workloads/EA-LSS/Reference/Validation/test_position_embedding_learned.py
 
 Architecture: input [B,P,ic] → Conv1d(ic→F,k=1) → BN1d → ReLU → Conv1d(F→F,k=1) → [B,F,P]

@@ -493,7 +493,7 @@ class FusionAD(FusionADTrack):
       6. planning_head(bev_embed, bev_pos, ...) → planning results
 
     Supports two calling conventions:
-      1. Polaris mode:  FusionAD(name_str, cfg_dict)
+      1. TT-Polaris mode:  FusionAD(name_str, cfg_dict)
       2. Direct mode:   FusionAD(name=..., seg_head_module=..., **kwargs)
 
     Original: projects/mmdet3d_plugin/fusionad/detectors/fusionad_e2e.py
@@ -509,7 +509,7 @@ class FusionAD(FusionADTrack):
         planning_head_module=None,
         **kwargs,
     ):
-        # Detect polaris calling convention: FusionAD("instance_name", {cfg_dict})
+        # Detect TT-Polaris calling convention: FusionAD("instance_name", {cfg_dict})
         if len(args) == 2 and isinstance(args[0], str) and isinstance(args[1], dict):
             self._init_from_polaris(args[0], args[1])
         elif len(args) == 0:
@@ -539,7 +539,7 @@ class FusionAD(FusionADTrack):
         super().link_op2module()
 
     def _init_from_polaris(self, name, cfg):
-        """Polaris construction: build everything from (name, cfg) dict."""
+        """TT-Polaris construction: build everything from (name, cfg) dict."""
         # Extract params from merged cfg
         embed_dims = cfg.get('embed_dims', 256)
         num_query = cfg.get('num_query', 900)
@@ -890,10 +890,10 @@ class FusionAD(FusionADTrack):
         super().link_op2module()
 
     # -----------------------------------------------------------------
-    # Polaris interface methods
+    # TT-Polaris interface methods
     # -----------------------------------------------------------------
     def create_input_tensors(self):
-        """Create input tensors for polaris graph simulation.
+        """Create input tensors for TT-Polaris graph simulation.
 
         Inputs:
           - img: stacked multi-camera images [B*num_cams, 3, H, W]
@@ -919,7 +919,7 @@ class FusionAD(FusionADTrack):
             t.set_module(self)
 
     def get_forward_graph(self):
-        """Return the forward computation graph for polaris analysis."""
+        """Return the forward computation graph for TT-Polaris analysis."""
         return super()._get_forward_graph(self.input_tensors)
 
     # -----------------------------------------------------------------
@@ -966,7 +966,7 @@ class FusionAD(FusionADTrack):
         """
         End-to-end inference for one frame.
 
-        When called with no arguments (polaris mode), uses self.input_tensors
+        When called with no arguments (TT-Polaris mode), uses self.input_tensors
         and synthetic data to build the computation graph.
 
         Pipeline:
@@ -978,7 +978,7 @@ class FusionAD(FusionADTrack):
 
         All sub-heads are optional (skipped when None).
         """
-        # ---- Polaris graph-construction mode (no args) ----
+        # ---- TT-Polaris graph-construction mode (no args) ----
         if img_metas is None and hasattr(self, 'input_tensors'):
             return self._forward_polaris()
 
@@ -1110,13 +1110,13 @@ class FusionAD(FusionADTrack):
         return result
 
     # -----------------------------------------------------------------
-    # Polaris graph-construction forward
+    # TT-Polaris graph-construction forward
     # -----------------------------------------------------------------
     def _forward_polaris(self):
         """
-        Simplified forward pass for polaris graph analysis.
+        Simplified forward pass for TT-Polaris graph analysis.
 
-        Called when __call__ is invoked with no arguments (polaris mode).
+        Called when __call__ is invoked with no arguments (TT-Polaris mode).
         Full pipeline: img_backbone → FPN → PerceptionTransformer(encoder) →
                        BEVFormerTrackHead(decoder + cls/reg/traj) → task heads.
         """

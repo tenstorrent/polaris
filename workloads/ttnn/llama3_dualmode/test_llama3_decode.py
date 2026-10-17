@@ -8,7 +8,7 @@ components in decode mode (seqlen=1 per user, batch users, paged KV cache). The 
 in attention.forward_decode emits NLPCreateQKVHeadsDecode -> RotaryEmbeddingLlamaFusedQK ->
 PagedFusedUpdateCache -> SdpaDecode -> NLPConcatHeadsDecode, and rope.get_rot_mats supplies the
 decode cos/sin via embedding + transpose + interleaved_to_sharded — matching the BH decode
-capture (project_llama3_prefill_op_sequence). Builds the decode graph on-device; Polaris
+capture (project_llama3_prefill_op_sequence). Builds the decode graph on-device; TT-Polaris
 extracts the WorkloadGraph after this returns.
 """
 import os

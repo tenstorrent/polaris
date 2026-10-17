@@ -19,7 +19,7 @@ def test_parse_lut_key_cell_none_and_empty_return_none():
 @pytest.mark.unit
 def test_parse_lut_key_cell_string_none_variants_return_none():
     """Cells that hold the literal string ``None`` / ``NA`` / ``null`` (CSV null sentinels)
-    must parse back to None, matching how the polaris CSV writer renders missing values.
+    must parse back to None, matching how the TT-Polaris CSV writer renders missing values.
     """
     assert _parse_lut_key_cell('None') is None
     assert _parse_lut_key_cell('none') is None

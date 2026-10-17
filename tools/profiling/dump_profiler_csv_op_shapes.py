@@ -53,7 +53,7 @@ def main() -> int:
         '--op-type',
         choices=('polaris', 'op_code'),
         default='polaris',
-        help='polaris: mapped optype (matches Polaris opstats); op_code: raw OP CODE column',
+        help='polaris: mapped optype (matches TT-Polaris opstats); op_code: raw OP CODE column',
     )
     ap.add_argument(
         '--pad-extent',

@@ -5,7 +5,7 @@
 """Single source of truth for tensor shape parsing, normalization, and
 comparison, as well as layout / dtype / memory attribute normalization.
 
-Memory strings are compared via :func:`normalize_memory_tag` so Polaris
+Memory strings are compared via :func:`normalize_memory_tag` so TT-Polaris
 ``MemoryConfig`` repr and profiler short forms (e.g. ``L1_BLOCK_SHARDED``)
 match when semantically identical.
 
@@ -79,9 +79,9 @@ def canonical_memory_tag_from_enums(buffer_name: str, layout_name: str) -> str:
 
 
 def normalize_memory_tag(value: Optional[str]) -> Optional[str]:
-    """Map Polaris ``MemoryConfig`` repr or profiler short strings to one canonical form.
+    """Map TT-Polaris ``MemoryConfig`` repr or profiler short strings to one canonical form.
 
-    Polaris CSV often stores ``str(MemoryConfig)`` (i.e. ``__repr__``). Profiler
+    TT-Polaris CSV often stores ``str(MemoryConfig)`` (i.e. ``__repr__``). Profiler
     CSV uses values like ``L1_BLOCK_SHARDED`` (sometimes prefixed with
     ``DEV_1_`` before load). After normalization, semantically identical configs
     compare equal.
@@ -325,7 +325,7 @@ def validate_binary_compatibility(
         if match:
             return True, (
                 f"binary compatible: matched {overlap} of "
-                f"{len(polaris_inputs)} polaris / {len(profiler_inputs)} profiler inputs"
+                f"{len(polaris_inputs)} TT-Polaris / {len(profiler_inputs)} profiler inputs"
             )
         return False, details
 
@@ -334,7 +334,7 @@ def validate_binary_compatibility(
 
     return False, (
         f"binary input count mismatch: "
-        f"{len(polaris_inputs)} polaris vs {len(profiler_inputs)} profiler"
+        f"{len(polaris_inputs)} TT-Polaris vs {len(profiler_inputs)} profiler"
     )
 
 
@@ -346,10 +346,10 @@ def validate_reshape_compatibility(
     strip_singleton_dims: bool = False,
 ) -> Tuple[bool, str]:
     """Special validation for reshape operations with different
-    representations between Polaris and the profiler.
+    representations between TT-Polaris and the profiler.
     """
     if len(polaris_inputs) != 2:
-        return False, "polaris doesn't have 2 inputs"
+        return False, "TT-Polaris doesn't have 2 inputs"
 
     pol_out_parsed = parse_shape_string(polaris_outputs[0]) if polaris_outputs else []
     prof_out_parsed = parse_shape_string(profiler_outputs[0]) if profiler_outputs else []
@@ -361,13 +361,13 @@ def validate_reshape_compatibility(
     )
 
     if len(pol_input2_parsed) != 1:
-        return False, f"polaris second input not 1-D: {pol_input2_parsed}"
+        return False, f"TT-Polaris second input not 1-D: {pol_input2_parsed}"
 
     if len(prof_out_normalized) != 2:
         return False, f"profiler output not 2-D after normalization: {prof_out_normalized}"
 
     if len(pol_out_parsed) < 3:
-        return False, f"polaris output has < 3 dims: {pol_out_parsed}"
+        return False, f"TT-Polaris output has < 3 dims: {pol_out_parsed}"
 
     pol_first_three_product = pol_out_parsed[0] * pol_out_parsed[1] * pol_out_parsed[2]
     prof_first_dim = prof_out_normalized[0]

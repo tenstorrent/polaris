@@ -2,7 +2,7 @@
 # SPDX-FileCopyrightText: (C) 2025 Tenstorrent AI ULC
 # SPDX-License-Identifier: Apache-2.0
 
-# Purpose: This document tracks the functional parity between the standard PyTorch inference and the Polaris hardware simulation.
+# Purpose: This document tracks the functional parity between the standard PyTorch inference and the TT-Polaris hardware simulation.
 ### Validation Script
 
 import os

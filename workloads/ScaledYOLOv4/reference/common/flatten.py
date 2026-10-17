@@ -8,7 +8,7 @@ Flatten module validation: ttsim vs PyTorch comparison.
 import os
 import sys
 
-# Add polaris root to path
+# Add TT-Polaris root to path
 polaris_root = os.path.abspath(
     os.path.join(os.path.dirname(__file__), "..", "..", "..", "..")
 )

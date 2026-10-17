@@ -16,7 +16,7 @@ from ttsim.ops.desc.helpers import bidir_bcast
 from ttsim.config import get_arspec_from_yaml
 from ttsim.back.device import Device
 
-# Add polaris root to path for config access
+# Add TT-Polaris root to path for config access
 polaris_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
 
 try:

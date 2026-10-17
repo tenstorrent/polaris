@@ -156,7 +156,7 @@ def run_decoder_inference(wln, device, cfg, **kwargs):
 
         # Create random input tensor [batch_size, seqlen=1, dim]
         pt_decode_input = (np.random.rand(batch_size, seqlen, model_args.dim).astype(np.float32) * 2) - 1
-        logger.info(f"=== POLARIS TOKEN {i} INPUT ===")
+        logger.info(f"=== TT-POLARIS TOKEN {i} INPUT ===")
         logger.info(f"numpy shape: {pt_decode_input.shape}")
         logger.info(f"min={pt_decode_input.min():.6f}, max={pt_decode_input.max():.6f}, mean={pt_decode_input.mean():.6f}")
 
@@ -202,7 +202,7 @@ def run_decoder_inference(wln, device, cfg, **kwargs):
                 logger.info("Forward pass completed successfully!")
                 if hasattr(tt_out, 'shape'):
                     logger.info(f"Output shape: {tt_out.shape}")
-                    logger.info(f"=== POLARIS TOKEN {i} OUTPUT ===")
+                    logger.info(f"=== TT-POLARIS TOKEN {i} OUTPUT ===")
                     logger.info(f"logical_shape: {tt_out.shape}")
                     logger.info(f"padded_shape: {tt_out.padded_shape()}")
                 results[f"token_{i}"] = "PASSED"

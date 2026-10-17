@@ -3,7 +3,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 """
-ScaledYOLOv4Validation – Polaris Workload with Integrated Validation Suite
+ScaledYOLOv4Validation – TT-Polaris Workload with Integrated Validation Suite
 
 Extends ScaledYOLOv4 (Model) to additionally execute both run_all.py validation
 scripts found under:
@@ -19,7 +19,7 @@ is printed to the terminal once the run is complete.
 
 After running the validation suite the workload behaves identically to the
 plain ScaledYOLOv4 Model workload – it produces the same forward-graph and
-the same Polaris JSON projection output.
+the same TT-Polaris JSON projection output.
 
 Usage
 -----
@@ -50,7 +50,7 @@ from workloads.validation_helpers import (  # noqa: E402
 # Paths
 # ---------------------------------------------------------------------------
 
-# Absolute path of the polaris workspace root (three levels above this file)
+# Absolute path of the TT-Polaris workspace root (three levels above this file)
 _POLARIS_ROOT: str = os.path.normpath(
     os.path.join(os.path.dirname(__file__), "../../..")
 )
@@ -209,7 +209,7 @@ def _run_validation_tests() -> str:
 
 
 # ---------------------------------------------------------------------------
-# Polaris workload class
+# TT-Polaris workload class
 # ---------------------------------------------------------------------------
 
 

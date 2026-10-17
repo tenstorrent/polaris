@@ -9,7 +9,7 @@ DWConv is a function that returns a Conv with groups=gcd(c1, c2).
 import os
 import sys
 
-# Add polaris root to path (4 levels up from this file)
+# Add TT-Polaris root to path (4 levels up from this file)
 polaris_root = os.path.abspath(
     os.path.join(os.path.dirname(__file__), "..", "..", "..", "..")
 )

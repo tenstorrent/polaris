@@ -1,7 +1,7 @@
 # SPDX-FileCopyrightText: (C) 2025 Tenstorrent AI ULC
 # SPDX-License-Identifier: Apache-2.0
 
-"""Polaris-side mimic of tt-metal's conv2d parallel-config picker.
+"""TT-Polaris-side mimic of tt-metal's conv2d parallel-config picker.
 
 Used by the conv-input channel-padding annotation pass (see
 ``doc/TTNN_SHIM_ARCHITECTURE.md`` §17). Given a conv's input shape and the
@@ -10,9 +10,9 @@ padded_channels)`` that ``determine_parallel_config`` in
 ``tt-metal/ttnn/cpp/ttnn/operations/conv/conv2d/conv2d_utils.cpp`` would pick.
 
 Only the BLOCK_SHARDED path is implemented for now — that's the layout where
-HW pads channels in a way polaris currently doesn't model.  HEIGHT_SHARDED and
+HW pads channels in a way TT-Polaris currently doesn't model.  HEIGHT_SHARDED and
 WIDTH_SHARDED are no-ops here (channel padding doesn't apply); callers should
-fall through to existing polaris behavior for those layouts.
+fall through to existing TT-Polaris behavior for those layouts.
 """
 
 from __future__ import annotations
@@ -20,7 +20,7 @@ from __future__ import annotations
 from typing import Tuple
 
 # Mirror tt-metal constants. TILE_WIDTH from tt::constants; input_channels_alignment
-# defaults to TILE_WIDTH=32 for the BLOCK_SHARDED case polaris cares about (see
+# defaults to TILE_WIDTH=32 for the BLOCK_SHARDED case TT-Polaris cares about (see
 # tt-metal get_input_channels_alignment fallback for non-WIDTH_SHARDED inputs).
 TILE_WIDTH = 32
 TILE_HEIGHT = 32

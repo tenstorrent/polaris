@@ -17,7 +17,7 @@ import ttsim.front.functional.op as F
 from ttsim.config import get_arspec_from_yaml
 from ttsim.back.device import Device
 
-# Add polaris root to path for config access
+# Add TT-Polaris root to path for config access
 polaris_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
 
 import logging

@@ -962,7 +962,7 @@ _concat_impl = single_output_immediate_op("Concat")
 def concat(first, *rest, **kwargs):
     """Concatenate tensors along a dimension.
 
-    Accepts both calling conventions so that Polaris matches the tt-metal canonical form:
+    Accepts both calling conventions so that TT-Polaris matches the tt-metal canonical form:
 
         ttnn.concat([t1, t2], dim, memory_config=cfg)   # tt-metal list-first form
         ttnn.concat(t1, t2, axis=dim)                    # existing positional form
@@ -1139,7 +1139,7 @@ def _emit_entry_transpose(input_tensor: 'Tensor', output_hw_shape: list) -> 'Ten
 
     Used by ``permute_reshape_to_nhwc_flat`` to model the two HW transposes that
     convert NCHW (post-Pad) to NHWC-flat (pre-Halo).  Logical shape is a
-    passthrough (Polaris models conv math in NCHW); only ``hw_shape`` is
+    passthrough (TT-Polaris models conv math in NCHW); only ``hw_shape`` is
     advanced so the downstream LUT keys land on the right entries.
     """
     in_shape = list(input_tensor.shape)  # type: ignore[arg-type]
@@ -1202,7 +1202,7 @@ def permute_reshape_to_nhwc_flat(input_tensor: 'Tensor') -> 'Tensor':
       T2 input: (1, H, C, W)         — intermediate
     Output of T2 has hw_shape ``[1, 1, N*H*W, C]`` (NHWC-flat) for downstream
     Halo to consume.  Logical (NCHW) shape is preserved through both transposes
-    so Polaris's conv shape inference continues to operate in NCHW.
+    so TT-Polaris's conv shape inference continues to operate in NCHW.
     """
     in_shape = list(input_tensor.shape)  # type: ignore[arg-type]
     assert len(in_shape) == 4, (
@@ -1259,7 +1259,7 @@ def _with_halo(op_fn, is_transpose: bool = False, move_before_conv: bool = False
                     # Mirror tt-metal: the conv's Conv2dConfig.shard_layout drives the
                     # auto-emitted ITS's output memory layout. Falls back to
                     # HEIGHT_SHARDED when shard_layout is unset (None) — matches the
-                    # default the polaris shim has historically used.
+                    # default the TT-Polaris shim has historically used.
                     conv_cfg_for_its = kwargs.get('conv_config')
                     its_shard = getattr(conv_cfg_for_its, 'shard_layout', None)
                     if not isinstance(its_shard, TensorMemoryLayout):
@@ -1453,7 +1453,7 @@ def _matmul_1x1_with_hw_fields(*args, **kwargs):
 def _apply_conv_output_layout(result, kwargs):
     """Mirror tt-metal: ``Conv2dConfig.output_layout`` controls the conv output tensor layout.
 
-    Without this, polaris's Conv2d / Conv_transpose2d output defaults to ``Layout.DEFAULT``
+    Without this, TT-Polaris's Conv2d / Conv_transpose2d output defaults to ``Layout.DEFAULT``
     (= ROW_MAJOR_LAYOUT, see tensor.py), so downstream ops (next halo, etc.) always see
     ROW_MAJOR input — even when the model code requested ``output_layout=TILE_LAYOUT`` via
     ``Conv2dConfig``. Mirrors tt-metal: the kernel emits in the layout requested by the
@@ -1498,7 +1498,7 @@ max_pool2d = _with_halo(_max_pool2d_raw)
 # (kernel_size/stride/padding/dilation/ceil_mode -> kernel_shape/strides/pads/dilations/ceil_mode
 # is identical for both pooling flavors) but targets the "AveragePool" op descriptor
 # (ttsim/ops/desc/nn.py:avgpool_sinf), which has its own shape inference and perf-stats formula
-# (add/div/mov instruction counts) distinct from MaxPool's (cmp/mov) -- so Polaris's cost model
+# (add/div/mov instruction counts) distinct from MaxPool's (cmp/mov) -- so TT-Polaris's cost model
 # actually distinguishes avg-pool from max-pool rather than the two being silently interchangeable.
 _avg_pool2d_raw = single_output_immediate_op("AveragePool", preprocess=max_pool2d_pp)
 avg_pool2d = _with_halo(_avg_pool2d_raw)
@@ -1551,7 +1551,7 @@ def linear(*args, **kwargs):
     SimOps.  HW's MatmulDeviceOperation fuses all three into one kernel, so the
     decomposed graph produced extra ops that did not appear in profiler traces.
     Emitting a single MatMul SimOp (with bias as an optional 3rd input and activation
-    as an attribute) keeps the POLARIS op graph 1-to-1 with HW profiler output.
+    as an attribute) keeps the TT-Polaris op graph 1-to-1 with HW profiler output.
     """
     assert len(args) == 2, f"linear args #-inputs({len(args)}) != 2"
     A = require_ttnn_tensor(args[0], "ttnn.linear input")

@@ -924,7 +924,7 @@ class Device:
                     # lookup chain actually matched after any fallback
                     # substitution (HEIGHT→BLOCK, L1→DRAM, ROW_MAJOR→TILE, arity
                     # dup, …).  Downstream compare_layers ``--by-lut-key`` groups
-                    # by the resolved key so polaris + profiler rows that
+                    # by the resolved key so TT-Polaris + profiler rows that
                     # semantically share a LUT entry align in the rollup, even
                     # when their literal shapes differ in fallback-tolerable ways.
                     # ``lut_key`` is emitted unconditionally (even on miss) so

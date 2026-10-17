@@ -83,7 +83,7 @@ EDGE CASES TESTED:
 
 ================================================================================
 RUN:
-    cd polaris
+    cd tt-polaris
     pytest workloads/Deformable_DETR/unit_tests/test_matcher_unit.py -v -s
     # or
     python workloads/Deformable_DETR/unit_tests/test_matcher_unit.py
@@ -100,7 +100,7 @@ from datetime import datetime
 # ---------------------------------------------------------------------------
 # Path setup
 # ---------------------------------------------------------------------------
-# Locate polaris root (contains pyproject.toml) regardless of run directory
+# Locate TT-Polaris root (contains pyproject.toml) regardless of run directory
 _here = os.path.abspath(os.path.dirname(__file__))
 _root = _here
 while _root != os.path.dirname(_root) and not os.path.exists(

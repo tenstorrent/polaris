@@ -4,7 +4,7 @@
 """
 Validation script for TransformerDecoderLayer and TransFusionHead TTSim modules.
 
-Run from polaris root:
+Run from TT-Polaris root:
     python3 workloads/EA-LSS/Reference/Validation/test_transfusion_head.py
 
 Note: TDL uses LayerNorm which does not propagate TTSim data.

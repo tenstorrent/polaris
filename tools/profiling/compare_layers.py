@@ -2,7 +2,7 @@
 # SPDX-FileCopyrightText: (C) 2025 Tenstorrent AI ULC
 # SPDX-License-Identifier: Apache-2.0
 
-"""Compare Polaris and Profiler CSV layer sequences."""
+"""Compare TT-Polaris and Profiler CSV layer sequences."""
 
 import sys
 import os
@@ -315,9 +315,9 @@ class ComparisonStats:
 def parse_args() -> argparse.Namespace:
     """Parse command line arguments."""
     parser = argparse.ArgumentParser(
-        description='Compare Polaris and Profiler CSV layer sequences'
+        description='Compare TT-Polaris and Profiler CSV layer sequences'
     )
-    parser.add_argument('file1', type=str, help='First CSV file (polaris or profiler)')
+    parser.add_argument('file1', type=str, help='First CSV file (TT-Polaris or profiler)')
     parser.add_argument('file2', type=str, nargs='?', default=None,
                         help='Second CSV file (optional; required for shape comparison)')
     parser.add_argument(
@@ -338,16 +338,16 @@ def parse_args() -> argparse.Namespace:
         action=argparse.BooleanOptionalAction,
         default=True,
         help='Strip all leading 1s from shapes (default: enabled). '
-             'Leading 1s are a batch-dimension convention difference between Polaris and HW. '
+             'Leading 1s are a batch-dimension convention difference between TT-Polaris and HW. '
              'Use --no-strip-leading-ones for strict matching.'
     )
     # NOTE: --strip-singleton-dims is currently required for fused head ops
     # (CreateQKVHeads, ConcatHeads) because HW uses 4D shapes with a
-    # seq_groups=1 singleton dim (e.g. [B, 1, S, H]) while Polaris emits 3D
+    # seq_groups=1 singleton dim (e.g. [B, 1, S, H]) while TT-Polaris emits 3D
     # shapes (e.g. [B, S, H]). Additionally, HW implicitly reinterprets the
     # output of ConcatHeads from [B, 1, S, H] to [1, B, S, H] for
     # downstream ops without an explicit reshape. Future work: update the
-    # Polaris shim to emit 4D shapes and model this implicit view change,
+    # TT-Polaris shim to emit 4D shapes and model this implicit view change,
     # which would allow removing this flag for those ops.
     parser.add_argument(
         '--strip-singleton-dims',
@@ -372,8 +372,8 @@ def parse_args() -> argparse.Namespace:
         help='Print a rollup table keyed by layer optype (CSV name) plus normalized '
              'input/output shape signature. Uses the same --strip-leading-ones / '
              '--strip-singleton-dims rules as shape comparison. With two CSVs, prints '
-             'one table per file. With --perf, adds summed duration (and Polaris LUT '
-             'hits when available), and the profiler-vs-Polaris performance comparison '
+             'one table per file. With --perf, adds summed duration (and TT-Polaris LUT '
+             'hits when available), and the profiler-vs-TT-Polaris performance comparison '
              'is grouped by type+signature instead of by optype alone.',
     )
     parser.add_argument(
@@ -382,9 +382,9 @@ def parse_args() -> argparse.Namespace:
         help='Print a rollup table grouped by full LUT key (optype + per-input-slot '
              'padded shape, layout, dtype, memory + math_fidelity), with columns '
              'exploded.  Works for both profiler CSV (literal LUT entry key per row) '
-             'and polaris CSV (uses the resolved key — the LUT entry the runtime '
+             'and TT-Polaris CSV (uses the resolved key — the LUT entry the runtime '
              'lookup chain matched after any HEIGHT→BLOCK / L1→DRAM / arity-dup '
-             'fallback — so polaris and profiler rows that share a LUT entry land '
+             'fallback — so TT-Polaris and profiler rows that share a LUT entry land '
              'in the same bucket).  With one file, prints a single-file count table. '
              'With two files, prints a side-by-side count table.  With --perf, adds '
              'summed duration columns and absolute/percent gap.',
@@ -408,16 +408,16 @@ def parse_args() -> argparse.Namespace:
         type=str,
         default=None,
         metavar='LABEL',
-        help='Display label for the first file (default: auto-detected type, e.g. "Polaris" '
-             'or "Profiler"; for same-type comparisons defaults to "Polaris 1" / "Profiler 1")',
+        help='Display label for the first file (default: auto-detected type, e.g. "TT-Polaris" '
+             'or "Profiler"; for same-type comparisons defaults to "TT-Polaris 1" / "Profiler 1")',
     )
     parser.add_argument(
         '--label2',
         type=str,
         default=None,
         metavar='LABEL',
-        help='Display label for the second file (default: auto-detected type, e.g. "Polaris" '
-             'or "Profiler"; for same-type comparisons defaults to "Polaris 2" / "Profiler 2")',
+        help='Display label for the second file (default: auto-detected type, e.g. "TT-Polaris" '
+             'or "Profiler"; for same-type comparisons defaults to "TT-Polaris 2" / "Profiler 2")',
     )
     return parser.parse_args()
 
@@ -432,9 +432,13 @@ def normalize_optype(optype: str) -> str:
     return to_comparison_group(normalize_polaris_optype(optype))
 
 
+# Display label for each detect_file_type() result.
+_TYPE_LABELS = {'polaris': 'TT-Polaris', 'profiler': 'Profiler'}
+
+
 def detect_file_type(filepath: str) -> Optional[str]:
     """
-    Detect if file is polaris or profiler CSV.
+    Detect if file is TT-Polaris or profiler CSV.
 
     Args:
         filepath: User-provided file path (will be sanitized)
@@ -816,7 +820,7 @@ def _aggregate_duration_by_optype(
     Returns ``{optype: (count, total_ms, lut_hits)}`` sorted by descending
     total_ms.  Layers whose ``duration_ms`` is None are counted but
     contribute 0 ms.  ``lut_hits`` counts layers where
-    ``uses_perf_lookup`` is True (Polaris-only; always 0 for profiler).
+    ``uses_perf_lookup`` is True (TT-Polaris-only; always 0 for profiler).
     """
     totals: Dict[str, float] = defaultdict(float)
     counts: Dict[str, int] = defaultdict(int)
@@ -1018,10 +1022,8 @@ def _print_perf_comparison(
     all_keys: List[Any] = list(dict.fromkeys(list(by1.keys()) + list(by2.keys())))
     all_keys.sort(key=lambda k: by1.get(k, (0, 0.0, 0))[1], reverse=True)
 
-    lbl1 = label1[:10]
-    lbl2 = label2[:10]
-    hdr_ms1 = f"{lbl1}(ms)"
-    hdr_ms2 = f"{lbl2}(ms)"
+    hdr_ms1 = f"{label1}(ms)"
+    hdr_ms2 = f"{label2}(ms)"
     col_ms = max(13, len(hdr_ms1), len(hdr_ms2))
     has_lut1 = total_lut1 > 0
     has_lut2 = total_lut2 > 0
@@ -1176,17 +1178,17 @@ def _aggregate_by_lut_key(
 ) -> Dict[Tuple[str, ...], Tuple[int, float, int]]:
     """Group layers by their *resolved* LUT key; return {key: (count, total_ms, lut_hits)}.
 
-    Prefers ``lut_key_resolved`` (the tuple the polaris runtime LUT lookup actually
+    Prefers ``lut_key_resolved`` (the tuple the TT-Polaris runtime LUT lookup actually
     matched, after any fallback substitution: HEIGHT→BLOCK shard, L1→DRAM
     interleaved, ROW_MAJOR→TILE layout, arity-1→arity-2 dup) over the literal
-    ``lut_key``.  This makes polaris rows and profiler rows that semantically
-    share a LUT entry land in the same bucket — without this, polaris's literal
+    ``lut_key``.  This makes TT-Polaris rows and profiler rows that semantically
+    share a LUT entry land in the same bucket — without this, TT-Polaris's literal
     key (built from the workload op's tensor state) and the profiler's literal key
     (= the actual LUT entry) can differ in fallback-tolerable ways and over-segment.
 
     Profiler-side rows only carry ``lut_key`` (their literal key IS a LUT entry, no
     fallback needed); they fall through to the literal key automatically.  Older
-    polaris CSVs predating the Tier-1 plumbing also lack ``lut_key_resolved``;
+    TT-Polaris CSVs predating the Tier-1 plumbing also lack ``lut_key_resolved``;
     those degrade to using the literal key — accurate for direct-hit rows,
     over-segmenting for fallback-resolved rows (same as before).
     """
@@ -1282,7 +1284,7 @@ def _print_lut_key_summary(
     """Rollup: count (and optionally ms/LUT) per unique LUT key, columns exploded."""
     by_key = _aggregate_by_lut_key(layers)
     if not by_key:
-        print(f'\n(No lut_key data for {label} — profiler CSV, or polaris CSV from a build that emits lut_key columns, required)')
+        print(f'\n(No lut_key data for {label} — profiler CSV, or TT-Polaris CSV from a build that emits lut_key columns, required)')
         return
 
     keys_sorted: List[Tuple[str, ...]] = sorted(
@@ -1355,7 +1357,7 @@ def _print_lut_key_comparison(
     by2 = _aggregate_by_lut_key(layers2)
 
     if not by1 and not by2:
-        print('\n(No lut_key data in either file — profiler CSV, or polaris CSV from a build that emits lut_key columns, required)')
+        print('\n(No lut_key data in either file — profiler CSV, or TT-Polaris CSV from a build that emits lut_key columns, required)')
         return
     if not by1:
         print(f'\n(No lut_key data for {label1})')
@@ -1384,19 +1386,17 @@ def _print_lut_key_comparison(
     total_lut2 = sum(lut for _, _, lut in by2.values())
     has_lut = (total_lut1 + total_lut2) > 0
 
-    lbl1 = label1[:10]
-    lbl2 = label2[:10]
     col_cnt = 7
-    col_ms = max(13, len(f'{lbl1}(ms)'), len(f'{lbl2}(ms)'))
+    col_ms = max(13, len(f'{label1}(ms)'), len(f'{label2}(ms)'))
 
     hdr_key = _lut_key_header(col_op, col_mf, slot_widths, variant_col_names=variant_col_names, variant_widths=variant_widths)
     hdr = hdr_key
     hdr += f'  {"#1":>{col_cnt}}'
     if include_perf:
-        hdr += f'  {f"{lbl1}(ms)":>{col_ms}}'
+        hdr += f'  {f"{label1}(ms)":>{col_ms}}'
     hdr += f'  {"#2":>{col_cnt}}'
     if include_perf:
-        hdr += f'  {f"{lbl2}(ms)":>{col_ms}}  {"AbsGap(ms)":>12}  {"Gap%":>9}'
+        hdr += f'  {f"{label2}(ms)":>{col_ms}}  {"AbsGap(ms)":>12}  {"Gap%":>9}'
     rule = '─' * max(len(hdr) - 2, 82)
 
     title_w = max(len(hdr), 82)
@@ -1888,7 +1888,7 @@ def _write_xlsx_report(
     )
 
     if not all_lk:
-        ws4.cell(row=1, column=1, value="(No lut_key data in either file — polaris CSV with lut_key columns required)")
+        ws4.cell(row=1, column=1, value="(No lut_key data in either file — TT-Polaris CSV with lut_key columns required)")
     else:
         max_slots_lk = max((_lut_key_n_slots(k) for k in all_lk), default=0)
         variant_col_names_lk = _lut_key_variant_col_names(all_lk)
@@ -2030,17 +2030,17 @@ def main() -> int:
         ftype = detect_file_type(str(file1_path))
         if ftype is None:
             print("Error: Could not determine file type. Expected CSV with "
-                  "'archname' (polaris) or 'OP CODE' (profiler) columns.",
+                  "'archname' (TT-Polaris) or 'OP CODE' (profiler) columns.",
                   file=sys.stderr)
             return 1
 
         try:
             if ftype == 'polaris':
                 layers = layers_polaris(str(file1_path))
-                label = "Polaris"
+                label = _TYPE_LABELS['polaris']
             else:
                 layers = layers_profiler(str(file1_path))
-                label = "Profiler"
+                label = _TYPE_LABELS['profiler']
         except Exception as e:
             print(f"Error extracting layers: {e}", file=sys.stderr)
             return 1
@@ -2084,8 +2084,8 @@ def main() -> int:
                     layers1=layers if ftype == 'polaris' else None,
                     layers2=layers if ftype == 'profiler' else None,
                     stats=None,
-                    label1="Polaris",
-                    label2="Profiler",
+                    label1=_TYPE_LABELS['polaris'],
+                    label2=_TYPE_LABELS['profiler'],
                     source1=args.file1 if ftype == 'polaris' else None,
                     source2=args.file1 if ftype == 'profiler' else None,
                     strip_leading_ones=args.strip_leading_ones,
@@ -2103,7 +2103,7 @@ def main() -> int:
 
     if type1 is None or type2 is None:
         print("Error: Could not determine file types. Expected CSV files with "
-              "'archname' (polaris) or 'OP CODE' (profiler) columns.", file=sys.stderr)
+              "'archname' (TT-Polaris) or 'OP CODE' (profiler) columns.", file=sys.stderr)
         return 1
 
     # Determine loader for each file based on its detected type
@@ -2114,11 +2114,11 @@ def main() -> int:
     if args.label1:
         label1 = args.label1
     else:
-        label1 = f"{type1.capitalize()} 1" if type1 == type2 else type1.capitalize()
+        label1 = f"{_TYPE_LABELS[type1]} 1" if type1 == type2 else _TYPE_LABELS[type1]
     if args.label2:
         label2 = args.label2
     else:
-        label2 = f"{type2.capitalize()} 2" if type1 == type2 else type2.capitalize()
+        label2 = f"{_TYPE_LABELS[type2]} 2" if type1 == type2 else _TYPE_LABELS[type2]
 
     print(f"File 1 ({label1}): {file1_path}")
     print(f"File 2 ({label2}): {file2_path}")

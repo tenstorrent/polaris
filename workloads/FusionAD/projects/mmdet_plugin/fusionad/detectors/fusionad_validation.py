@@ -3,7 +3,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 """
-FusionADValidation – Polaris Workload with Integrated Validation Suite
+FusionADValidation – TT-Polaris Workload with Integrated Validation Suite
 
 Extends FusionAD to additionally execute every run_all.py script found
 recursively under workloads/FusionAD/reference/ the first time the workload
@@ -17,7 +17,7 @@ complete.
 
 After running the validation suite the workload behaves identically to the
 plain FusionAD workload – it produces the same forward-graph and the same
-Polaris JSON projection output.
+TT-Polaris JSON projection output.
 
 Suites discovered under reference/ (run in alphabetical order):
   mmdet_plugin/core/bbox            – bbox utility helpers
@@ -59,7 +59,7 @@ from workloads.validation_helpers import (  # noqa: E402
 # Paths
 # ---------------------------------------------------------------------------
 
-# Polaris workspace root (six levels above this file)
+# TT-Polaris workspace root (six levels above this file)
 _POLARIS_ROOT: str = os.path.normpath(
     os.path.join(os.path.dirname(__file__), "../../../../../../")
 )
@@ -214,7 +214,7 @@ def _run_validation_tests() -> str:
 
 
 # ---------------------------------------------------------------------------
-# Polaris workload class
+# TT-Polaris workload class
 # ---------------------------------------------------------------------------
 
 

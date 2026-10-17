@@ -124,7 +124,7 @@ TEST 10: Embedding + Linear forward pass - PT vs TT numerical match
 [OK] TEST 10
 
 ================================================================================
-TEST 11: Polaris-mode construction (use_lidar=True) - backbone + BEV encoder + LiDAR
+TEST 11: TT-Polaris-mode construction (use_lidar=True) - backbone + BEV encoder + LiDAR
 ================================================================================
   img_backbone: ResNetBackbone OK
   img_neck: FPN OK
@@ -149,7 +149,7 @@ TEST 12: create_input_tensors — img + voxels shapes (use_lidar=True)
 [OK] TEST 12
 
 ================================================================================
-TEST 13: Polaris-mode construction (use_lidar=False) — no voxels, no pts_backbone
+TEST 13: TT-Polaris-mode construction (use_lidar=False) — no voxels, no pts_backbone
 ================================================================================
   pts_backbone: None OK
   bev_encoder layers: BEVFormerLayer (no LiDAR) OK

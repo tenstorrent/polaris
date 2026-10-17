@@ -82,7 +82,7 @@ def run_vit_perf_device(wlname: str, device: ttnn.device.Device, cfg: dict):
 # ---------------------------------------------------------------------------
 # test_vit_perf_device — dual-mode device profiling
 # HW path: Tracy via subprocess to upstream pytest.
-# Polaris path: analytical projection via run_device_perf_polaris.
+# TT-Polaris path: analytical projection via run_device_perf_polaris.
 # ---------------------------------------------------------------------------
 
 def test_vit_perf_device(batch_size=10, expected_kernel_samples_per_sec=3050):

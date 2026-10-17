@@ -4,7 +4,7 @@
 """
 Validation script for MVXFasterRCNN and DynamicMVXFasterRCNN TTSim modules.
 
-Run from polaris root:
+Run from TT-Polaris root:
     python3 workloads/EA-LSS/Reference/Validation/test_mvx_faster_rcnn.py
 """
 

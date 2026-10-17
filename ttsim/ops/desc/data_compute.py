@@ -2032,7 +2032,7 @@ def compute_gather(iTList, op) -> np.ndarray:
     norm_axis = axis if axis >= 0 else axis + data_rank
     result = np.take(data, indices, axis=norm_axis)
     # np.take returns a bare numpy scalar (not an ndarray) when the output would be
-    # rank-0 (data_rank==1 and indices is itself a scalar/rank-0). Polaris represents
+    # rank-0 (data_rank==1 and indices is itself a scalar/rank-0). TT-Polaris represents
     # such scalars as shape [1] rather than true rank-0 [] (see resolve_tensor's
     # "treating it as scalar shape [1]" convention), so normalize to at least 1-D here
     # to stay consistent and to satisfy SimTensor's ndarray-only data requirement.

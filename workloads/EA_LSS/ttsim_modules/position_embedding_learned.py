@@ -103,7 +103,7 @@ class PositionEmbeddingLearned(SimNN.Module):
         )
         self._submodules[self.conv1.name] = self.conv1
 
-        # Register tr_in so its output tensor is tracked for polaris graph.
+        # Register tr_in so its output tensor is tracked for TT-Polaris graph.
         self.tr_in = F.Transpose(name + ".tr_in", perm=[0, 2, 1])
 
         super().link_op2module()

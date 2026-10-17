@@ -149,8 +149,8 @@ class CoreRangeSet:
 
 class CoreGrid(CoreRangeSet):
     """Mimic real ttnn's ``CoreGrid(x=.., y=..)`` grid descriptor while remaining a
-    ``CoreRangeSet`` (Polaris represents grids as range sets). Dual-mode workloads must use the
-    real-ttnn ``CoreGrid(x=X, y=Y)`` form so they also run on hardware; legacy Polaris-only callers
+    ``CoreRangeSet`` (TT-Polaris represents grids as range sets). Dual-mode workloads must use the
+    real-ttnn ``CoreGrid(x=X, y=Y)`` form so they also run on hardware; legacy TT-Polaris-only callers
     pass a positional iterable of ``CoreRange``. Exposes ``.x`` / ``.y`` like real ttnn.
     """
     def __init__(self, ranges=None, *, x=None, y=None):

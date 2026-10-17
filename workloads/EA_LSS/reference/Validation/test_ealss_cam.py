@@ -4,7 +4,7 @@
 """
 Validation script for EALSS_CAM TTSim module.
 
-Run from polaris root:
+Run from TT-Polaris root:
     python3 workloads/EA-LSS/Reference/Validation/test_ealss_cam.py
 """
 

@@ -4,7 +4,7 @@
 """
 TTSim UniAD end-to-end model entry point.
 
-Matches the workload entry format expected by Polaris:
+Matches the workload entry format expected by TT-Polaris:
     module: UniAD_E2E@UniAD_E2E.py
 
 YAML params (ip_workloads.yaml):
@@ -31,10 +31,10 @@ from workloads.UniAD.projects.mmdet3d_plugin.uniad.detectors.uniad_e2e import Un
 
 class UniAD_E2E(SimNN.Module):
     """
-    Polaris entry-point wrapper for UniAD.
+    TT-Polaris entry-point wrapper for UniAD.
 
     Delegates all logic to UniAD in detectors/uniad_e2e.py,
-    keeping the module: UniAD_E2E@UniAD_E2E.py interface expected by Polaris.
+    keeping the module: UniAD_E2E@UniAD_E2E.py interface expected by TT-Polaris.
 
     Args:
         name: module name
@@ -46,7 +46,7 @@ class UniAD_E2E(SimNN.Module):
         self.name = name
         self._model = UniAD(name, cfg)
 
-        # Mirror attributes used by tests / Polaris
+        # Mirror attributes used by tests / TT-Polaris
         self.bs = self._model.bs
         self.embed_dims = self._model.embed_dims
         self.bev_h = self._model.bev_h

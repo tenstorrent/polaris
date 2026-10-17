@@ -36,7 +36,7 @@ import numpy as np
 from collections import OrderedDict
 from datetime import datetime
 
-# Locate polaris root (contains pyproject.toml) regardless of run directory
+# Locate TT-Polaris root (contains pyproject.toml) regardless of run directory
 _here = os.path.abspath(os.path.dirname(__file__))
 _root = _here
 while _root != os.path.dirname(_root) and not os.path.exists(
@@ -1176,7 +1176,7 @@ if __name__ == "__main__":
 # from collections import OrderedDict
 # from datetime import datetime
 
-# # Locate polaris root (contains pyproject.toml) regardless of run directory
+# # Locate TT-Polaris root (contains pyproject.toml) regardless of run directory
 _here = os.path.abspath(os.path.dirname(__file__))
 _root = _here
 while _root != os.path.dirname(_root) and not os.path.exists(
