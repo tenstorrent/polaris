@@ -579,3 +579,37 @@ def test_perf_comparison_no_lut_hides_all_lut_columns(capsys):
 
     assert 'LUT1' not in out
     assert 'LUT2' not in out
+
+
+# ── console table labels ───────────────────────────────────────────────────
+
+# The same-type defaults main() builds; they differ only past the 10th character.
+_SAME_TYPE_LABELS = ('TT-Polaris 1', 'TT-Polaris 2')
+
+
+@pytest.mark.unit
+def test_perf_comparison_keeps_same_type_labels_distinct(capsys):
+    """Same-type labels must stay distinguishable in the per-type table headers."""
+    from tools.profiling.compare_layers import _print_perf_comparison
+
+    layers = [_make_layer('conv2d', 1.0)]
+    _print_perf_comparison(layers, layers, label1=_SAME_TYPE_LABELS[0], label2=_SAME_TYPE_LABELS[1])
+    out = capsys.readouterr().out
+
+    for label in _SAME_TYPE_LABELS:
+        assert f'{label}(ms)' in out
+
+
+@pytest.mark.unit
+def test_lut_key_comparison_keeps_same_type_labels_distinct(capsys):
+    """Same-type labels must stay distinguishable in the per-LUT-key table headers."""
+    from tools.profiling.compare_layers import _print_lut_key_comparison
+
+    key = ('conv2d', 1, 1, 512, 128, 'TILE', 'BFLOAT16', 'L1', 'N/A')
+    layers = [{'optype': 'conv2d', 'lut_key': key, 'duration_ms': 1.0, 'uses_perf_lookup': True}]
+    _print_lut_key_comparison(layers, layers, label1=_SAME_TYPE_LABELS[0], label2=_SAME_TYPE_LABELS[1],
+                              include_perf=True)
+    out = capsys.readouterr().out
+
+    for label in _SAME_TYPE_LABELS:
+        assert f'{label}(ms)' in out

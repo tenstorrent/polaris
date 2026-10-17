@@ -1022,10 +1022,8 @@ def _print_perf_comparison(
     all_keys: List[Any] = list(dict.fromkeys(list(by1.keys()) + list(by2.keys())))
     all_keys.sort(key=lambda k: by1.get(k, (0, 0.0, 0))[1], reverse=True)
 
-    lbl1 = label1[:10]
-    lbl2 = label2[:10]
-    hdr_ms1 = f"{lbl1}(ms)"
-    hdr_ms2 = f"{lbl2}(ms)"
+    hdr_ms1 = f"{label1}(ms)"
+    hdr_ms2 = f"{label2}(ms)"
     col_ms = max(13, len(hdr_ms1), len(hdr_ms2))
     has_lut1 = total_lut1 > 0
     has_lut2 = total_lut2 > 0
@@ -1388,19 +1386,17 @@ def _print_lut_key_comparison(
     total_lut2 = sum(lut for _, _, lut in by2.values())
     has_lut = (total_lut1 + total_lut2) > 0
 
-    lbl1 = label1[:10]
-    lbl2 = label2[:10]
     col_cnt = 7
-    col_ms = max(13, len(f'{lbl1}(ms)'), len(f'{lbl2}(ms)'))
+    col_ms = max(13, len(f'{label1}(ms)'), len(f'{label2}(ms)'))
 
     hdr_key = _lut_key_header(col_op, col_mf, slot_widths, variant_col_names=variant_col_names, variant_widths=variant_widths)
     hdr = hdr_key
     hdr += f'  {"#1":>{col_cnt}}'
     if include_perf:
-        hdr += f'  {f"{lbl1}(ms)":>{col_ms}}'
+        hdr += f'  {f"{label1}(ms)":>{col_ms}}'
     hdr += f'  {"#2":>{col_cnt}}'
     if include_perf:
-        hdr += f'  {f"{lbl2}(ms)":>{col_ms}}  {"AbsGap(ms)":>12}  {"Gap%":>9}'
+        hdr += f'  {f"{label2}(ms)":>{col_ms}}  {"AbsGap(ms)":>12}  {"Gap%":>9}'
     rule = '─' * max(len(hdr) - 2, 82)
 
     title_w = max(len(hdr), 82)
