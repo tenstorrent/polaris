@@ -55,6 +55,33 @@ packages:
             # Source: tt-metal/tt_metal/core_descriptors/wormhole_b0_80_arch_eth_dispatch.yaml
             # (end=[7, 9] → 8×10 physical). n150 has one row harvested → 8×9 = 72 cores
             # (matches num_units below).
+            #
+            # UNRESOLVED, and currently harmless: the refrun disagrees with this
+            # value.  Every row of
+            # __refrun_cache/resnet50/wh/n150/merged_ops_resnet50-02b76a9-wormhole_b0-n150_L-260916.csv
+            # reports AVAILABLE WORKER CORE COUNT = 64, and no op dispatches
+            # on more than 64 (64 = 8x8).  This says 8x9 = 72.
+            #
+            # Left as-is deliberately.  Measured at both values across resnet50,
+            # vgg_unet, vit (and llama3 on BH): identical op counts, identical
+            # per-optype census, identical LUT hits.  Three things mask it:
+            #   1. _HALO_EXT_Y_OVERRIDES_BY_DEVICE is TRANSCRIBED from the
+            #      capture, so the largest grid consumer never reads this;
+            #   2. everywhere else the grid only feeds values that are compared
+            #      against each other, so a uniformly-wrong grid cancels;
+            #   3. find_closest_largest_divisor_with_num_padding walks down to
+            #      the same divisor from either start.
+            #
+            # Mask (1) LIFTS if anyone ports the halo derivation
+            # (sliding_window.cpp: generate_shard_boundaries ->
+            # generate_max_out_nsticks_per_core), which reads
+            # config.num_cores_nhw directly.  VERIFY THIS GRID AGAINST THE
+            # CAPTURE BEFORE DOING THAT, or the derived table will be wrong in a
+            # way the transcribed one currently hides.
+            #
+            # num_units below is a separate question: it feeds the analytical
+            # cost model only, and total LUT msecs is identical at 110/120/130,
+            # so it does not affect LUT-backed runs.
             compute_grid_size: [8, 9]
             ipgroups:
             -   ipname: tensix

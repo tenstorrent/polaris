@@ -65,6 +65,33 @@ packages:
             # Logical tensix grid (x, y) — see doc/TTNN_SHIM_ARCHITECTURE.md §17.
             # Source: tt-metal/tt_metal/core_descriptors/blackhole_140_arch.yaml (end=[12, 9] inclusive → 13×10).
             # p100a has one column reserved → effective 12×10 = 120 cores (matches num_units below).
+            #
+            # UNRESOLVED, and currently harmless: the refrun disagrees with this
+            # value.  Every row of
+            # __refrun_cache/resnet50/bh/p100a/merged_ops_resnet50-02b76a9-blackhole-p100a-260816.csv
+            # reports AVAILABLE WORKER CORE COUNT = 110, and no op dispatches
+            # on more than 110 (110 = 11x10).  This says 12x10 = 120.
+            #
+            # Left as-is deliberately.  Measured at both values across resnet50,
+            # vgg_unet, vit (and llama3 on BH): identical op counts, identical
+            # per-optype census, identical LUT hits.  Three things mask it:
+            #   1. _HALO_EXT_Y_OVERRIDES_BY_DEVICE is TRANSCRIBED from the
+            #      capture, so the largest grid consumer never reads this;
+            #   2. everywhere else the grid only feeds values that are compared
+            #      against each other, so a uniformly-wrong grid cancels;
+            #   3. find_closest_largest_divisor_with_num_padding walks down to
+            #      the same divisor from either start.
+            #
+            # Mask (1) LIFTS if anyone ports the halo derivation
+            # (sliding_window.cpp: generate_shard_boundaries ->
+            # generate_max_out_nsticks_per_core), which reads
+            # config.num_cores_nhw directly.  VERIFY THIS GRID AGAINST THE
+            # CAPTURE BEFORE DOING THAT, or the derived table will be wrong in a
+            # way the transcribed one currently hides.
+            #
+            # num_units below is a separate question: it feeds the analytical
+            # cost model only, and total LUT msecs is identical at 110/120/130,
+            # so it does not affect LUT-backed runs.
             compute_grid_size: [12, 10]
             ipgroups:
             -   ipname: tensix
