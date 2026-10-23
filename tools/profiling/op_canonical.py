@@ -49,6 +49,7 @@ PROFILER_PREFIX_RULES: tuple[tuple[str, str], ...] = (
     # (must precede the base NLPCreateQKVHeads/NLPConcatHeads prefixes; first-match-wins).
     ("NLPCreateQKVHeadsDecode", "nlpcreateqkvheadsdecode"),
     ("NLPConcatHeadsDecode", "nlpconcatheadsdecode"),
+    ("NlpCreateHeads", "createqkvheads"),
     ("NLPCreateQKVHeads", "createqkvheads"),
     ("CreateQKVHeadsDeviceOperation", "createqkvheads"),  # Profiler form → canonical
     ("CreateQKVHeads", "createqkvheads"),
@@ -65,6 +66,7 @@ PROFILER_PREFIX_RULES: tuple[tuple[str, str], ...] = (
     ("Sdpa", "scaleddotproductattention"),
     # decode sampling-tail ops — canonical = lowercased shim optype (sim/HW agree).
     ("TopK", "topk"),
+    ("ArgMax", "argmax"),
     ("ManualSeed", "manualseed"),
     ("Sampling", "sampling"),
     ("PlusOne", "plusone"),
@@ -79,6 +81,8 @@ PROFILER_PREFIX_RULES: tuple[tuple[str, str], ...] = (
     ("Permute", "permute"),
     ("Typecast", "typecast"),
     ("Concat", "concat"),
+    # ttnn::copy (llama3 prefill: lm_head logits L1 -> DRAM after the 8-way concat).
+    ("Copy", "copy"),
     ("Split", "split"),
     ("Slice", "slice"),
     ("Embedding", "embedding"),
