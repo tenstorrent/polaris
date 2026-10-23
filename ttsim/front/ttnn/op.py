@@ -634,6 +634,13 @@ def as_pp(args_list, kwargs_dict):
         input_tensor.shape, "ttnn.slice input shape must be set"
     )
     kwargs_dict["output_shape"] = slice_spec_out_shape(in_shape, slice_spec)
+    # Runtime bounds (real ttnn.slice(input_tensor, starts=<tensor>, ends=<tensor>, ...)): the HW
+    # SliceDeviceOperation then takes the two bound tensors as inputs 1-2 (use_tensor_args), so the
+    # capture keys it arity-3. The output shape still comes from `slice`. Plain calls stay arity-1.
+    starts, ends = kwargs_dict.pop("starts", None), kwargs_dict.pop("ends", None)
+    if isinstance(starts, Tensor) and isinstance(ends, Tensor):
+        kwargs_dict["use_tensor_args"] = 1
+        return (input_tensor, starts, ends), kwargs_dict
     return (input_tensor,), kwargs_dict
 
 

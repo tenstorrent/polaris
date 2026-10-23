@@ -92,6 +92,26 @@ def test_shim_emits_single_arity1_slice(device, in_shape, spec):
 
 
 @pytest.mark.unit
+def test_shim_slice_runtime_bounds_is_arity3(device):
+    """starts=/ends= tensors (real ttnn runtime bounds, tt-metal f8c634a prefill tail) become inputs 1-2.
+
+    HW SliceDeviceOperation with use_tensor_args takes the bound tensors as operands (WH n150 prefill
+    capture: Slice inputs [1,1,128,4096] bf16, [1,1,1,4] INT32, [1,1,1,4] INT32). The output shape
+    still comes from the slice spec; a call without bound tensors stays arity-1 (test above).
+    """
+    x = ttnn.zeros([1, 1, 128, 4096], dtype=ttnn.bfloat16, layout=ttnn.TILE_LAYOUT, device=device)
+    starts = ttnn.zeros([4], dtype=ttnn.int32, layout=ttnn.ROW_MAJOR_LAYOUT, device=device)
+    ends = ttnn.zeros([4], dtype=ttnn.int32, layout=ttnn.ROW_MAJOR_LAYOUT, device=device)
+    out = ttnn.slice(x, slice=(slice(None), slice(None), slice(64, 96), slice(None)), starts=starts, ends=ends)
+
+    g = device.get_graph()
+    (op,) = [o for o in g._ops.values() if o.optype == 'Slice']
+    assert [g._tensors[t].name for t in op.inList] == [x.name, starts.name, ends.name]
+    assert op.attrs['use_tensor_args'] == 1
+    assert list(out.shape) == [1, 1, 32, 4096]
+
+
+@pytest.mark.unit
 def test_shim_slice_chunks_are_disjoint_and_cover(device):
     """The decode sampling chunk pattern: n slices tiling the vocab dim, one Slice op each."""
     vocab, n = 128256, 8
